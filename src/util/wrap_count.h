@@ -116,6 +116,16 @@ inline std::string& probe_scratch() {
     return s;
 }
 
+inline std::size_t next_char(const std::string& text, std::size_t at,
+                             std::size_t end) {
+    if (at >= end) return end;
+    ++at;
+    while (at < end &&
+           (static_cast<unsigned char>(text[at]) & 0xC0) == 0x80)
+        ++at;
+    return at;
+}
+
 inline void split_words(const std::string& text, std::size_t begin,
                         std::size_t end,
                         std::vector<std::pair<std::size_t, std::size_t>>& out) {
@@ -215,6 +225,36 @@ inline int wrapped_line_count_fast(const std::string& text, float max_width,
     return lines;
 }
 
+template <class Measure>
+inline void break_long_spans(
+    const std::string& text, float max_width, Measure&& measure,
+    std::vector<std::pair<std::size_t, std::size_t>>& out) {
+    auto& probe = wrapdetail::probe_scratch();
+    std::vector<std::pair<std::size_t, std::size_t>> split;
+    split.reserve(out.size());
+    for (const auto& span : out) {
+        std::size_t b = span.first;
+        const std::size_t e = span.second;
+        while (b < e) {
+            probe.assign(text, b, e - b);
+            if (measure(probe) <= max_width) break;
+            std::size_t fit = b;
+            for (std::size_t at = wrapdetail::next_char(text, b, e); at < e;
+                 at = wrapdetail::next_char(text, at, e)) {
+                probe.assign(text, b, at - b);
+                if (measure(probe) > max_width) break;
+                fit = at;
+            }
+            if (fit == b) fit = wrapdetail::next_char(text, b, e);
+            if (fit >= e) break;
+            split.emplace_back(b, fit);
+            b = fit;
+        }
+        split.emplace_back(b, e);
+    }
+    out.swap(split);
+}
+
 // The same wrap, reported as BYTE RANGES into `text` rather than as strings.
 //
 // Every caller that needs the lines themselves needed them for one reason:
@@ -233,7 +273,8 @@ inline int wrapped_line_count_fast(const std::string& text, float max_width,
 template <class Measure>
 inline void wrapped_line_spans(
     const std::string& text, float max_width, Measure&& measure,
-    std::vector<std::pair<std::size_t, std::size_t>>& out) {
+    std::vector<std::pair<std::size_t, std::size_t>>& out,
+    bool break_long_words = false) {
     out.clear();
     if (text.empty() || max_width <= 0.0f) {
         out.emplace_back(0, text.size());
@@ -274,6 +315,7 @@ inline void wrapped_line_spans(
         if (nl == std::string::npos) break;
         lineStart = nl + 1;
     }
+    if (break_long_words) break_long_spans(text, max_width, measure, out);
 }
 
 inline bool verify_wrap_enabled() {

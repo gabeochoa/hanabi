@@ -258,6 +258,7 @@ MANYTABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","
 SPLIT_EDGE_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}'
 SPLIT_EDGE_DARK_700='{"window_width":700,"window_height":620,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}'
 NARROW_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
+SHORT_DARK='{"window_width":1100,"window_height":300,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}'
 NARROW_MANY='{"window_width":760,"window_height":620,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"],"active_tab":"t5","theme":"dark"}'
 SETTINGS_NARROW='{"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark"}'
 NARROW_SPLIT='{"window_width":760,"window_height":620,"open_tabs":["r8","t2"],"active_tab":"r8","split_open":true,"split_ratio":0.2,"split_panes":["r8","t2"],"theme":"dark","sidebar_collapsed":true}'
@@ -478,6 +479,8 @@ capture 63_ask_unanswerable_backend_dark "$TABS_DARK" \
 capture_sized 62_ask_with_attachment_narrow_dark "760 x 620" "$NARROW_DARK" \
     HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_ASK_DEMO=big \
     HANABI_ATTACH_DEMO="$ROOT/resources/icons/icons.png"
+capture_sized 69_ask_too_short_approval_dark "1100 x 300" "$SHORT_DARK" \
+    HANABI_WIN_W=1100 HANABI_WIN_H=300 HANABI_ASK_DEMO=longapproval
 
 listing && exit 0
 

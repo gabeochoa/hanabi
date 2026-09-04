@@ -1,0 +1,9 @@
+# settings: {"window_width":487,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=approval HANABI_ASK_FAIL='the orchestrator refused that answer because the ledger batch had already settled' HANABI_WIN_W=487 HANABI_WIN_H=620
+
+require_thread t2
+expect_text "The agent needs approval"
+
+click_ui ask_submit
+wait_frames 20
+expect_text "to try again."

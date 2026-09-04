@@ -4518,8 +4518,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static int ask_input_lines(const api::PendingAsk& ask, float textW) {
         if (ask.kind != api::AskKind::Approval || ask.input.empty()) return 0;
-        return hanabi::ask::clamp_input_lines(
-            count_lines(ask_input_text(ask), textW, theme::type::SM));
+        const int lines =
+            count_lines(ask_input_text(ask), textW, theme::type::SM);
+        return lines < 1 ? 1 : lines;
     }
 
     static void ask_wrap_spans(
@@ -4542,9 +4543,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            theme::type::SM)
                     .x;
             },
-            out);
+            out, /*break_long_words=*/true);
         memo.put(text, textW, theme::type::SM, out);
         hanabi::prof::gauge("cache.ask_spans_entries", memo.size());
+    }
+
+    static int ask_note_lines(const std::string& note, float textW) {
+        if (note.empty()) return 1;
+        std::vector<std::pair<std::size_t, std::size_t>> spans;
+        ask_wrap_spans(note, textW, spans);
+        return hanabi::ask::clamp_note_lines(
+            spans.empty() ? 1 : static_cast<int>(spans.size()));
     }
 
     static std::string ask_wrapped_line(
@@ -4628,6 +4637,99 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ask, known == app.askState.answers.end() ? empty : known->second);
     }
 
+    static bool ask_tight_row(const AppComponent& app,
+                              const api::PendingAsk& ask) {
+        const float actionW = ask_action_w(app);
+        const auto fits = [actionW](const char* a, const char* b) {
+            const float pad = 12.0f;
+            return theme::text_px(a, theme::type::SM) + pad <= actionW &&
+                   theme::text_px(b, theme::type::SM) + pad <= actionW;
+        };
+        return ask.kind == api::AskKind::Approval ? !fits("Approve", "Deny")
+                                                  : !fits("Submit", "Decline");
+    }
+
+    static std::string ask_submit_label(const AppComponent& app,
+                                        const api::PendingAsk& ask) {
+        const bool tight = ask_tight_row(app, ask);
+        if (ask.kind == api::AskKind::Approval)
+            return tight ? "OK" : "Approve";
+        return tight ? "Send" : "Submit";
+    }
+
+    static std::string ask_decline_label(const AppComponent& app,
+                                         const api::PendingAsk& ask) {
+        const bool tight = ask_tight_row(app, ask);
+        if (ask.kind == api::AskKind::Approval) return tight ? "No" : "Deny";
+        return tight ? "Skip" : "Decline";
+    }
+
+    static std::string ask_note_text(const AppComponent& app,
+                                     const api::PendingAsk& ask,
+                                     bool tooShort) {
+        const std::string askId = ask.id();
+        if (app.askState.busyId == askId) return "Sending your answer…";
+        if (!ask_can_resolve(app))
+            return "This backend cannot answer an agent's question.";
+        if (ask_expired(app, ask))
+            return "This question timed out — the agent stopped waiting.";
+        if (!app.askState.errorText.empty() && app.askState.errorId == askId)
+            return app.askState.errorText + " — press " +
+                   ask_retry_label(app.askState.errorAction,
+                                   ask_submit_label(app, ask),
+                                   ask_decline_label(app, ask)) +
+                   " to try again.";
+        if (tooShort)
+            return "Too short to show the questions — make the window taller.";
+        const auto known = app.askState.answers.find(askId);
+        const api::AskAnswer none;
+        const api::AskAnswer& answer =
+            known == app.askState.answers.end() ? none : known->second;
+        if (hanabi::ask::submit_blocked(ask, answer))
+            return hanabi::ask::with_file_caveat(
+                ask, hanabi::ask::blocked_reason(ask));
+        return hanabi::ask::with_file_caveat(ask, std::string());
+    }
+
+    static theme::Color ask_note_ink(const AppComponent& app,
+                                     const api::PendingAsk& ask,
+                                     bool tooShort) {
+        if (app.askState.busyId == ask.id()) return theme::text_secondary();
+        if (!ask_can_resolve(app)) return theme::text_secondary();
+        if (ask_expired(app, ask)) return theme::status_blocked();
+        if (!app.askState.errorText.empty() &&
+            app.askState.errorId == ask.id())
+            return theme::status_blocked();
+        if (tooShort) return theme::status_blocked();
+        return theme::text_secondary();
+    }
+
+    static int ask_note_lines_for(const AppComponent& app,
+                                  const api::PendingAsk& ask, bool tooShort) {
+        if (!ask_note_shown(app, ask)) return 1;
+        return ask_note_lines(ask_note_text(app, ask, tooShort),
+                              ask_text_w(app));
+    }
+
+    static bool ask_input_unreadable(const api::PendingAsk& ask, float textW) {
+        if (ask.kind != api::AskKind::Approval || ask.input.empty())
+            return false;
+        const std::string text = ask_input_text(ask);
+        std::vector<std::pair<std::size_t, std::size_t>> spans;
+        ask_wrap_spans(text, textW, spans);
+        float widest = 0.0f;
+        for (const auto& span : spans) {
+            const float w =
+                afterhours::ui::measure_text_line(
+                    text.substr(span.first, span.second - span.first),
+                    afterhours::ui::UIComponent::DEFAULT_FONT, theme::type::SM)
+                    .x;
+            if (w > widest) widest = w;
+        }
+        return hanabi::ask::input_unreadable(ask, widest,
+                                             text_wrap_width(textW));
+    }
+
     static float ask_height_budget(const AppComponent& app) {
         const float contentH = app.lastPaneContentH > 0.0f
                                    ? app.lastPaneContentH
@@ -4643,7 +4745,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          : hanabi::ask::kMinBodyH;
         const api::PendingAsk* ask = open_ask(app);
         const float floor =
-            ask == nullptr ? 0.0f : hanabi::ask::irreducible_h(*ask);
+            ask == nullptr
+                ? 0.0f
+                : hanabi::ask::irreducible_h(
+                      *ask, ask_note_lines_for(app, *ask, false));
         if (budget < floor) budget = floor;
         return budget < 0.0f ? 0.0f : budget;
     }
@@ -4659,7 +4764,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (memoTextW == textW && memoEpoch == epoch && memoId == ask.id())
             return memo;
         const float chrome = hanabi::ask::chrome_h(
-            ask, ask_message_lines(ask, textW), ask_note_shown(app, ask));
+            ask, ask_message_lines(ask, textW), ask_note_shown(app, ask),
+            ask_note_lines_for(app, ask, false));
         const float budget = ask_height_budget(app) - chrome;
         const float narrow = textW - kAskScrollbarW;
         const float natural = hanabi::ask::body_h(
@@ -4671,6 +4777,41 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return memo;
     }
 
+    struct AskLayout {
+        int noteLines = 1;
+        int messageLines = 0;
+        float chromeH = 0.0f;
+        float bodyNaturalH = 0.0f;
+        float bodyH = 0.0f;
+        bool tooShort = false;
+    };
+
+    static AskLayout ask_layout(const AppComponent& app,
+                                const api::PendingAsk& ask) {
+        const float textW = ask_text_w(app);
+        const float bodyTextW = ask_body_text_w(app, ask);
+        const bool showNote = ask_note_shown(app, ask);
+        const float budget = ask_height_budget(app);
+        const int wantedMessageLines = ask_message_lines(ask, textW);
+        AskLayout out;
+        out.bodyNaturalH = hanabi::ask::body_h(
+            ask, ask_input_lines(ask, bodyTextW), ask_metrics(ask, bodyTextW));
+        for (int pass = 0; pass < 3; ++pass) {
+            out.noteLines = ask_note_lines_for(app, ask, out.tooShort);
+            out.messageLines = hanabi::ask::message_lines_for(
+                ask, wantedMessageLines, showNote, out.noteLines, budget);
+            out.chromeH = hanabi::ask::chrome_h(ask, out.messageLines, showNote,
+                                                out.noteLines);
+            out.bodyH = hanabi::ask::body_view_h(out.bodyNaturalH,
+                                                 budget - out.chromeH);
+            const bool next =
+                hanabi::ask::body_too_short(out.bodyH, out.bodyNaturalH);
+            if (next == out.tooShort || pass == 2) break;
+            out.tooShort = next;
+        }
+        return out;
+    }
+
     static float ask_card_h(const AppComponent& app) {
         const api::PendingAsk* ask = open_ask(app);
         if (ask == nullptr) return 0.0f;
@@ -4678,6 +4819,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float bodyW = ask_body_text_w(app, *ask);
         return hanabi::ask::card_h(*ask, ask_message_lines(*ask, textW),
                                    ask_note_shown(app, *ask),
+                                   ask_layout(app, *ask).noteLines,
                                    ask_input_lines(*ask, bodyW),
                                    ask_metrics(*ask, bodyW),
                                    ask_height_budget(app)) +
@@ -4716,6 +4858,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (action == api::AskAction::Accept &&
             hanabi::ask::submit_blocked(ask,
                                         app.askState.answer_for(ask.id())))
+            return;
+        if (action == api::AskAction::Accept &&
+            ask_input_unreadable(ask, ask_body_text_w(app, ask)))
             return;
         app.requestAskSessionId = app.pane().openSession->summary.id;
         app.requestAsk = ask;
@@ -4862,17 +5007,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float cardW = ask_card_w(app);
         const float textW = ask_text_w(app);
         const float bodyTextW = ask_body_text_w(app, ask);
-        const int wantedMessageLines = ask_message_lines(ask, textW);
         const int inputLines = ask_input_lines(ask, bodyTextW);
         const auto& metrics = ask_metrics(ask, bodyTextW);
-        const int messageLines = hanabi::ask::message_lines_for(
-            ask, wantedMessageLines, showNote, ask_height_budget(app));
+        const AskLayout layout = ask_layout(app, ask);
+        const int messageLines = layout.messageLines;
         askRowIds_.clear();
-        const float chromeH = hanabi::ask::chrome_h(ask, messageLines, showNote);
-        const float bodyNaturalH =
-            hanabi::ask::body_h(ask, inputLines, metrics);
-        const float bodyH = hanabi::ask::body_view_h(
-            bodyNaturalH, ask_height_budget(app) - chromeH);
+        const float chromeH = layout.chromeH;
+        const float bodyNaturalH = layout.bodyNaturalH;
+        const float bodyH = layout.bodyH;
         bool clicked = false;
 
         auto card = div(ctx, mk(bar.ent(), 7),
@@ -4916,8 +5058,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            hanabi::ask::kMessageH, theme::text_primary(),
                            "ask_message");
 
-        const bool tooShort =
-            hanabi::ask::body_too_short(bodyH, bodyNaturalH);
+        const bool tooShort = layout.tooShort;
 
         const auto* tabStrip = find_singleton<TabStripComponent>();
         const bool tabMenu = tabStrip != nullptr && tabStrip->menuOpen;
@@ -4963,7 +5104,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                inputLines, bodyTextW, hanabi::ask::kNoteH,
                                theme::text_secondary(), "ask_approval_input",
                                /*selectable=*/true);
-            key += hanabi::ask::kMaxInputLines;
+            key += inputLines;
         } else if (ask.schema_unreadable) {
             div(ctx, mk(content.ent(), key++),
                 ComponentConfig{}
@@ -5183,58 +5324,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
-        const float actionW = ask_action_w(app);
-        const auto fits = [actionW](const char* a, const char* b) {
-            const float pad = 12.0f;
-            return theme::text_px(a, theme::type::SM) + pad <= actionW &&
-                   theme::text_px(b, theme::type::SM) + pad <= actionW;
-        };
-        const bool tightRow = approval ? !fits("Approve", "Deny")
-                                       : !fits("Submit", "Decline");
-        const std::string submitLabel =
-            approval ? (tightRow ? "OK" : "Approve")
-                     : (tightRow ? "Send" : "Submit");
-        const std::string declineLabel =
-            approval ? (tightRow ? "No" : "Deny")
-                     : (tightRow ? "Skip" : "Decline");
+        const bool tightRow = ask_tight_row(app, ask);
+        const std::string submitLabel = ask_submit_label(app, ask);
+        const std::string declineLabel = ask_decline_label(app, ask);
 
         if (showNote) {
-            std::string note;
-            theme::Color ink = theme::text_faint();
-            if (busy) {
-                note = "Sending your answer…";
-                ink = theme::text_secondary();
-            } else if (!answerable) {
-                note = "This backend cannot answer an agent's question.";
-            } else if (ask_expired(app, ask)) {
-                note = "This question timed out — the agent stopped waiting.";
-                ink = theme::status_blocked();
-            } else if (!app.askState.errorText.empty() &&
-                       app.askState.errorId == askId) {
-                note = app.askState.errorText + " — press " +
-                       ask_retry_label(app.askState.errorAction, submitLabel,
-                                       declineLabel) +
-                       " to try again.";
-                ink = theme::status_blocked();
-            } else if (tooShort) {
-                note = "Too short to show the questions — make the window "
-                       "taller.";
-                ink = theme::status_blocked();
-            } else if (blocked) {
-                note = hanabi::ask::with_file_caveat(
-                    ask, hanabi::ask::blocked_reason(ask));
-            } else {
-                note = hanabi::ask::with_file_caveat(ask, std::string());
-            }
+            const std::string note = ask_note_text(app, ask, tooShort);
             if (!note.empty()) {
+                const theme::Color ink = ask_note_ink(app, ask, tooShort);
                 const float noteW = ask_text_w(app);
-                std::vector<std::pair<std::size_t, std::size_t>> lines;
-                ask_wrap_spans(note, noteW, lines);
-                const int wrapped = lines.empty()
-                                        ? 1
-                                        : static_cast<int>(lines.size());
-                const int rows =
-                    std::min(wrapped, hanabi::ask::noteLines(ask));
+                const int rows = layout.noteLines;
                 auto noteBox = div(ctx, mk(card.ent(), 900),
                     ComponentConfig{}
                         .with_size(ComponentSize{
@@ -5261,8 +5360,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("ask_actions"));
 
         const bool expired = ask_expired(app, ask);
+        const bool unreadable = ask_input_unreadable(ask, bodyTextW);
         const bool submitOff = busy || blocked || !answerable || !inputLive ||
-                               expired || tooShort;
+                               expired || tooShort || unreadable;
         auto submit = button(ctx, mk(actions.ent(), 1),
             ComponentConfig{}
                 .with_label(submitOff ? std::string() : submitLabel)

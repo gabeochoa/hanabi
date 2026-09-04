@@ -256,6 +256,131 @@ static void spans_are_the_lines(const char* metricName, M&& m) {
                 checked);
 }
 
+static void the_default_wrap_is_unchanged() {
+    std::vector<std::pair<size_t, size_t>> implicit;
+    std::vector<std::pair<size_t, size_t>> off;
+    int checked = 0;
+    int mismatched = 0;
+    for (const std::string& s : corpus()) {
+        for (float w = 1.0f; w <= 400.0f; w += 1.0f) {
+            const std::vector<std::string> want =
+                afterhours::ui::detail::wrap_text_to_width(s, w, proportional);
+            hanabi::text::wrapped_line_spans(s, w, proportional, implicit);
+            hanabi::text::wrapped_line_spans(s, w, proportional, off, false);
+            ++checked;
+            if (implicit != off) {
+                std::printf("  FAIL: the defaulted parameter is not "
+                            "break_long_words=false at w=%.0f for \"%.40s\"\n",
+                            static_cast<double>(w), s.c_str());
+                ++g_failures;
+            }
+            if (implicit.size() != want.size()) {
+                ++mismatched;
+                continue;
+            }
+            for (size_t i = 0; i < implicit.size(); ++i) {
+                const std::string got = s.substr(
+                    implicit[i].first, implicit[i].second - implicit[i].first);
+                if (got != want[i]) {
+                    ++mismatched;
+                    break;
+                }
+            }
+        }
+    }
+    if (mismatched != 0) {
+        std::printf("  FAIL: the default path drifted from the vendor wrapper "
+                    "in %d of %d wraps\n", mismatched, checked);
+        ++g_failures;
+    }
+    std::printf("  default path: %d wraps byte-for-byte the vendor wrapper's, "
+                "and identical with break_long_words=false\n", checked);
+}
+
+static bool one_code_point(const std::string& line) {
+    return hanabi::text::wrapdetail::next_char(line, 0, line.size()) >=
+           line.size();
+}
+
+static void break_long_words_splits_only_the_overflow() {
+    const std::vector<std::string> cases = {
+        "hi enormouswordthatcannotpossiblyfitinthiscolumn ok",
+        "./scripts/release_batch.sh --ledger=/var/finance/payouts/ledger.csv",
+        std::string(200, 'x') + " tail",
+        "tail " + std::string(200, 'x'),
+        "short",
+        "",
+    };
+    std::vector<std::pair<size_t, size_t>> plain;
+    std::vector<std::pair<size_t, size_t>> broken;
+    int overflowedByDefault = 0;
+    int wrapsThatGainedALine = 0;
+    for (const std::string& s : cases) {
+        for (float w = 14.0f; w <= 300.0f; w += 7.0f) {
+            hanabi::text::wrapped_line_spans(s, w, proportional, plain);
+            hanabi::text::wrapped_line_spans(s, w, proportional, broken, true);
+
+            std::string joinedPlain;
+            std::string joinedBroken;
+            for (const auto& p : plain)
+                joinedPlain += s.substr(p.first, p.second - p.first);
+            for (const auto& p : broken)
+                joinedBroken += s.substr(p.first, p.second - p.first);
+            CHECK(joinedPlain == joinedBroken);
+
+            for (const auto& p : plain)
+                if (proportional(s.substr(p.first, p.second - p.first)) > w)
+                    ++overflowedByDefault;
+            for (const auto& p : broken) {
+                const std::string line = s.substr(p.first, p.second - p.first);
+                if (one_code_point(line)) continue;
+                if (proportional(line) > w) {
+                    std::printf("  FAIL: break_long_words left \"%s\" %.0f "
+                                "wide in a %.0f column\n", line.c_str(),
+                                static_cast<double>(proportional(line)),
+                                static_cast<double>(w));
+                    ++g_failures;
+                }
+            }
+            if (broken.size() > plain.size()) ++wrapsThatGainedALine;
+        }
+    }
+    if (overflowedByDefault == 0) {
+        std::printf("  FAIL: no default span overflows its column any more, so "
+                    "this case is not exercising the fallback\n");
+        ++g_failures;
+    }
+    if (wrapsThatGainedALine == 0) {
+        std::printf("  FAIL: break_long_words never split a span\n");
+        ++g_failures;
+    }
+    std::printf("  break_long_words: %d default spans overflowed, %d wraps "
+                "gained a line, none left over-wide\n", overflowedByDefault,
+                wrapsThatGainedALine);
+}
+
+static void break_long_words_keeps_code_points_whole() {
+    const std::string s = "prefix " + [] {
+        std::string t;
+        for (int i = 0; i < 40; ++i) t += "\u00e9\u2014\u00fc";
+        return t;
+    }();
+    std::vector<std::pair<size_t, size_t>> broken;
+    for (float w = 20.0f; w <= 200.0f; w += 5.0f) {
+        hanabi::text::wrapped_line_spans(s, w, uniform, broken, true);
+        for (const auto& p : broken) {
+            if (p.first >= s.size()) continue;
+            if ((static_cast<unsigned char>(s[p.first]) & 0xC0) == 0x80) {
+                std::printf("  FAIL: a span starts mid code point at w=%.0f\n",
+                            static_cast<double>(w));
+                ++g_failures;
+                break;
+            }
+        }
+    }
+    std::printf("  break_long_words: no span starts inside a code point\n");
+}
+
 int main() {
     std::printf("-- wrapped line count vs afterhours' own wrapper --\n");
     sweep("uniform", uniform, true);
@@ -268,6 +393,9 @@ int main() {
     overlong_word();
     scratch_is_reused();
     non_monotonic_is_documented();
+    the_default_wrap_is_unchanged();
+    break_long_words_splits_only_the_overflow();
+    break_long_words_keeps_code_points_whole();
 
     if (g_failures == 0) {
         std::printf("OK (0 skipped/pending)\n");

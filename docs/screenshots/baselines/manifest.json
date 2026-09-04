@@ -401,6 +401,11 @@
       "threshold_pct": 0.0,
       "resolution": "760x620",
       "note": "The card yields exactly the height a staged attachment takes, so Submit stays on screen when the composer grows under it."
+    },
+    "69_ask_too_short_approval_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "1100x300",
+      "note": "A window too short to show the approval command: the card says so where the command would be and both actions are dimmed. Behaviourally tested already; this pins the threshold in pixels."
     }
   },
   "unbaselined": {}

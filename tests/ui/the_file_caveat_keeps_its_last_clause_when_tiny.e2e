@@ -1,0 +1,8 @@
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_WIN_W=340 HANABI_WIN_H=620
+
+require_thread t2
+expect_text "The agent is as"
+
+assert_ui ask_note hidden=false
+expect_text "left unanswered"

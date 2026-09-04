@@ -22,15 +22,16 @@ ROOT = Path(__file__).resolve().parents[1]
 BASELINES = ROOT / "docs" / "screenshots" / "baselines"
 MIN_RATIO = 4.5
 MAX_DISABLED_RATIO = 6.0
+NOTE_LINE_FLOOR = 0.90
 
 # One row per baseline: the action row's vertical band, and the labels it
 # carries left to right with whether each is disabled. Disabled-vs-enabled is
 # compared WITHIN a row -- same card, same theme, same state -- so a disabled
 # label can never be checked against an unrelated control's enabled one.
 ROWS = [
-    ("55_ask_card_dark.png", 599, 629, 320, 1040,
+    ("55_ask_card_dark.png", 631, 661, 320, 1040,
      [("Submit", True), ("Decline", False)]),
-    ("56_ask_card_light.png", 599, 629, 320, 1040,
+    ("56_ask_card_light.png", 631, 661, 320, 1040,
      [("Submit", True), ("Decline", False)]),
     ("59_ask_approval_dark.png", 631, 661, 320, 1040,
      [("Approve", False), ("Deny", False)]),
@@ -38,12 +39,25 @@ ROWS = [
      [("Approve", False), ("Deny", False)]),
     ("63_ask_unanswerable_backend_dark.png", 631, 661, 320, 1040,
      [("Approve", True), ("Deny", True)]),
-    ("57_ask_card_narrow_dark.png", 459, 489, 250, 740,
+    ("57_ask_card_narrow_dark.png", 491, 521, 250, 740,
      [("Submit", True), ("Decline", False)]),
-    ("65_ask_two_questions_narrow_dark.png", 492, 522, 250, 470,
+    ("65_ask_two_questions_narrow_dark.png", 491, 521, 250, 470,
      [("Submit", True), ("Next", False), ("Decline", False)]),
     ("66_ask_two_questions_tiny_dark.png", 491, 521, 190, 325,
      [("Send", True), ("Next", False), ("Skip", False)]),
+]
+
+NOTE_ROWS = [
+    ("55_ask_card_dark.png", 599, 617, 328, 1052, 1),
+    ("56_ask_card_light.png", 599, 617, 328, 1052, 1),
+    ("57_ask_card_narrow_dark.png", 459, 477, 254, 726, 1),
+    ("58_ask_card_split_dark.png", 581, 617, 314, 654, 2),
+    ("60_ask_full_form_narrow_dark.png", 459, 477, 254, 726, 1),
+    ("62_ask_with_attachment_narrow_dark.png", 399, 417, 254, 726, 1),
+    ("63_ask_unanswerable_backend_dark.png", 599, 617, 328, 1052, 1),
+    ("64_ask_wrapped_options_narrow_dark.png", 423, 477, 254, 453, 3),
+    ("65_ask_two_questions_narrow_dark.png", 423, 477, 254, 453, 3),
+    ("66_ask_two_questions_tiny_dark.png", 387, 477, 204, 306, 5),
 ]
 
 
@@ -133,10 +147,82 @@ def measure(image, box, y0, y1):
     return fill, ink, contrast(ink, fill)
 
 
+def note_fill(image, y0, y1, x0, x_right):
+    return Counter(
+        image.getpixel((x, y))
+        for x in range(x0, min(x_right, image.size[0]))
+        for y in range(y0, min(y1, image.size[1]))).most_common(1)[0][0]
+
+
+def note_lines(image, y0, y1, x0, x_right, card_fill):
+    right = min(x_right, image.size[0])
+    base = luminance(card_fill)
+    rows = []
+    run = None
+    for y in range(y0, min(y1, image.size[1])):
+        peak = None
+        for x in range(x0, right):
+            pixel = image.getpixel((x, y))
+            if sum(abs(pixel[c] - card_fill[c]) for c in range(3)) <= 18:
+                continue
+            if peak is None or abs(luminance(pixel) - base) > abs(
+                    luminance(peak) - base):
+                peak = pixel
+        if peak is None:
+            run = None
+            continue
+        if run is None:
+            run = [y, y, peak]
+            rows.append(run)
+            continue
+        run[1] = y
+        if abs(luminance(peak) - base) > abs(luminance(run[2]) - base):
+            run[2] = peak
+    return [(top, bottom, ink, contrast(ink, card_fill))
+            for top, bottom, ink in rows]
+
+
+def note_self_check():
+    """Erasing a line of the caveat must change the count, not just the ratio."""
+    name, y0, y1, x0, x_right, expected = NOTE_ROWS[-1]
+    image = Image.open(BASELINES / name).convert("RGB").copy()
+    card_fill = note_fill(image, y0, y1, x0, x_right)
+    before = note_lines(image, y0, y1, x0, x_right, card_fill)
+    if len(before) != expected:
+        raise SystemExit(
+            f"ask-contrast note self-check: {name} draws {len(before)} note "
+            f"lines, not the {expected} the table claims")
+    for x in range(x0, min(x_right, image.size[0])):
+        for y in range(y1 - 18, y1):
+            image.putpixel((x, y), card_fill)
+    after = note_lines(image, y0, y1, x0, x_right, card_fill)
+    if len(after) >= len(before):
+        raise SystemExit(
+            "ask-contrast note self-check: erasing the caveat's last line left "
+            f"the measured count at {len(after)}, so a cut sentence would pass")
+
+    dimmed = Image.open(BASELINES / name).convert("RGB").copy()
+    for x in range(x0, min(x_right, dimmed.size[0])):
+        for y in range(y0, y1):
+            pixel = dimmed.getpixel((x, y))
+            if sum(abs(pixel[c] - card_fill[c]) for c in range(3)) <= 18:
+                continue
+            dimmed.putpixel((x, y), tuple(
+                (pixel[c] + card_fill[c]) // 2 for c in range(3)))
+    faint = max((r[3] for r in note_lines(dimmed, y0, y1, x0, x_right,
+                                          card_fill)), default=0.0)
+    if faint >= MIN_RATIO:
+        raise SystemExit(
+            f"ask-contrast note self-check: a note halfway to its own "
+            f"background measured {faint:.2f}:1, which the {MIN_RATIO}:1 floor "
+            "would accept")
+
+
 def self_check():
     """The ceiling must reject a disabled label repainted bright."""
     row = "63_ask_unanswerable_backend_dark.png"
-    y0, y1, x0, card_right = 620, 650, 320, 1040
+    y0, y1, x0, card_right = next(
+        (r[1], r[2], r[3], r[4]) for r in ROWS if r[0] == row)
     image = Image.open(BASELINES / row).convert("RGB").copy()
     card_fill = Counter(
         image.getpixel((x, y0 + 1)) for x in range(x0, image.size[0])
@@ -216,6 +302,34 @@ def main():
                         f"{name}: disabled {label} ({ratio:.2f}) is not dimmer "
                         f"than enabled {other} ({other_ratio:.2f})")
 
+    notes = 0
+    for name, y0, y1, x0, x_right, expected in NOTE_ROWS:
+        path = BASELINES / name
+        if not path.exists():
+            raise SystemExit(f"ask-contrast: missing baseline {name}")
+        image = Image.open(path).convert("RGB")
+        card_fill = note_fill(image, y0, y1, x0, x_right)
+        rows = note_lines(image, y0, y1, x0, x_right, card_fill)
+        notes += len(rows)
+        block = max((r[3] for r in rows), default=0.0)
+        print(f"  {name.split('_')[0]:>3} note      "
+              f"{len(rows)}/{expected} line(s) ink {block:.2f}:1 " +
+              " ".join(f"[{top}..{bottom} {ratio:.2f}:1]"
+                       for top, bottom, _, ratio in rows))
+        if len(rows) != expected:
+            failures.append(
+                f"{name}: the note draws {len(rows)} line(s) where {expected} "
+                "are reserved — a sentence is cut, or a reserved row is blank")
+        if block < MIN_RATIO:
+            failures.append(
+                f"{name} note ink is {block:.2f}:1, below {MIN_RATIO}:1")
+        for top, bottom, _, ratio in rows:
+            if ratio < block * NOTE_LINE_FLOOR:
+                failures.append(
+                    f"{name} note line y {top}..{bottom} is {ratio:.2f}:1 "
+                    f"against the note's own {block:.2f}:1 — it is drawn on a "
+                    "dimmer ink than the rest of the note")
+
     for disabled_row, enabled_row in PAIRED:
         dim = {label for (row, label) in by_control if row == disabled_row}
         lit = {label for (row, label) in by_control if row == enabled_row}
@@ -243,10 +357,11 @@ def main():
         for text in failures:
             print(f"  {text}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"ask-contrast: PASS ({total} labels, all >= {MIN_RATIO}:1, boxes "
-          "derived from each button rect)")
+    print(f"ask-contrast: PASS ({total} labels and {notes} note lines, all >= "
+          f"{MIN_RATIO}:1, boxes derived from each button rect)")
 
 
 if __name__ == "__main__":
     self_check()
+    note_self_check()
     main()

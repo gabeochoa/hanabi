@@ -1,0 +1,9 @@
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
+
+require_thread t2
+expect_text "The agent needs approval  ·  bash"
+
+assert_ui ask_approval_input_1 text=ipts/release_batc
+assert_ui ask_approval_input_2 text=h.sh
+assert_ui ask_submit text=OK

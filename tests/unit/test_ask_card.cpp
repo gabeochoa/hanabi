@@ -170,27 +170,30 @@ static void test_geometry() {
     std::printf("card geometry\n");
     const PendingAsk a = demo_form();
     const auto m = flat_metrics(a);
-    const float unbounded = ask::card_h(a, 1, false, 0, m, 0.0f);
-    const float two = ask::card_h(a, 2, false, 0, m, 0.0f);
+    const float unbounded = ask::card_h(a, 1, false, 3, 0, m, 0.0f);
+    const float two = ask::card_h(a, 2, false, 3, 0, m, 0.0f);
     CHECK(two - unbounded == ask::kMessageH);
-    CHECK(ask::card_h(a, 1, true, 0, m, 0.0f) - unbounded ==
-          ask::kNoteH * static_cast<float>(ask::noteLines(a)));
+    CHECK(ask::card_h(a, 1, true, 3, 0, m, 0.0f) - unbounded ==
+          ask::kNoteH * 3.0f);
+    CHECK(ask::card_h(a, 1, true, 1, 0, m, 0.0f) - unbounded == ask::kNoteH);
     CHECK(unbounded > ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH);
 
-    const float chrome = ask::chrome_h(a, 1, false);
+    const float chrome = ask::chrome_h(a, 1, false, 1);
     for (const float budget : {200.0f, 300.0f, 420.0f, 4000.0f}) {
-        const float h = ask::card_h(a, 1, false, 0, m, budget);
+        const float h = ask::card_h(a, 1, false, 1, 0, m, budget);
         CHECK(h <= (budget > unbounded ? unbounded : budget) + 0.01f);
         CHECK(h >= chrome);
     }
-    const float floorH = ask::chrome_h(a, 0, true);
+    const float floorH = ask::chrome_h(a, 0, true, 3);
     for (const float budget : {40.0f, 80.0f, 120.0f, 200.0f, 395.0f, 431.0f}) {
-        const float h = ask::card_h(a, 2, true, 0, m, budget);
+        const float h = ask::card_h(a, 2, true, 3, 0, m, budget);
         CHECK(h <= (budget > floorH ? budget : floorH) + 0.01f);
     }
-    CHECK(ask::message_lines_for(a, 4, true, 4000.0f) == 4);
-    CHECK(ask::message_lines_for(a, 4, true, 150.0f) <
-          ask::message_lines_for(a, 4, true, 4000.0f));
+    CHECK(ask::message_lines_for(a, 4, true, 1, 4000.0f) == 4);
+    CHECK(ask::message_lines_for(a, 4, true, 1, 150.0f) <
+          ask::message_lines_for(a, 4, true, 1, 4000.0f));
+    CHECK(ask::message_lines_for(a, 4, true, 5, 320.0f) <=
+          ask::message_lines_for(a, 4, true, 1, 320.0f));
 
     PendingAsk huge;
     huge.message = a.message;
@@ -205,21 +208,27 @@ static void test_geometry() {
     }
     const auto hm = flat_metrics(huge);
     CHECK(ask::body_h(huge, 0, hm) > 600.0f);
-    CHECK(ask::card_h(huge, 2, true, 0, hm, 340.0f) <= 340.0f + 0.01f);
+    CHECK(ask::card_h(huge, 2, true, 3, 0, hm, 340.0f) <= 340.0f + 0.01f);
+    CHECK(ask::card_h(huge, 2, true, ask::kMaxNoteLines, 0, hm, 340.0f) <=
+          340.0f + 0.01f);
 
     PendingAsk quiet;
     quiet.kind = AskKind::Approval;
     const std::vector<ask::QuestionMetrics> none;
-    CHECK(ask::card_h(quiet, 0, false, 0, none, 0.0f) ==
+    CHECK(ask::card_h(quiet, 0, false, 1, 0, none, 0.0f) ==
           ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH);
     quiet.input = "{\"command\":\"rm\"}";
-    CHECK(ask::card_h(quiet, 0, false, 1, none, 0.0f) ==
+    CHECK(ask::card_h(quiet, 0, false, 1, 1, none, 0.0f) ==
           ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH + ask::kNoteH);
-    CHECK(ask::card_h(quiet, 0, false, 4, none, 0.0f) -
-              ask::card_h(quiet, 0, false, 1, none, 0.0f) ==
+    CHECK(ask::card_h(quiet, 0, false, 1, 4, none, 0.0f) -
+              ask::card_h(quiet, 0, false, 1, 1, none, 0.0f) ==
           ask::kNoteH * 3.0f);
-    CHECK(ask::clamp_input_lines(99) == ask::kMaxInputLines);
-    CHECK(ask::clamp_input_lines(0) == 1);
+    CHECK(ask::card_h(quiet, 0, false, 1, 40, none, 0.0f) -
+              ask::card_h(quiet, 0, false, 1, 1, none, 0.0f) ==
+          ask::kNoteH * 39.0f);
+    CHECK(ask::clamp_note_lines(99) == ask::kMaxNoteLines);
+    CHECK(ask::clamp_note_lines(0) == 1);
+    CHECK(ask::clamp_note_lines(4) == 4);
 
     CHECK(ask::clamp_message_lines(0) == 1);
     CHECK(ask::clamp_message_lines(9) == ask::kMaxMessageLines);
@@ -230,7 +239,7 @@ static void test_geometry() {
 
     PendingAsk broken;
     broken.schema_unreadable = true;
-    CHECK(ask::card_h(broken, 0, false, 0, none, 0.0f) ==
+    CHECK(ask::card_h(broken, 0, false, 1, 0, none, 0.0f) ==
           ask::kPad * 2.0f + ask::kHeadH + ask::kButtonsH + ask::kNoteH);
 
     const auto& q1 = a.questions[0];
@@ -280,20 +289,22 @@ static void test_budget_pays_the_composer_first() {
     std::printf("budget counts the whole strip\n");
     const PendingAsk a = demo_form();
     const auto m = flat_metrics(a);
-    const float chrome = ask::chrome_h(a, 1, false);
+    const float chrome = ask::chrome_h(a, 1, false, 1);
     const float body = ask::body_h(a, 0, m);
     const float whole = chrome + body;
 
     const float content = 620.0f;
     for (const float composerChrome : {98.0f, 160.0f, 240.0f}) {
         const float budget = content - composerChrome - 120.0f - 8.0f;
-        const float h = ask::card_h(a, 1, false, 0, m, budget);
+        const float h = ask::card_h(a, 1, false, 1, 0, m, budget);
         CHECK(h + composerChrome + 8.0f <= content - 120.0f + 0.01f ||
               h == chrome + ask::kMinBodyH);
         CHECK(h <= whole + 0.01f);
     }
-    const float roomy = ask::card_h(a, 1, false, 0, m, 620.0f - 98.0f - 128.0f);
-    const float tight = ask::card_h(a, 1, false, 0, m, 620.0f - 240.0f - 128.0f);
+    const float roomy =
+        ask::card_h(a, 1, false, 1, 0, m, 620.0f - 98.0f - 128.0f);
+    const float tight =
+        ask::card_h(a, 1, false, 1, 0, m, 620.0f - 240.0f - 128.0f);
     CHECK(tight <= roomy);
 }
 
@@ -317,13 +328,18 @@ static void test_a_reserved_note_costs_exactly_one_note() {
     std::printf("the note costs a note, at a real budget\n");
     const PendingAsk a = demo_form();
     const auto m = flat_metrics(a);
-    CHECK(ask::chrome_h(a, 1, true) - ask::chrome_h(a, 1, false) ==
-          ask::kNoteH * static_cast<float>(ask::noteLines(a)));
-    const float withNote = ask::card_h(a, 1, true, 0, m, 400.0f);
-    const float without = ask::card_h(a, 1, false, 0, m, 400.0f);
+    for (const int rows : {1, 2, 3, 5, ask::kMaxNoteLines})
+        CHECK(ask::chrome_h(a, 1, true, rows) - ask::chrome_h(a, 1, false, rows)
+              == ask::kNoteH * static_cast<float>(rows));
+    CHECK(ask::chrome_h(a, 1, true, ask::kMaxNoteLines + 7) ==
+          ask::chrome_h(a, 1, true, ask::kMaxNoteLines));
+    const float withNote = ask::card_h(a, 1, true, 3, 0, m, 400.0f);
+    const float without = ask::card_h(a, 1, false, 3, 0, m, 400.0f);
     CHECK(withNote <= 400.0f + 0.01f);
     CHECK(without <= 400.0f + 0.01f);
     CHECK(withNote >= without);
+    CHECK(ask::irreducible_h(a, 4) - ask::irreducible_h(a, 1) ==
+          ask::kNoteH * 3.0f);
 }
 
 static void test_who_owns_the_cards_keys() {
@@ -613,34 +629,23 @@ static void test_clicked_answers_are_rescued_too() {
     CHECK(ask::draft_text_of(ask, api::AskAnswer{}).empty());
 }
 
-static float fake_px(const char* text, float px) {
-    return static_cast<float>(std::string(text).size()) * px * 0.55f;
-}
+static void test_an_unreadable_approval_is_not_approvable() {
+    std::printf("an approval line wider than its column is unreadable\n");
+    PendingAsk approval;
+    approval.kind = AskKind::Approval;
+    approval.input = R"({"command":"./release.sh --allow-outside-workspace"})";
+    CHECK(ask::input_unreadable(approval, 301.0f, 300.0f));
+    CHECK(!ask::input_unreadable(approval, 300.0f, 300.0f));
+    CHECK(!ask::input_unreadable(approval, 299.0f, 300.0f));
+    CHECK(!ask::input_unreadable(approval, 900.0f, 0.0f));
 
-static void test_the_caveat_fits_the_lines_reserved_for_it() {
-    std::printf("the file caveat fits the rows the card reserves\n");
-    api::PendingAsk ask;
-    ask.owner_session = "s1";
-    ask.seq = 41;
-    api::AskQuestion q;
-    q.key = "q4";
-    q.control = api::AskControl::File;
-    ask.questions.push_back(q);
-    CHECK(ask.has_file_question());
+    PendingAsk empty;
+    empty.kind = AskKind::Approval;
+    CHECK(!ask::input_unreadable(empty, 900.0f, 300.0f));
 
-    const std::string note =
-        ask::with_file_caveat(ask, ask::blocked_reason(ask));
-    CHECK(note.find("unanswered") != std::string::npos);
-
-    const int reserved = ask::noteLines(ask);
-    for (const float width : {196.0f, 232.0f, 288.0f, 439.0f, 696.0f}) {
-        const int needed =
-            ask::wrapped_line_count(note, width, fake_px, 12.0f);
-        if (needed > reserved)
-            std::printf("  width %.0f needs %d lines, reserved %d\n", width,
-                        needed, reserved);
-        CHECK(needed <= reserved);
-    }
+    PendingAsk form = demo_form();
+    form.input = approval.input;
+    CHECK(!ask::input_unreadable(form, 900.0f, 300.0f));
 }
 
 int main() {
@@ -667,7 +672,7 @@ int main() {
     test_a_dropped_session_cannot_resurrect_an_ask();
     test_rescues_do_not_overwrite_each_other();
     test_clicked_answers_are_rescued_too();
-    test_the_caveat_fits_the_lines_reserved_for_it();
+    test_an_unreadable_approval_is_not_approvable();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

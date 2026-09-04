@@ -28,7 +28,6 @@ inline constexpr float kActionsGap = 4.0f;
 inline constexpr float kButtonsH = 36.0f;
 inline constexpr float kQuestionGap = 6.0f;
 inline constexpr int kMaxMessageLines = 4;
-inline constexpr int kMaxInputLines = 12;
 inline constexpr float kMinBodyH = 90.0f;
 
 struct Cursor {
@@ -318,52 +317,28 @@ inline std::string blocked_reason(const api::PendingAsk& ask) {
     return "Answer to submit";
 }
 
-inline int clamp_input_lines(int measured) {
+inline constexpr int kMaxNoteLines = 8;
+
+inline int clamp_note_lines(int measured) {
     if (measured < 1) return 1;
-    if (measured > kMaxInputLines) return kMaxInputLines;
+    if (measured > kMaxNoteLines) return kMaxNoteLines;
     return measured;
 }
 
-inline int wrapped_line_count(const std::string& text, float width,
-                              float (*measure)(const char*, float),
-                              float fontPx) {
-    if (text.empty() || width <= 0.0f) return 1;
-    int lines = 1;
-    float used = 0.0f;
-    std::string word;
-    const auto flush = [&]() {
-        if (word.empty()) return;
-        const float w = measure(word.c_str(), fontPx);
-        const float space = used > 0.0f ? measure(" ", fontPx) : 0.0f;
-        if (used + space + w > width && used > 0.0f) {
-            ++lines;
-            used = w;
-        } else {
-            used += space + w;
-        }
-        word.clear();
-    };
-    for (const char c : text) {
-        if (c == ' ') {
-            flush();
-            continue;
-        }
-        word += c;
-    }
-    flush();
-    return lines;
-}
-
-inline int noteLines(const api::PendingAsk& ask) {
-    return ask.has_file_question() ? 3 : 1;
+inline bool input_unreadable(const api::PendingAsk& ask, float widestLine,
+                             float column) {
+    if (ask.kind != api::AskKind::Approval) return false;
+    if (ask.input.empty()) return false;
+    if (column <= 0.0f) return false;
+    return widestLine > column;
 }
 
 inline float chrome_h(const api::PendingAsk& ask, int messageLines,
-                      bool showNote) {
+                      bool showNote, int noteLines) {
     float h = kPad * 2.0f + kHeadH + kButtonsH;
     if (!ask.message.empty() && messageLines > 0)
         h += kMessageH * static_cast<float>(clamp_message_lines(messageLines));
-    if (showNote) h += kNoteH * static_cast<float>(noteLines(ask));
+    if (showNote) h += kNoteH * static_cast<float>(clamp_note_lines(noteLines));
     return h;
 }
 
@@ -372,7 +347,8 @@ inline float body_h(const api::PendingAsk& ask, int inputLines,
     if (ask.kind == api::AskKind::Approval)
         return ask.input.empty()
                    ? 0.0f
-                   : kNoteH * static_cast<float>(clamp_input_lines(inputLines));
+                   : kNoteH * static_cast<float>(inputLines < 1 ? 1
+                                                                : inputLines);
     if (ask.schema_unreadable || ask.questions.empty()) return kNoteH;
     float h = 0.0f;
     static const QuestionMetrics kFallback;
@@ -394,10 +370,11 @@ inline float body_view_h(float natural, float budget) {
 }
 
 inline int message_lines_for(const api::PendingAsk& ask, int messageLines,
-                             bool showNote, float budget) {
+                             bool showNote, int noteLines, float budget) {
     if (budget <= 0.0f) return messageLines;
     int lines = messageLines;
-    while (lines > 0 && chrome_h(ask, lines, showNote) + kMinBodyH > budget)
+    while (lines > 0 &&
+           chrome_h(ask, lines, showNote, noteLines) + kMinBodyH > budget)
         --lines;
     return lines;
 }
@@ -417,18 +394,20 @@ inline bool keys_live(const KeyOwnership& own) {
     return own.cardFocused && input_live(own);
 }
 
-inline float irreducible_h(const api::PendingAsk& ask) {
-    return chrome_h(ask, 0, true);
+inline float irreducible_h(const api::PendingAsk& ask, int noteLines) {
+    return chrome_h(ask, 0, true, noteLines);
 }
 
 inline float card_h(const api::PendingAsk& ask, int messageLines,
-                    bool showNote, int inputLines,
+                    bool showNote, int noteLines, int inputLines,
                     const std::vector<QuestionMetrics>& metrics,
                     float budget) {
     const float body = body_h(ask, inputLines, metrics);
-    if (budget <= 0.0f) return chrome_h(ask, messageLines, showNote) + body;
+    if (budget <= 0.0f)
+        return chrome_h(ask, messageLines, showNote, noteLines) + body;
     const float chrome = chrome_h(
-        ask, message_lines_for(ask, messageLines, showNote, budget), showNote);
+        ask, message_lines_for(ask, messageLines, showNote, noteLines, budget),
+        showNote, noteLines);
     return chrome + body_view_h(body, budget - chrome);
 }
 

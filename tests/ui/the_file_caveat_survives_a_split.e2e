@@ -1,0 +1,9 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_WIN_W=1100 HANABI_WIN_H=760
+
+require_thread t2
+expect_text "The agent is asking"
+
+assert_ui ask_note hidden=false
+expect_text "Answer any one of these to submit — the file question will be left"
+expect_text "unanswered"
