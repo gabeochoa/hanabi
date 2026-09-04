@@ -56,10 +56,16 @@ static void check_mode(theme::Mode mode, const char* name) {
     check_direct((std::string(name) + " panel secondary").c_str(),
                  theme::text_secondary(), theme::panel_bg());
     check_direct((std::string(name) + " ask disabled action").c_str(),
-                 theme::ask_action_disabled_ink(), theme::ask_action_fill());
+                 theme::ask_action_disabled_ink(),
+                 theme::ask_action_disabled_fill());
     check_dimmer((std::string(name) + " ask disabled vs enabled").c_str(),
                  theme::ask_action_disabled_ink(),
                  theme::ask_action_enabled_ink(), theme::ask_action_fill());
+    check_dimmer((std::string(name) + " ask disabled ink on its own fill")
+                     .c_str(),
+                 theme::ask_action_disabled_ink(),
+                 theme::ask_action_enabled_ink(),
+                 theme::ask_action_disabled_fill());
     theme::Color dangerTint = theme::destructive();
     dangerTint.a = mode == theme::Mode::Light ? 34 : 16;
     check_direct((std::string(name) + " destructive surface").c_str(),

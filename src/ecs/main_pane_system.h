@@ -4891,6 +4891,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool tooShort =
             hanabi::ask::body_too_short(bodyH, bodyNaturalH);
 
+        const auto* tabStrip = find_singleton<TabStripComponent>();
+        const bool tabMenu = tabStrip != nullptr && tabStrip->menuOpen;
+        const bool keysLive = ecs::ask_keys_live(app, tabMenu);
+        const bool inputLive = ecs::ask_input_live(app, tabMenu);
+
         auto body = div(ctx, mk(card.ent(), 10),
             preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
@@ -5112,7 +5117,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                            std::to_string(oi));
                 }
                 askRowIds_.push_back({&q.key, &option.value, row.ent().id});
-                if (row && !busy) {
+                if (row && !busy && inputLive) {
                     hanabi::ask::toggle(ask, q.key, option.value, &answer);
                     cursor.question = q.key;
                     cursor.option = option.value;
@@ -5148,12 +5153,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
-        const auto* tabStrip = find_singleton<TabStripComponent>();
-        const bool tabMenu = tabStrip != nullptr && tabStrip->menuOpen;
-        const bool keysLive = ecs::ask_keys_live(app, tabMenu);
-        const bool inputLive = ecs::ask_input_live(app, tabMenu);
-        const std::string submitLabel = approval ? "Approve" : "Submit";
-        const std::string declineLabel = approval ? "Deny" : "Decline";
+        const bool tightRow = ask_action_w(app) < kAskActionW;
+        const std::string submitLabel =
+            approval ? (tightRow ? "OK" : "Approve")
+                     : (tightRow ? "Send" : "Submit");
+        const std::string declineLabel =
+            approval ? (tightRow ? "No" : "Deny")
+                     : (tightRow ? "Skip" : "Decline");
 
         if (showNote) {
             std::string note;
@@ -5216,8 +5222,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_disabled(submitOff)
                 .with_size(ComponentSize{pixels(ask_action_w(app)),
                                          pixels(28)})
-                .with_custom_background(submitOff ? theme::Color{0, 0, 0, 0}
-                                                  : theme::accent())
+                .with_custom_background(
+                    submitOff ? theme::ask_action_disabled_fill()
+                              : theme::accent())
                 .with_border(submitOff ? ask_disabled_border()
                                        : theme::accent(),
                              pixels(1.0f))
@@ -5239,7 +5246,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (allAsks != nullptr && allAsks->size() > 1) {
             auto next = button(ctx, mk(actions.ent(), 3),
                 ComponentConfig{}
-                    .with_label("Next")
+                    .with_label(tightRow ? "»" : "Next")
                     .with_size(ComponentSize{pixels(ask_action_w(app)),
                                              pixels(28)})
                     .with_margin(Margin{.left = pixels(kAskActionGap)})
@@ -5269,7 +5276,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(ask_action_w(app)),
                                          pixels(28)})
                 .with_margin(Margin{.left = pixels(kAskActionGap)})
-                .with_transparent_bg()
+                .with_custom_background(
+                    (busy || !answerable || !inputLive || expired)
+                        ? theme::ask_action_disabled_fill()
+                        : theme::Color{0, 0, 0, 0})
                 .with_border((busy || !answerable || !inputLive || expired)
                                  ? ask_disabled_border()
                                  : theme::border(),

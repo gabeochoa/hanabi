@@ -517,8 +517,12 @@ inline bool is_dark() {
 
 inline Color ask_action_fill() { return t.panel_bg_2; }
 
+inline Color ask_action_disabled_fill() {
+    return is_dark() ? t.panel_bg_2 : Color{214, 214, 221, 255};
+}
+
 inline Color ask_action_disabled_ink() {
-    return is_dark() ? Color{150, 150, 162, 255} : Color{105, 105, 115, 255};
+    return is_dark() ? Color{150, 150, 162, 255} : Color{88, 88, 98, 255};
 }
 
 inline Color ask_action_enabled_ink() {

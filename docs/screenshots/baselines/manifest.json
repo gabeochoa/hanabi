@@ -368,6 +368,11 @@
       "threshold_pct": 0.0,
       "note": "A long shell command wrapped across lines rather than ellipsized, because approving what you cannot read is the risk."
     },
+    "66_ask_two_questions_tiny_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "340x620",
+      "note": "The narrowest reachable card with three actions: each button takes a label that fits whole rather than a clipped one, so no word is cut mid-glyph."
+    },
     "65_ask_two_questions_narrow_dark": {
       "threshold_pct": 0.0,
       "resolution": "487x620",
