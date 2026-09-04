@@ -4,9 +4,20 @@ import base64
 import hashlib
 import json
 import threading
+import traceback
 
 _served_lock = threading.Lock()
 _served_threads = []
+_thread_errors = []
+
+
+def _record_thread_error(args):
+    _thread_errors.append(
+        "".join(traceback.format_exception(
+            args.exc_type, args.exc_value, args.exc_traceback)))
+
+
+threading.excepthook = _record_thread_error
 
 
 session_of_sub = {}
@@ -16,6 +27,7 @@ def _dumps(v):
     return json.dumps(v, separators=(",", ":"))
 import socket
 import struct
+import sys
 
 
 def read_exact(conn, count):
@@ -297,9 +309,17 @@ def main():
         if serve_connection(listener) is False:
             break
         served += 1
-        listener.settimeout(5)
+        listener.settimeout(45)
     if served == 0:
         raise SystemExit("no client ever connected")
+    for thread in list(_served_threads):
+        thread.join(timeout=45)
+    if _thread_errors:
+        for text in _thread_errors:
+            print(text, file=sys.stderr)
+        raise SystemExit(
+            f"{len(_thread_errors)} protocol assertion(s) failed on a "
+            "connection thread")
 
 
 if __name__ == "__main__":

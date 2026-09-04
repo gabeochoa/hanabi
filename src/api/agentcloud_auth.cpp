@@ -107,6 +107,7 @@ Token mint_token(const AuthConfig& cfg, std::string* error) {
 }
 
 Token TokenCache::get(std::string* error) {
+    std::lock_guard<std::mutex> lk(mu_);
     // Renew inside a five-minute skew. Expiring mid-request costs a full
     // reconnect, so early is much cheaper than late.
     constexpr int64_t kRenewSkewSecs = 300;
@@ -119,6 +120,9 @@ Token TokenCache::get(std::string* error) {
     return fresh;
 }
 
-void TokenCache::invalidate() { token_ = Token{}; }
+void TokenCache::invalidate() {
+    std::lock_guard<std::mutex> lk(mu_);
+    token_ = Token{};
+}
 
 }  // namespace api::agentcloud

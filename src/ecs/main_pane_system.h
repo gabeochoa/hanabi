@@ -4403,13 +4403,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kComposerReadCol = 768.0f;
     static constexpr float kComposerColInset = 12.0f;
 
-    static theme::Color ask_disabled_ink_predarkened() {
-        const theme::Color c = theme::text_secondary();
-        const auto up = [](unsigned char v) {
-            const int t = static_cast<int>(v) * 2;
-            return static_cast<unsigned char>(t > 255 ? 255 : t);
-        };
-        return theme::Color{up(c.r), up(c.g), up(c.b), c.a};
+    static std::string ask_retry_label(api::AskAction failed,
+                                       const std::string& submitLabel,
+                                       const std::string& declineLabel) {
+        switch (failed) {
+            case api::AskAction::Accept: return submitLabel;
+            case api::AskAction::Decline: return declineLabel;
+            case api::AskAction::Cancel: return "Escape";
+        }
+        return submitLabel;
+    }
+
+    static void ask_set_tab_stop(Entity& e, bool focusable) {
+        const bool skipping = e.has<afterhours::ui::SkipWhenTabbing>();
+        if (focusable && skipping)
+            e.removeComponent<afterhours::ui::SkipWhenTabbing>();
+        else if (!focusable && !skipping)
+            e.addComponent<afterhours::ui::SkipWhenTabbing>();
+    }
+
+    static bool ask_theme_is_dark() {
+        const theme::Color bg = theme::window_bg();
+        return (static_cast<int>(bg.r) + bg.g + bg.b) < 384;
+    }
+
+    static theme::Color ask_disabled_ink() {
+        if (!ask_theme_is_dark()) return theme::Color{46, 46, 51, 255};
+        return theme::Color{150, 150, 158, 255};
+    }
+
+    static theme::Color ask_disabled_fill() {
+        if (!ask_theme_is_dark()) return theme::panel_bg_2();
+        return theme::Color{20, 20, 26, 255};
     }
 
     static float ask_action_w(const AppComponent& app) {
@@ -5115,8 +5140,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             } else if (!app.askState.errorText.empty() &&
                        app.askState.errorId == askId) {
                 note = app.askState.errorText + " — press " +
-                       (app.askState.errorWasDecline ? declineLabel
-                                                     : submitLabel) +
+                       ask_retry_label(app.askState.errorAction, submitLabel,
+                                       declineLabel) +
                        " to try again.";
                 ink = theme::status_blocked();
             } else if (tooShort) {
@@ -5162,18 +5187,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_disabled(submitOff)
                 .with_size(ComponentSize{pixels(ask_action_w(app)),
                                          pixels(28)})
-                .with_custom_background(submitOff ? theme::panel_bg_2()
+                .with_custom_background(submitOff ? ask_disabled_fill()
                                                   : theme::accent())
                 .with_border(submitOff ? theme::border() : theme::accent(),
                              pixels(1.0f))
-                .with_custom_text_color(submitOff
-                                            ? ask_disabled_ink_predarkened()
-                                            : theme::window_bg())
+                .with_custom_text_color(submitOff ? ask_disabled_ink()
+                                                  : theme::window_bg())
                 .with_font_size(theme::type::SM)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_corner_radius(6.0f)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_debug_name("ask_submit"));
+        ask_set_tab_stop(submit.ent(), !submitOff);
+        if (submitOff && submit.ent().has<afterhours::ui::HasLabel>())
+            submit.ent().get<afterhours::ui::HasLabel>().is_disabled = false;
         if (submit && !submitOff && inputLive) {
             clicked = true;
             submit_ask(app, ask, api::AskAction::Accept);
@@ -5187,18 +5214,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(ask_action_w(app)),
                                          pixels(28)})
                 .with_margin(Margin{.left = pixels(kAskActionGap)})
-                .with_transparent_bg()
+                .with_custom_background(
+                    (busy || !answerable || !inputLive || expired)
+                        ? ask_disabled_fill()
+                        : theme::panel_bg())
                 .with_border(theme::border(), pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_custom_text_color(
                     (busy || !answerable || !inputLive || expired)
-                        ? ask_disabled_ink_predarkened()
+                        ? ask_disabled_ink()
                         : theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_corner_radius(6.0f)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_debug_name("ask_decline"));
+        ask_set_tab_stop(decline.ent(),
+                         !(busy || !answerable || !inputLive || expired));
+        if ((busy || !answerable || !inputLive || expired) &&
+            decline.ent().has<afterhours::ui::HasLabel>())
+            decline.ent().get<afterhours::ui::HasLabel>().is_disabled = false;
         if (decline && !busy && answerable && inputLive && !expired) {
             clicked = true;
             submit_ask(app, ask, api::AskAction::Decline);

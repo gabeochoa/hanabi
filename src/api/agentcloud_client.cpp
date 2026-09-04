@@ -1300,29 +1300,42 @@ void AgentcloudClient::resolve_child_questions(
             kids.insert(a.child_session);
     if (kids.empty()) return;
 
+    constexpr std::size_t kMaxProbesAtOnce = 4;
     std::vector<std::string> ids(kids.begin(), kids.end());
-    std::vector<std::future<std::pair<bool, std::vector<PendingAsk>>>> probes;
-    probes.reserve(ids.size());
-    for (const std::string& kid : ids)
-        probes.push_back(std::async(std::launch::async, [this, kid] {
-            std::vector<PendingAsk> live;
-            const bool ok = read_pending_asks(kid, &live);
-            return std::make_pair(ok, live);
-        }));
+    std::vector<std::pair<bool, std::vector<PendingAsk>>> results(ids.size());
+    for (std::size_t base = 0; base < ids.size(); base += kMaxProbesAtOnce) {
+        const std::size_t end =
+            std::min(base + kMaxProbesAtOnce, ids.size());
+        std::vector<std::future<std::pair<bool, std::vector<PendingAsk>>>> run;
+        run.reserve(end - base);
+        for (std::size_t i = base; i < end; ++i) {
+            const std::string kid = ids[i];
+            run.push_back(std::async(std::launch::async, [this, kid] {
+                std::vector<PendingAsk> live;
+                const bool ok = read_pending_asks(kid, &live);
+                return std::make_pair(ok, live);
+            }));
+        }
+        for (std::size_t i = base; i < end; ++i)
+            results[i] = run[i - base].get();
+    }
 
-    for (std::size_t i = 0; i < probes.size(); ++i) {
-        auto got = probes[i].get();
+    for (std::size_t i = 0; i < results.size(); ++i) {
+        auto got = results[i];
         for (PendingAsk& a : asks) {
             if (a.child_session != ids[i]) continue;
             if (!got.first) {
                 a.child_keys_unknown = true;
                 continue;
             }
+            bool matched = false;
             for (const PendingAsk& real : got.second)
                 if (real.seq == a.seq) {
                     a.questions = real.questions;
+                    matched = true;
                     break;
                 }
+            if (!matched) a.child_keys_unknown = true;
         }
     }
 }
@@ -1751,8 +1764,7 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
             for (const PendingAsk& p : live)
                 if (p.id() == ask.id())
                     return fail("no settlement for this question");
-            return Result<std::string>::success(
-                std::string(elicitation::action_word(action)));
+            return fail(elicitation::kAskGoneReason);
         }
         if (str_or(msg, "type", "") == "error")
             return fail(str_or(msg, "message", "the answer was refused"));

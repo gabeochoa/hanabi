@@ -420,6 +420,41 @@ static void test_escape_never_throws_away_typing() {
     CHECK(!ask::has_draft(a, blank));
 }
 
+static void test_only_a_remainder_gets_rebased() {
+    std::printf("an owner ask's clock is not restarted by a refresh\n");
+    ask::State st;
+    api::PendingAsk own;
+    own.owner_session = "s1";
+    own.seq = 41;
+    api::PendingAsk kid;
+    kid.owner_session = "s1";
+    kid.child_session = "kid";
+    kid.seq = 42;
+
+    st.adopt({own, kid}, {});
+    st.seenAt[own.id()] = 1000;
+    st.seenAt[kid.id()] = 1000;
+
+    st.adopt({own, kid}, {own, kid});
+    CHECK(st.seenAt[own.id()] == 1000);
+    CHECK(st.seenAt[kid.id()] != 1000);
+}
+
+static void test_escape_semantics() {
+    std::printf("Escape dismisses, and never over a draft\n");
+    PendingAsk approval;
+    approval.kind = api::AskKind::Approval;
+    approval.owner_session = "s1";
+    approval.seq = 7;
+    api::AskAnswer none;
+    CHECK(!ask::has_draft(approval, none));
+
+    const PendingAsk form = demo_form();
+    api::AskAnswer typed;
+    typed.text["q3"] = "half a sentence";
+    CHECK(ask::has_draft(form, typed));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -433,6 +468,8 @@ int main() {
     test_who_owns_the_cards_keys();
     test_a_draft_survives_a_refresh();
     test_escape_never_throws_away_typing();
+    test_only_a_remainder_gets_rebased();
+    test_escape_semantics();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

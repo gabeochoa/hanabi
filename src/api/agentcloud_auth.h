@@ -27,6 +27,7 @@
 //   HANABI_AC_VALIDITY_SECS   default 10800 (3h)
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 namespace api::agentcloud {
@@ -81,6 +82,7 @@ class TokenCache {
     [[nodiscard]] const AuthConfig& config() const { return cfg_; }
 
    private:
+    mutable std::mutex mu_;
     AuthConfig cfg_;
     Token token_;
 };

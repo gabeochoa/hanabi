@@ -46,7 +46,7 @@ struct State {
     std::string busyId;
     std::string errorId;
     std::string errorText;
-    bool errorWasDecline = false;
+    api::AskAction errorAction = api::AskAction::Accept;
 
     std::map<std::string, int64_t> seenAt;
     std::uint64_t loadSeq = 0;
@@ -70,7 +70,12 @@ struct State {
         for (const auto& a : known)
             if (alive.count(a.id()) == 0) forget(a.id());
         const int64_t now = static_cast<int64_t>(std::time(nullptr));
-        for (const auto& a : live) seenAt.insert_or_assign(a.id(), now);
+        for (const auto& a : live) {
+            if (a.child_session.empty())
+                seenAt.emplace(a.id(), now);
+            else
+                seenAt.insert_or_assign(a.id(), now);
+        }
     }
 
     void forget(const std::string& id) {

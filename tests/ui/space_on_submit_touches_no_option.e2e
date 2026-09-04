@@ -15,8 +15,8 @@ key SPACE
 wait_frames 8
 expect_text "Answer any one of these to submit"
 
-focus_ui ask_submit
-expect_focused ask_submit
+focus_ui ask_decline
+expect_focused ask_decline
 key SPACE
 wait_frames 10
 expect_text "Answer any one of these to submit"

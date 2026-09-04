@@ -1,0 +1,21 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1
+
+require_thread t2
+expect_text "The agent is asking"
+
+click_ui ask_option_q1_0
+wait_frames 8
+expect_focused ask_option_q1_0
+
+key DOWN
+wait_frames 8
+expect_focused ask_option_q1_1
+
+key DOWN
+wait_frames 8
+expect_focused ask_option_q1_2
+
+key UP
+wait_frames 8
+expect_focused ask_option_q1_1
