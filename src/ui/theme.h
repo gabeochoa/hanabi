@@ -522,7 +522,7 @@ inline Color ask_action_disabled_fill() {
 }
 
 inline Color ask_action_disabled_ink() {
-    return is_dark() ? Color{150, 150, 162, 255} : Color{88, 88, 98, 255};
+    return is_dark() ? Color{150, 150, 162, 255} : Color{72, 72, 82, 255};
 }
 
 inline Color ask_action_enabled_ink() {

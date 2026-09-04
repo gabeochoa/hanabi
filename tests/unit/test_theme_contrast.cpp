@@ -35,14 +35,6 @@ static void check_direct(const char* name, theme::Color fg, theme::Color bg) {
     if (ratio < 4.5) ++failures;
 }
 
-static void check_dimmer(const char* name, theme::Color disabled,
-                         theme::Color enabled, theme::Color bg) {
-    const double dis = contrast(disabled, bg);
-    const double en = contrast(enabled, bg);
-    std::printf("%s disabled %.2f:1 < enabled %.2f:1\n", name, dis, en);
-    if (dis >= en) ++failures;
-}
-
 static void check_mode(theme::Mode mode, const char* name) {
     theme::set_mode(mode);
     check_pair((std::string(name) + " blocked").c_str(), theme::tag_blocked_fg(),
@@ -55,17 +47,6 @@ static void check_mode(theme::Mode mode, const char* name) {
                  theme::text_primary(), theme::panel_bg());
     check_direct((std::string(name) + " panel secondary").c_str(),
                  theme::text_secondary(), theme::panel_bg());
-    check_direct((std::string(name) + " ask disabled action").c_str(),
-                 theme::ask_action_disabled_ink(),
-                 theme::ask_action_disabled_fill());
-    check_dimmer((std::string(name) + " ask disabled vs enabled").c_str(),
-                 theme::ask_action_disabled_ink(),
-                 theme::ask_action_enabled_ink(), theme::ask_action_fill());
-    check_dimmer((std::string(name) + " ask disabled ink on its own fill")
-                     .c_str(),
-                 theme::ask_action_disabled_ink(),
-                 theme::ask_action_enabled_ink(),
-                 theme::ask_action_disabled_fill());
     theme::Color dangerTint = theme::destructive();
     dangerTint.a = mode == theme::Mode::Light ? 34 : 16;
     check_direct((std::string(name) + " destructive surface").c_str(),

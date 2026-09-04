@@ -6,7 +6,7 @@ MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-Pinned base: 428047e3c92442e0ded3a0d473315e9636a451ac
+Pinned base: 8d421a6cf787eb83272e4c449c7f646b7e4f4ff8
 
 Register fontstash’s existing error callback when the atlas is created and report FONS_ATLAS_FULL once. This turns silent glyph and advance loss into an actionable error without changing successful rendering.
 ---

@@ -3,65 +3,65 @@ From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
 Date: Thu, 27 Aug 2026 22:14:03 -0400
 Subject: [PATCH] feat(ui): allow focus rings without contrast edges
 
-Pinned base: 428047e3c92442e0ded3a0d473315e9636a451ac
+Pinned base: 8d421a6cf787eb83272e4c449c7f646b7e4f4ff8
 
 Add an independent focus_ring_contrast theme switch. It defaults on for byte-compatible rendering and gates the inner and outer contrast outlines in both immediate and batched renderers.
 ---
- src/plugins/ui/rendering.h | 28 ++++++++++++++++------------
- src/plugins/ui/theme.h     |  1 +
- 2 files changed, 17 insertions(+), 12 deletions(-)
-
 diff --git a/src/plugins/ui/rendering.h b/src/plugins/ui/rendering.h
-index cce4700..f37cea8 100644
+index 6f92782..efab0c3 100644
 --- a/src/plugins/ui/rendering.h
 +++ b/src/plugins/ui/rendering.h
-@@ -1561,12 +1561,14 @@ struct RenderImm : System<UIContext<InputAction>, FontManager> {
+@@ -1610,13 +1610,15 @@ struct RenderImm : System<UIContext<InputAction>, FontManager> {
      // for free by emitting at layer+199/+200.
      if (auto ring = detail::focus_ring_for(context, entity, cmp,
                                             scroll_offset)) {
--      draw_rectangle_rounded_lines(ring->outer_contrast(), ring->roundness,
+-      draw_rectangle_rounded_lines(ring->outer_contrast(),
+-                                   ring->roundness_at(ring->thickness),
 -                                   ring->segments, ring->contrast,
 -                                   ring->corners);
--      draw_rectangle_rounded_lines(ring->inner_contrast(), ring->roundness,
--                                   ring->segments, ring->contrast,
--                                   ring->corners);
+-      draw_rectangle_rounded_lines(ring->inner_contrast(),
+-                                   ring->roundness_at(-1.f), ring->segments,
+-                                   ring->contrast, ring->corners);
 +      if (context.theme.focus_ring_contrast) {
-+        draw_rectangle_rounded_lines(ring->outer_contrast(), ring->roundness,
++        draw_rectangle_rounded_lines(ring->outer_contrast(),
++                                     ring->roundness_at(ring->thickness),
 +                                     ring->segments, ring->contrast,
 +                                     ring->corners);
-+        draw_rectangle_rounded_lines(ring->inner_contrast(), ring->roundness,
-+                                     ring->segments, ring->contrast,
-+                                     ring->corners);
++        draw_rectangle_rounded_lines(ring->inner_contrast(),
++                                     ring->roundness_at(-1.f), ring->segments,
++                                     ring->contrast, ring->corners);
 +      }
        for (float t = 0; t < ring->thickness; t += 1.0f)
-         draw_rectangle_rounded_lines(ring->expanded(t), ring->roundness,
+         draw_rectangle_rounded_lines(ring->expanded(t), ring->roundness_at(t),
                                       ring->segments, ring->color,
-@@ -2027,12 +2029,14 @@ struct RenderBatched : System<UIContext<InputAction>, FontManager> {
+@@ -2087,13 +2089,15 @@ struct RenderBatched : System<UIContext<InputAction>, FontManager> {
      // border no matter what this entity's own layer is.
      if (auto ring = detail::focus_ring_for(context, entity, cmp,
                                             scroll_offset)) {
 -      buffer.add_rounded_rectangle_outline(
--          ring->outer_contrast(), ring->contrast, ring->roundness,
--          ring->segments, ring->corners, layer + 199, entity.id);
+-          ring->outer_contrast(), ring->contrast,
+-          ring->roundness_at(ring->thickness), ring->segments, ring->corners,
+-          layer + 199, entity.id);
 -      buffer.add_rounded_rectangle_outline(
--          ring->inner_contrast(), ring->contrast, ring->roundness,
+-          ring->inner_contrast(), ring->contrast, ring->roundness_at(-1.f),
 -          ring->segments, ring->corners, layer + 199, entity.id);
 +      if (context.theme.focus_ring_contrast) {
 +        buffer.add_rounded_rectangle_outline(
-+            ring->outer_contrast(), ring->contrast, ring->roundness,
-+            ring->segments, ring->corners, layer + 199, entity.id);
++            ring->outer_contrast(), ring->contrast,
++            ring->roundness_at(ring->thickness), ring->segments, ring->corners,
++            layer + 199, entity.id);
 +        buffer.add_rounded_rectangle_outline(
-+            ring->inner_contrast(), ring->contrast, ring->roundness,
++            ring->inner_contrast(), ring->contrast, ring->roundness_at(-1.f),
 +            ring->segments, ring->corners, layer + 199, entity.id);
 +      }
        buffer.add_rounded_rectangle_outline(
            ring->rect, ring->color, ring->roundness, ring->segments,
            ring->corners, layer + 200, entity.id, ring->thickness);
 diff --git a/src/plugins/ui/theme.h b/src/plugins/ui/theme.h
-index 8af31c5..30ee629 100644
+index 839cbec..5e173c4 100644
 --- a/src/plugins/ui/theme.h
 +++ b/src/plugins/ui/theme.h
-@@ -255,6 +255,7 @@ struct Theme {
+@@ -262,6 +262,7 @@ struct Theme {
    bool arrows_tab = true;
    float focus_ring_thickness =
        3.0f; // Thickness of focus ring outline (2-3px for visibility)

@@ -294,10 +294,13 @@ mock-server:
 
 .PHONY: all clean clean-all deps copy-resources output run run-mock bundle app verify-app \
 	register-app unregister-app install-app uninstall-app launch-app mock-server \
-	verify-vendor-patches
+	verify-vendor-patches ask-contrast-gate
 
 verify-vendor-patches:
 	@python3 scripts/verify_vendor_patches.py
+
+ask-contrast-gate:
+	@python3 scripts/ask_contrast_gate.py
 
 # ==============================================================================
 # TESTS  (unit + headless e2e + perf regression gates)
@@ -746,6 +749,8 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) harness-gate
 	@$(MAKE) tab-persistence-gate
 	@$(MAKE) verify-vendor-patches
+	@echo "Running ask-card contrast gate (scripts/ask_contrast_gate.py)..."
+	@python3 scripts/ask_contrast_gate.py
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."

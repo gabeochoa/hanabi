@@ -14,7 +14,7 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
-BASE = "428047e3c92442e0ded3a0d473315e9636a451ac"
+BASE = "8d421a6cf787eb83272e4c449c7f646b7e4f4ff8"
 PIN = "8d421a6cf787eb83272e4c449c7f646b7e4f4ff8"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 PATCHES = {
@@ -49,6 +49,18 @@ def vendor_revision() -> subprocess.CompletedProcess[str]:
     if (VENDOR / ".hg").exists():
         return run(["sl", "log", "-r", ".", "-T", "{node}\\n"], cwd=VENDOR)
     return run(["git", "rev-parse", "HEAD"], cwd=VENDOR)
+
+
+def export_tree(destination: Path, revision: str) -> None:
+    destination.mkdir(parents=True)
+    archive = subprocess.Popen(
+        ["git", "-C", str(VENDOR), "archive", revision], stdout=subprocess.PIPE
+    )
+    assert archive.stdout is not None
+    extracted = subprocess.run(["tar", "-x", "-C", str(destination)], stdin=archive.stdout)
+    archive.stdout.close()
+    if extracted.returncode != 0 or archive.wait() != 0:
+        raise SystemExit(f"could not export vendor tree {revision}")
 
 
 def export_base(destination: Path) -> None:
@@ -103,16 +115,21 @@ def check_contract(binary: Path, kind: str, tree: Path) -> subprocess.CompletedP
     )
 
 
-def verify_patch(temp: Path, base_tree: Path, contract: Path, patch_name: str, kind: str) -> None:
+def verify_patch(temp: Path, base_tree: Path, pin_tree: Path, contract: Path,
+                 patch_name: str, kind: str) -> None:
     patch = ROOT / "vendor_patches" / patch_name
-    if BASE not in patch.read_text():
-        raise SystemExit(f"{patch_name}: pinned base hash missing")
+    if PIN not in patch.read_text():
+        raise SystemExit(f"{patch_name}: not generated against the pin {PIN}")
 
     patched_tree = temp / patch.stem / "afterhours"
-    shutil.copytree(base_tree, patched_tree)
+    shutil.copytree(pin_tree, patched_tree)
     require_ok(run(["git", "init", "-q"], cwd=patched_tree), f"{patch_name}: git init")
-    require_ok(run(["git", "apply", "--check", str(patch)], cwd=patched_tree), f"{patch_name}: apply check")
+    require_ok(
+        run(["git", "apply", "--check", str(patch)], cwd=patched_tree),
+        f"{patch_name}: does not apply to the pinned tree",
+    )
     require_ok(run(["git", "apply", str(patch)], cwd=patched_tree), f"{patch_name}: apply")
+    base_tree = pin_tree
 
     if kind in {"atlas", "sampler"}:
         require_red(check_contract(contract, kind, base_tree), f"{patch_name}: red contract")
@@ -124,7 +141,7 @@ def verify_patch(temp: Path, base_tree: Path, contract: Path, patch_name: str, k
                 temp / f"{kind}-unused",
                 syntax_only=True,
             ),
-            f"{patch_name}: patched Sokol compile",
+            f"{patch_name}: pinned Sokol compile",
         )
     elif kind == "e2e":
         require_red(
@@ -162,7 +179,7 @@ def verify_patch(temp: Path, base_tree: Path, contract: Path, patch_name: str, k
             f"{patch_name}: green probe",
         )
 
-    print(f"PASS {patch_name}: red before, green after")
+    print(f"PASS {patch_name}: red before, green after -- at the pin")
 
 
 def main() -> int:
@@ -176,15 +193,18 @@ def main() -> int:
         temp = Path(raw_temp)
         base_tree = temp / "base" / "afterhours"
         export_base(base_tree)
+        pin_tree = temp / "pin" / "afterhours"
+        export_tree(pin_tree, PIN)
         contract = temp / "source-contract-probe"
         require_ok(
             run(CXX + ["-std=c++23", "-O0", "-w", str(PROBES / "source_contract_probe.cpp"), "-o", str(contract)]),
             "compile source contract probe",
         )
         for patch_name, kind in PATCHES.items():
-            verify_patch(temp, base_tree, contract, patch_name, kind)
+            verify_patch(temp, base_tree, pin_tree, contract, patch_name, kind)
 
-    print(f"PASS all {len(PATCHES)} vendor patches against {BASE}")
+    print(f"PASS all {len(PATCHES)} vendor patches against the pinned "
+          f"tree {PIN}")
     return 0
 
 
