@@ -415,7 +415,7 @@ inline bool answer_has_content(const PendingAsk& ask,
 inline constexpr std::size_t kContentCapBytes = 262144;
 
 inline constexpr const char* kAskGoneReason =
-    "this question was already answered somewhere else";
+    "this question is no longer pending";
 
 inline constexpr std::size_t kApprovalInputCap = 4000;
 

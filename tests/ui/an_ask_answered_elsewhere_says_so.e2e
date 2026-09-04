@@ -6,6 +6,6 @@ expect_text "The agent needs approval"
 
 click_ui ask_decline
 wait_frames 30
-expect_text "this question was already answered somewhere else"
+expect_text "this question is no longer pending"
 expect_no_text "The agent needs approval"
 expect_no_text "decline — press Deny to try again."

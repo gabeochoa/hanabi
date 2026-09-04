@@ -27,8 +27,9 @@ using json = nlohmann::json;
 constexpr int kReplyTimeoutSecs = 30;
 constexpr int kForkTimeoutSecs = 60;
 
-constexpr int kOwnSettleTimeoutSecs = 8;
-constexpr int kChildSettleTimeoutSecs = 30;
+constexpr int kProbeHelloTimeoutSecs = 8;
+constexpr int kOwnSettleTimeoutSecs = 30;
+constexpr int kChildSettleTimeoutSecs = 45;
 
 // A turn is bounded by SILENCE, not by total time: tool rounds and model calls
 // legitimately take minutes, but a socket that has said nothing for this long
@@ -1284,7 +1285,7 @@ bool AgentcloudClient::read_pending_asks(const std::string& id,
     const std::string wire = env.dump();
     if (!ws_send_text(conn, wire.data(), wire.size())) return false;
 
-    const json hello = q.wait_for_type("hello", kOwnSettleTimeoutSecs);
+    const json hello = q.wait_for_type("hello", kProbeHelloTimeoutSecs);
     if (hello.is_discarded()) return false;
     if (str_or(hello, "type", "") != "hello") return false;
     if (out != nullptr)

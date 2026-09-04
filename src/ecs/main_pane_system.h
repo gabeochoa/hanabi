@@ -2489,9 +2489,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // The left pane's width in pixels, from the persisted ratio, clamped so a
     // drag can never reduce either side to nothing.
+    static bool split_fits(float usable) {
+        return usable >= kMinimumPaneW * 2.0f;
+    }
+
     static float clamped_split_left(float desired, float usable) {
         if (usable <= 0.0f) return 0.0f;
-        if (usable < kMinimumPaneW * 2.0f) return std::round(usable * 0.5f);
+        if (!split_fits(usable)) return usable;
         return std::round(std::clamp(desired, kMinimumPaneW,
                                      usable - kMinimumPaneW));
     }
@@ -4450,6 +4454,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             c.a};
     }
 
+    static void draw_ask_action_label(RectangleType r, const std::string& text,
+                                      theme::Color ink) {
+        const float px = theme::type::SM;
+        const float w = theme::text_px(text.c_str(), px);
+        const float x = r.x + (r.width - w) * 0.5f;
+        const float y = r.y + (r.height - px) * 0.5f;
+        afterhours::draw_text(text.c_str(), x, y, px, ink);
+    }
+
     static theme::Color ask_disabled_ink() {
         return theme::ask_action_disabled_ink();
     }
@@ -4708,15 +4721,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!body.has<afterhours::ui::HasScrollView>()) return;
         auto& sv = body.get<afterhours::ui::HasScrollView>();
         const auto& bodyBox = body.get<afterhours::ui::UIComponent>();
-        for (auto childId : bodyBox.children) {
+        std::vector<afterhours::EntityID> pending(bodyBox.children.begin(),
+                                                  bodyBox.children.end());
+        while (!pending.empty()) {
+            const auto childId = pending.back();
+            pending.pop_back();
             auto opt = afterhours::ui::UICollectionHolder::getEntityForID(childId);
             if (!opt.valid() || !opt->has<afterhours::ui::UIComponent>())
                 continue;
-            if (!opt->has<afterhours::ui::UIComponentDebug>()) continue;
-            if (opt->get<afterhours::ui::UIComponentDebug>().name_value !=
-                rowName)
+            const auto& box = opt->get<afterhours::ui::UIComponent>();
+            if (!opt->has<afterhours::ui::UIComponentDebug>() ||
+                opt->get<afterhours::ui::UIComponentDebug>().name_value !=
+                    rowName) {
+                pending.insert(pending.end(), box.children.begin(),
+                               box.children.end());
                 continue;
-            const auto row = opt->get<afterhours::ui::UIComponent>().rect();
+            }
+            const auto row = box.rect();
             const auto view = bodyBox.rect();
             const float top = row.y - view.y + sv.scroll_offset.y;
             const float bottom = top + row.height;
@@ -5218,8 +5239,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             busy || blocked || !answerable || !inputLive || expired;
         auto submit = button(ctx, mk(actions.ent(), 1),
             ComponentConfig{}
-                .with_label(submitLabel)
+                .with_label(submitOff ? std::string() : submitLabel)
                 .with_disabled(submitOff)
+                .with_on_draw_fg([submitOff, submitLabel](RectangleType r) {
+                    if (submitOff)
+                        draw_ask_action_label(r, submitLabel,
+                                              ask_disabled_ink());
+                })
                 .with_size(ComponentSize{pixels(ask_action_w(app)),
                                          pixels(28)})
                 .with_custom_background(
@@ -5270,9 +5296,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         auto decline = button(ctx, mk(actions.ent(), 2),
             ComponentConfig{}
-                .with_label(declineLabel)
+                .with_label((busy || !answerable || !inputLive || expired)
+                                ? std::string()
+                                : declineLabel)
                 .with_disabled(busy || !answerable || !inputLive ||
                                expired)
+                .with_on_draw_fg([off = (busy || !answerable || !inputLive ||
+                                         expired),
+                                  declineLabel](RectangleType r) {
+                    if (off)
+                        draw_ask_action_label(r, declineLabel,
+                                              ask_disabled_ink());
+                })
                 .with_size(ComponentSize{pixels(ask_action_w(app)),
                                          pixels(28)})
                 .with_margin(Margin{.left = pixels(kAskActionGap)})
@@ -5302,8 +5337,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         app.askFocused = clicked || ctx.focus_in_subtree(card.ent().id);
-        const bool actionFocused =
-            ctx.has_focus(submit.ent().id) || ctx.has_focus(decline.ent().id);
+        const bool actionFocused = ctx.focus_in_subtree(actions.ent().id);
         bool widgetOwnsEnter = actionFocused;
         auto& cur = app.askState.cursor_for(ask.id());
         if (keysLive) {

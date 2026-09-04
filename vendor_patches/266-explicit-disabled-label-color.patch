@@ -1,0 +1,137 @@
+From b9917e516684374b86a11311faaca33b94714e49 Mon Sep 17 00:00:00 2001
+From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
+Date: Thu, 03 Sep 2026 22:24:00 -0400
+Subject: [PATCH] fix(ui): an explicit label colour is the caller's, disabled or not
+
+Pinned base: fc4d6253b5b77ead77ad79f589fbd1ee0662aade
+
+resolve_label_color halved an explicitly supplied text colour when the widget
+was disabled. That is a light-theme rule with no theme-aware floor: on a dark
+surface it drives the ink toward the fill and a disabled label lands at ~1.5:1.
+There was no way to opt out either, because the only escape was clearing
+HasLabel::is_disabled -- the same field that gates the hit test and click
+activation, so the only route to a readable label was making a dead control
+clickable.
+
+Hanabi does not depend on this patch: its ask card draws its own disabled
+labels precisely so the pin can stay on a merged commit. The patch is carried
+here, proven red-before/green-after against the pin, for the maintainer.
+---
+diff --git a/src/plugins/ui/rendering.h b/src/plugins/ui/rendering.h
+index 7e66af3..6f92782 100644
+--- a/src/plugins/ui/rendering.h
++++ b/src/plugins/ui/rendering.h
+@@ -582,11 +582,13 @@ draw_text_at_position(const ui::FontManager &fm, const std::string &text,
+ // Explicit override, else auto-contrast, else theme font; disabled in each.
+ // Shared by RenderImm and RenderBatched, which had identical copies.
+ // Disabled text darkens by 0.5 while disabled backgrounds use
+-// Theme::disabled_variant -- kept as-is, see todo.md D14b.
++// Theme::disabled_variant -- kept as-is, see todo.md D14b. An EXPLICIT text
++// colour is exempt: it is the caller's decision, and halving it has no
++// theme-aware floor (a dark-theme label lands at ~1.5:1). The caller that
++// wants the muted look asks for the muted colour.
+ inline Color resolve_label_color(const HasLabel &hasLabel, const Theme &theme) {
+   if (hasLabel.explicit_text_color.has_value()) {
+-    const Color c = hasLabel.explicit_text_color.value();
+-    return hasLabel.is_disabled ? colors::darken(c, 0.5f) : c;
++    return hasLabel.explicit_text_color.value();
+   }
+   if (hasLabel.background_hint.has_value()) {
+     const Color c = colors::auto_text_color(hasLabel.background_hint.value(),
+diff --git a/tests/downstream_gaps_test.cpp b/tests/downstream_gaps_test.cpp
+index 1fa1efa..aec07cc 100644
+--- a/tests/downstream_gaps_test.cpp
++++ b/tests/downstream_gaps_test.cpp
+@@ -502,12 +502,42 @@ TEST(d14_disabled_theme_background_still_dims) {
+   }
+ }
+ 
+-// Disabled TEXT uses colors::darken(col, 0.5f) -- a different transform from
+-// the background's mix+alpha+desaturate. That inconsistency is deliberate for
+-// now (unifying it would change how every existing app's disabled text looks),
+-// so pin today's behaviour: the four duplicated copies of this logic get
+-// collapsed into one helper, and this proves that was behaviour-preserving.
+-TEST(d14_disabled_text_keeps_its_own_darken_transform) {
++TEST(d14_theme_derived_disabled_text_still_dims) {
++  ImmTestHarness h;
++  div(h.context(), mk(h.root(), 0),
++      ComponentConfig{}
++          .with_size(ComponentSize{pixels(200), pixels(40)})
++          .with_label("disabled")
++          .with_disabled(true));
++  h.render();
++
++  auto texts = h.drawn("text");
++  ui_test::check(!texts.empty(), "disabled label was drawn", __FILE__,
++                 __LINE__);
++  if (texts.empty())
++    return;
++  const Color disabled_ink = texts[0].color;
++
++  ImmTestHarness h2;
++  div(h2.context(), mk(h2.root(), 0),
++      ComponentConfig{}
++          .with_size(ComponentSize{pixels(200), pixels(40)})
++          .with_label("enabled"));
++  h2.render();
++  auto enabled_texts = h2.drawn("text");
++  ui_test::check(!enabled_texts.empty(), "enabled label was drawn", __FILE__,
++                 __LINE__);
++  if (enabled_texts.empty())
++    return;
++  ui_test::check(!same_color(disabled_ink, enabled_texts[0].color),
++                 "a theme-derived disabled label still dims", __FILE__,
++                 __LINE__);
++  ui_test::check(
++      same_color(disabled_ink, colors::darken(enabled_texts[0].color, 0.5f)),
++      "and it dims by the engine's own transform", __FILE__, __LINE__);
++}
++
++TEST(d14_explicit_disabled_text_color_is_preserved) {
+   ImmTestHarness h;
+   const Color text_color{240, 240, 240, 255};
+   div(h.context(), mk(h.root(), 0),
+@@ -521,9 +551,37 @@ TEST(d14_disabled_text_keeps_its_own_darken_transform) {
+   auto texts = h.drawn("text");
+   ui_test::check(!texts.empty(), "disabled label was drawn", __FILE__,
+                  __LINE__);
+-  if (!texts.empty())
+-    ui_test::check(same_color(texts[0].color, colors::darken(text_color, 0.5f)),
+-                   "disabled text is darkened by 0.5", __FILE__, __LINE__);
++  if (texts.empty())
++    return;
++  ui_test::check(same_color(texts[0].color, text_color),
++                 "an explicit disabled text colour is drawn as given",
++                 __FILE__, __LINE__);
++  ui_test::check(!same_color(texts[0].color, colors::darken(text_color, 0.5f)),
++                 "an explicit disabled text colour is not halved", __FILE__,
++                 __LINE__);
++}
++
++TEST(d14_disabled_stays_disabled_for_input) {
++  ImmTestHarness h;
++  auto result = button(h.context(), mk(h.root(), 0),
++                       ComponentConfig{}
++                           .with_size(ComponentSize{pixels(200), pixels(40)})
++                           .with_label("disabled")
++                           .with_custom_text_color(Color{240, 240, 240, 255})
++                           .with_disabled(true));
++  h.render();
++
++  const Entity &e = result.ent();
++  ui_test::check(e.has<HasLabel>(), "the button has a label", __FILE__,
++                 __LINE__);
++  if (!e.has<HasLabel>())
++    return;
++  ui_test::check(e.get<HasLabel>().is_disabled,
++                 "an explicit text colour does not clear is_disabled",
++                 __FILE__, __LINE__);
++  ui_test::check(!static_cast<bool>(result),
++                 "a disabled button does not report activation", __FILE__,
++                 __LINE__);
+ }
+ 
+ // ===========================================================================
+-- 
+2.50.1
+

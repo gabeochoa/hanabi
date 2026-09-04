@@ -14,14 +14,15 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
-BASE = "8d421a6cf787eb83272e4c449c7f646b7e4f4ff8"
-PIN = "8d421a6cf787eb83272e4c449c7f646b7e4f4ff8"
+BASE = "fc4d6253b5b77ead77ad79f589fbd1ee0662aade"
+PIN = "fc4d6253b5b77ead77ad79f589fbd1ee0662aade"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 PATCHES = {
     "351-report-font-atlas-exhaustion.patch": "atlas",
     "210-reject-unsamplable-textures.patch": "sampler",
     "265-focus-ring-contrast-toggle.patch": "focus",
     "255-word-editing-capability.patch": "word",
+    "266-explicit-disabled-label-color.patch": "label",
 }
 
 
@@ -159,6 +160,17 @@ def verify_patch(temp: Path, base_tree: Path, pin_tree: Path, contract: Path,
         )
         require_ok(
             compile_and_run(patched_tree, "focus_ring_contrast_probe.cpp", temp / "focus-after"),
+            f"{patch_name}: green probe",
+        )
+    elif kind == "label":
+        require_red(
+            compile_and_run(base_tree, "disabled_label_color_probe.cpp",
+                            temp / "label-before"),
+            f"{patch_name}: red probe",
+        )
+        require_ok(
+            compile_and_run(patched_tree, "disabled_label_color_probe.cpp",
+                            temp / "label-after"),
             f"{patch_name}: green probe",
         )
     elif kind == "word":

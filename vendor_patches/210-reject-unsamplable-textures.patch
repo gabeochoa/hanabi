@@ -3,7 +3,7 @@ From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
 Date: Thu, 27 Aug 2026 22:12:40 -0400
 Subject: [PATCH] fix(sokol): reject textures without a sampler
 
-Pinned base: 8d421a6cf787eb83272e4c449c7f646b7e4f4ff8
+Pinned base: fc4d6253b5b77ead77ad79f589fbd1ee0662aade
 
 Validate sampler creation like image and view creation. On sampler-pool exhaustion, destroy the partial GPU resources and return an empty TextureType instead of a valid-looking texture that cannot be sampled.
 ---
