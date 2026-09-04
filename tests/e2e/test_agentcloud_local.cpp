@@ -38,6 +38,54 @@ void sentinel_text(void* user, const char*, size_t) {
 
 void sentinel_close(void*, const char*) {}
 
+struct CountReply {
+    std::atomic<bool> got{false};
+    std::atomic<int> count{-1};
+};
+
+void count_text(void* user, const char* text, size_t len) {
+    auto* r = static_cast<CountReply*>(user);
+    const auto env =
+        nlohmann::json::parse(std::string(text, len), nullptr, false);
+    if (env.is_discarded() || !env.is_object()) return;
+    const auto msg = env.value("msg", nlohmann::json::object());
+    if (!msg.is_object() || msg.value("type", std::string()) != "probe_count")
+        return;
+    r->count.store(msg.value("count", -1));
+    r->got.store(true);
+}
+
+// How many times the harness has been attached to for `session`. A child probe
+// is one attach on its own connection, so this is the only honest answer to
+// "did the client probe the child this time" -- childProbeFailed_ says what the
+// client believes, not what it put on the wire.
+int probe_count(const std::string& host, const std::string& session) {
+    CountReply reply;
+    const std::string url = "ws://" + host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = "";
+    wc.proxy_port = 0;
+    wc.on_text = count_text;
+    wc.on_close = sentinel_close;
+    wc.user = &reply;
+    ws_conn* conn = ws_open(&wc);
+    if (conn == nullptr) return -1;
+    const std::string wire =
+        nlohmann::json{{"sub", 0},
+                       {"payload", {{"cmd", "probe_count"},
+                                    {"session", session}}}}
+            .dump();
+    if (!ws_send_text(conn, wire.data(), wire.size())) {
+        ws_close(conn);
+        return -1;
+    }
+    for (int i = 0; i < 400 && !reply.got.load(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    ws_close(conn);
+    return reply.got.load() ? reply.count.load() : -1;
+}
+
 int close_waits_for_a_running_callback(const std::string& host,
                                        int parkMs, bool expectWait) {
     auto ownedHolder = std::make_shared<Sentinel>();
@@ -126,6 +174,7 @@ int main() {
     api::agentcloud::Token token;
     token.value = "local-test-token";
     token.expires_at = static_cast<int64_t>(std::time(nullptr)) + 3600;
+    const std::string host = cfg.host;
     api::AgentcloudClient client(std::move(cfg), std::move(token));
 
     const auto fork = client.fork_with_prompt("source-local", "why local?",
@@ -380,6 +429,37 @@ int main() {
         }
     }
 
+    // A failed probe must go quiet for a while, then be retried. It used to be
+    // remembered forever: one unreachable moment and the client never asked
+    // that child again for the rest of its life, so a transient blip left the
+    // ask permanently unanswerable in-app. The retry window is real time and
+    // the client's own record of it is private, so the second half of this
+    // waits the window out; it runs last so the rest of the suite pays most of
+    // it.
+    const auto firstProbeAt = std::chrono::steady_clock::now();
+    const int probesAtFirst = probe_count(host, "ghost-local");
+    {
+        if (probesAtFirst < 1) {
+            std::fprintf(stderr,
+                         "the harness never saw the first child probe (%d)\n",
+                         probesAtFirst);
+            return 1;
+        }
+        const auto again = client.get_session("turn-orphan", 1);
+        if (!again.ok) {
+            std::fprintf(stderr, "orphan re-attach failed: %s\n",
+                         again.error.c_str());
+            return 1;
+        }
+        const int afterSecond = probe_count(host, "ghost-local");
+        if (afterSecond != probesAtFirst) {
+            std::fprintf(stderr,
+                         "a failed probe was retried immediately: %d -> %d\n",
+                         probesAtFirst, afterSecond);
+            return 1;
+        }
+    }
+
     {
         api::agentcloud::LiveTurn install;
         api::StreamSink sink;
@@ -447,6 +527,38 @@ int main() {
                          after_asks.size());
             for (const auto& a : after_asks)
                 std::fprintf(stderr, "  still: %s\n", a.id().c_str());
+            return 1;
+        }
+    }
+
+    {
+        constexpr auto kWindow = std::chrono::seconds(31);
+        // The harness closes itself after a few idle seconds, so the wait is
+        // spent talking to it. Each ping is also an invariant: nothing but a
+        // real re-attach may move the count.
+        while (std::chrono::steady_clock::now() - firstProbeAt < kWindow) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            const int idle = probe_count(host, "ghost-local");
+            if (idle != probesAtFirst) {
+                std::fprintf(stderr,
+                             "the probe count moved with nobody probing: "
+                             "%d -> %d\n",
+                             probesAtFirst, idle);
+                return 1;
+            }
+        }
+        const auto retried = client.get_session("turn-orphan", 1);
+        if (!retried.ok) {
+            std::fprintf(stderr, "orphan retry attach failed: %s\n",
+                         retried.error.c_str());
+            return 1;
+        }
+        const int afterExpiry = probe_count(host, "ghost-local");
+        if (afterExpiry <= probesAtFirst) {
+            std::fprintf(stderr,
+                         "a failed probe latched past its retry window: "
+                         "%d -> %d\n",
+                         probesAtFirst, afterExpiry);
             return 1;
         }
     }

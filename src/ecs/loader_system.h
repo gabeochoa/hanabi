@@ -152,7 +152,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             keep_newer_asks(
                 app, id,
                 keep_busy_ask(app, id,
-                              api::elicitation::asks_from_state(state, id)),
+                              keep_probed_child_questions(
+                                  app, id,
+                                  api::elicitation::asks_from_state(state,
+                                                                    id))),
                 stamp));
     }
 
@@ -192,6 +195,23 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (const auto* known = app.asks_for(id))
             for (const auto& a : *known)
                 if (a.id() == busy) fresh.push_back(a);
+        return fresh;
+    }
+
+    static std::vector<api::PendingAsk> keep_probed_child_questions(
+        const AppComponent& app, const std::string& id,
+        std::vector<api::PendingAsk> fresh) {
+        const auto* known = app.asks_for(id);
+        if (known == nullptr) return fresh;
+        for (api::PendingAsk& f : fresh) {
+            if (f.child_session.empty()) continue;
+            for (const auto& a : *known)
+                if (a.id() == f.id() && !a.child_keys_unknown &&
+                    a.answerable_questions() > 0) {
+                    f.questions = a.questions;
+                    break;
+                }
+        }
         return fresh;
     }
 

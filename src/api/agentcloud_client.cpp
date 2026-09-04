@@ -28,6 +28,7 @@ constexpr int kReplyTimeoutSecs = 30;
 constexpr int kForkTimeoutSecs = 60;
 
 constexpr int kProbeHelloTimeoutSecs = 8;
+constexpr int kChildProbeRetrySecs = 30;
 constexpr int kOwnSettleTimeoutSecs = 30;
 constexpr int kChildSettleTimeoutSecs = 45;
 
@@ -1307,8 +1308,8 @@ void AgentcloudClient::forget_child_questions(
         it = keep.count(it->first) == 0 ? childQuestions_.erase(it)
                                         : std::next(it);
     for (auto it = childProbeFailed_.begin(); it != childProbeFailed_.end();)
-        it = kids.count(*it) == 0 ? childProbeFailed_.erase(it)
-                                  : std::next(it);
+        it = kids.count(it->first) == 0 ? childProbeFailed_.erase(it)
+                                        : std::next(it);
 }
 
 void AgentcloudClient::resolve_child_questions(
@@ -1324,9 +1325,14 @@ void AgentcloudClient::resolve_child_questions(
                 a.questions = hit->second;
                 continue;
             }
-            if (childProbeFailed_.count(a.child_session) != 0) {
-                a.child_keys_unknown = true;
-                continue;
+            const auto failed = childProbeFailed_.find(a.child_session);
+            if (failed != childProbeFailed_.end()) {
+                if (std::chrono::steady_clock::now() - failed->second <
+                    std::chrono::seconds(kChildProbeRetrySecs)) {
+                    a.child_keys_unknown = true;
+                    continue;
+                }
+                childProbeFailed_.erase(failed);
             }
             kids.insert(a.child_session);
         }
@@ -1360,7 +1366,8 @@ void AgentcloudClient::resolve_child_questions(
             if (!got.first) {
                 a.child_keys_unknown = true;
                 std::lock_guard<std::mutex> lk(childQuestionsMu_);
-                childProbeFailed_.insert(a.child_session);
+                childProbeFailed_[a.child_session] =
+                    std::chrono::steady_clock::now();
                 continue;
             }
             bool matched = false;

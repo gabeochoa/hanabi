@@ -35,6 +35,13 @@ threading.excepthook = _record_thread_error
 
 session_of_sub = {}
 
+# How many times each session has been ATTACHED to. A child probe is one
+# attach on its own connection, so this is the only place a test can see
+# whether the client probed a child at all -- the client's own state says what
+# it believes, not what it did on the wire.
+_probe_lock = threading.Lock()
+attach_counts = {}
+
 
 def _dumps(v):
     return json.dumps(v, separators=(",", ":"))
@@ -165,6 +172,9 @@ def _serve(conn):
                 if command.get("session_id") == "turn-local":
                     state["pending_elicitations"] = []
                 session_of_sub[sub] = command.get("session_id")
+                with _probe_lock:
+                    attach_counts[command.get("session_id")] = (
+                        attach_counts.get(command.get("session_id"), 0) + 1)
                 if command.get("session_id") == "ghost-local":
                     send_frame(conn, {"sub": 0, "msg": {
                         "type": "error", "message": "no such session"}})
@@ -316,6 +326,11 @@ def _serve(conn):
                 require(command["source_session_id"] == "source-local", 'command["source_session_id"] == "source-local"')
                 require("before_seq" not in command, '"before_seq" not in command')
                 msg = {"type": "created", "session": {"session_id": "fork-bare"}}
+            elif kind == "probe_count":
+                with _probe_lock:
+                    count = attach_counts.get(command.get("session"), 0)
+                msg = {"type": "probe_count",
+                       "session": command.get("session"), "count": count}
             elif kind == "list":
                 msg = {"type": "sessions", "sessions": [
                     {"session_id": "source-local", "last_seq": 2},

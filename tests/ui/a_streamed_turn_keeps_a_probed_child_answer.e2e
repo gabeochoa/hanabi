@@ -1,0 +1,40 @@
+# A streamed turn must not overwrite a child ask's probed questions.
+#
+# A parent cannot see which of a child's keys really take a file, so
+# elicitation.h coerces every non-`_other` prose key of a child ask to File.
+# The polled path undoes that with a probe of the child; the streamed path
+# (loader_system's adopt_turn_asks) re-derives the asks straight from the
+# turn's own state and had no probe to undo it with. The typed answer then had
+# nowhere to live -- content_object skips File questions, so a submit went out
+# without it -- while the card blamed the file question it had just invented.
+#
+# HANABI_ASK_DEMO=child gives t2 a child ask whose questions are already
+# resolved (what a probe produces: a picker and one prose key, no file key at
+# all) and makes the mock's streaming turn report that same ask in the parent's
+# coerced shape. Send a message and the prose key must still be a prose key.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=child
+
+require_thread t2
+expect_text "The sub-agent cannot book the correction without a cycle."
+expect_no_text "answer it in the sub-agent's thread"
+
+click_ui ask_text_q3
+wait_frames 4
+type "the payout owner already signed it"
+wait_frames 4
+expect_input_text ask_text_q3 "the payout owner already signed it"
+
+click_ui composer_reply_input
+wait_frames 4
+type "carry on"
+wait_frames 4
+key ENTER
+wait_frames 60
+
+# The turn really landed -- this is the mock's own reply, not the draft.
+expect_text "I'll follow up here as I make progress."
+# ...and q3 is still a field the user can answer, holding what they typed.
+expect_no_text "answer it in the sub-agent's thread"
+expect_input_text ask_text_q3 "the payout owner already signed it"

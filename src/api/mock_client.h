@@ -505,6 +505,10 @@ class MockClient : public Client {
             return;
         }
         sink.emit_event(StreamEvent{StreamEventKind::Thinking, ""});
+        if (const char* ask = std::getenv("HANABI_ASK_DEMO");
+            ask != nullptr && std::string_view(ask) == "child")
+            sink.emit_event(
+                StreamEvent{StreamEventKind::AsksChanged, child_ask_state()});
         for (const auto& c : plan.chunks) sink.emit_delta(c);
         sink.emit_done(plan.final);
     }
@@ -904,8 +908,52 @@ class MockClient : public Client {
         s.pending_asks = std::move(kept);
     }
 
+    static constexpr const char* kChildAskSession = "kid-mock";
+
+    // A CHILD's ask, as the child itself reports it: two prose keys and a
+    // picker, and no file key anywhere. A parent cannot see that -- its view
+    // of a child ask carries no key shapes at all -- so elicitation.h coerces
+    // every non-`_other` prose key to File and only a probe of the child can
+    // undo it.
+    static nlohmann::json child_ask_entry() {
+        const std::string schema =
+            R"({"type":"object","properties":{)"
+            R"("q1":{"type":"string","title":"Which cycle should it book against?",)"
+            R"("oneOf":[)"
+            R"({"const":"this cycle","title":"this cycle"},)"
+            R"({"const":"next cycle","title":"next cycle"}]},)"
+            R"("q1_other":{"type":"string","title":"Other"},)"
+            R"("q3":{"type":"string","title":"Anything I should know first?"})"
+            R"(}})";
+        return nlohmann::json{
+            {"elicitation", 41},
+            {"tool", "AskUserRichForm"},
+            {"message",
+             "The sub-agent cannot book the correction without a cycle."},
+            {"requested_schema", schema},
+            {"timeout_ms", 600000},
+        };
+    }
+
+    // The `hello` state a turn carries back, in the server's own shape: the
+    // parent's view of the same ask, with the child's key shapes unknowable.
+    // This is the payload that must not overwrite what a probe resolved.
+    static std::string child_ask_state() {
+        nlohmann::json row = {{"session", kChildAskSession},
+                              {"elicitation", child_ask_entry()}};
+        return nlohmann::json{
+            {"child_pending_elicitations", nlohmann::json::array({row})}}
+            .dump();
+    }
+
     static std::vector<PendingAsk> mock_pending_asks(
         std::string_view mode, const std::string& owner) {
+        if (mode == "child") {
+            std::vector<PendingAsk> kid{
+                elicitation::ask_from_entry(child_ask_entry(), owner, "")};
+            kid[0].child_session = kChildAskSession;
+            return kid;
+        }
         const std::string schema =
             R"({"type":"object","properties":{)"
             R"("q1":{"type":"string","title":"Which mismatch do we trust?",)"
