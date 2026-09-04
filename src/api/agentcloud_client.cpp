@@ -1293,12 +1293,44 @@ bool AgentcloudClient::read_pending_asks(const std::string& id,
     return true;
 }
 
+void AgentcloudClient::forget_child_questions(
+    const std::vector<PendingAsk>& live) {
+    std::set<std::pair<std::string, std::uint64_t>> keep;
+    std::set<std::string> kids;
+    for (const PendingAsk& a : live)
+        if (!a.child_session.empty()) {
+            keep.insert(std::make_pair(a.child_session, a.seq));
+            kids.insert(a.child_session);
+        }
+    std::lock_guard<std::mutex> lk(childQuestionsMu_);
+    for (auto it = childQuestions_.begin(); it != childQuestions_.end();)
+        it = keep.count(it->first) == 0 ? childQuestions_.erase(it)
+                                        : std::next(it);
+    for (auto it = childProbeFailed_.begin(); it != childProbeFailed_.end();)
+        it = kids.count(*it) == 0 ? childProbeFailed_.erase(it)
+                                  : std::next(it);
+}
+
 void AgentcloudClient::resolve_child_questions(
     std::vector<PendingAsk>& asks) {
     std::set<std::string> kids;
-    for (const PendingAsk& a : asks)
-        if (!a.child_session.empty() && a.has_file_question())
+    {
+        std::lock_guard<std::mutex> lk(childQuestionsMu_);
+        for (PendingAsk& a : asks) {
+            if (a.child_session.empty() || !a.has_file_question()) continue;
+            const auto key = std::make_pair(a.child_session, a.seq);
+            const auto hit = childQuestions_.find(key);
+            if (hit != childQuestions_.end()) {
+                a.questions = hit->second;
+                continue;
+            }
+            if (childProbeFailed_.count(a.child_session) != 0) {
+                a.child_keys_unknown = true;
+                continue;
+            }
             kids.insert(a.child_session);
+        }
+    }
     if (kids.empty()) return;
 
     constexpr std::size_t kMaxProbesAtOnce = 4;
@@ -1327,6 +1359,8 @@ void AgentcloudClient::resolve_child_questions(
             if (a.child_session != ids[i]) continue;
             if (!got.first) {
                 a.child_keys_unknown = true;
+                std::lock_guard<std::mutex> lk(childQuestionsMu_);
+                childProbeFailed_.insert(a.child_session);
                 continue;
             }
             bool matched = false;
@@ -1334,6 +1368,9 @@ void AgentcloudClient::resolve_child_questions(
                 if (real.seq == a.seq) {
                     a.questions = real.questions;
                     matched = true;
+                    std::lock_guard<std::mutex> lk(childQuestionsMu_);
+                    childQuestions_[std::make_pair(a.child_session, a.seq)] =
+                        real.questions;
                     break;
                 }
             if (!matched) a.child_keys_unknown = true;
@@ -1401,6 +1438,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     agentcloud::parse_plan_goal_state(hello.dump(), *out);
     agentcloud::parse_pending_asks(hello.dump(), *out);
     resolve_child_questions(out->pending_asks);
+    forget_child_questions(out->pending_asks);
 
     // Page BACKWARD from the newest until the server says done.
     //

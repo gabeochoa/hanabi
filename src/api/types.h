@@ -485,6 +485,7 @@ struct PendingAsk {
     std::vector<AskQuestion> questions;
     bool schema_unreadable = false;
     bool child_keys_unknown = false;
+    std::int64_t deadline_unix_ms = 0;
 
     [[nodiscard]] std::string id() const {
         return owner_session + "/" + child_session + "#" +

@@ -4604,7 +4604,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (at == app.askState.seenAt.end()) return false;
         return hanabi::ask::expired_at(
             ask.timeout_ms, at->second,
-            static_cast<int64_t>(std::time(nullptr)));
+            static_cast<int64_t>(std::time(nullptr)), ask.deadline_unix_ms);
     }
 
     static bool ask_note_shown(const AppComponent& app,
@@ -4817,8 +4817,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         for (int li = 0; li < lines; ++li) {
             const bool last = li == lines - 1;
             const bool cut = last && spans.size() > static_cast<size_t>(lines);
-            const std::string line =
+            std::string line =
                 ask_wrapped_line(text, spans, static_cast<size_t>(li));
+            if (cut) line = hanabi::ask::with_ellipsis(line);
             auto row = div(ctx, mk(parent, keyBase + li),
                 ComponentConfig{}
                     .with_label(line)

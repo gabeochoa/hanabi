@@ -737,8 +737,12 @@ struct AppComponent : public afterhours::BaseComponent {
         static const std::vector<api::PendingAsk> kNone;
         askState.adopt(asks,
                        known == attachAsks.end() ? kNone : known->second);
-        if (asks.empty()) attachAsks.erase(id);
-        else attachAsks[id] = asks;
+        if (asks.empty()) {
+            attachAsks.erase(id);
+            askState.forget_session(id);
+        }
+        else
+            attachAsks[id] = asks;
     }
 
     [[nodiscard]] std::string ask_session_of(const std::string& askId) const {

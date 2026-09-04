@@ -380,6 +380,38 @@ int main() {
         }
     }
 
+    {
+        api::agentcloud::LiveTurn install;
+        api::StreamSink sink;
+        std::vector<std::string> seen;
+        sink.on_event = [&seen](const api::StreamEvent& e) {
+            if (e.kind == api::StreamEventKind::AsksChanged)
+                seen.push_back(e.payload);
+        };
+        install.seed_asks(nlohmann::json::object(), sink);
+        const auto frame = nlohmann::json::parse(R"({"type":"frame","seq":61,
+            "event":{"type":"child_elicitation_update",
+            "session":"kid-local","elicitation":61,"cause":61,
+            "pending":{"tool":"plan_review","message":"Pick one.",
+            "requested_schema":"{}","deadline_unix_ms":180000}}})");
+        install.feed(frame, sink);
+        if (seen.empty()) {
+            std::fprintf(stderr, "a child install raised no ask\n");
+            return 1;
+        }
+        const auto state =
+            nlohmann::json::parse(seen.back(), nullptr, false);
+        bool sawDeadline = false;
+        for (const auto& a :
+             api::elicitation::asks_from_state(state, "owner"))
+            if (a.seq == 61) sawDeadline = a.deadline_unix_ms == 180000;
+        if (!sawDeadline) {
+            std::fprintf(stderr,
+                         "a child install lost its deadline_unix_ms\n");
+            return 1;
+        }
+    }
+
     std::vector<std::string> retractAsks;
     api::StreamSink retractSink;
     retractSink.on_event = [&retractAsks](const api::StreamEvent& ev) {

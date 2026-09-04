@@ -88,6 +88,10 @@ struct State {
         }
     }
 
+    void forget_session(const std::string& session) {
+        dropStamp.erase(session);
+    }
+
     void forget(const std::string& id) {
         answers.erase(id);
         cursors.erase(id);
@@ -117,6 +121,16 @@ inline int clamp_prompt_lines(int measured) {
     if (measured < 1) return 1;
     if (measured > kMaxPromptLines) return kMaxPromptLines;
     return measured;
+}
+
+inline std::string with_ellipsis(std::string line) {
+    while (!line.empty() && line.back() == ' ') line.pop_back();
+    if (line.size() > 1) {
+        const auto at = line.find_last_of(' ');
+        if (at != std::string::npos && at >= line.size() / 2)
+            line.erase(at);
+    }
+    return line + "\u2026";
 }
 
 inline int clamp_option_lines(int measured) {
@@ -171,7 +185,8 @@ inline std::size_t shown_index(const std::vector<AskShown>& asks) {
 }
 
 inline bool expired_at(std::int64_t timeout_ms, std::int64_t seen_at,
-                       std::int64_t now) {
+                       std::int64_t now, std::int64_t deadline_unix_ms = 0) {
+    if (deadline_unix_ms > 0) return now * 1000 > deadline_unix_ms;
     if (timeout_ms <= 0) return false;
     return (now - seen_at) * 1000 > timeout_ms;
 }

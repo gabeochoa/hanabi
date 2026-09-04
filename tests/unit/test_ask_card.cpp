@@ -499,6 +499,26 @@ static void test_a_stale_load_cannot_retire_a_live_ask() {
     CHECK(!st.born_after(old_ask.id(), inflight));
 }
 
+static void test_dropped_text_is_marked() {
+    std::printf("a clamped block says it was cut\n");
+    const std::string cut = ask::with_ellipsis("the promo ledger row");
+    CHECK(cut.find("\u2026") != std::string::npos);
+    CHECK(cut.size() < std::string("the promo ledger row").size() + 4);
+    CHECK(ask::with_ellipsis("one") == "one\u2026");
+    CHECK(ask::with_ellipsis("trailing  ") == "trailing\u2026");
+    CHECK(ask::with_ellipsis("").find("\u2026") != std::string::npos);
+}
+
+static void test_the_shared_overlay_set_is_declared() {
+    std::printf("every modal sheet is in one list\n");
+    ask::KeyOwnership own;
+    own.cardFocused = true;
+    CHECK(ask::input_live(own));
+    own.modalSheet = true;
+    CHECK(!ask::input_live(own));
+    CHECK(!ask::keys_live(own));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -517,6 +537,8 @@ int main() {
     test_an_ask_expires_on_its_own_deadline();
     test_a_draft_is_never_displaced();
     test_a_stale_load_cannot_retire_a_live_ask();
+    test_dropped_text_is_marked();
+    test_the_shared_overlay_set_is_declared();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

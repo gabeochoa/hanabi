@@ -18,6 +18,9 @@
 
 #include <map>
 #include <memory>
+#include <map>
+#include <mutex>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -104,6 +107,13 @@ class AgentcloudClient : public Client {
                            std::vector<PendingAsk>* out);
 
     void resolve_child_questions(std::vector<PendingAsk>& asks);
+
+    void forget_child_questions(const std::vector<PendingAsk>& live);
+
+    std::mutex childQuestionsMu_;
+    std::map<std::pair<std::string, std::uint64_t>, std::vector<AskQuestion>>
+        childQuestions_;
+    std::set<std::string> childProbeFailed_;
 
     std::string attach_and_page(const std::string& id, int limit, Session* out,
                                 std::string* error);

@@ -272,6 +272,8 @@ inline PendingAsk ask_from_entry(const json& entry,
     ask.tool = detail::str_field(entry, "tool");
     ask.message = detail::str_field(entry, "message");
     ask.timeout_ms = detail::int_field(entry, "timeout_ms", 0);
+    ask.deadline_unix_ms =
+        static_cast<std::int64_t>(detail::int_field(entry, "deadline_unix_ms", 0));
     ask.input = detail::str_field(entry, "input");
     ask.kind = detail::str_field(entry, "kind") == "approval"
                    ? AskKind::Approval
@@ -310,6 +312,9 @@ inline bool ask_entry_from_frame(const std::string& frame_json,
     out["message"] = detail::str_field(event, "message");
     out["requested_schema"] = detail::str_field(event, "requested_schema");
     out["timeout_ms"] = detail::int_field(event, "timeout_ms", 0);
+    if (event.is_object() && event.contains("deadline_unix_ms") &&
+        event.at("deadline_unix_ms").is_number_integer())
+        out["deadline_unix_ms"] = event.at("deadline_unix_ms");
     const std::string kind = detail::str_field(event, "kind");
     if (!kind.empty()) out["kind"] = kind;
     if (event.is_object() && event.contains("input") &&

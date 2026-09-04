@@ -96,6 +96,15 @@ JSON
     kill -9 "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
     pkill -9 -f "^$EXE" >/dev/null 2>&1
+    case "$st" in
+      *HANABI_ASK_DEMO=*)
+        if ! grep -q "\[bounds\] *ask_card\|ask_card in" "$WORK/log.txt" \
+           && ! grep -q "ask_" "$WORK/log.txt"; then
+            echo "bounds-gate: FAIL: no ask card rendered for state: $st" >&2
+            exit 1
+        fi
+        ;;
+    esac
     # "  <name>   in <parent>   over by left=.. right=.. ..  [rects]" ->
     # "<name> in <parent> left right", the identity without the magnitudes.
     /usr/bin/python3 - "$WORK/log.txt" >> "$FOUND" <<'PY'
