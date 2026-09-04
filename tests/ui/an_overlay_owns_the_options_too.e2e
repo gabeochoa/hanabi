@@ -4,6 +4,7 @@
 require_thread t2
 expect_text "The agent is asking"
 expect_text "Answer any one of these to submit"
+expect_text "Appearance, behavior, notifications, and local data"
 
 focus_ui ask_option_q1_0
 expect_focused ask_option_q1_0
@@ -18,3 +19,13 @@ expect_text "Answer any one of these to submit"
 click_ui ask_option_q1_1
 wait_frames 12
 expect_text "Answer any one of these to submit"
+
+click_ui settings_close
+wait_frames 20
+expect_no_text "Appearance, behavior, notifications, and local data"
+
+focus_ui ask_option_q1_0
+wait_frames 6
+key SPACE
+wait_frames 12
+expect_no_text "Answer any one of these to submit"

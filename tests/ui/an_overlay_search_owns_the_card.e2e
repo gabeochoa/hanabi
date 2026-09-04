@@ -4,6 +4,7 @@
 require_thread t2
 expect_text "The agent is asking"
 expect_text "Answer any one of these to submit"
+expect_text "Search conversations"
 
 focus_ui ask_option_q1_0
 key SPACE
@@ -14,3 +15,13 @@ key ENTER
 wait_frames 10
 expect_text "Answer any one of these to submit"
 expect_no_text "Sending your answer…"
+
+key ESCAPE
+wait_frames 20
+expect_no_text "Search conversations"
+
+focus_ui ask_option_q1_0
+wait_frames 6
+key SPACE
+wait_frames 12
+expect_no_text "Answer any one of these to submit"

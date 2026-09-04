@@ -14,3 +14,12 @@ key ENTER
 wait_frames 10
 expect_text "Answer any one of these to submit"
 expect_no_text "Sending your answer…"
+
+click_ui find_close
+wait_frames 20
+
+focus_ui ask_option_q1_0
+wait_frames 6
+key SPACE
+wait_frames 12
+expect_no_text "Answer any one of these to submit"
