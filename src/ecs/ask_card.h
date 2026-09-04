@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <ctime>
+#include <algorithm>
 #include <map>
 #include <set>
 #include <string>
@@ -123,6 +124,38 @@ inline int clamp_prompt_lines(int measured) {
     return measured;
 }
 
+inline std::string draft_text_of(const api::PendingAsk& ask,
+                                 const api::AskAnswer& answer) {
+    std::string out;
+    const auto add = [&out](const std::string& line) {
+        if (line.empty()) return;
+        if (!out.empty()) out += "\n";
+        out += line;
+    };
+    for (const auto& q : ask.questions) {
+        const auto picked = answer.picks.find(q.key);
+        if (picked != answer.picks.end() && !picked->second.empty()) {
+            std::string joined;
+            for (const auto& value : picked->second) {
+                if (!joined.empty()) joined += ", ";
+                joined += value;
+            }
+            add(q.prompt.empty() ? joined : q.prompt + ": " + joined);
+        }
+        const auto typed = answer.text.find(q.key);
+        if (typed != answer.text.end()) {
+            const std::string t = api::elicitation::trimmed(typed->second);
+            if (!t.empty()) add(q.prompt.empty() ? t : q.prompt + ": " + t);
+        }
+        const auto other = answer.text.find(q.free_text_key);
+        if (!q.free_text_key.empty() && other != answer.text.end()) {
+            const std::string t = api::elicitation::trimmed(other->second);
+            if (!t.empty()) add(t);
+        }
+    }
+    return out;
+}
+
 inline constexpr std::size_t kMaxRescuedSessions = 32;
 
 struct RescuedDrafts {
@@ -159,13 +192,6 @@ struct RescuedDrafts {
 
     [[nodiscard]] bool empty() const { return bySession.empty(); }
 };
-
-inline bool rescue_belongs_here(const std::string& rescuedSession,
-                                const std::string& paneSession,
-                                bool kickoff) {
-    if (kickoff || rescuedSession.empty() || paneSession.empty()) return false;
-    return rescuedSession == paneSession;
-}
 
 inline std::string metrics_key(const api::PendingAsk& ask) {
     std::string key = ask.id();

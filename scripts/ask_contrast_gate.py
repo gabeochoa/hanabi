@@ -21,6 +21,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 BASELINES = ROOT / "docs" / "screenshots" / "baselines"
 MIN_RATIO = 4.5
+MAX_DISABLED_RATIO = 6.0
 
 # One row per baseline: the action row's vertical band, and the labels it
 # carries left to right with whether each is disabled. Disabled-vs-enabled is
@@ -150,6 +151,10 @@ def main():
             if ratio < MIN_RATIO:
                 failures.append(
                     f"{name} {label} is {ratio:.2f}:1, below {MIN_RATIO}:1")
+            if disabled and ratio > MAX_DISABLED_RATIO:
+                failures.append(
+                    f"{name} disabled {label} is {ratio:.2f}:1, above "
+                    f"{MAX_DISABLED_RATIO}:1 — it reads as enabled")
             measured.append((label, disabled, ratio))
             by_control[(name, label)] = ratio
             fills[(name, label)] = fill

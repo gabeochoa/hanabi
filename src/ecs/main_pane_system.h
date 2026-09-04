@@ -5373,7 +5373,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (keysLive && app.escape == EscapeIntent::DeclineAsk && !busy &&
             answerable) {
-            if (hanabi::ask::has_draft(ask, answer)) {
+            if (ask.kind == api::AskKind::Approval ||
+                hanabi::ask::has_draft(ask, answer)) {
                 app.askFocused = false;
             } else {
                 submit_ask(app, ask, api::AskAction::Cancel);

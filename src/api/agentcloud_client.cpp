@@ -1803,7 +1803,7 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
             for (const PendingAsk& p : live)
                 if (p.id() == ask.id())
                     return fail("no settlement for this question");
-            return fail(elicitation::kAskGoneReason);
+            return fail(elicitation::kAskLikelyLandedReason);
         }
         if (str_or(msg, "type", "") == "error")
             return fail(str_or(msg, "message", "the answer was refused"));

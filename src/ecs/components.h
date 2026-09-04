@@ -743,14 +743,7 @@ struct AppComponent : public afterhours::BaseComponent {
             if (live.count(a.id()) != 0) continue;
             const auto at = askState.answers.find(a.id());
             if (at == askState.answers.end()) continue;
-            std::string kept;
-            for (const auto& [key, text] : at->second.text) {
-                const std::string t = api::elicitation::trimmed(text);
-                if (t.empty()) continue;
-                if (!kept.empty()) kept += "\n";
-                kept += t;
-            }
-            askRescued.keep(id, kept);
+            askRescued.keep(id, hanabi::ask::draft_text_of(a, at->second));
         }
         askState.adopt(asks, before);
         if (asks.empty()) {

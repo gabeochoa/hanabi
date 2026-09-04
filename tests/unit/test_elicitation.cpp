@@ -444,6 +444,10 @@ static void test_approval_cap_and_frames() {
         R"({"event":{"type":"elicitation_requested"}})", &entry));
     CHECK(!el::ask_entry_from_frame("not json", &entry));
 
+    CHECK(std::string(el::kAskLikelyLandedReason).find("probably") !=
+          std::string::npos);
+    CHECK(std::string(el::kAskLikelyLandedReason).find("somewhere else") ==
+          std::string::npos);
     CHECK(std::string(el::kAskGoneReason).find("no longer pending") !=
           std::string::npos);
 }

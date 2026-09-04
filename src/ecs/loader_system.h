@@ -133,14 +133,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                                       const std::string& askId) {
         const auto at = app.askState.answers.find(askId);
         if (at == app.askState.answers.end()) return {};
-        std::string out;
-        for (const auto& [key, text] : at->second.text) {
-            const std::string trimmed = api::elicitation::trimmed(text);
-            if (trimmed.empty()) continue;
-            if (!out.empty()) out += "\n";
-            out += trimmed;
-        }
-        return out;
+        for (const auto& [sid, asks] : app.attachAsks)
+            for (const auto& a : asks)
+                if (a.id() == askId)
+                    return hanabi::ask::draft_text_of(a, at->second);
+        return {};
     }
 
     static void adopt_turn_asks(AppComponent& app, const std::string& id,
@@ -827,7 +824,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (r.ok) {
                 app.drop_attach_ask(sid, askId);
                 request_ask_refresh(app, sid);
-            } else if (r.error == api::elicitation::kAskGoneReason) {
+            } else if (r.error == api::elicitation::kAskGoneReason ||
+                       r.error ==
+                           api::elicitation::kAskLikelyLandedReason) {
                 const std::string kept = ask_draft_text(app, askId);
                 app.drop_attach_ask(sid, askId);
                 if (park_ask_draft(app, kept, sid)) {

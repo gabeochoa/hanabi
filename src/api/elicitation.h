@@ -419,6 +419,9 @@ inline bool answer_has_content(const PendingAsk& ask,
 
 inline constexpr std::size_t kContentCapBytes = 262144;
 
+inline constexpr const char* kAskLikelyLandedReason =
+    "no confirmation came back — your answer probably went through";
+
 inline constexpr const char* kAskGoneReason =
     "this question is no longer pending";
 

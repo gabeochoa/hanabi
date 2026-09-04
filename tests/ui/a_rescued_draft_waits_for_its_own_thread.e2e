@@ -18,4 +18,4 @@ expect_input_text composer_reply_input ""
 
 click_ui tab_t2
 wait_frames 20
-expect_input_text composer_reply_input "belongs to t2"
+expect_input_text composer_reply_input "Anything I should know first?: belongs to t2"

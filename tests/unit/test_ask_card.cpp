@@ -562,15 +562,6 @@ static void test_a_dropped_session_cannot_resurrect_an_ask() {
     CHECK(!st.born_after(a.id(), inflight));
 }
 
-static void test_a_rescue_belongs_to_one_thread() {
-    std::printf("a rescued draft is offered only to its own thread\n");
-    CHECK(ask::rescue_belongs_here("s1", "s1", false));
-    CHECK(!ask::rescue_belongs_here("s1", "s2", false));
-    CHECK(!ask::rescue_belongs_here("s1", "s1", true));
-    CHECK(!ask::rescue_belongs_here("", "s1", false));
-    CHECK(!ask::rescue_belongs_here("s1", "", false));
-}
-
 static void test_rescues_do_not_overwrite_each_other() {
     std::printf("every rescued answer survives, per thread\n");
     ask::RescuedDrafts kept;
@@ -595,6 +586,32 @@ static void test_rescues_do_not_overwrite_each_other() {
     CHECK(kept.order.size() == kept.bySession.size());
 }
 
+static void test_clicked_answers_are_rescued_too() {
+    std::printf("a click-only answer is rescued, not just typing\n");
+    api::PendingAsk ask;
+    ask.owner_session = "s1";
+    ask.seq = 41;
+    api::AskQuestion q;
+    q.key = "q1";
+    q.prompt = "Which mismatch?";
+    q.free_text_key = "q1_other";
+    ask.questions.push_back(q);
+
+    api::AskAnswer picked;
+    picked.picks["q1"] = {"promo", "ledger"};
+    const std::string clicked = ask::draft_text_of(ask, picked);
+    CHECK(clicked.find("promo") != std::string::npos);
+    CHECK(clicked.find("ledger") != std::string::npos);
+    CHECK(clicked.find("Which mismatch?") != std::string::npos);
+
+    api::AskAnswer typed;
+    typed.text["q1_other"] = "  the bank feed  ";
+    const std::string free = ask::draft_text_of(ask, typed);
+    CHECK(free == "the bank feed");
+
+    CHECK(ask::draft_text_of(ask, api::AskAnswer{}).empty());
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -617,8 +634,8 @@ int main() {
     test_the_shared_overlay_set_is_declared();
     test_metrics_track_the_questions_not_the_id();
     test_a_dropped_session_cannot_resurrect_an_ask();
-    test_a_rescue_belongs_to_one_thread();
     test_rescues_do_not_overwrite_each_other();
+    test_clicked_answers_are_rescued_too();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;
