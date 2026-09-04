@@ -929,6 +929,15 @@ class MockClient : public Client {
             {"file_keys", nlohmann::json::array({"q4"})},
             {"timeout_ms", 600000},
         };
+        if (mode == "two") {
+            auto first = mock_pending_asks("1", owner);
+            auto second = mock_pending_asks("approval", owner);
+            if (!second.empty()) {
+                second[0].seq = 77;
+                first.push_back(second[0]);
+            }
+            return first;
+        }
         if (mode == "big" || mode == "vanish") {
             nlohmann::json props = nlohmann::json::object();
             static const char* kAsks[] = {

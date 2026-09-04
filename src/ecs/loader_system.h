@@ -131,16 +131,37 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         const auto state = nlohmann::json::parse(asksJson, nullptr, false);
         if (state.is_discarded() || !state.is_object()) return;
         app.apply_attach_asks(
-            id, keep_busy_ask(app, id,
-                              api::elicitation::asks_from_state(state, id)));
+            id,
+            keep_newer_asks(
+                app, id,
+                keep_busy_ask(app, id,
+                              api::elicitation::asks_from_state(state, id)),
+                stamp));
     }
 
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
                                   bool authoritative, std::uint64_t stamp) {
         if (!authoritative) return;
         if (app.ask_load_is_stale(s.summary.id, stamp)) return;
-        app.apply_attach_asks(s.summary.id,
-                              keep_busy_ask(app, s.summary.id, s.pending_asks));
+        app.apply_attach_asks(
+            s.summary.id,
+            keep_newer_asks(
+                app, s.summary.id,
+                keep_busy_ask(app, s.summary.id, s.pending_asks), stamp));
+    }
+    static std::vector<api::PendingAsk> keep_newer_asks(
+        const AppComponent& app, const std::string& id,
+        std::vector<api::PendingAsk> fresh, std::uint64_t stamp) {
+        const auto* known = app.asks_for(id);
+        if (known == nullptr) return fresh;
+        for (const auto& a : *known) {
+            if (!app.askState.born_after(a.id(), stamp)) continue;
+            bool present = false;
+            for (const auto& f : fresh)
+                if (f.id() == a.id()) present = true;
+            if (!present) fresh.push_back(a);
+        }
+        return fresh;
     }
 
     static std::vector<api::PendingAsk> keep_busy_ask(

@@ -38,6 +38,7 @@ session_of_sub = {}
 
 def _dumps(v):
     return json.dumps(v, separators=(",", ":"))
+import signal
 import socket
 import struct
 import sys
@@ -326,7 +327,41 @@ def _serve(conn):
     return True
 
 
+def _stop(_signum, _frame):
+    raise KeyboardInterrupt
+
+
+def _accept_loop(listener):
+    idle_window = 5
+    served = 0
+    while True:
+        if serve_connection(listener) is False:
+            break
+        served += 1
+        listener.settimeout(idle_window)
+        if all(not t.is_alive() for t in _served_threads):
+            break
+    return served
+
+
+def _report(served):
+    if served == 0:
+        raise SystemExit("no client ever connected")
+    for thread in list(_served_threads):
+        thread.join(timeout=45)
+    for text in _thread_errors:
+        print("[harness] PROTOCOL CHECK FAILED:\n" + text, file=sys.stderr)
+    for text in _other_errors:
+        print("[harness] UNEXPECTED SERVER-THREAD ERROR:\n" + text,
+              file=sys.stderr)
+    if _thread_errors or _other_errors:
+        raise SystemExit(
+            f"{len(_thread_errors)} protocol check(s) and "
+            f"{len(_other_errors)} unexpected error(s) on connection threads")
+
+
 def main():
+    signal.signal(signal.SIGTERM, _stop)
     parser = argparse.ArgumentParser()
     parser.add_argument("--port-file", required=True)
     args = parser.parse_args()
@@ -337,31 +372,12 @@ def main():
     with open(args.port_file, "w") as out:
         out.write(str(listener.getsockname()[1]))
     listener.settimeout(30)
-    # Long enough for a client that is mid-operation to come back, short
-    # enough that a finished run does not pay for it: the loop also exits as
-    # soon as every connection it served has closed.
-    idle_window = 5
     served = 0
-    while True:
-        if serve_connection(listener) is False:
-            break
-        served += 1
-        listener.settimeout(idle_window)
-        if all(not t.is_alive() for t in _served_threads):
-            break
-    if served == 0:
-        raise SystemExit("no client ever connected")
-    for thread in list(_served_threads):
-        thread.join(timeout=45)
-    for text in _other_errors:
-        print("[harness] non-protocol thread error:\n" + text,
-              file=sys.stderr)
-    if _thread_errors:
-        for text in _thread_errors:
-            print(text, file=sys.stderr)
-        raise SystemExit(
-            f"{len(_thread_errors)} protocol check(s) failed on a "
-            "connection thread")
+    try:
+        served = _accept_loop(listener)
+    except KeyboardInterrupt:
+        served = max(served, 1)
+    _report(served)
 
 
 if __name__ == "__main__":

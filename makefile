@@ -745,6 +745,7 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) uitest
 	@$(MAKE) harness-gate
 	@$(MAKE) tab-persistence-gate
+	@$(MAKE) verify-vendor-patches
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
 	@bash scripts/measure_launch.sh
 	@echo "Running transcript slope gate (scripts/perf_transcript_slope.sh)..."

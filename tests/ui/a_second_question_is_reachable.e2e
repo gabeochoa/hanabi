@@ -1,0 +1,23 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=two HANABI_ASK_FAIL=echo
+
+require_thread t2
+expect_text "1 of 2"
+expect_text "The agent is asking"
+
+click_ui ask_text_q3
+type "half a sentence"
+wait_frames 8
+expect_input_text ask_text_q3 "half a sentence"
+
+click_ui ask_next
+wait_frames 12
+expect_text "2 of 2"
+expect_text "The agent needs approval"
+expect_no_text "The agent is asking"
+
+click_ui ask_next
+wait_frames 12
+expect_text "1 of 2"
+expect_text "The agent is asking"
+expect_input_text ask_text_q3 "half a sentence"

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
 BASE = "428047e3c92442e0ded3a0d473315e9636a451ac"
-PIN = "fc4d6253b5b77ead77ad79f589fbd1ee0662aade"
+PIN = "b9917e516684374b86a11311faaca33b94714e49"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 PATCHES = {
     "351-report-font-atlas-exhaustion.patch": "atlas",

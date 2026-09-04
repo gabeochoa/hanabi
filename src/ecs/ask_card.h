@@ -52,7 +52,16 @@ struct State {
     std::uint64_t loadSeq = 0;
     std::map<std::string, std::uint64_t> dropStamp;
 
+    std::map<std::string, std::uint64_t> bornStamp;
+    std::string shownId;
+
     std::uint64_t next_load_stamp() { return ++loadSeq; }
+    void note_born(const std::string& id) { bornStamp.emplace(id, loadSeq); }
+    [[nodiscard]] bool born_after(const std::string& id,
+                                  std::uint64_t stamp) const {
+        const auto at = bornStamp.find(id);
+        return at != bornStamp.end() && at->second >= stamp;
+    }
     void note_drop(const std::string& session) { dropStamp[session] = loadSeq; }
     [[nodiscard]] bool load_is_stale(const std::string& session,
                                      std::uint64_t stamp) const {
@@ -82,6 +91,8 @@ struct State {
         answers.erase(id);
         cursors.erase(id);
         seenAt.erase(id);
+        bornStamp.erase(id);
+        if (shownId == id) shownId.clear();
         if (errorId == id) {
             errorId.clear();
             errorText.clear();
