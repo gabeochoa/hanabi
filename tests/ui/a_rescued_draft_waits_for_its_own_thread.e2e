@@ -1,0 +1,21 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_ASK_GONE=1
+
+require_thread t2
+expect_text "The agent is asking"
+
+focus_ui ask_text_q3
+type "belongs to t2"
+wait_frames 8
+
+click_ui ask_decline
+wait_frames 30
+expect_text "your answer is in the composer"
+
+click_ui tab_t6
+wait_frames 20
+expect_input_text composer_reply_input ""
+
+click_ui tab_t2
+wait_frames 20
+expect_input_text composer_reply_input "belongs to t2"

@@ -619,6 +619,7 @@ struct AppComponent : public afterhours::BaseComponent {
     bool composerOpen = false;
     std::string composerDraft;
     std::string askRescuedDraft;
+    std::string askRescuedSession;
 
     // Phase G (menu-bar): set by the frame loop when the menu-bar "New task…"
     // action fires; serviced there by opening the composer. A one-shot request
@@ -750,7 +751,10 @@ struct AppComponent : public afterhours::BaseComponent {
                 if (!kept.empty()) kept += "\n";
                 kept += t;
             }
-            if (!kept.empty()) askRescuedDraft = kept;
+            if (!kept.empty()) {
+                askRescuedDraft = kept;
+                askRescuedSession = id;
+            }
         }
         askState.adopt(asks, before);
         if (asks.empty()) {

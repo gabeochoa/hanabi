@@ -5,11 +5,11 @@ This validates the BASELINES, which validate-screenshots then holds the build
 to at 0.0000%: a source change that moves a label lands here one step later,
 when its baseline is re-captured.
 
-A token-only check certifies arithmetic, not the screen. The disabled fill goes
-through the engine's disabled compositing on its way to the framebuffer, which
-moved it 19 levels darker than the token said -- so the tokens computed 4.86:1
-while the label shipped at 3.82:1, below the bar, with the gate green. This
-reads the baselines instead: whatever the render does, this sees it.
+Boxes are DERIVED, not written down. Hand-placed rectangles drifted onto
+neighbouring buttons, and because the ratio is taken from the extreme pixel in
+the box, a spill into a brighter neighbour reads BETTER than the label is --
+the direction that hides a regression. Each label's glyph run is found by
+scanning the action row, so a box cannot name one button and sample another.
 """
 
 import sys
@@ -22,34 +22,27 @@ ROOT = Path(__file__).resolve().parents[1]
 BASELINES = ROOT / "docs" / "screenshots" / "baselines"
 MIN_RATIO = 4.5
 
-# Button interiors, inset from the border so the sample is fill and glyph only.
-SAMPLES = [
-    ("59_ask_approval_dark.png", (334, 626, 418, 644),
-     "dark Approve enabled", False),
-    ("59_ask_approval_dark.png", (444, 626, 516, 644),
-     "dark Deny enabled", False),
-    ("57_ask_card_narrow_dark.png", (258, 483, 348, 505),
-     "narrow Submit disabled", True),
-    ("57_ask_card_narrow_dark.png", (360, 483, 452, 505),
-     "narrow Decline enabled", False),
-    ("65_ask_two_questions_narrow_dark.png", (263, 484, 305, 506),
-     "two-ask Submit disabled", True),
-    ("65_ask_two_questions_narrow_dark.png", (387, 484, 444, 506),
-     "two-ask Decline enabled", False),
-    ("66_ask_two_questions_tiny_dark.png", (202, 484, 234, 506),
-     "tiny Send disabled", True),
-    ("66_ask_two_questions_tiny_dark.png", (278, 484, 307, 506),
-     "tiny Skip enabled", False),
-    ("61_ask_long_approval_dark.png", (334, 626, 418, 644),
-     "long-approval Approve enabled", False),
-    ("56_ask_card_light.png", (334, 626, 418, 644), "light Submit disabled", True),
-    ("56_ask_card_light.png", (444, 626, 516, 644), "light Decline enabled", False),
-    ("55_ask_card_dark.png", (334, 626, 418, 644), "dark Submit disabled", True),
-    ("55_ask_card_dark.png", (444, 626, 516, 644), "dark Decline enabled", False),
-    ("63_ask_unanswerable_backend_dark.png", (334, 626, 418, 644),
-     "dark Approve disabled", True),
-    ("63_ask_unanswerable_backend_dark.png", (444, 626, 516, 644),
-     "dark Deny disabled", True),
+# One row per baseline: the action row's vertical band, and the labels it
+# carries left to right with whether each is disabled. Disabled-vs-enabled is
+# compared WITHIN a row -- same card, same theme, same state -- so a disabled
+# label can never be checked against an unrelated control's enabled one.
+ROWS = [
+    ("55_ask_card_dark.png", 620, 650, 320,
+     [("Submit", True), ("Decline", False)]),
+    ("56_ask_card_light.png", 620, 650, 320,
+     [("Submit", True), ("Decline", False)]),
+    ("59_ask_approval_dark.png", 620, 650, 320,
+     [("Approve", False), ("Deny", False)]),
+    ("61_ask_long_approval_dark.png", 620, 650, 320,
+     [("Approve", False), ("Deny", False)]),
+    ("63_ask_unanswerable_backend_dark.png", 620, 650, 320,
+     [("Approve", True), ("Deny", True)]),
+    ("57_ask_card_narrow_dark.png", 480, 510, 250,
+     [("Submit", True), ("Decline", False)]),
+    ("65_ask_two_questions_narrow_dark.png", 480, 510, 250,
+     [("Submit", True), ("Next", False), ("Decline", False)]),
+    ("66_ask_two_questions_tiny_dark.png", 480, 510, 190,
+     [("Send", True), ("Next", False), ("Skip", False)]),
 ]
 
 
@@ -69,14 +62,42 @@ def contrast(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
-def measure(name, box):
-    path = BASELINES / name
-    if not path.exists():
-        raise SystemExit(f"ask-contrast: missing baseline {name}")
-    image = Image.open(path).convert("RGB")
+def button_rects(image, y0, y1, x0, card_fill):
+    """The action row's buttons: columns differing from the card's own fill."""
+    width, height = image.size
+    y1 = min(y1, height)
+    hit = []
+    for x in range(x0, width):
+        column = [image.getpixel((x, y)) for y in range(y0, y1)]
+        hit.append(any(
+            sum(abs(p[c] - card_fill[c]) for c in range(3)) > 18
+            for p in column))
+
+    runs = []
+    start = None
+    for offset, inked in enumerate(hit):
+        x = x0 + offset
+        if inked and start is None:
+            start = x
+        if not inked and start is not None:
+            runs.append([start, x])
+            start = None
+    if start is not None:
+        runs.append([start, width])
+
+    merged = []
+    for run in runs:
+        if merged and run[0] - merged[-1][1] < 6:
+            merged[-1][1] = run[1]
+        else:
+            merged.append(run)
+    return [tuple(r) for r in merged if r[1] - r[0] >= 28]
+
+
+def measure(image, box, y0, y1):
     pixels = [image.getpixel((x, y))
-              for x in range(box[0], box[2])
-              for y in range(box[1], box[3])]
+              for x in range(box[0] + 2, box[1] - 2)
+              for y in range(y0 + 2, min(y1, image.size[1]) - 2)]
     fill = Counter(pixels).most_common(1)[0][0]
     ink = max(pixels, key=lambda p: abs(luminance(p) - luminance(fill)))
     return fill, ink, contrast(ink, fill)
@@ -84,33 +105,49 @@ def measure(name, box):
 
 def main():
     failures = []
-    seen = {}
-    for name, box, label, disabled in SAMPLES:
-        fill, ink, ratio = measure(name, box)
-        print(f"  {label:<26} fill={fill} ink={ink} -> {ratio:.2f}:1")
-        if ratio < MIN_RATIO:
-            failures.append(f"{label} is {ratio:.2f}:1, below {MIN_RATIO}:1")
-        theme = label.split()[0]
-        seen.setdefault(theme, {})[disabled] = (label, ratio)
+    total = 0
+    for name, y0, y1, x0, labels in ROWS:
+        path = BASELINES / name
+        if not path.exists():
+            raise SystemExit(f"ask-contrast: missing baseline {name}")
+        image = Image.open(path).convert("RGB")
+        card_fill = Counter(
+            image.getpixel((x, y0 + 1)) for x in range(x0, image.size[0])
+        ).most_common(1)[0][0]
+        runs = button_rects(image, y0, y1, x0, card_fill)[:len(labels)]
+        if len(runs) != len(labels):
+            failures.append(
+                f"{name}: found {len(runs)} action buttons, expected "
+                f"{len(labels)} ({', '.join(l for l, _ in labels)})")
+            continue
 
-    # A disabled control that out-shouts its enabled neighbour is the wrong
-    # signal even when both clear the bar.
-    for theme, rows in seen.items():
-        if True in rows and False in rows:
-            dis_label, dis = rows[True]
-            en_label, en = rows[False]
-            if dis >= en:
+        measured = []
+        for (label, disabled), box in zip(labels, runs):
+            fill, ink, ratio = measure(image, box, y0, y1)
+            total += 1
+            print(f"  {name.split('_')[0]:>3} {label:<9} "
+                  f"x={box[0]}..{box[1]} fill={fill} ink={ink} -> {ratio:.2f}:1")
+            if ratio < MIN_RATIO:
                 failures.append(
-                    f"{dis_label} ({dis:.2f}) is not dimmer than "
-                    f"{en_label} ({en:.2f})")
+                    f"{name} {label} is {ratio:.2f}:1, below {MIN_RATIO}:1")
+            measured.append((label, disabled, ratio))
+
+        dim = [m for m in measured if m[1]]
+        lit = [m for m in measured if not m[1]]
+        for label, _, ratio in dim:
+            for other, _, other_ratio in lit:
+                if ratio >= other_ratio:
+                    failures.append(
+                        f"{name}: disabled {label} ({ratio:.2f}) is not dimmer "
+                        f"than enabled {other} ({other_ratio:.2f})")
 
     if failures:
         print("\nask-contrast: FAIL", file=sys.stderr)
         for text in failures:
             print(f"  {text}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"ask-contrast: PASS ({len(SAMPLES)} labels, all >= {MIN_RATIO}:1, "
-          "measured off the shipped baselines)")
+    print(f"ask-contrast: PASS ({total} labels, all >= {MIN_RATIO}:1, boxes "
+          "derived from each button rect)")
 
 
 if __name__ == "__main__":

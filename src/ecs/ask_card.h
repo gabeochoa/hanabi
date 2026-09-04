@@ -123,6 +123,13 @@ inline int clamp_prompt_lines(int measured) {
     return measured;
 }
 
+inline bool rescue_belongs_here(const std::string& rescuedSession,
+                                const std::string& paneSession,
+                                bool kickoff) {
+    if (kickoff || rescuedSession.empty() || paneSession.empty()) return false;
+    return rescuedSession == paneSession;
+}
+
 inline std::string metrics_key(const api::PendingAsk& ask) {
     std::string key = ask.id();
     key += '#';

@@ -562,6 +562,15 @@ static void test_a_dropped_session_cannot_resurrect_an_ask() {
     CHECK(!st.born_after(a.id(), inflight));
 }
 
+static void test_a_rescue_belongs_to_one_thread() {
+    std::printf("a rescued draft is offered only to its own thread\n");
+    CHECK(ask::rescue_belongs_here("s1", "s1", false));
+    CHECK(!ask::rescue_belongs_here("s1", "s2", false));
+    CHECK(!ask::rescue_belongs_here("s1", "s1", true));
+    CHECK(!ask::rescue_belongs_here("", "s1", false));
+    CHECK(!ask::rescue_belongs_here("s1", "", false));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -584,6 +593,7 @@ int main() {
     test_the_shared_overlay_set_is_declared();
     test_metrics_track_the_questions_not_the_id();
     test_a_dropped_session_cannot_resurrect_an_ask();
+    test_a_rescue_belongs_to_one_thread();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

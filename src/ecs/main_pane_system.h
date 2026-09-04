@@ -5848,12 +5848,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         model::PaneState& composerState =
             model::pane_states().touch(composerStateKey);
         std::string& replyDraft = composerState.replyDraft;
-        if (!app.askRescuedDraft.empty() && !kickoff) {
-            replyDraft = replyDraft.empty()
-                             ? app.askRescuedDraft
-                             : replyDraft + "\n" + app.askRescuedDraft;
-            app.askRescuedDraft.clear();
-        }
         const std::string persistedDraftKey =
             model::persisted_reply_key(app.focusedPane, draftKey);
         if (!kickoff && !draftKey.empty() && !composerState.replyDraftLoaded) {
@@ -5861,6 +5855,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 replyDraft = api::disk_cache::load_draft(persistedDraftKey);
             composerState.persistedReplyDraft = replyDraft;
             composerState.replyDraftLoaded = true;
+        }
+        if (!app.askRescuedDraft.empty() &&
+            hanabi::ask::rescue_belongs_here(app.askRescuedSession, draftKey,
+                                             kickoff)) {
+            replyDraft = replyDraft.empty()
+                             ? app.askRescuedDraft
+                             : replyDraft + "\n" + app.askRescuedDraft;
+            app.askRescuedDraft.clear();
+            app.askRescuedSession.clear();
         }
         model::PaneState& history = composerState;
         const auto remember_sent = [&history](const std::string& text) {
