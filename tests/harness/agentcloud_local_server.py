@@ -376,7 +376,7 @@ def main():
     try:
         served = _accept_loop(listener)
     except KeyboardInterrupt:
-        served = max(served, 1)
+        served = len(_served_threads)
     _report(served)
 
 

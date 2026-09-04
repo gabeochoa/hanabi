@@ -4371,15 +4371,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static std::size_t open_ask_index(const AppComponent& app) {
         const auto* asks = app.asks_for(app.pane().openSession->summary.id);
         if (asks == nullptr || asks->empty()) return 0;
-        for (std::size_t i = 0; i < asks->size(); ++i)
-            if ((*asks)[i].id() == app.askState.shownId) return i;
-        for (std::size_t i = 0; i < asks->size(); ++i) {
-            const auto at = app.askState.answers.find((*asks)[i].id());
-            if (at != app.askState.answers.end() &&
-                hanabi::ask::has_draft((*asks)[i], at->second))
-                return i;
+        std::vector<hanabi::ask::AskShown> rows;
+        rows.reserve(asks->size());
+        for (const auto& a : *asks) {
+            hanabi::ask::AskShown row;
+            row.chosen = a.id() == app.askState.shownId;
+            const auto at = app.askState.answers.find(a.id());
+            row.has_draft = at != app.askState.answers.end() &&
+                            hanabi::ask::has_draft(a, at->second);
+            rows.push_back(row);
         }
-        return 0;
+        return hanabi::ask::shown_index(rows);
     }
 
     static const api::PendingAsk* open_ask(const AppComponent& app) {
@@ -4436,26 +4438,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             e.addComponent<afterhours::ui::SkipWhenTabbing>();
     }
 
-    static bool ask_theme_is_dark() {
-        const theme::Color bg = theme::window_bg();
-        return (static_cast<int>(bg.r) + bg.g + bg.b) < 384;
+    static bool ask_theme_is_dark() { return theme::is_dark(); }
+
+    static theme::Color ask_disabled_border() {
+        const theme::Color c = theme::border();
+        const theme::Color bg = theme::panel_bg_2();
+        const auto mix = [](unsigned char a, unsigned char b) {
+            return static_cast<unsigned char>((static_cast<int>(a) + b) / 2);
+        };
+        return theme::Color{mix(c.r, bg.r), mix(c.g, bg.g), mix(c.b, bg.b),
+                            c.a};
     }
 
     static theme::Color ask_disabled_ink() {
-        if (!ask_theme_is_dark()) return theme::Color{105, 105, 115, 255};
-        return theme::Color{150, 150, 162, 255};
+        return theme::ask_action_disabled_ink();
     }
 
     static theme::Color ask_enabled_action_ink() {
-        return ask_theme_is_dark() ? theme::text_primary()
-                                   : theme::text_secondary();
+        return theme::ask_action_enabled_ink();
+    }
+
+    static int ask_action_count(const AppComponent& app) {
+        if (!app.pane().openSession) return 2;
+        const auto* all = app.asks_for(app.pane().openSession->summary.id);
+        return (all != nullptr && all->size() > 1) ? 3 : 2;
     }
 
     static float ask_action_w(const AppComponent& app) {
+        const float n = static_cast<float>(ask_action_count(app));
         const float inner = ask_text_w(app);
-        const float pair = (inner - kAskActionGap) * 0.5f;
-        if (pair >= kAskActionW) return kAskActionW;
-        return pair < 1.0f ? 1.0f : pair;
+        const float each = (inner - kAskActionGap * (n - 1.0f)) / n;
+        if (each >= kAskActionW) return kAskActionW;
+        return each < 1.0f ? 1.0f : each;
     }
 
     static float ask_card_w(const AppComponent& app) {
@@ -5204,7 +5218,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                          pixels(28)})
                 .with_custom_background(submitOff ? theme::Color{0, 0, 0, 0}
                                                   : theme::accent())
-                .with_border(submitOff ? theme::border() : theme::accent(),
+                .with_border(submitOff ? ask_disabled_border()
+                                       : theme::accent(),
                              pixels(1.0f))
                 .with_custom_text_color(submitOff ? ask_disabled_ink()
                                                   : theme::window_bg())
@@ -5224,8 +5239,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (allAsks != nullptr && allAsks->size() > 1) {
             auto next = button(ctx, mk(actions.ent(), 3),
                 ComponentConfig{}
-                    .with_label("Next question")
-                    .with_size(ComponentSize{pixels(ask_action_w(app) * 1.4f),
+                    .with_label("Next")
+                    .with_size(ComponentSize{pixels(ask_action_w(app)),
                                              pixels(28)})
                     .with_margin(Margin{.left = pixels(kAskActionGap)})
                     .with_transparent_bg()
@@ -5255,7 +5270,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                          pixels(28)})
                 .with_margin(Margin{.left = pixels(kAskActionGap)})
                 .with_transparent_bg()
-                .with_border(theme::border(), pixels(1.0f))
+                .with_border((busy || !answerable || !inputLive || expired)
+                                 ? ask_disabled_border()
+                                 : theme::border(),
+                             pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_custom_text_color(
                     (busy || !answerable || !inputLive || expired)

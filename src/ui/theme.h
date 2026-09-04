@@ -509,6 +509,21 @@ inline Color divider() { return t.divider; }
 inline Color text_primary() { return t.text_primary; }
 inline Color text_secondary() { return t.text_secondary; }
 inline Color text_faint() { return t.text_faint; }
+
+inline bool is_dark() {
+    const Color bg = t.window_bg;
+    return (static_cast<int>(bg.r) + bg.g + bg.b) < 384;
+}
+
+inline Color ask_action_fill() { return t.panel_bg_2; }
+
+inline Color ask_action_disabled_ink() {
+    return is_dark() ? Color{150, 150, 162, 255} : Color{105, 105, 115, 255};
+}
+
+inline Color ask_action_enabled_ink() {
+    return is_dark() ? t.text_primary : t.text_secondary;
+}
 inline Color empty_state_text() { return t.empty_state_text; }
 inline Color accent() { return t.accent; }
 inline Color accent_soft() { return t.accent_soft; }

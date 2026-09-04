@@ -368,6 +368,11 @@
       "threshold_pct": 0.0,
       "note": "A long shell command wrapped across lines rather than ellipsized, because approving what you cannot read is the risk."
     },
+    "65_ask_two_questions_narrow_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "487x620",
+      "note": "Two pending asks at a narrow width: the header counts them, and all three action buttons — Next, Submit, Decline — stay inside the card."
+    },
     "64_ask_wrapped_options_narrow_dark": {
       "threshold_pct": 0.0,
       "resolution": "487x620",

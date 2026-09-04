@@ -145,6 +145,8 @@ class MockClient : public Client {
             !elicitation::answer_within_cap(ask, answer))
             return Result<std::string>::failure(
                 "that answer is too long for one reply");
+        if (std::getenv("HANABI_ASK_GONE") != nullptr)
+            return Result<std::string>::failure(elicitation::kAskGoneReason);
         if (const char* fail = std::getenv("HANABI_ASK_FAIL");
             fail != nullptr && *fail != '\0')
             return Result<std::string>::failure(

@@ -468,6 +468,37 @@ static void test_an_ask_expires_on_its_own_deadline() {
     CHECK(ask::expired_at(1000, 5000, 5002));
 }
 
+static void test_a_draft_is_never_displaced() {
+    std::printf("the shown ask is chosen, then drafted, then first\n");
+    CHECK(ask::shown_index({}) == 0);
+    CHECK(ask::shown_index({{false, false}, {false, false}}) == 0);
+    CHECK(ask::shown_index({{false, false}, {false, true}}) == 1);
+    CHECK(ask::shown_index({{false, true}, {false, false}}) == 0);
+    CHECK(ask::shown_index({{false, false}, {true, false}}) == 1);
+    CHECK(ask::shown_index({{true, false}, {false, true}}) == 0);
+    CHECK(ask::shown_index({{false, true}, {true, false}}) == 1);
+}
+
+static void test_a_stale_load_cannot_retire_a_live_ask() {
+    std::printf("an adopt retires only what its own load could have seen\n");
+    ask::State st;
+    api::PendingAsk old_ask;
+    old_ask.owner_session = "s1";
+    old_ask.seq = 41;
+
+    const std::uint64_t inflight = st.next_load_stamp();
+    st.adopt({old_ask}, {});
+    CHECK(!st.born_after(old_ask.id(), inflight));
+
+    st.next_load_stamp();
+    api::PendingAsk fresh;
+    fresh.owner_session = "s1";
+    fresh.seq = 42;
+    st.adopt({old_ask, fresh}, {old_ask});
+    CHECK(st.born_after(fresh.id(), inflight));
+    CHECK(!st.born_after(old_ask.id(), inflight));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -484,6 +515,8 @@ int main() {
     test_only_a_remainder_gets_rebased();
     test_escape_semantics();
     test_an_ask_expires_on_its_own_deadline();
+    test_a_draft_is_never_displaced();
+    test_a_stale_load_cannot_retire_a_live_ask();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

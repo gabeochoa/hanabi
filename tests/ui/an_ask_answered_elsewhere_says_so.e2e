@@ -1,0 +1,11 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=approval HANABI_ASK_GONE=1
+
+require_thread t2
+expect_text "The agent needs approval"
+
+click_ui ask_decline
+wait_frames 30
+expect_text "this question was already answered somewhere else"
+expect_no_text "The agent needs approval"
+expect_no_text "decline — press Deny to try again."

@@ -733,7 +733,6 @@ struct AppComponent : public afterhours::BaseComponent {
 
     void apply_attach_asks(const std::string& id,
                            const std::vector<api::PendingAsk>& asks) {
-        for (const auto& a : asks) askState.note_born(a.id());
         const auto known = attachAsks.find(id);
         static const std::vector<api::PendingAsk> kNone;
         askState.adopt(asks,

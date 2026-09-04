@@ -60,7 +60,7 @@ struct State {
     [[nodiscard]] bool born_after(const std::string& id,
                                   std::uint64_t stamp) const {
         const auto at = bornStamp.find(id);
-        return at != bornStamp.end() && at->second >= stamp;
+        return at != bornStamp.end() && at->second > stamp;
     }
     void note_drop(const std::string& session) { dropStamp[session] = loadSeq; }
     [[nodiscard]] bool load_is_stale(const std::string& session,
@@ -78,6 +78,7 @@ struct State {
         for (const auto& a : live) alive.insert(a.id());
         for (const auto& a : known)
             if (alive.count(a.id()) == 0) forget(a.id());
+        for (const auto& a : live) note_born(a.id());
         const int64_t now = static_cast<int64_t>(std::time(nullptr));
         for (const auto& a : live) {
             if (a.child_session.empty())
@@ -154,6 +155,19 @@ inline float question_h(const api::AskQuestion& q,
             break;
     }
     return h + kQuestionGap;
+}
+
+struct AskShown {
+    bool chosen = false;
+    bool has_draft = false;
+};
+
+inline std::size_t shown_index(const std::vector<AskShown>& asks) {
+    for (std::size_t i = 0; i < asks.size(); ++i)
+        if (asks[i].chosen) return i;
+    for (std::size_t i = 0; i < asks.size(); ++i)
+        if (asks[i].has_draft) return i;
+    return 0;
 }
 
 inline bool expired_at(std::int64_t timeout_ms, std::int64_t seen_at,
