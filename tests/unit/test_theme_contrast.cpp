@@ -35,6 +35,20 @@ static void check_direct(const char* name, theme::Color fg, theme::Color bg) {
     if (ratio < 4.5) ++failures;
 }
 
+static theme::Color ask_disabled_ink() {
+    const theme::Color bg = theme::window_bg();
+    const bool dark = (static_cast<int>(bg.r) + bg.g + bg.b) < 384;
+    if (!dark) return theme::Color{46, 46, 51, 255};
+    return theme::Color{150, 150, 158, 255};
+}
+
+static theme::Color ask_disabled_fill() {
+    const theme::Color bg = theme::window_bg();
+    const bool dark = (static_cast<int>(bg.r) + bg.g + bg.b) < 384;
+    if (!dark) return theme::panel_bg_2();
+    return theme::Color{20, 20, 26, 255};
+}
+
 static void check_mode(theme::Mode mode, const char* name) {
     theme::set_mode(mode);
     check_pair((std::string(name) + " blocked").c_str(), theme::tag_blocked_fg(),
@@ -47,6 +61,8 @@ static void check_mode(theme::Mode mode, const char* name) {
                  theme::text_primary(), theme::panel_bg());
     check_direct((std::string(name) + " panel secondary").c_str(),
                  theme::text_secondary(), theme::panel_bg());
+    check_direct((std::string(name) + " ask disabled action").c_str(),
+                 ask_disabled_ink(), ask_disabled_fill());
     theme::Color dangerTint = theme::destructive();
     dangerTint.a = mode == theme::Mode::Light ? 34 : 16;
     check_direct((std::string(name) + " destructive surface").c_str(),

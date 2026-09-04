@@ -355,6 +355,31 @@ int main() {
         }
     }
 
+    {
+        const auto orphan = client.get_session("turn-orphan", 1);
+        if (!orphan.ok) {
+            std::fprintf(stderr, "orphan attach failed: %s\n",
+                         orphan.error.c_str());
+            return 1;
+        }
+        bool sawUnknown = false;
+        for (const auto& a : orphan.value.pending_asks)
+            if (a.child_session == "ghost-local") {
+                sawUnknown = a.child_keys_unknown;
+                if (!a.has_file_question()) {
+                    std::fprintf(stderr,
+                                 "an unreachable child must stay "
+                                 "conservative\n");
+                    return 1;
+                }
+            }
+        if (!sawUnknown) {
+            std::fprintf(stderr,
+                         "an unreachable child was not marked unknown\n");
+            return 1;
+        }
+    }
+
     std::vector<std::string> retractAsks;
     api::StreamSink retractSink;
     retractSink.on_event = [&retractAsks](const api::StreamEvent& ev) {

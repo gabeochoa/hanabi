@@ -145,6 +145,12 @@ inline float question_h(const api::AskQuestion& q,
     return h + kQuestionGap;
 }
 
+inline bool expired_at(std::int64_t timeout_ms, std::int64_t seen_at,
+                       std::int64_t now) {
+    if (timeout_ms <= 0) return false;
+    return (now - seen_at) * 1000 > timeout_ms;
+}
+
 inline bool has_draft(const api::PendingAsk& ask,
                       const api::AskAnswer& answer) {
     for (const auto& q : ask.questions) {

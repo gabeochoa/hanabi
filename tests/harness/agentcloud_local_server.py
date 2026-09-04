@@ -9,12 +9,25 @@ import traceback
 _served_lock = threading.Lock()
 _served_threads = []
 _thread_errors = []
+_other_errors = []
+
+
+class ProtocolError(AssertionError):
+    pass
+
+
+def require(condition, detail):
+    if not condition:
+        raise ProtocolError(detail)
 
 
 def _record_thread_error(args):
-    _thread_errors.append(
-        "".join(traceback.format_exception(
-            args.exc_type, args.exc_value, args.exc_traceback)))
+    text = "".join(traceback.format_exception(
+        args.exc_type, args.exc_value, args.exc_traceback))
+    if issubclass(args.exc_type, ProtocolError):
+        _thread_errors.append(text)
+    else:
+        _other_errors.append(text)
 
 
 threading.excepthook = _record_thread_error
@@ -151,6 +164,26 @@ def _serve(conn):
                 if command.get("session_id") == "turn-local":
                     state["pending_elicitations"] = []
                 session_of_sub[sub] = command.get("session_id")
+                if command.get("session_id") == "ghost-local":
+                    send_frame(conn, {"sub": 0, "msg": {
+                        "type": "error", "message": "no such session"}})
+                    continue
+                if command.get("session_id") == "turn-orphan":
+                    state["pending_elicitations"] = []
+                    state["child_pending_elicitations"] = [{
+                        "session": "ghost-local",
+                        "elicitation": {
+                            "elicitation": 41,
+                            "tool": "AskUserQuestion",
+                            "message": "the ghost is asking",
+                            "requested_schema": _dumps({
+                                "type": "object",
+                                "properties": {
+                                    "q1": {"type": "string",
+                                           "title": "Say why"}}}),
+                            "timeout_ms": 600000,
+                        },
+                    }]
                 if command.get("session_id") == "kid-local":
                     state["pending_elicitations"] = [{
                         "elicitation": 41,
@@ -243,26 +276,26 @@ def _serve(conn):
                 msg = {"type": "hello", "capabilities": ["fork_with_prompt_v1"],
                        "state": state}
             elif kind == "resolve_elicitation":
-                assert command.get("session") != "gone-local", command
-                assert command.get("elicitation") != 77, command
-                assert command["elicitation"] == 41, command
+                require(command.get("session") != "gone-local", command)
+                require(command.get("elicitation") != 77, command)
+                require(command["elicitation"] == 41, command)
                 if command.get("session") == "kid-local":
-                    assert command["action"] == "decline", command
-                    assert "content" not in command, command
+                    require(command["action"] == "decline", command)
+                    require("content" not in command, command)
                     send_frame(conn, {"sub": sub, "msg": {
                         "type": "frame", "frame": "durable", "seq": 91,
                         "event": {"type": "child_elicitation_update",
                                   "session": "kid-local", "elicitation": 41,
                                   "cause": 55}}})
                     continue
-                assert command["action"] == "accept", command
-                assert "session" not in command, command
-                assert command["content"] == {
+                require(command["action"] == "accept", command)
+                require("session" not in command, command)
+                require(command["content"] == {
                     "q1": "promo",
                     "q1_other": "or the bank feed",
                     "q2": ["credits", "rows"],
                     "q3": "check the promo ledger first",
-                }, command["content"]
+                }, command["content"])
                 send_frame(conn, {"sub": sub, "msg": {
                     "type": "frame", "frame": "durable", "seq": 90,
                     "event": {"type": "elicitation_resolved",
@@ -273,14 +306,14 @@ def _serve(conn):
             elif kind == "page":
                 msg = {"type": "page", "frames": [], "done": True}
             elif kind == "fork_with_prompt":
-                assert command["source_session_id"] == "source-local"
-                assert command["prompt"] == "why local?"
-                assert command["title"] == "BTW: why local?"
-                assert "input" not in command
+                require(command["source_session_id"] == "source-local", 'command["source_session_id"] == "source-local"')
+                require(command["prompt"] == "why local?", 'command["prompt"] == "why local?"')
+                require(command["title"] == "BTW: why local?", 'command["title"] == "BTW: why local?"')
+                require("input" not in command, '"input" not in command')
                 msg = {"type": "created", "session": {"session_id": "fork-local"}}
             elif kind == "fork":
-                assert command["source_session_id"] == "source-local"
-                assert "before_seq" not in command
+                require(command["source_session_id"] == "source-local", 'command["source_session_id"] == "source-local"')
+                require("before_seq" not in command, '"before_seq" not in command')
                 msg = {"type": "created", "session": {"session_id": "fork-bare"}}
             elif kind == "list":
                 msg = {"type": "sessions", "sessions": [
@@ -304,21 +337,30 @@ def main():
     with open(args.port_file, "w") as out:
         out.write(str(listener.getsockname()[1]))
     listener.settimeout(30)
+    # Long enough for a client that is mid-operation to come back, short
+    # enough that a finished run does not pay for it: the loop also exits as
+    # soon as every connection it served has closed.
+    idle_window = 5
     served = 0
     while True:
         if serve_connection(listener) is False:
             break
         served += 1
-        listener.settimeout(45)
+        listener.settimeout(idle_window)
+        if all(not t.is_alive() for t in _served_threads):
+            break
     if served == 0:
         raise SystemExit("no client ever connected")
     for thread in list(_served_threads):
         thread.join(timeout=45)
+    for text in _other_errors:
+        print("[harness] non-protocol thread error:\n" + text,
+              file=sys.stderr)
     if _thread_errors:
         for text in _thread_errors:
             print(text, file=sys.stderr)
         raise SystemExit(
-            f"{len(_thread_errors)} protocol assertion(s) failed on a "
+            f"{len(_thread_errors)} protocol check(s) failed on a "
             "connection thread")
 
 

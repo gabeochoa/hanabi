@@ -1,5 +1,5 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_ASK_DEMO=1
+# env: HANABI_ASK_DEMO=1 HANABI_ASK_FAIL=echo
 
 require_thread t2
 expect_text "The agent is asking"
@@ -11,13 +11,13 @@ key SPACE
 wait_frames 8
 expect_no_text "Answer any one of these to submit"
 
+focus_ui ask_submit
+expect_focused ask_submit
 key SPACE
-wait_frames 8
-expect_text "Answer any one of these to submit"
-
-focus_ui ask_decline
-expect_focused ask_decline
-key SPACE
-wait_frames 10
-expect_text "Answer any one of these to submit"
+wait_frames 12
+expect_no_text "Answer any one of these to submit"
 expect_text "The agent is asking"
+
+key SPACE
+wait_frames 12
+expect_no_text "Answer any one of these to submit"

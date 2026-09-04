@@ -455,6 +455,19 @@ static void test_escape_semantics() {
     CHECK(ask::has_draft(form, typed));
 }
 
+static void test_an_ask_expires_on_its_own_deadline() {
+    std::printf("timeout_ms is honoured, and only when it is set\n");
+    CHECK(!ask::expired_at(0, 1000, 9999));
+    CHECK(!ask::expired_at(-1, 1000, 9999));
+
+    CHECK(!ask::expired_at(60000, 1000, 1000));
+    CHECK(!ask::expired_at(60000, 1000, 1060));
+    CHECK(ask::expired_at(60000, 1000, 1061));
+
+    CHECK(!ask::expired_at(600000, 5000, 5100));
+    CHECK(ask::expired_at(1000, 5000, 5002));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -470,6 +483,7 @@ int main() {
     test_escape_never_throws_away_typing();
     test_only_a_remainder_gets_rebased();
     test_escape_semantics();
+    test_an_ask_expires_on_its_own_deadline();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

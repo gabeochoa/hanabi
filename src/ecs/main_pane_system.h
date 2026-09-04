@@ -4559,11 +4559,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static bool ask_expired(const AppComponent& app,
                             const api::PendingAsk& ask) {
-        if (ask.timeout_ms <= 0) return false;
         const auto at = app.askState.seenAt.find(ask.id());
         if (at == app.askState.seenAt.end()) return false;
-        const int64_t now = static_cast<int64_t>(std::time(nullptr));
-        return (now - at->second) * 1000 > ask.timeout_ms;
+        return hanabi::ask::expired_at(
+            ask.timeout_ms, at->second,
+            static_cast<int64_t>(std::time(nullptr)));
     }
 
     static bool ask_note_shown(const AppComponent& app,
@@ -5199,8 +5199,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_debug_name("ask_submit"));
         ask_set_tab_stop(submit.ent(), !submitOff);
-        if (submitOff && submit.ent().has<afterhours::ui::HasLabel>())
-            submit.ent().get<afterhours::ui::HasLabel>().is_disabled = false;
         if (submit && !submitOff && inputLive) {
             clicked = true;
             submit_ask(app, ask, api::AskAction::Accept);
@@ -5231,9 +5229,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("ask_decline"));
         ask_set_tab_stop(decline.ent(),
                          !(busy || !answerable || !inputLive || expired));
-        if ((busy || !answerable || !inputLive || expired) &&
-            decline.ent().has<afterhours::ui::HasLabel>())
-            decline.ent().get<afterhours::ui::HasLabel>().is_disabled = false;
         if (decline && !busy && answerable && inputLive && !expired) {
             clicked = true;
             submit_ask(app, ask, api::AskAction::Decline);
