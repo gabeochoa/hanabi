@@ -618,8 +618,7 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string themeChoice = "dark";
     bool composerOpen = false;
     std::string composerDraft;
-    std::string askRescuedDraft;
-    std::string askRescuedSession;
+    hanabi::ask::RescuedDrafts askRescued;
 
     // Phase G (menu-bar): set by the frame loop when the menu-bar "New task…"
     // action fires; serviced there by opening the composer. A one-shot request
@@ -751,10 +750,7 @@ struct AppComponent : public afterhours::BaseComponent {
                 if (!kept.empty()) kept += "\n";
                 kept += t;
             }
-            if (!kept.empty()) {
-                askRescuedDraft = kept;
-                askRescuedSession = id;
-            }
+            askRescued.keep(id, kept);
         }
         askState.adopt(asks, before);
         if (asks.empty()) {

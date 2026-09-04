@@ -191,6 +191,9 @@ def verify_patch(temp: Path, base_tree: Path, pin_tree: Path, contract: Path,
             f"{patch_name}: green probe",
         )
 
+    else:
+        raise SystemExit(f"{patch_name}: unknown patch kind {kind!r}")
+
     print(f"PASS {patch_name}: red before, green after -- at the pin")
 
 

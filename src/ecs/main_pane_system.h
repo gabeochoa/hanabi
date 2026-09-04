@@ -5305,6 +5305,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (next && inputLive) {
                 const std::size_t at =
                     (open_ask_index(app) + 1) % allAsks->size();
+                auto& leaving = app.askState.cursor_for(ask.id());
+                leaving.question.clear();
+                leaving.option.clear();
                 app.askState.shownId = (*allAsks)[at].id();
                 clicked = true;
             }
@@ -5856,14 +5859,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             composerState.persistedReplyDraft = replyDraft;
             composerState.replyDraftLoaded = true;
         }
-        if (!app.askRescuedDraft.empty() &&
-            hanabi::ask::rescue_belongs_here(app.askRescuedSession, draftKey,
-                                             kickoff)) {
-            replyDraft = replyDraft.empty()
-                             ? app.askRescuedDraft
-                             : replyDraft + "\n" + app.askRescuedDraft;
-            app.askRescuedDraft.clear();
-            app.askRescuedSession.clear();
+        if (!kickoff && !draftKey.empty()) {
+            if (const std::string* rescued = app.askRescued.find(draftKey)) {
+                replyDraft = replyDraft.empty()
+                                 ? *rescued
+                                 : replyDraft + "\n" + *rescued;
+                api::disk_cache::save_draft(persistedDraftKey, replyDraft);
+                composerState.persistedReplyDraft = replyDraft;
+                app.askRescued.clear(draftKey);
+            }
         }
         model::PaneState& history = composerState;
         const auto remember_sent = [&history](const std::string& text) {

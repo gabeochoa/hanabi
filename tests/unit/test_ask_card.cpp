@@ -571,6 +571,30 @@ static void test_a_rescue_belongs_to_one_thread() {
     CHECK(!ask::rescue_belongs_here("s1", "", false));
 }
 
+static void test_rescues_do_not_overwrite_each_other() {
+    std::printf("every rescued answer survives, per thread\n");
+    ask::RescuedDrafts kept;
+    kept.keep("s1", "first answer");
+    kept.keep("s1", "second answer");
+    kept.keep("s2", "other thread");
+
+    const std::string* one = kept.find("s1");
+    CHECK(one != nullptr);
+    CHECK(one->find("first answer") != std::string::npos);
+    CHECK(one->find("second answer") != std::string::npos);
+    const std::string* two = kept.find("s2");
+    CHECK(two != nullptr && *two == "other thread");
+
+    kept.clear("s1");
+    CHECK(kept.find("s1") == nullptr);
+    CHECK(kept.find("s2") != nullptr);
+
+    for (int i = 0; i < 100; ++i)
+        kept.keep("s" + std::to_string(1000 + i), "x");
+    CHECK(kept.bySession.size() <= ask::kMaxRescuedSessions);
+    CHECK(kept.order.size() == kept.bySession.size());
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -594,6 +618,7 @@ int main() {
     test_metrics_track_the_questions_not_the_id();
     test_a_dropped_session_cannot_resurrect_an_ask();
     test_a_rescue_belongs_to_one_thread();
+    test_rescues_do_not_overwrite_each_other();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

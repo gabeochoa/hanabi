@@ -123,6 +123,43 @@ inline int clamp_prompt_lines(int measured) {
     return measured;
 }
 
+inline constexpr std::size_t kMaxRescuedSessions = 32;
+
+struct RescuedDrafts {
+    std::map<std::string, std::string> bySession;
+    std::vector<std::string> order;
+
+    void keep(const std::string& session, const std::string& text) {
+        if (session.empty() || text.empty()) return;
+        auto at = bySession.find(session);
+        if (at == bySession.end()) {
+            bySession.emplace(session, text);
+            order.push_back(session);
+        } else {
+            at->second += "\n";
+            at->second += text;
+            return;
+        }
+        while (order.size() > kMaxRescuedSessions) {
+            bySession.erase(order.front());
+            order.erase(order.begin());
+        }
+    }
+
+    [[nodiscard]] const std::string* find(const std::string& session) const {
+        const auto at = bySession.find(session);
+        return at == bySession.end() ? nullptr : &at->second;
+    }
+
+    void clear(const std::string& session) {
+        bySession.erase(session);
+        order.erase(std::remove(order.begin(), order.end(), session),
+                    order.end());
+    }
+
+    [[nodiscard]] bool empty() const { return bySession.empty(); }
+};
+
 inline bool rescue_belongs_here(const std::string& rescuedSession,
                                 const std::string& paneSession,
                                 bool kickoff) {

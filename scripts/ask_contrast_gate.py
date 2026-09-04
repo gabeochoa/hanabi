@@ -27,22 +27,31 @@ MIN_RATIO = 4.5
 # compared WITHIN a row -- same card, same theme, same state -- so a disabled
 # label can never be checked against an unrelated control's enabled one.
 ROWS = [
-    ("55_ask_card_dark.png", 620, 650, 320,
+    ("55_ask_card_dark.png", 620, 650, 320, 1040,
      [("Submit", True), ("Decline", False)]),
-    ("56_ask_card_light.png", 620, 650, 320,
+    ("56_ask_card_light.png", 620, 650, 320, 1040,
      [("Submit", True), ("Decline", False)]),
-    ("59_ask_approval_dark.png", 620, 650, 320,
+    ("59_ask_approval_dark.png", 620, 650, 320, 1040,
      [("Approve", False), ("Deny", False)]),
-    ("61_ask_long_approval_dark.png", 620, 650, 320,
+    ("61_ask_long_approval_dark.png", 620, 650, 320, 1040,
      [("Approve", False), ("Deny", False)]),
-    ("63_ask_unanswerable_backend_dark.png", 620, 650, 320,
+    ("63_ask_unanswerable_backend_dark.png", 620, 650, 320, 1040,
      [("Approve", True), ("Deny", True)]),
-    ("57_ask_card_narrow_dark.png", 480, 510, 250,
+    ("57_ask_card_narrow_dark.png", 480, 510, 250, 740,
      [("Submit", True), ("Decline", False)]),
-    ("65_ask_two_questions_narrow_dark.png", 480, 510, 250,
+    ("65_ask_two_questions_narrow_dark.png", 480, 510, 250, 470,
      [("Submit", True), ("Next", False), ("Decline", False)]),
-    ("66_ask_two_questions_tiny_dark.png", 480, 510, 190,
+    ("66_ask_two_questions_tiny_dark.png", 480, 510, 190, 325,
      [("Send", True), ("Next", False), ("Skip", False)]),
+]
+
+
+# Rows whose own card cannot show both states get their pair from the baseline
+# that shows the same control in the other state: an all-disabled row still has
+# to be dimmer than the same button enabled elsewhere.
+PAIRED = [
+    ("63_ask_unanswerable_backend_dark.png", "59_ask_approval_dark.png"),
+    ("63_ask_unanswerable_backend_dark.png", "61_ask_long_approval_dark.png"),
 ]
 
 
@@ -53,6 +62,10 @@ def luminance(color):
 
     return (0.2126 * channel(color[0]) + 0.7152 * channel(color[1]) +
             0.0722 * channel(color[2]))
+
+
+def stands_out(fill, card):
+    return sum(abs(fill[c] - card[c]) for c in range(3))
 
 
 def contrast(a, b):
@@ -106,7 +119,11 @@ def measure(image, box, y0, y1):
 def main():
     failures = []
     total = 0
-    for name, y0, y1, x0, labels in ROWS:
+    by_control = {}
+    fills = {}
+    inks = {}
+    cards = {}
+    for name, y0, y1, x0, card_right, labels in ROWS:
         path = BASELINES / name
         if not path.exists():
             raise SystemExit(f"ask-contrast: missing baseline {name}")
@@ -114,11 +131,14 @@ def main():
         card_fill = Counter(
             image.getpixel((x, y0 + 1)) for x in range(x0, image.size[0])
         ).most_common(1)[0][0]
-        runs = button_rects(image, y0, y1, x0, card_fill)[:len(labels)]
+        detected = button_rects(image, y0, y1, x0, card_fill)
+        cards[name] = card_fill
+        runs = [r for r in detected if r[1] <= card_right]
         if len(runs) != len(labels):
             failures.append(
-                f"{name}: found {len(runs)} action buttons, expected "
-                f"{len(labels)} ({', '.join(l for l, _ in labels)})")
+                f"{name}: found {len(runs)} action buttons inside the card "
+                f"(of {len(detected)} runs), expected {len(labels)} "
+                f"({', '.join(l for l, _ in labels)})")
             continue
 
         measured = []
@@ -131,15 +151,41 @@ def main():
                 failures.append(
                     f"{name} {label} is {ratio:.2f}:1, below {MIN_RATIO}:1")
             measured.append((label, disabled, ratio))
+            by_control[(name, label)] = ratio
+            fills[(name, label)] = fill
+            inks[(name, label)] = ink
 
         dim = [m for m in measured if m[1]]
         lit = [m for m in measured if not m[1]]
+
         for label, _, ratio in dim:
             for other, _, other_ratio in lit:
                 if ratio >= other_ratio:
                     failures.append(
                         f"{name}: disabled {label} ({ratio:.2f}) is not dimmer "
                         f"than enabled {other} ({other_ratio:.2f})")
+
+    for disabled_row, enabled_row in PAIRED:
+        dim = {label for (row, label) in by_control if row == disabled_row}
+        lit = {label for (row, label) in by_control if row == enabled_row}
+        shared = sorted(dim & lit)
+        if not shared:
+            failures.append(
+                f"{disabled_row}: no control in common with {enabled_row}")
+            continue
+        for label in shared:
+            off_fill = fills[(disabled_row, label)]
+            on_fill = fills[(enabled_row, label)]
+            if stands_out(on_fill, cards[enabled_row]) > 24:
+                if stands_out(off_fill, cards[disabled_row]) > 24:
+                    failures.append(
+                        f"{label} disabled on {disabled_row} keeps the filled "
+                        f"look it has enabled on {enabled_row}")
+            elif luminance(inks[(disabled_row, label)]) >= luminance(
+                    inks[(enabled_row, label)]):
+                failures.append(
+                    f"{label} disabled on {disabled_row} is not dimmer than "
+                    f"enabled on {enabled_row}")
 
     if failures:
         print("\nask-contrast: FAIL", file=sys.stderr)

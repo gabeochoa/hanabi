@@ -125,8 +125,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     static bool park_ask_draft(AppComponent& app, const std::string& kept,
                                const std::string& session) {
         if (kept.empty() || session.empty()) return false;
-        app.askRescuedDraft = kept;
-        app.askRescuedSession = session;
+        app.askRescued.keep(session, kept);
         return true;
     }
 
@@ -832,9 +831,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 const std::string kept = ask_draft_text(app, askId);
                 app.drop_attach_ask(sid, askId);
                 if (park_ask_draft(app, kept, sid)) {
+                    const bool onScreen =
+                        app.pane().openSession &&
+                        app.pane().openSession->summary.id == sid;
                     app.raise_toast(
-                        std::string(r.error) + " — your answer is in the "
-                        "composer",
+                        std::string(r.error) +
+                            (onScreen ? " — your answer is in the composer"
+                                      : " — your answer is saved for that "
+                                        "thread"),
                         "", AppComponent::ToastUndo::None);
                 } else {
                     app.raise_toast(r.error, "",
