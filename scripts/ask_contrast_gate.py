@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASELINES = ROOT / "docs" / "screenshots" / "baselines"
 MIN_RATIO = 4.5
 MAX_DISABLED_RATIO = 6.0
-NOTE_LINE_FLOOR = 0.90
+NOTE_LINE_COVERAGE = 0.95
 
 # One row per baseline: the action row's vertical band, and the labels it
 # carries left to right with whether each is disabled. Disabled-vs-enabled is
@@ -58,6 +58,7 @@ NOTE_ROWS = [
     ("64_ask_wrapped_options_narrow_dark.png", 423, 477, 254, 453, 3),
     ("65_ask_two_questions_narrow_dark.png", 423, 477, 254, 453, 3),
     ("66_ask_two_questions_tiny_dark.png", 387, 477, 204, 306, 5),
+    ("69_ask_too_short_approval_dark.png", 140, 158, 328, 1052, 1),
 ]
 
 
@@ -182,9 +183,43 @@ def note_lines(image, y0, y1, x0, x_right, card_fill):
             for top, bottom, ink in rows]
 
 
+def ink_span(color, card_fill):
+    return sum((color[c] - card_fill[c]) ** 2 for c in range(3)) ** 0.5
+
+
+def note_ink(rows, card_fill):
+    return max((r[2] for r in rows), default=None,
+               key=lambda p: ink_span(p, card_fill))
+
+
+def note_failures(name, rows, card_fill, expected):
+    found = []
+    if len(rows) != expected:
+        found.append(
+            f"{name}: the note draws {len(rows)} line(s) where {expected} "
+            "are reserved — a sentence is cut, or a reserved row is blank")
+    ink = note_ink(rows, card_fill)
+    if ink is None:
+        return found
+    span = ink_span(ink, card_fill)
+    ratio = contrast(ink, card_fill)
+    if ratio < MIN_RATIO:
+        found.append(
+            f"{name} note ink {ink} is {ratio:.2f}:1, below {MIN_RATIO}:1")
+    for top, bottom, line_ink, line_ratio in rows:
+        coverage = ink_span(line_ink, card_fill) / span
+        if coverage < NOTE_LINE_COVERAGE:
+            found.append(
+                f"{name} note line y {top}..{bottom} reaches only "
+                f"{coverage:.2f} of the note's own ink {ink} — it is drawn in "
+                f"a dimmer ink, worth {line_ratio:.2f}:1")
+    return found
+
+
 def note_self_check():
-    """Erasing a line of the caveat must change the count, not just the ratio."""
-    name, y0, y1, x0, x_right, expected = NOTE_ROWS[-1]
+    """Erasing, dimming, or shaving one line of the caveat must be rejected."""
+    name, y0, y1, x0, x_right, expected = next(
+        r for r in NOTE_ROWS if r[0].startswith("66_"))
     image = Image.open(BASELINES / name).convert("RGB").copy()
     card_fill = note_fill(image, y0, y1, x0, x_right)
     before = note_lines(image, y0, y1, x0, x_right, card_fill)
@@ -209,13 +244,32 @@ def note_self_check():
                 continue
             dimmed.putpixel((x, y), tuple(
                 (pixel[c] + card_fill[c]) // 2 for c in range(3)))
-    faint = max((r[3] for r in note_lines(dimmed, y0, y1, x0, x_right,
-                                          card_fill)), default=0.0)
-    if faint >= MIN_RATIO:
+    if not note_failures(name, note_lines(dimmed, y0, y1, x0, x_right,
+                                          card_fill), card_fill, expected):
         raise SystemExit(
-            f"ask-contrast note self-check: a note halfway to its own "
-            f"background measured {faint:.2f}:1, which the {MIN_RATIO}:1 floor "
-            "would accept")
+            "ask-contrast note self-check: a note halfway to its own "
+            f"background passed, which the {MIN_RATIO}:1 floor must reject")
+
+    shaved = Image.open(BASELINES / name).convert("RGB").copy()
+    top, bottom = before[1][0], before[1][1]
+    for x in range(x0, min(x_right, shaved.size[0])):
+        for y in range(top, bottom + 1):
+            pixel = shaved.getpixel((x, y))
+            if sum(abs(pixel[c] - card_fill[c]) for c in range(3)) <= 18:
+                continue
+            shaved.putpixel((x, y), tuple(
+                card_fill[c] + round((pixel[c] - card_fill[c]) * 0.94)
+                for c in range(3)))
+    rows = note_lines(shaved, y0, y1, x0, x_right, card_fill)
+    if len(rows) != expected:
+        raise SystemExit(
+            "ask-contrast note self-check: shaving one line moved the measured "
+            f"count to {len(rows)}, so the coverage floor is untested")
+    if not note_failures(name, rows, card_fill, expected):
+        raise SystemExit(
+            "ask-contrast note self-check: a note line shaved to 0.94 of its "
+            "note's own ink passed, so a line dimmer than the rest of its note "
+            "would ship")
 
 
 def self_check():
@@ -311,24 +365,16 @@ def main():
         card_fill = note_fill(image, y0, y1, x0, x_right)
         rows = note_lines(image, y0, y1, x0, x_right, card_fill)
         notes += len(rows)
-        block = max((r[3] for r in rows), default=0.0)
+        ink = note_ink(rows, card_fill)
+        span = ink_span(ink, card_fill) if ink is not None else 0.0
+        block = contrast(ink, card_fill) if ink is not None else 0.0
         print(f"  {name.split('_')[0]:>3} note      "
               f"{len(rows)}/{expected} line(s) ink {block:.2f}:1 " +
-              " ".join(f"[{top}..{bottom} {ratio:.2f}:1]"
-                       for top, bottom, _, ratio in rows))
-        if len(rows) != expected:
-            failures.append(
-                f"{name}: the note draws {len(rows)} line(s) where {expected} "
-                "are reserved — a sentence is cut, or a reserved row is blank")
-        if block < MIN_RATIO:
-            failures.append(
-                f"{name} note ink is {block:.2f}:1, below {MIN_RATIO}:1")
-        for top, bottom, _, ratio in rows:
-            if ratio < block * NOTE_LINE_FLOOR:
-                failures.append(
-                    f"{name} note line y {top}..{bottom} is {ratio:.2f}:1 "
-                    f"against the note's own {block:.2f}:1 — it is drawn on a "
-                    "dimmer ink than the rest of the note")
+              " ".join(
+                  f"[{top}..{bottom} {ratio:.2f}:1 "
+                  f"cov {ink_span(line_ink, card_fill) / span:.2f}]"
+                  for top, bottom, line_ink, ratio in rows))
+        failures.extend(note_failures(name, rows, card_fill, expected))
 
     for disabled_row, enabled_row in PAIRED:
         dim = {label for (row, label) in by_control if row == disabled_row}
@@ -357,8 +403,13 @@ def main():
         for text in failures:
             print(f"  {text}", file=sys.stderr)
         raise SystemExit(1)
-    print(f"ask-contrast: PASS ({total} labels and {notes} note lines, all >= "
-          f"{MIN_RATIO}:1, boxes derived from each button rect)")
+    print(f"ask-contrast: PASS ({total} action labels, each >= {MIN_RATIO}:1 "
+          f"with every disabled one dimmer than its enabled pair and under "
+          f"{MAX_DISABLED_RATIO}:1, boxes derived from each button rect; "
+          f"{notes} note lines across {len(NOTE_ROWS)} notes, each note's "
+          f"ink >= {MIN_RATIO}:1 measured at its best-covered pixel and every "
+          f"line drawn in that same ink to within "
+          f"{1.0 - NOTE_LINE_COVERAGE:.0%} coverage)")
 
 
 if __name__ == "__main__":
