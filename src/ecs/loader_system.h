@@ -123,6 +123,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
     }
 
+    static std::string ask_draft_text(const AppComponent& app,
+                                      const std::string& askId) {
+        const auto at = app.askState.answers.find(askId);
+        if (at == app.askState.answers.end()) return {};
+        std::string out;
+        for (const auto& [key, text] : at->second.text) {
+            const std::string trimmed = api::elicitation::trimmed(text);
+            if (trimmed.empty()) continue;
+            if (!out.empty()) out += "\n";
+            out += trimmed;
+        }
+        return out;
+    }
+
     static void adopt_turn_asks(AppComponent& app, const std::string& id,
                                 const std::string& asksJson,
                                 std::uint64_t stamp) {
@@ -808,9 +822,19 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.drop_attach_ask(sid, askId);
                 request_ask_refresh(app, sid);
             } else if (r.error == api::elicitation::kAskGoneReason) {
+                const std::string kept = ask_draft_text(app, askId);
                 app.drop_attach_ask(sid, askId);
-                app.raise_toast(r.error, "",
-                               AppComponent::ToastUndo::None);
+                if (!kept.empty()) {
+                    std::string& draft = app.composerDraft;
+                    draft = draft.empty() ? kept : draft + "\n" + kept;
+                    app.raise_toast(
+                        std::string(r.error) + " — your answer is in the "
+                        "composer",
+                        "", AppComponent::ToastUndo::None);
+                } else {
+                    app.raise_toast(r.error, "",
+                                    AppComponent::ToastUndo::None);
+                }
             } else {
                 app.askState.errorId = askId;
                 app.askState.errorText = r.error;

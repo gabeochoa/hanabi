@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Contrast of the ask card's action labels, measured off the shipped pixels.
+"""Contrast of the ask card's action labels, measured off the committed baselines.
+
+This validates the BASELINES, which validate-screenshots then holds the build
+to at 0.0000%: a source change that moves a label lands here one step later,
+when its baseline is re-captured.
 
 A token-only check certifies arithmetic, not the screen. The disabled fill goes
 through the engine's disabled compositing on its way to the framebuffer, which
@@ -20,6 +24,24 @@ MIN_RATIO = 4.5
 
 # Button interiors, inset from the border so the sample is fill and glyph only.
 SAMPLES = [
+    ("59_ask_approval_dark.png", (334, 626, 418, 644),
+     "dark Approve enabled", False),
+    ("59_ask_approval_dark.png", (444, 626, 516, 644),
+     "dark Deny enabled", False),
+    ("57_ask_card_narrow_dark.png", (258, 483, 348, 505),
+     "narrow Submit disabled", True),
+    ("57_ask_card_narrow_dark.png", (360, 483, 452, 505),
+     "narrow Decline enabled", False),
+    ("65_ask_two_questions_narrow_dark.png", (258, 483, 330, 507),
+     "two-ask Submit disabled", True),
+    ("65_ask_two_questions_narrow_dark.png", (410, 483, 470, 507),
+     "two-ask Decline enabled", False),
+    ("66_ask_two_questions_tiny_dark.png", (200, 483, 250, 507),
+     "tiny Send disabled", True),
+    ("66_ask_two_questions_tiny_dark.png", (292, 483, 330, 507),
+     "tiny Skip enabled", False),
+    ("61_ask_long_approval_dark.png", (334, 626, 418, 644),
+     "long-approval Approve enabled", False),
     ("56_ask_card_light.png", (334, 626, 418, 644), "light Submit disabled", True),
     ("56_ask_card_light.png", (444, 626, 516, 644), "light Decline enabled", False),
     ("55_ask_card_dark.png", (334, 626, 418, 644), "dark Submit disabled", True),

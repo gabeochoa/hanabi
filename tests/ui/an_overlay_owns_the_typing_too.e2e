@@ -1,0 +1,15 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=settings
+
+require_thread t2
+expect_text "The agent is asking"
+
+focus_ui ask_text_q3
+type "leaked"
+wait_frames 12
+expect_input_text ask_text_q3 ""
+
+focus_ui ask_other_q1
+type "leaked"
+wait_frames 12
+expect_input_text ask_other_q1 ""

@@ -255,6 +255,8 @@ TABS_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"]
 TABS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"light"}'
 TABS_T6='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t6","theme":"dark"}'
 MANYTABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10","r1","r2","r4","r5","r6","r7","r8","r9","r10","r11"],"active_tab":"r11","pinned_tabs":["r10","r11"],"theme":"dark"}'
+SPLIT_EDGE_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}'
+SPLIT_EDGE_DARK_700='{"window_width":700,"window_height":620,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}'
 NARROW_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
 NARROW_MANY='{"window_width":760,"window_height":620,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"],"active_tab":"t5","theme":"dark"}'
 SETTINGS_NARROW='{"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark"}'
@@ -465,6 +467,10 @@ capture_sized 65_ask_two_questions_narrow_dark "487 x 620" "$NARROW_DARK" \
     HANABI_WIN_W=487 HANABI_WIN_H=620 HANABI_ASK_DEMO=two
 capture_sized 66_ask_two_questions_tiny_dark "340 x 620" "$NARROW_DARK" \
     HANABI_WIN_W=340 HANABI_WIN_H=620 HANABI_ASK_DEMO=two
+capture_sized 67_split_at_the_narrow_edge_dark "760 x 620" "$SPLIT_EDGE_DARK" \
+    HANABI_WIN_W=760 HANABI_WIN_H=620
+capture_sized 68_split_below_the_edge_dark "700 x 620" "$SPLIT_EDGE_DARK_700" \
+    HANABI_WIN_W=700 HANABI_WIN_H=620
 capture_sized 64_ask_wrapped_options_narrow_dark "487 x 620" "$NARROW_DARK" \
     HANABI_WIN_W=487 HANABI_WIN_H=620 HANABI_ASK_DEMO=1
 capture 63_ask_unanswerable_backend_dark "$TABS_DARK" \

@@ -368,6 +368,16 @@
       "threshold_pct": 0.0,
       "note": "A long shell command wrapped across lines rather than ellipsized, because approving what you cannot read is the risk."
     },
+    "67_split_at_the_narrow_edge_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "The narrowest window that still renders two panes: both conversations draw, neither is a stray close button over a single transcript."
+    },
+    "68_split_below_the_edge_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "700x620",
+      "note": "Below the two-pane floor the split closes cleanly to one pane — the preference is remembered, so widening brings it back."
+    },
     "66_ask_two_questions_tiny_dark": {
       "threshold_pct": 0.0,
       "resolution": "340x620",
@@ -376,7 +386,7 @@
     "65_ask_two_questions_narrow_dark": {
       "threshold_pct": 0.0,
       "resolution": "487x620",
-      "note": "Two pending asks at a narrow width: the header counts them, and all three action buttons — Next, Submit, Decline — stay inside the card."
+      "note": "Two pending asks at a narrow width: the header counts them, and all three action buttons stay inside the card with labels that fit whole."
     },
     "64_ask_wrapped_options_narrow_dark": {
       "threshold_pct": 0.0,

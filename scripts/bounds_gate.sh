@@ -98,8 +98,16 @@ JSON
     pkill -9 -f "^$EXE" >/dev/null 2>&1
     case "$st" in
       *HANABI_ASK_DEMO=*)
-        if ! grep -q "\[bounds\] *ask_card\|ask_card in" "$WORK/log.txt" \
-           && ! grep -q "ask_" "$WORK/log.txt"; then
+        # shellcheck disable=SC2086
+        env HOME="$H" HANABI_BACKEND=mock HANABI_CONFIG="/tmp/none_bounds_$$" \
+            HANABI_PROF=1 HANABI_SOAK=60 HANABI_WIN_W=1180 HANABI_WIN_H=949 \
+            $st "$EXE" --screenshot "$H/probe.png" > "$WORK/askprobe.txt" 2>&1 &
+        pid=$!
+        for _ in $(seq 1 40); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+        kill -9 "$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null
+        pkill -9 -f "^$EXE" >/dev/null 2>&1
+        if ! grep -q "ask\.cards_drawn" "$WORK/askprobe.txt"; then
             echo "bounds-gate: FAIL: no ask card rendered for state: $st" >&2
             exit 1
         fi

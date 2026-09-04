@@ -1,11 +1,15 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_ASK_DEMO=approval HANABI_ASK_GONE=1
+# env: HANABI_ASK_DEMO=1 HANABI_ASK_GONE=1
 
 require_thread t2
-expect_text "The agent needs approval"
+expect_text "The agent is asking"
+
+focus_ui ask_text_q3
+type "half a sentence"
+wait_frames 8
 
 click_ui ask_decline
 wait_frames 30
-expect_text "this question is no longer pending"
-expect_no_text "The agent needs approval"
-expect_no_text "decline — press Deny to try again."
+expect_text "your answer is in the composer"
+expect_no_text "The agent is asking"
+

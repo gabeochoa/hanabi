@@ -70,7 +70,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const auto& r = layout->main;
-        const bool splitView = app->view == SmartView::Chat && app->splitOpen;
+        const bool splitView = app->view == SmartView::Chat &&
+                               app->splitOpen &&
+                               split_fits(r.width - kDividerW);
         const float contentH =
             r.height + (splitView ? layout->composer.height : 0.0f);
 
@@ -2489,15 +2491,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // The left pane's width in pixels, from the persisted ratio, clamped so a
     // drag can never reduce either side to nothing.
+    static constexpr float kAskUsablePaneW = 240.0f;
+
     static bool split_fits(float usable) {
-        return usable >= kMinimumPaneW * 2.0f;
+        return usable >= kAskUsablePaneW * 2.0f;
     }
 
     static float clamped_split_left(float desired, float usable) {
         if (usable <= 0.0f) return 0.0f;
         if (!split_fits(usable)) return usable;
-        return std::round(std::clamp(desired, kMinimumPaneW,
-                                     usable - kMinimumPaneW));
+        const float floorW =
+            usable >= kMinimumPaneW * 2.0f ? kMinimumPaneW : kAskUsablePaneW;
+        return std::round(std::clamp(desired, floorW, usable - floorW));
     }
 
     static float split_left_width(const AppComponent& app, float paneW) {
@@ -5063,6 +5068,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
                         .with_corner_radius(6.0f)
+                        .with_disabled(!inputLive)
                         .with_debug_name("ask_text_" + q.key));
                 continue;
             }
@@ -5171,11 +5177,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
                         .with_corner_radius(6.0f)
+                        .with_disabled(!inputLive)
                         .with_debug_name("ask_other_" + q.key));
             }
         }
 
-        const bool tightRow = ask_action_w(app) < kAskActionW;
+        const float actionW = ask_action_w(app);
+        const auto fits = [actionW](const char* a, const char* b) {
+            const float pad = 12.0f;
+            return theme::text_px(a, theme::type::SM) + pad <= actionW &&
+                   theme::text_px(b, theme::type::SM) + pad <= actionW;
+        };
+        const bool tightRow = approval ? !fits("Approve", "Deny")
+                                       : !fits("Submit", "Decline");
         const std::string submitLabel =
             approval ? (tightRow ? "OK" : "Approve")
                      : (tightRow ? "Send" : "Submit");
