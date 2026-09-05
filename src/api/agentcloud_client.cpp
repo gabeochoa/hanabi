@@ -29,6 +29,7 @@ constexpr int kForkTimeoutSecs = 60;
 
 constexpr int kProbeHelloTimeoutSecs = 8;
 constexpr int kChildProbeRetrySecs = 30;
+constexpr int kChildProbeBudgetSecs = 16;
 constexpr int kOwnSettleTimeoutSecs = 30;
 constexpr int kChildSettleTimeoutSecs = 45;
 
@@ -1089,7 +1090,7 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
 void LiveTurn::seed_asks(const json& state, const StreamSink& sink) {
     asks_.clear();
     children_ = json::array();
-    childCause_.clear();
+    if (causesShared_ == nullptr) childCause_.clear();
     if (state.is_object() && state.contains("pending_elicitations") &&
         state.at("pending_elicitations").is_array())
         for (const json& e : state.at("pending_elicitations"))
@@ -1154,13 +1155,14 @@ bool LiveTurn::fold_child_update(const std::string& frame_json) {
     if (!elicitation::fold_child_update(frame_json, &session, &seq, &cause,
                                         &causeKnown, &pending, &entry))
         return false;
+    if (!causeKnown) return false;
 
+    ChildCauseMap& causes =
+        causesShared_ != nullptr ? *causesShared_ : childCause_;
     const auto key = std::make_pair(session, seq);
-    const auto seen = childCause_.find(key);
-    if (causeKnown) {
-        if (seen != childCause_.end() && cause <= seen->second) return false;
-        childCause_[key] = cause;
-    }
+    const auto seen = causes.find(key);
+    if (seen != causes.end() && cause <= seen->second) return false;
+    causes[key] = cause;
     json kept = json::array();
     bool changed = false;
     for (const json& row : children_) {
@@ -1306,9 +1308,15 @@ void AgentcloudClient::resolve_child_questions(
     if (kids.empty()) return;
 
     constexpr std::size_t kMaxProbesAtOnce = 4;
+    const auto probeDeadline = std::chrono::steady_clock::now() +
+                               std::chrono::seconds(kChildProbeBudgetSecs);
     std::vector<std::string> ids(kids.begin(), kids.end());
     std::vector<std::pair<bool, std::vector<PendingAsk>>> results(ids.size());
     for (std::size_t base = 0; base < ids.size(); base += kMaxProbesAtOnce) {
+        if (std::chrono::steady_clock::now() +
+                std::chrono::seconds(kProbeHelloTimeoutSecs) >
+            probeDeadline)
+            break;
         const std::size_t end =
             std::min(base + kMaxProbesAtOnce, ids.size());
         std::vector<std::future<std::pair<bool, std::vector<PendingAsk>>>> run;
@@ -1460,7 +1468,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
         const uint64_t oldest =
             static_cast<uint64_t>(int_or(frames.front(), "seq", 0));
         pages.push_back(frames);
-        done = page.value("done", true);
+        done = bool_or(page, "done", true);
         if (oldest == 0) break;  // no usable cursor; stop rather than spin
         before = oldest;
     }
@@ -1542,6 +1550,7 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     // calls -- so the wait is bounded by SILENCE, not by total duration:
     // as long as frames keep arriving we keep reading.
     agentcloud::LiveTurn turn;
+    turn.share_child_causes(&childCauses_);
     turn.seed_asks(obj_at(hello, "state"), sink);
 
     const auto deadline_from_now = [] {
@@ -1554,8 +1563,12 @@ void AgentcloudClient::run_turn(const std::string& session_id,
         const json msg = q.wait_for_next(idle_deadline);
         if (msg.is_discarded()) {
             if (q.is_closed()) {
-                sink.emit_error("connection closed mid-turn: " + q.why_closed());
-                return;
+                if (turn.assembled().text.empty()) {
+                    sink.emit_error("connection closed mid-turn: " +
+                                    q.why_closed());
+                    return;
+                }
+                break;
             }
             // Silence for the whole idle window. Hand back what did arrive
             // rather than throwing the turn away -- a partial reply the user
@@ -1775,14 +1788,12 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
     for (;;) {
         const json msg = q.wait_for_next(deadline);
         if (msg.is_discarded()) {
-            if (q.is_closed())
-                return fail(q.closed_note("no settlement for this question"));
+            const std::string why =
+                q.closed_note("no settlement for this question");
             std::vector<PendingAsk> live;
-            if (!read_pending_asks(session_id, &live))
-                return fail("no settlement for this question");
+            if (!read_pending_asks(session_id, &live)) return fail(why);
             for (const PendingAsk& p : live)
-                if (p.id() == ask.id())
-                    return fail("no settlement for this question");
+                if (p.id() == ask.id()) return fail(why);
             return fail(elicitation::unconfirmed_reason(
                 !ask.child_session.empty()));
         }

@@ -1241,6 +1241,70 @@ static void test_the_watermark_drops_a_late_frame() {
 
     turn.feed(frame(41, 70, true), sink);
     CHECK(asks_now() == 1);
+
+    nlohmann::json noCause = frame(41, 90, true);
+    noCause["event"].erase("cause");
+    turn.feed(noCause, sink);
+    CHECK(asks_now() == 1);
+
+    // The reachable half: a key with NO watermark yet. Once one exists the
+    // absent cause folds to 0 and the <= test drops the frame anyway, so this
+    // is the only shape that ever installed on a malformed required field.
+    api::agentcloud::LiveTurn fresh;
+    fresh.seed_asks(nlohmann::json::object(), sink);
+    nlohmann::json headless = frame(52, 5, true);
+    headless["event"]["session"] = "other";
+    headless["event"].erase("cause");
+    fresh.feed(headless, sink);
+    CHECK(asks_now() == 0);
+}
+
+static void test_the_watermark_outlives_the_turn() {
+    std::printf("a cleared entry stays cleared across turns\n");
+    const auto frame = [](std::uint64_t seq, std::uint64_t cause,
+                          bool pending) {
+        nlohmann::json ev = nlohmann::json::object();
+        ev["type"] = "child_elicitation_update";
+        ev["session"] = "kid";
+        ev["elicitation"] = seq;
+        ev["cause"] = cause;
+        if (pending)
+            ev["pending"] = {{"tool", "AskUserQuestion"},
+                             {"message", "the child asks"},
+                             {"requested_schema", ""}};
+        return nlohmann::json({{"type", "frame"},
+                               {"seq", cause},
+                               {"event", ev}});
+    };
+
+    std::vector<std::string> reports;
+    api::StreamSink sink;
+    sink.on_event = [&reports](const api::StreamEvent& e) {
+        if (e.kind == api::StreamEventKind::AsksChanged)
+            reports.push_back(e.payload);
+    };
+    const auto asks_now = [&reports]() -> std::size_t {
+        if (reports.empty()) return 0;
+        const auto st = nlohmann::json::parse(reports.back(), nullptr, false);
+        return api::elicitation::asks_from_state(st, "owner").size();
+    };
+
+    api::agentcloud::LiveTurn::ChildCauseMap causes;
+    {
+        api::agentcloud::LiveTurn first;
+        first.share_child_causes(&causes);
+        first.seed_asks(nlohmann::json::object(), sink);
+        first.feed(frame(41, 41, true), sink);
+        CHECK(asks_now() == 1);
+        first.feed(frame(41, 55, false), sink);
+        CHECK(asks_now() == 0);
+    }
+
+    api::agentcloud::LiveTurn second;
+    second.share_child_causes(&causes);
+    second.seed_asks(nlohmann::json::object(), sink);
+    second.feed(frame(41, 41, true), sink);
+    CHECK(asks_now() == 0);
 }
 
 // A pending_elicitations row with "elicitation": null must not kill the turn.
@@ -1362,6 +1426,7 @@ int main() {
     test_fork_wire_contract_and_child_catalog();
     test_backward_paging_never_rewinds_the_live_plan();
     test_the_watermark_drops_a_late_frame();
+    test_the_watermark_outlives_the_turn();
     test_a_null_elicitation_row_does_not_kill_the_turn();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);

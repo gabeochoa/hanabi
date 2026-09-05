@@ -116,6 +116,8 @@ class AgentcloudClient : public Client {
         childQuestions_;
     std::map<std::string, std::chrono::steady_clock::time_point>
         childProbeFailed_;
+    std::map<std::pair<std::string, std::uint64_t>, std::uint64_t>
+        childCauses_;
 
     std::string attach_and_page(const std::string& id, int limit, Session* out,
                                 std::string* error);
@@ -250,6 +252,10 @@ class LiveTurn {
 
     void seed_asks(const nlohmann::json& state, const StreamSink& sink);
 
+    using ChildCauseMap =
+        std::map<std::pair<std::string, std::uint64_t>, std::uint64_t>;
+    void share_child_causes(ChildCauseMap* causes) { causesShared_ = causes; }
+
    private:
     bool drop_settled_ask(const std::string& frame_json);
     bool fold_child_update(const std::string& frame_json);
@@ -262,8 +268,8 @@ class LiveTurn {
     std::string emitted_;
     std::vector<nlohmann::json> asks_;
     nlohmann::json children_ = nlohmann::json::array();
-    std::map<std::pair<std::string, std::uint64_t>, std::uint64_t>
-        childCause_;
+    ChildCauseMap childCause_;
+    ChildCauseMap* causesShared_ = nullptr;
     bool asksKnown_ = false;
 };
 
