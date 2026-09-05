@@ -157,7 +157,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                                       api::elicitation::asks_from_state(state,
                                                                         id))),
                     stamp),
-                stamp));
+                stamp),
+            stamp);
     }
 
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
@@ -169,7 +170,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 keep_newer_asks(
                     app, s.summary.id,
                     keep_busy_ask(app, s.summary.id, s.pending_asks), stamp),
-                stamp));
+                stamp),
+            stamp);
     }
     static std::vector<api::PendingAsk> keep_newer_asks(
         const AppComponent& app, const std::string& id,

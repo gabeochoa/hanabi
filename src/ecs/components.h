@@ -747,8 +747,12 @@ struct AppComponent : public afterhours::BaseComponent {
         return kept;
     }
 
+    // `stamp` is the load that carried `asks` -- it is what each ask's born
+    // stamp is recorded as, so keep_newer_asks() can tell an ask apart from
+    // the loads too old to speak for it.
     void apply_attach_asks(const std::string& id,
-                           const std::vector<api::PendingAsk>& asks) {
+                           const std::vector<api::PendingAsk>& asks,
+                           std::uint64_t stamp) {
         const auto known = attachAsks.find(id);
         static const std::vector<api::PendingAsk> kNone;
         const auto& before = known == attachAsks.end() ? kNone : known->second;
@@ -760,7 +764,7 @@ struct AppComponent : public afterhours::BaseComponent {
             if (at == askState.answers.end()) continue;
             askRescued.keep(id, hanabi::ask::draft_text_of(a, at->second));
         }
-        askState.adopt(asks, before);
+        askState.adopt(asks, before, stamp);
         // An empty snapshot retires the asks it replaces -- and nothing else.
         //
         // It used to also erase the session and stamp it, which had two costs.

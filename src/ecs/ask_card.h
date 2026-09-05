@@ -70,7 +70,29 @@ struct State {
     std::string shownId;
 
     std::uint64_t next_load_stamp() { return ++loadSeq; }
-    void note_born(const std::string& id) { bornStamp.emplace(id, loadSeq); }
+
+    // The stamp of the load that CARRIED this ask -- not the value of the
+    // global counter when that load happened to land.
+    //
+    // It used to be the latter: note_born() read loadSeq, which is one counter
+    // shared by every session's refresh and every turn. A load's stamp is
+    // minted when it is REQUESTED and it lands seconds later, so by then the
+    // counter has moved on by however many polls other threads happened to
+    // fire in between. The number recorded had nothing to do with this ask.
+    //
+    // What it broke is keep_newer_asks(), whose whole job is "a load may only
+    // retire an ask it could have known about". With an inflated stamp an ask
+    // outranked loads that were genuinely newer than the one that brought it,
+    // so an ask resolved elsewhere was pushed back onto the card by the very
+    // snapshot that reported it gone -- and whether that happened depended on
+    // how busy an unrelated thread's polling was.
+    //
+    // Recorded as the carrying stamp, born_after()'s strict > is exactly the
+    // rule: older load lands late, it cannot speak for this ask and the ask
+    // survives; newer load lands without it, that is authoritative.
+    void note_born(const std::string& id, std::uint64_t stamp) {
+        bornStamp.emplace(id, stamp);
+    }
     [[nodiscard]] bool born_after(const std::string& id,
                                   std::uint64_t stamp) const {
         const auto at = bornStamp.find(id);
@@ -87,12 +109,13 @@ struct State {
     Cursor& cursor_for(const std::string& id) { return cursors[id]; }
 
     void adopt(const std::vector<api::PendingAsk>& live,
-               const std::vector<api::PendingAsk>& known) {
+               const std::vector<api::PendingAsk>& known,
+               std::uint64_t stamp) {
         std::set<std::string> alive;
         for (const auto& a : live) alive.insert(a.id());
         for (const auto& a : known)
             if (alive.count(a.id()) == 0) forget(a.id());
-        for (const auto& a : live) note_born(a.id());
+        for (const auto& a : live) note_born(a.id(), stamp);
         const int64_t now = static_cast<int64_t>(std::time(nullptr));
         for (const auto& a : live) {
             if (a.child_session.empty())

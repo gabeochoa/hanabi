@@ -394,19 +394,19 @@ static void test_a_draft_survives_a_refresh() {
         b.owner_session = "s1";
         b.seq = 42;
 
-        st.adopt({a, b}, {});
+        st.adopt({a, b}, {}, st.next_load_stamp());
         st.answers[a.id()].text["q1"] = "half a sentence";
         st.answers[b.id()].text["q1"] = "the other one";
 
-        st.adopt({a, b}, {a, b});
+        st.adopt({a, b}, {a, b}, st.next_load_stamp());
         CHECK(st.answers[a.id()].text["q1"] == "half a sentence");
         CHECK(st.answers[b.id()].text["q1"] == "the other one");
 
-        st.adopt({a}, {a, b});
+        st.adopt({a}, {a, b}, st.next_load_stamp());
         CHECK(st.answers[a.id()].text["q1"] == "half a sentence");
         CHECK(st.answers.count(b.id()) == 0);
 
-        st.adopt({}, {a});
+        st.adopt({}, {a}, st.next_load_stamp());
         CHECK(st.answers.empty());
     }
 
@@ -463,11 +463,11 @@ static void test_only_a_remainder_gets_rebased() {
     kid.child_session = "kid";
     kid.seq = 42;
 
-    st.adopt({own, kid}, {});
+    st.adopt({own, kid}, {}, st.next_load_stamp());
     st.seenAt[own.id()] = 1000;
     st.seenAt[kid.id()] = 1000;
 
-    st.adopt({own, kid}, {own, kid});
+    st.adopt({own, kid}, {own, kid}, st.next_load_stamp());
     CHECK(st.seenAt[own.id()] == 1000);
     CHECK(st.seenAt[kid.id()] != 1000);
 }
@@ -519,16 +519,75 @@ static void test_a_stale_load_cannot_retire_a_live_ask() {
     old_ask.seq = 41;
 
     const std::uint64_t inflight = st.next_load_stamp();
-    st.adopt({old_ask}, {});
+    st.adopt({old_ask}, {}, inflight);
     CHECK(!st.born_after(old_ask.id(), inflight));
 
-    st.next_load_stamp();
+    const std::uint64_t later = st.next_load_stamp();
     api::PendingAsk fresh;
     fresh.owner_session = "s1";
     fresh.seq = 42;
-    st.adopt({old_ask, fresh}, {old_ask});
+    st.adopt({old_ask, fresh}, {old_ask}, later);
     CHECK(st.born_after(fresh.id(), inflight));
     CHECK(!st.born_after(old_ask.id(), inflight));
+}
+
+// An ask is ranked by the load that CARRIED it, not by how much unrelated
+// polling happened before that load landed.
+//
+// note_born() used to record the global loadSeq -- one counter shared by every
+// session's refresh and every turn -- read at the moment the load landed. A
+// stamp is minted when a load is REQUESTED and lands seconds later, so the
+// number stored was "how many loads had ever been asked for by then", which
+// depends entirely on what other threads were doing.
+//
+// Inflated, it made an ask outrank loads genuinely newer than the one that
+// brought it. keep_newer_asks() then pushed that ask back onto the card
+// against the very snapshot that reported it gone -- an ask answered
+// elsewhere coming back from the dead, and only when a second thread happened
+// to be polling.
+static void test_an_ask_is_ranked_by_the_load_that_carried_it() {
+    std::printf("an ask is ranked by its own load, not by other threads\n");
+    ask::State st;
+    api::PendingAsk raised;
+    raised.owner_session = "s1";
+    raised.seq = 41;
+
+    // A refresh for this thread goes out first and will land late.
+    const std::uint64_t stale = st.next_load_stamp();
+    // The turn that raises the ask is requested next: this is its carrier.
+    const std::uint64_t carrier = st.next_load_stamp();
+    // A newer refresh for this thread, requested while the turn is still
+    // running -- the 20s sweep does exactly this.
+    const std::uint64_t newer = st.next_load_stamp();
+    // And an unrelated thread polls too. This one must change nothing here.
+    const std::uint64_t other_thread = st.next_load_stamp();
+    CHECK(stale < carrier);
+    CHECK(carrier < newer);
+    CHECK(newer < other_thread);
+
+    st.adopt({raised}, {}, carrier);
+
+    // The older load cannot speak for an ask raised after it was requested,
+    // however late it lands.
+    CHECK(st.born_after(raised.id(), stale));
+
+    // Its own load does not outrank itself...
+    CHECK(!st.born_after(raised.id(), carrier));
+    // ...and neither does a load requested after it. Those are authoritative:
+    // if they do not carry the ask, it is gone.
+    //
+    // This is the assertion the global counter failed. It recorded
+    // `other_thread` here -- the newest stamp minted, from a poll on a
+    // different thread -- so the ask outranked `newer` and was resurrected.
+    CHECK(!st.born_after(raised.id(), newer));
+    CHECK(!st.born_after(raised.id(), other_thread));
+
+    // The born stamp is the first sighting and does not drift on re-adopt: a
+    // later load that still carries the ask must not re-rank it upward, or
+    // the ask would slowly outrank everything.
+    st.adopt({raised}, {raised}, other_thread);
+    CHECK(!st.born_after(raised.id(), newer));
+    CHECK(st.born_after(raised.id(), stale));
 }
 
 static void test_dropped_text_is_marked() {
@@ -581,11 +640,11 @@ static void test_a_dropped_session_cannot_resurrect_an_ask() {
     a.seq = 41;
 
     const std::uint64_t inflight = st.next_load_stamp();
-    st.adopt({a}, {});
+    st.adopt({a}, {}, inflight);
     st.answers[a.id()].text["q1"] = "typed";
 
     st.note_drop(a.id());
-    st.adopt({}, {a});
+    st.adopt({}, {a}, st.next_load_stamp());
     CHECK(st.answers.count(a.id()) == 0);
     CHECK(st.bornStamp.count(a.id()) == 0);
 
@@ -609,7 +668,7 @@ static void test_answering_one_ask_keeps_the_next() {
     b.owner_session = "s1";
     b.seq = 42;
 
-    st.adopt({a}, {});
+    st.adopt({a}, {}, st.next_load_stamp());
     st.answers[a.id()].text["q1"] = "yes";
 
     // A load goes out mid-turn; the agent raises B while it is in flight.
@@ -624,7 +683,7 @@ static void test_answering_one_ask_keeps_the_next() {
     CHECK(!st.ask_is_stale(b.id(), carrying_b));
 
     // B lands, keeps its identity and takes a draft of its own.
-    st.adopt({b}, {a});
+    st.adopt({b}, {a}, carrying_b);
     st.answers[b.id()].text["q1"] = "second answer";
     CHECK(st.answers.count(a.id()) == 0);
     CHECK(st.answers.count(b.id()) == 1);
@@ -804,6 +863,7 @@ int main() {
     test_an_ask_expires_on_its_own_deadline();
     test_a_draft_is_never_displaced();
     test_a_stale_load_cannot_retire_a_live_ask();
+    test_an_ask_is_ranked_by_the_load_that_carried_it();
     test_dropped_text_is_marked();
     test_the_shared_overlay_set_is_declared();
     test_metrics_track_the_questions_not_the_id();
