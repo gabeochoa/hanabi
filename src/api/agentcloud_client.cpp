@@ -37,33 +37,6 @@ constexpr int kChildSettleTimeoutSecs = 45;
 // has stopped talking to us.
 constexpr int kTurnIdleTimeoutSecs = 120;
 
-// Collects one reply off the socket's private queue and hands it to the
-// waiting caller. The socket calls these from its own thread.
-struct Waiter {
-    std::mutex m;
-    std::condition_variable cv;
-    std::string reply;
-    std::string closed_reason;
-    bool done = false;
-
-    void finish(std::string text, std::string reason) {
-        std::lock_guard<std::mutex> lock(m);
-        if (done) return;  // first outcome wins
-        reply = std::move(text);
-        closed_reason = std::move(reason);
-        done = true;
-        cv.notify_all();
-    }
-};
-
-void on_text_cb(void* user, const char* text, size_t len) {
-    static_cast<Waiter*>(user)->finish(std::string(text, len), "");
-}
-
-void on_close_cb(void* user, const char* reason) {
-    static_cast<Waiter*>(user)->finish("", reason != nullptr ? reason : "closed");
-}
-
 // nlohmann's .value() falls back only when the key is ABSENT -- a key present
 // and null throws type_error.302. Real data is full of nulls (40 of 2066
 // sessions have title:null), so every read goes through these instead. Found
@@ -397,19 +370,19 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
     const auto token = auth_.get(&auth_err);
     if (token.empty()) return fail(auth_err);
 
-    const auto waiterOwned = std::make_shared<Waiter>();
-    Waiter& waiter = *waiterOwned;
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
     const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
 
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
     wc.proxy_port = cfg.proxy_port;
-    wc.on_text = on_text_cb;
-    wc.on_close = on_close_cb;
-    wc.user = &waiter;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
 
-    ws_conn* conn = ws_open_owned(&wc, waiterOwned);
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
     if (conn == nullptr) return fail("could not parse " + url);
     struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
 
@@ -423,29 +396,16 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
     if (!ws_send_text(conn, wire.data(), wire.size()))
         return fail("socket closed before the command was sent");
 
-    std::string reply, closed;
-    {
-        std::unique_lock<std::mutex> lock(waiter.m);
-        const bool got =
-            waiter.cv.wait_for(lock, std::chrono::seconds(timeout_secs),
-                               [&] { return waiter.done; });
-        if (!got)
-            return fail("timed out after " + std::to_string(timeout_secs) +
-                        "s waiting for '" + expect_type + "'");
-        reply = waiter.reply;
-        closed = waiter.closed_reason;
+    const json msg = q.wait_for_type(expect_type, timeout_secs);
+    if (msg.is_discarded()) {
+        if (q.is_closed()) {
+            auth_.invalidate();
+            return fail("connection closed: " + q.why_closed());
+        }
+        return fail("timed out after " + std::to_string(timeout_secs) +
+                    "s waiting for '" + expect_type + "'");
     }
 
-    if (reply.empty()) return fail("connection closed: " + closed);
-
-    json root = json::parse(reply, nullptr, false);
-    if (root.is_discarded()) return fail("reply was not JSON");
-    // Server envelope is {"sub":N,"msg":{...}} -- note it is NOT "payload",
-    // which is the client direction only.
-    if (!root.contains("msg") || !root["msg"].is_object())
-        return fail("reply had no msg object");
-
-    const json& msg = root["msg"];
     const std::string type = str_or(msg, "type", "");
     if (type == "error") {
         // A token the server rejects may be one our clock still believes in;
@@ -1433,8 +1393,10 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
         return fail("socket closed before attach was sent");
 
     const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
-    if (hello.is_discarded())
+    if (hello.is_discarded()) {
+        auth_.invalidate();
         return fail("no hello for " + id + " (" + q.why_closed() + ")");
+    }
     if (str_or(hello, "type", "") == "error") {
         auth_.invalidate();
         return fail("attach refused: " + str_or(hello, "message", "(no message)"));
@@ -1551,6 +1513,7 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     }
     const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
     if (hello.is_discarded()) {
+        auth_.invalidate();
         sink.emit_error("no hello for " + session_id + " (" + q.why_closed() + ")");
         return;
     }
@@ -1692,8 +1655,10 @@ Result<std::string> AgentcloudClient::rename_session(
         return fail("socket closed before attach was sent");
 
     const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
-    if (hello.is_discarded())
+    if (hello.is_discarded()) {
+        auth_.invalidate();
         return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    }
     if (str_or(hello, "type", "") == "error") {
         auth_.invalidate();
         return fail("attach refused: " +
@@ -1778,8 +1743,10 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
         return fail("socket closed before attach was sent");
 
     const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
-    if (hello.is_discarded())
+    if (hello.is_discarded()) {
+        auth_.invalidate();
         return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    }
     if (str_or(hello, "type", "") == "error") {
         auth_.invalidate();
         return fail("attach refused: " +

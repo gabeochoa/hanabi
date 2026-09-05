@@ -332,6 +332,12 @@ def _serve(conn):
                 msg = {"type": "probe_count",
                        "session": command.get("session"), "count": count}
             elif kind == "list":
+                # An unsolicited frame ahead of the reply. round_trip used to
+                # latch the FIRST message off the socket, so this frame WAS
+                # the answer to list -- and both forks failed the same way.
+                send_frame(conn, {"sub": 1, "msg": {
+                    "type": "frame", "frame": "delta", "seq": 1,
+                    "event": {"type": "model_call_started", "call": 1}}})
                 msg = {"type": "sessions", "sessions": [
                     {"session_id": "source-local", "last_seq": 2},
                     {"session_id": "child-local", "parent": "source-local", "last_seq": 1, "running": True},
