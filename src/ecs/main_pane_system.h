@@ -103,9 +103,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Reserve the composer strip UNCONDITIONALLY so the input is always on
         // screen (render_composer disables it + shows a reason when the backend
         // can't send).
-        if (app->pane().findOpen && app->escape == EscapeIntent::CloseFind) {
-            app->pane().findOpen = false;
-            app->pane().findQuery.clear();
+        if (app->escape == EscapeIntent::CloseFind) {
+            Pane& target =
+                app->pane().findOpen ? app->pane() : app->other_pane();
+            target.findOpen = false;
+            target.findQuery.clear();
             app->refocusComposer = true;
         }
         if (app->pane().findOpen && app->requestFindStep != 0) {
@@ -5255,6 +5257,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_corner_radius(6.0f)
                         .with_click_activation(ClickActivationMode::Press)
+                        .with_disabled(!inputLive)
                         .with_on_draw_fg([on, atCursor, optLines,
                                           control = q.control](RectangleType r) {
                             if (atCursor)
@@ -5296,6 +5299,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                            std::to_string(oi));
                 }
                 askRowIds_.push_back({&q.key, &option.value, row.ent().id});
+                ask_set_tab_stop(row.ent(), inputLive && !busy);
                 if (row && !busy && inputLive &&
                     row.ent().id != askEnterRow_) {
                     hanabi::ask::toggle(ask, q.key, option.value, &answer);

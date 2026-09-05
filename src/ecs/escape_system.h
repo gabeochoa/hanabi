@@ -53,7 +53,7 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseShortcuts;
         else if (app->showSettings)
             app->escape = EscapeIntent::CloseSettings;
-        else if (app->pane().findOpen)
+        else if (app->any_find_open())
             app->escape = EscapeIntent::CloseFind;
         else if (app->slashMenuOpen)
             app->escape = EscapeIntent::CloseSlashMenu;

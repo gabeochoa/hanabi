@@ -383,6 +383,11 @@ struct AppComponent : public afterhours::BaseComponent {
         return panes[static_cast<size_t>(focusedPane)];
     }
     Pane& other_pane() { return panes[focusedPane == 0 ? 1 : 0]; }
+    [[nodiscard]] bool any_find_open() const {
+        for (const Pane& p : panes)
+            if (p.findOpen) return true;
+        return false;
+    }
     // How many panes are actually showing: one, or two when split.
     size_t active_pane_count() const { return splitOpen ? 2u : 1u; }
 

@@ -25,7 +25,8 @@ expect_text "Answer any one of these to submit"
 expect_text "Search conversations"
 
 focus_ui ask_option_q1_0
-expect_focused ask_option_q1_0
+# Out of the focus ring while search owns the keyboard.
+expect_not_focused ask_option_q1_0
 key SPACE
 wait_frames 12
 expect_text "Answer any one of these to submit"

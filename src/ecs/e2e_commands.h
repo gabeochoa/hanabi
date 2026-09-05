@@ -39,6 +39,15 @@
 //   expect_clipboard <text> Assert that a fresh tab-menu copy reached the
 //                           platform clipboard rather than only changing UI.
 //
+//   expect_not_focused <name>
+//                         The inverse of afterhours' expect_focused, which has
+//                         no negation. A widget the app deliberately takes OUT
+//                         of the focus ring -- an ask option row behind a modal
+//                         sheet -- can only be asserted about by naming what
+//                         focus_ui failed to move. Without it the scripts said
+//                         nothing at all about the removal, and deleting the
+//                         disabled/tab-stop treatment left every arm green.
+//
 // Registered from run_e2e BEFORE register_unknown_handler, which is the
 // ordering the unknown handler's own error message asks for.
 // ---------------------------------------------------------------------------
@@ -51,6 +60,7 @@
 #include "../api/disk_cache.h"
 #include "../test_hooks.h"
 #include "../ui/link_detect.h"
+#include "../ui_context.h"
 #include "../util/clipboard.h"
 #include "components.h"
 #include "pane_state.h"
@@ -386,8 +396,60 @@ struct HandleExpectReplyDraftCommand
     }
 };
 
+struct HandleExpectNotFocusedCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_not_focused")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_not_focused requires component name");
+            return;
+        }
+        auto* ctx = afterhours::EntityHelper::get_singleton_cmp<
+            ui_imm::UIContextType>();
+        if (ctx == nullptr) {
+            cmd.fail("UIContext not found");
+            return;
+        }
+        const std::string name = cmd.arg(0);
+        auto q = afterhours::EntityQuery({.force_merge = true})
+                     .whereHasComponent<afterhours::ui::UIComponent>()
+                     .whereHasComponent<afterhours::ui::UIComponentDebug>()
+                     .whereLambda([&](const afterhours::Entity& e) {
+                         return e.get<afterhours::ui::UIComponentDebug>()
+                                    .name() == name;
+                     })
+                     .gen();
+        for (auto& ref : q) {
+            const auto& cmp = ref.get().get<afterhours::ui::UIComponent>();
+            if (ctx->has_focus(cmp.id)) {
+                cmd.fail(std::format("'{}' holds focus but should not. "
+                                     "Focus set by {}",
+                                     name, ctx->focus_origin()));
+                return;
+            }
+            for (int child_id : cmp.children) {
+                auto child = afterhours::ui::UICollectionHolder::
+                    getEntityForID(child_id);
+                if (child.valid() &&
+                    child.asE().has<afterhours::ui::InFocusCluster>() &&
+                    ctx->has_focus(child_id)) {
+                    cmd.fail(std::format("a focus-cluster child of '{}' holds "
+                                         "focus but should not. Focus set "
+                                         "by {}",
+                                         name, ctx->focus_origin()));
+                    return;
+                }
+            }
+        }
+        cmd.consume();
+    }
+};
+
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectNotFocusedCommand>());
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());
     sm.register_update_system(std::make_unique<HandleExpectPanesCommand>());
     sm.register_update_system(std::make_unique<HandleResetClipboardCommand>());

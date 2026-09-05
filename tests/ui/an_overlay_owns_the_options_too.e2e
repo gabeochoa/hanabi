@@ -25,7 +25,11 @@ expect_text "Answer any one of these to submit"
 expect_text "Appearance, behavior, notifications, and local data"
 
 focus_ui ask_option_q1_0
-expect_focused ask_option_q1_0
+# The row is out of the focus ring while the sheet is up -- the same treatment
+# Submit and Decline already get. focus_ui cannot move focus onto it, so the
+# ring stays out on the sheet and the reader is never shown an accent outline
+# on a row that refuses to answer.
+expect_not_focused ask_option_q1_0
 key SPACE
 wait_frames 12
 expect_text "Answer any one of these to submit"

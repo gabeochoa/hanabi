@@ -1,0 +1,24 @@
+# Escape closes the find bar in the pane that has it, focused or not.
+#
+# Every pane's findOpen feeds the ask card's key predicates (components.h ORs
+# them across panes), but the Escape resolver read only the FOCUSED pane's --
+# so with find open in the other pane every ask key went dead AND Escape
+# resolved to DeclineAsk, which the card then ignored because keys_live was
+# false. The keystroke went nowhere and the bar could not be closed from the
+# keyboard at all. The consumer had to move with the resolver: widening only
+# the resolver emits a CloseFind that the focused-pane-only consumer drops.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_FIND_DEMO=ledger HANABI_SPLIT=t6
+
+require_thread t2
+expect_text "1 of 3"
+
+# Focus the RIGHT pane. Find stays open in the left one, which is the whole
+# point: the bar nobody is looking at is the one Escape could not reach.
+click 900 300
+wait_frames 12
+
+key ESCAPE
+wait_frames 20
+expect_no_text "1 of 3"
