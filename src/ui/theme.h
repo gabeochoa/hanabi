@@ -528,6 +528,8 @@ inline Color ask_action_disabled_ink() {
 inline Color ask_action_enabled_ink() {
     return is_dark() ? t.text_primary : t.text_secondary;
 }
+
+inline Color ask_caveat_ink() { return t.text_secondary; }
 inline Color empty_state_text() { return t.empty_state_text; }
 inline Color accent() { return t.accent; }
 inline Color accent_soft() { return t.accent_soft; }

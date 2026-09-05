@@ -58,6 +58,13 @@ static void check_mode(theme::Mode mode, const char* name) {
                  theme::text_secondary(), theme::panel_bg_2());
     check_direct((std::string(name) + " ask other label").c_str(),
                  theme::text_secondary(), theme::panel_bg_2());
+    // The two sentences that say a file will not be sent: one on the card
+    // fill, one on the composer strip -- different backdrops, so they are
+    // two measurements, not one.
+    check_direct((std::string(name) + " ask file caveat").c_str(),
+                 theme::ask_caveat_ink(), theme::panel_bg_2());
+    check_direct((std::string(name) + " composer image caveat").c_str(),
+                 theme::ask_caveat_ink(), theme::panel_bg());
     theme::Color dangerTint = theme::destructive();
     dangerTint.a = mode == theme::Mode::Light ? 34 : 16;
     check_direct((std::string(name) + " destructive surface").c_str(),

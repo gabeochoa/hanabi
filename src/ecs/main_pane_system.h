@@ -5202,7 +5202,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kNoteH)})
                         .with_transparent_bg()
-                        .with_custom_text_color(theme::text_faint())
+                        .with_custom_text_color(theme::ask_caveat_ink())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
                         .with_text_overflow(TextOverflow::Ellipsis)
@@ -5642,7 +5642,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             " can't send images yet \xe2\x80\x94 these stay in the composer")
                 .with_size(ComponentSize{percent(1.0f), pixels(kAttachNoteH)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                .with_custom_text_color(theme::ask_caveat_ink())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
