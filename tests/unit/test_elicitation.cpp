@@ -353,7 +353,7 @@ static void test_typed_and_cap() {
     AskAnswer a;
     a.text["n"] = " 4.5 ";
     a.text["i"] = "42";
-    a.text["b"] = "true";
+    a.picks["b"] = {"true"};
     a.text["s"] = "42";
     const json c = el::content_object(ask, a);
     CHECK(c["n"].is_number_float() && c["n"] == 4.5);
@@ -361,9 +361,23 @@ static void test_typed_and_cap() {
     CHECK(c["b"].is_boolean() && c["b"] == true);
     CHECK(c["s"].is_string() && c["s"] == "42");
 
+    const auto boolq = el::parse_schema(
+        R"({"properties":{"b2":{"type":"boolean","title":"Ship it?"}}})", {});
+    CHECK(boolq.size() == 1);
+    CHECK(boolq[0].control == api::AskControl::Single);
+    CHECK(boolq[0].options.size() == 2);
+    CHECK(boolq[0].options[0].value == "true");
+    PendingAsk ship;
+    ship.questions = boolq;
+    AskAnswer yes;
+    yes.picks["b2"] = {"true"};
+    const json shipped = el::content_object(ship, yes);
+    CHECK(shipped["b2"].is_boolean() && shipped["b2"] == true);
+
     AskAnswer junk;
     junk.text["i"] = "not a number";
-    CHECK(el::content_object(ask, junk)["i"] == "not a number");
+    CHECK(el::content_object(ask, junk).empty());
+    CHECK(!el::answer_has_content(ask, junk));
 
     PendingAsk one;
     one.questions =

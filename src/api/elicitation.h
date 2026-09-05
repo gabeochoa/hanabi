@@ -170,8 +170,14 @@ inline void classify_property(const json& body, AskQuestion* q) {
         return;
     }
     q->options.clear();
-    q->control = AskControl::Text;
     q->value_type = value_type_of(body);
+    if (q->value_type == AskValueType::Boolean && !is_array) {
+        q->options.push_back(AskOption{"true", "Yes", ""});
+        q->options.push_back(AskOption{"false", "No", ""});
+        q->control = AskControl::Single;
+        return;
+    }
+    q->control = AskControl::Text;
 }
 
 }  // namespace detail
@@ -384,7 +390,10 @@ inline json content_object(const PendingAsk& ask, const AskAnswer& answer) {
             if (it == answer.text.end()) continue;
             const std::string value = trimmed(it->second);
             if (value.empty()) continue;
-            content[q.key] = typed_value(q.value_type, value);
+            const json typed = typed_value(q.value_type, value);
+            if (q.value_type != AskValueType::String && typed.is_string())
+                continue;
+            content[q.key] = typed;
             continue;
         }
         const auto picked = answer.picks.find(q.key);
@@ -394,7 +403,7 @@ inline json content_object(const PendingAsk& ask, const AskAnswer& answer) {
                 std::sort(values.begin(), values.end());
                 content[q.key] = values;
             } else {
-                content[q.key] = values.front();
+                content[q.key] = typed_value(q.value_type, values.front());
             }
         }
         if (!q.free_text_key.empty()) {
@@ -414,8 +423,13 @@ inline bool answer_has_content(const PendingAsk& ask,
         if (q.control == AskControl::File) continue;
         if (q.control == AskControl::Text) {
             const auto it = answer.text.find(q.key);
-            if (it != answer.text.end() && !trimmed(it->second).empty())
-                return true;
+            if (it != answer.text.end() && !trimmed(it->second).empty()) {
+                const json typed = typed_value(q.value_type,
+                                               trimmed(it->second));
+                if (q.value_type == AskValueType::String ||
+                    !typed.is_string())
+                    return true;
+            }
             continue;
         }
         const auto picked = answer.picks.find(q.key);
