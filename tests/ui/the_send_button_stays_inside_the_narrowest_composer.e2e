@@ -1,0 +1,13 @@
+# The send button is inside the row at every width the window can reach.
+#
+# composer_row budgeted for the button correctly and then a 120px floor on the
+# input took the budget back: at 340 the natural input is 94, the floor made it
+# 120, and the button's right two columns went off the canvas entirely --
+# visible in shipped baseline 66, whose rounded fill runs to the final column.
+#
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIN_W=340 HANABI_WIN_H=620
+
+require_thread t2
+assert_ui composer_send x=297
+assert_ui composer_send w=19

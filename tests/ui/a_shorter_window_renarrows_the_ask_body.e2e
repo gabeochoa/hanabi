@@ -1,0 +1,20 @@
+# The body's column is a function of the height budget, not just the width.
+#
+# ask_body_text_w memoised on (id, textW, font_epoch) only, but its answer is
+# `natural > budget ? textW - scrollbar : textW`, and budget comes from the
+# window height and the composer chrome -- eight inputs the key never saw.
+# Shrink the window and the same key returns the stale wide column, so the
+# body is measured at one width and drawn at another, and the scrollbar gutter
+# is reserved from the wrong number.
+#
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=approval HANABI_WIN_W=760 HANABI_WIN_H=620
+
+require_thread t2
+# Tall enough that the body fits: full column, no gutter reserved.
+assert_ui ask_body_content w=472
+
+resize 760 300
+wait_frames 20
+# Short enough that it must scroll: the column gives up the scrollbar's 10px.
+assert_ui ask_body_content w=462

@@ -1,0 +1,13 @@
+# A system caption is budgeted in pixels, not in characters.
+#
+# render_meta_line ellipsised on a fixed 120-char cap and took no pane width,
+# so at 760 the split's right pane hard-cut a 60-char header mid-word at the
+# frame edge and ran the tail under the pane's close button. The cap could
+# never fire: the string is 67 characters with its age suffix.
+#
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t3","t6"],"active_tab":"t6","theme":"dark"}
+# env: HANABI_SPLIT=t6 HANABI_WIN_W=760 HANABI_WIN_H=620
+
+require_thread t6
+expect_text "Task: backfill the entitlement table"
+expect_no_text "legacy subscribers."

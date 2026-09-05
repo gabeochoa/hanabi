@@ -862,6 +862,24 @@ static void test_a_command_reserves_the_lines_it_draws() {
           drawn[static_cast<std::size_t>(counted) - 1].first);
 }
 
+static void test_every_ask_field_reserves_the_spans_it_draws() {
+    std::printf("every ask field reserves the spans it draws\n");
+    const auto measure = [](const std::string& s) {
+        return static_cast<float>(s.size()) * 7.0f;
+    };
+    const std::string option =
+        "ledger-mismatch/2026-09/acct-8842-vs-1097-reconciliation.csv";
+    const float column = 41.0f;
+    std::vector<std::pair<std::size_t, std::size_t>> drawn;
+    hanabi::text::wrapped_line_spans(option, column, measure, drawn,
+                                     /*break_long_words=*/true);
+    CHECK(hanabi::text::wrapped_line_count(option, column, measure) == 1);
+    CHECK(drawn.size() > 1);
+    CHECK(ask::clamp_option_lines(static_cast<int>(drawn.size())) >
+          ask::clamp_option_lines(
+              hanabi::text::wrapped_line_count(option, column, measure)));
+}
+
 int main() {
     test_cursor();
     test_toggle();
@@ -890,6 +908,7 @@ int main() {
     test_clicked_answers_are_rescued_too();
     test_an_unreadable_approval_is_not_approvable();
     test_a_command_reserves_the_lines_it_draws();
+    test_every_ask_field_reserves_the_spans_it_draws();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

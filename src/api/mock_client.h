@@ -1021,6 +1021,25 @@ class MockClient : public Client {
             {"timeout_ms", 600000},
         };
         if (mode == "raised") return mock_pending_asks("approval", owner);
+        if (mode == "token") {
+            std::vector<api::PendingAsk> one =
+                api::elicitation::asks_from_state(
+                    {{"pending_elicitations",
+                      nlohmann::json::array(
+                          {{{"elicitation", 41},
+                            {"tool", "AskUserRichForm"},
+                            {"message", "Which file did the export land in?"},
+                            {"requested_schema",
+                             R"({"type":"object","properties":{)"
+                             R"("q1":{"type":"string","title":"Pick the file",)"
+                             R"("oneOf":[)"
+                             R"({"const":"a","title":)"
+                             R"("ledger-mismatch/2026-09/acct-8842-vs-1097.csv"},)"
+                             R"({"const":"b","title":"neither"}]}}})"},
+                            {"timeout_ms", 600000}}})}},
+                    owner);
+            return one;
+        }
         if (mode == "two") {
             auto first = mock_pending_asks("1", owner);
             auto second = mock_pending_asks("approval", owner);

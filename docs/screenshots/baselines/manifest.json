@@ -381,7 +381,7 @@
     "66_ask_two_questions_tiny_dark": {
       "threshold_pct": 0.0,
       "resolution": "340x620",
-      "note": "The narrowest reachable card with three actions: each button takes a label that fits whole rather than a clipped one, so no word is cut mid-glyph."
+      "note": "The narrowest reachable card with three actions: each button takes a label that fits whole, the arity hint drops to its own row below the question rather than halving its column, and the send button stays inside the composer row instead of running off the canvas."
     },
     "65_ask_two_questions_narrow_dark": {
       "threshold_pct": 0.0,

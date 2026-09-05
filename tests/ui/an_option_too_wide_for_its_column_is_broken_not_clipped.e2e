@@ -1,0 +1,17 @@
+# An option label is measured by the wrapper that draws it.
+#
+# The approval body and the note were repaired; message, prompt and option
+# still measured with count_lines, which puts an over-long token on a line of
+# its own instead of splitting it. A single-token option therefore measured 1
+# line, took the button's own label path -- which has no overflow mode at all
+# -- and was clipped at the button's edge with no ellipsis and no second row.
+#
+# With the measure routed through ask_wrap_spans it measures the 3 rows it
+# draws, so the wrapped path runs and the reader sees where the text ran out.
+#
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=token HANABI_WIN_W=340 HANABI_WIN_H=620
+
+require_thread t2
+assert_ui ask_option_line_q1_0_0 w=50
+assert_ui ask_option_line_q1_0_1 w=50

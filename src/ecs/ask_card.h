@@ -147,6 +147,7 @@ inline int clamp_message_lines(int measured) {
 
 struct QuestionMetrics {
     int prompt_lines = 1;
+    bool arity_stacked = false;
     std::vector<int> option_lines;
 };
 
@@ -259,14 +260,15 @@ inline float option_row_h(int lines) {
     return kOptionH + kOptionLineH * static_cast<float>(n - 1);
 }
 
-inline float prompt_row_h(int lines) {
-    return kPromptH + kOptionLineH * static_cast<float>(
-                                        clamp_prompt_lines(lines) - 1);
+inline float prompt_row_h(int lines, bool arityStacked = false) {
+    return kPromptH +
+           kOptionLineH * static_cast<float>(clamp_prompt_lines(lines) - 1) +
+           (arityStacked ? kOptionLineH : 0.0f);
 }
 
 inline float question_h(const api::AskQuestion& q,
                         const QuestionMetrics& metrics) {
-    float h = prompt_row_h(metrics.prompt_lines);
+    float h = prompt_row_h(metrics.prompt_lines, metrics.arity_stacked);
     switch (q.control) {
         case api::AskControl::Single:
         case api::AskControl::Multi:

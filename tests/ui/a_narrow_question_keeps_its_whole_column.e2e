@@ -1,0 +1,14 @@
+# The arity hint does not take half the question's row.
+#
+# ask_arity_w clamped to min(64, rowW/2), so at any body row under 128px the
+# hint took exactly half and the question wrapped in a ~4-character column: at
+# 340 "mismatch" broke into "mism" / "atch...". Below the clamp the hint gets
+# its own full-width row and the question gets all 92px, so it wraps at word
+# boundaries instead. The hint is not decoration -- it must still be there.
+#
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=two HANABI_WIN_W=340 HANABI_WIN_H=620
+
+require_thread t2
+assert_ui ask_prompt_q1 w=92
+expect_text "Pick one"

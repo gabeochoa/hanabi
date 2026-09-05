@@ -19,6 +19,7 @@
 #include "../util/capture_clock.h"
 #include "../util/diff.h"
 #include "../util/format.h"
+#include "../util/ellipsize.h"
 #include "../util/textscan.h"
 #include "keyboard_focus.h"
 #include "digest_layout.h"
@@ -1911,6 +1912,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Only shown when the session carries REAL sub-agents — tool activity now
     // has its own dense rows, so we no longer duplicate it here.
     static constexpr float kSubAgentRowH = 24.0f;
+    static constexpr float kSubRollupHeadChrome = 34.0f;
     static constexpr float kSubAgentMargin = 8.0f;
     static constexpr float kSubAgentChipH = 26.0f;
 
@@ -1954,7 +1956,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     float sub_agent_panel(UIContext<InputAction>& ctx, Entity& col,
-                          AppComponent& app, const Pane& pane) {
+                          AppComponent& app, const Pane& pane, float colWidth) {
         const auto& subs = pane.openSession->sub_agents;
         if (subs.empty()) return 0.0f;
 
@@ -2016,10 +2018,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("subrollup_chev"));
         div(ctx, mk(head.ent(), 2),
             ComponentConfig{}
-                .with_label(std::to_string(count) +
-                            (count == 1 ? " sub-agent  \xc2\xb7  "
-                                        : " sub-agents  \xc2\xb7  ") +
-                            verdict)
+                .with_label(hanabi::text::fit_to_width(
+                    std::to_string(count) +
+                        (count == 1 ? " sub-agent  \xc2\xb7  "
+                                    : " sub-agents  \xc2\xb7  ") +
+                        verdict,
+                    colWidth - kSubRollupHeadChrome,
+                    [](const char* s) {
+                        return theme::text_px(s, theme::type::MD);
+                    }))
                 .with_size(ComponentSize{children(), pixels(18)})
                 .with_margin(Margin{.left = pixels(4)})
                 .with_transparent_bg()
@@ -4023,7 +4030,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // starts directly under the tab strip with the dead space BELOW. The
         // spacer is gone so a short thread top-anchors the way the reference
         // does. (Long threads are unaffected — they never had one.)
-        sub_agent_panel(ctx, col, app, pane);
+        sub_agent_panel(ctx, col, app, pane, colW);
         {
         hanabi::prof::Scope _p2("transcript.pass2_build");
         for (const auto& it : items) {
@@ -4414,9 +4421,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kAskArityW = 64.0f;
 
     static float ask_arity_w(float rowW) {
-        const float half = rowW * 0.5f;
-        if (half <= 0.0f) return 0.0f;
-        return kAskArityW < half ? kAskArityW : half;
+        if (rowW < kAskArityW * 2.5f) return 0.0f;
+        return kAskArityW;
     }
     static constexpr float kAskOptionInset = 26.0f;
 
@@ -4513,7 +4519,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static int ask_message_lines(const api::PendingAsk& ask, float textW) {
         if (ask.message.empty()) return 0;
         return hanabi::ask::clamp_message_lines(
-            count_lines(ask.message, textW, theme::type::SM));
+            ask_wrap_lines(ask.message, textW));
     }
 
     static std::string ask_input_text(const api::PendingAsk& ask) {
@@ -4568,6 +4574,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::prof::gauge("cache.ask_spans_entries", memo.size());
     }
 
+    static int ask_wrap_lines(const std::string& text, float textW) {
+        if (text.empty()) return 1;
+        std::vector<std::pair<std::size_t, std::size_t>> spans;
+        ask_wrap_spans(text, textW, spans);
+        return spans.empty() ? 1 : static_cast<int>(spans.size());
+    }
+
     static int ask_note_lines(const std::string& note, float textW) {
         if (note.empty()) return 1;
         std::vector<std::pair<std::size_t, std::size_t>> spans;
@@ -4612,14 +4625,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         out.reserve(ask.questions.size());
         for (const api::AskQuestion& q : ask.questions) {
             hanabi::ask::QuestionMetrics m;
+            m.arity_stacked = ask_arity_w(textW) <= 0.0f;
             m.prompt_lines = hanabi::ask::clamp_prompt_lines(
-                count_lines(q.prompt, textW - ask_arity_w(textW),
-                            theme::type::SM));
+                ask_wrap_lines(q.prompt, textW - ask_arity_w(textW)));
             m.option_lines.reserve(q.options.size());
             for (const api::AskOption& o : q.options)
                 m.option_lines.push_back(hanabi::ask::clamp_option_lines(
-                    count_lines(ask_option_text(o), ask_option_text_w(textW),
-                                theme::type::SM)));
+                    ask_wrap_lines(ask_option_text(o),
+                                   ask_option_text_w(textW))));
             out.push_back(std::move(m));
         }
         return out;
@@ -4758,21 +4771,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                  const api::PendingAsk& ask) {
         static std::string memoId;
         static float memoTextW = -1.0f;
+        static float memoBudget = -1.0f;
         static unsigned memoEpoch = 0;
         static float memo = 0.0f;
         const float textW = ask_text_w(app);
         const unsigned epoch = hanabi::text::font_epoch();
-        if (memoTextW == textW && memoEpoch == epoch && memoId == ask.id())
-            return memo;
         const float chrome = hanabi::ask::chrome_h(
             ask, ask_message_lines(ask, textW), ask_note_shown(app, ask),
             ask_note_lines_for(app, ask, false));
         const float budget = ask_height_budget(app) - chrome;
+        if (memoTextW == textW && memoBudget == budget &&
+            memoEpoch == epoch && memoId == ask.id())
+            return memo;
         const float narrow = textW - kAskScrollbarW;
         const float natural = hanabi::ask::body_h(
             ask, ask_input_lines(ask, narrow), ask_metrics(ask, narrow));
         memoId = ask.id();
         memoTextW = textW;
+        memoBudget = budget;
         memoEpoch = epoch;
         memo = natural > budget ? narrow : textW;
         return memo;
@@ -5178,7 +5194,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                hanabi::ask::kOptionLineH,
                                theme::text_secondary(),
                                "ask_prompt_line_" + q.key);
-            if (*arity != '\0')
+            if (*arity != '\0' && ask_arity_w(bodyTextW) > 0.0f)
                 div(ctx, mk(promptRow.ent(), 2),
                     ComponentConfig{}
                         .with_label(arity)
@@ -5189,6 +5205,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_custom_text_color(theme::text_secondary())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Right)
+                        .with_debug_name("ask_arity_" + q.key));
+            if (*arity != '\0' && ask_arity_w(bodyTextW) <= 0.0f)
+                div(ctx, mk(content.ent(), key++),
+                    ComponentConfig{}
+                        .with_label(arity)
+                        .with_size(ComponentSize{
+                            percent(1.0f),
+                            pixels(hanabi::ask::kOptionLineH)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
                         .with_debug_name("ask_arity_" + q.key));
 
             if (q.control == api::AskControl::File) {
@@ -6667,8 +6695,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_row"));
 
-        float inputW = paneW - (composerGutter * 2.0f) - sendW - kSendGap;
-        if (inputW < 120.0f) inputW = 120.0f;
+        const float inputRoom = paneW - (composerGutter * 2.0f) - sendW -
+                                kSendGap;
+        float inputW = inputRoom < 1.0f ? 1.0f : inputRoom;
 
         auto inputWrap = div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
@@ -8271,6 +8300,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // `Spacer(minLength: 60)` plus the same 6pt HStack spacing, so the two
     // sides of the transcript are inset by the same rule.
     static constexpr float kAsstInsetR = 66.0f;
+    static constexpr float kMetaLineCloseGutter = 30.0f;
 
     // The wrap width inside an assistant bubble at this column width. ONE
     // function, called by the measure pass and the draw, so the two cannot
@@ -9415,7 +9445,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        float winTop = 0.0f, float winBot = -1.0f,
                        float itemTopY = 0.0f, bool showAuthor = true) {
         if (m.role == api::Role::System) {
-            render_meta_line(ctx, parent, index, m);
+            render_meta_line(ctx, parent, index, m, paneWidth);
             return;
         }
         if (m.role == api::Role::Tool) {
@@ -9742,14 +9772,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // A System message: a quiet, centered, muted caption — conversation
     // metadata (a session boundary / mode note), NOT a dialogue bubble.
     void render_meta_line(UIContext<InputAction>& ctx, Entity& parent,
-                          int index, const api::Message& m) {
+                          int index, const api::Message& m, float paneWidth) {
         std::string txt = m.text;
         std::string age =
             show_times() ? fmtutil::relative_time(m.created_at) : std::string();
         if (!age.empty() && !txt.empty()) txt += "   \xc2\xb7   " + age;
+        const float budget = paneWidth - kMetaLineCloseGutter;
         div(ctx, mk(parent, 200 + index * 10),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(txt, 120))
+                .with_label(hanabi::text::fit_to_width(
+                    txt, budget,
+                    [](const char* s) {
+                        return theme::text_px(s, theme::type::SM);
+                    }))
                 .with_size(ComponentSize{percent(1.0f), pixels(22)})
                 .with_margin(Margin{.top = pixels(8), .right = pixels(0),
                                     .bottom = pixels(8), .left = pixels(0)})
