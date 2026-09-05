@@ -158,6 +158,15 @@ static void test_return_intent() {
     ask::toggle_at_cursor(a, cursor, &answer);
     CHECK(ask::return_intent(a, answer, cursor) == ask::ReturnIntent::Submit);
 
+    ask::move_cursor(a, &cursor, 1);
+    CHECK(cursor.question == "q1" && cursor.option == "promo");
+    CHECK(ask::return_intent(a, answer, cursor) ==
+          ask::ReturnIntent::PickAtCursor);
+    ask::toggle_at_cursor(a, cursor, &answer);
+    CHECK(answer.picked("q1", "promo"));
+    CHECK(!answer.picked("q1", "ledger"));
+    CHECK(ask::return_intent(a, answer, cursor) == ask::ReturnIntent::Submit);
+
     PendingAsk approval;
     approval.kind = AskKind::Approval;
     CHECK(ask::return_intent(approval, AskAnswer{}, ask::Cursor{}) ==

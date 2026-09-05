@@ -4951,7 +4951,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (hanabi::keys::pressed(hanabi::keys::kEnter) && !widgetOwnsEnter) {
             askEnterRow_ = ask_row_id(cursor.question, cursor.option);
-            switch (hanabi::ask::return_intent(ask, answer, cursor)) {
+            switch (hanabi::ask::return_intent(
+                ask, answer, editing ? hanabi::ask::Cursor{} : cursor)) {
                 case hanabi::ask::ReturnIntent::Submit:
                     submit_ask(app, ask, api::AskAction::Accept);
                     break;

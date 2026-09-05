@@ -535,10 +535,23 @@ enum class ReturnIntent {
     Ignore,
 };
 
+inline bool cursor_picks_new(const api::PendingAsk& ask,
+                             const api::AskAnswer& answer,
+                             const Cursor& cursor) {
+    if (!cursor.set()) return false;
+    if (answer.picked(cursor.question, cursor.option)) return false;
+    for (const auto& entry : option_run(ask))
+        if (entry.first == cursor.question && entry.second == cursor.option)
+            return true;
+    return false;
+}
+
 inline ReturnIntent return_intent(const api::PendingAsk& ask,
                                   const api::AskAnswer& answer,
                                   const Cursor& cursor) {
     if (ask.kind == api::AskKind::Approval) return ReturnIntent::Submit;
+    if (cursor_picks_new(ask, answer, cursor))
+        return ReturnIntent::PickAtCursor;
     if (!submit_blocked(ask, answer)) return ReturnIntent::Submit;
     if (cursor.set()) return ReturnIntent::PickAtCursor;
     return ReturnIntent::Ignore;

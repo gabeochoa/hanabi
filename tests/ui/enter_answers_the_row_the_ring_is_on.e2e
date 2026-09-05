@@ -1,0 +1,37 @@
+# Enter answers the option the focus ring is on, not one picked earlier.
+#
+# return_intent returned Submit the moment the answer was unblocked, before it
+# looked at the cursor. Space on "ledger" unblocked it; the ring then moved to
+# "promo" and Enter sent "ledger" -- the row the reader was looking at was not
+# the row that went out, and a resolved ask has no undo. Arrows and Tab both
+# move that ring, and ring-then-Enter is the main answering path, so the same
+# keystroke on the same visible state did two different things depending on
+# whether some other question happened to be answered.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1
+
+require_thread t2
+expect_text "The agent is asking"
+
+focus_ui ask_option_q1_0
+expect_focused ask_option_q1_0
+key SPACE
+wait_frames 10
+expect_no_text "Answer any one of these to submit"
+
+key DOWN
+wait_frames 8
+expect_focused ask_option_q1_1
+
+# The ring is on a row that is not the picked one, so Enter picks it and sends
+# nothing: the card is still here.
+key ENTER
+wait_frames 40
+expect_text "The agent is asking"
+expect_no_text "Answer any one of these to submit"
+
+# Now the ring IS on the picked row, so the same key sends.
+key ENTER
+wait_frames 40
+expect_no_text "The agent is asking"
