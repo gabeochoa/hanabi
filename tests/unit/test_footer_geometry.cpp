@@ -79,6 +79,23 @@ int main() {
     CHECK(fs::label_box_x(fs::kFooterPadX) + fs::kAhTextInset
           == fs::kFooterPadX);
 
+    // 5. The footer never lands inside the column above it. At 300 the
+    //    top-anchored column already ends at 300 and the bottom-anchored
+    //    footer wants y=272, so the two overlap by 24 rows -- the geometry
+    //    a_hidden_command_cannot_be_approved.e2e already runs at, and the
+    //    one 69_ask_too_short_approval_dark.png photographed. The ink stops
+    //    overlapping at 324, but the column's own origin is 300, so the
+    //    honest boundary is 328: below it the footer is inside the list.
+    CHECK(!fs::footer_fits(300.0f, 28.0f, 300.0f));
+    CHECK(!fs::footer_fits(323.0f, 28.0f, 300.0f));
+    CHECK(!fs::footer_fits(327.0f, 28.0f, 300.0f));
+    CHECK(fs::footer_fits(328.0f, 28.0f, 300.0f));
+    CHECK(fs::footer_fits(620.0f, 28.0f, 300.0f));
+    for (int h = 100; h <= 900; ++h) {
+        const float wh = static_cast<float>(h);
+        CHECK(fs::footer_fits(wh, 28.0f, 300.0f) == (wh - 28.0f >= 300.0f));
+    }
+
     if (g_failures == 0) {
         std::printf("  all footer geometry checks passed\n");
         return 0;

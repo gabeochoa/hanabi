@@ -43,6 +43,14 @@ constexpr float kAhTextInset = 5.0f;
 // rail returns before the footer is drawn at all.
 constexpr float kMinPanelW = 210.0f;
 
+// The footer is bottom-anchored and the column above it is top-anchored, so
+// below this height the two want the same rows. The scroll extent's own
+// `scrollH < 40` clamp absorbs the shortfall and reports nothing, so the
+// footer has to ask.
+constexpr bool footer_fits(float window_h, float footer_h, float column_h) {
+    return window_h - footer_h >= column_h;
+}
+
 // A label box positioned so its INK begins at `ink_x`.
 constexpr float label_box_x(float ink_x) { return ink_x - kAhTextInset; }
 

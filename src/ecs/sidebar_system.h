@@ -1526,6 +1526,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     void render_footer(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const LayoutComponent::Rect& r) {
+        const bool viewsOpen = app.collapsedFolders.count(kViewsKey) == 0;
+        if (!footer_status::footer_fits(r.height, kSbFooterH,
+                                        scroll_top_offset(viewsOpen)))
+            return;
         const float top = r.height - kSbFooterH;
         // Test-only (HANABI_FOCUS_AUDIT=1): whether afterhours will paint a
         // focus ring this frame, read off the thickness the renderer itself
