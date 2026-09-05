@@ -1,0 +1,115 @@
+# Tab really walks the ask card, and drags the viewport after it.
+#
+# a_tabbed_option_scrolls_into_view.e2e already covers what happens once a
+# below-fold row HAS focus --- but it gets there with focus_ui, which is one
+# ctx->set_focus() call and no key at all. Unbind Tab entirely and that test
+# stays green, while its title and its first line both say "Tab". Nothing in
+# tests/ pressed a real Tab at an ask card, and nothing pressed Shift+Tab
+# anywhere.
+#
+# This drives the keys. Every move below is an injected Tab through the same
+# input path the shipping build reads, and the ring is asserted at each step,
+# so this pins three things the focus_ui test cannot see: that the binding
+# exists, that the order is prompt-by-prompt rather than tree order, and that
+# a disabled Submit is not a stop on the way to Decline.
+#
+# The free-text field under each question's options is asserted by ARITHMETIC
+# rather than by name --- every one of them is a `text_input_field`, so
+# expect_focused cannot tell them apart. Five stops from q1_0 to q2_0 is four
+# options and the field; four stops would mean the field is not in the ring.
+#
+# 760x620 with the four-question `big` fixture puts q4 well below the fold:
+# 744px of content in a 335px viewport, so 409px of travel.
+#
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=big
+
+require_thread t2
+disable_animations
+expect_text "Four accounts disagree with the ledger"
+
+# Nothing has scrolled: the last question is 333px below the viewport's floor
+# and its rows are not on screen.
+assert_ui ask_body y=264 h=335
+assert_ui ask_option_q4_3 y=932
+expect_no_text "nobody, it is already approved in the ticket"
+
+# Seed the ring inside the card. Everything after this point is a key.
+focus_ui ask_option_q1_0
+expect_focused ask_option_q1_0
+
+# Down q1's options in order...
+key TAB
+wait_frames 6
+expect_focused ask_option_q1_1
+key TAB
+wait_frames 6
+expect_focused ask_option_q1_2
+key TAB
+wait_frames 6
+expect_focused ask_option_q1_3
+
+# ...then the fifth stop is q1's own free-text field, not q2's first option:
+# two more presses to reach q2_0, not one.
+key TAB
+wait_frames 6
+key TAB
+wait_frames 8
+expect_focused ask_option_q2_0
+
+# q2 and q3 cost five stops each, the same way.
+key TAB
+wait_frames 4
+key TAB
+wait_frames 4
+key TAB
+wait_frames 4
+key TAB
+wait_frames 4
+key TAB
+wait_frames 8
+expect_focused ask_option_q3_0
+key TAB
+wait_frames 4
+key TAB
+wait_frames 4
+key TAB
+wait_frames 4
+key TAB
+wait_frames 4
+key TAB
+wait_frames 8
+expect_focused ask_option_q4_0
+
+key TAB
+wait_frames 4
+key TAB
+wait_frames 4
+key TAB
+wait_frames 12
+expect_focused ask_option_q4_3
+
+# The viewport followed. All 409px of travel is used, so the row Tab reached
+# sits inside the body instead of 333px under it --- and its text is on
+# screen, which is the part a user can act on.
+assert_ui ask_option_q4_3 y=523
+expect_text "nobody, it is already approved in the ticket"
+
+# Backwards works too, and lands on the neighbour rather than jumping out.
+shift_tab
+wait_frames 12
+expect_focused ask_option_q4_2
+assert_ui ask_option_q4_2 y=495
+expect_text "nobody, it is already approved in the ticket"
+
+# Forward again, out of the body and into the actions. Submit is disabled
+# while nothing is answered, and a disabled button is not a tab stop, so the
+# ring steps over it to Decline: q4_3, q4's field, Decline.
+key TAB
+wait_frames 6
+expect_focused ask_option_q4_3
+key TAB
+wait_frames 4
+key TAB
+wait_frames 12
+expect_focused ask_decline

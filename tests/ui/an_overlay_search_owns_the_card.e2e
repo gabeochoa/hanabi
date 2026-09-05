@@ -1,3 +1,21 @@
+# Session search owns Enter; the ask card behind it does not.
+#
+# What Enter does when it DOES reach the card is submit: return_intent gives
+# Submit the moment the answer is unblocked, submit_ask fires, and a
+# successful resolve runs drop_attach_ask -- the card is retired and the
+# question is gone for good. So the thing to assert the absence of is the
+# card's disappearance, not that a note string is unchanged. The note read the
+# same words before and after Enter no matter what happened, which is why
+# deleting the `key ENTER` line used to leave this test green.
+#
+# `expect_no_text "Sending your answer..."` was worse than useless here:
+# busyId is set and cleared inside one loader tick against the in-memory mock,
+# so that string is never on screen twelve frames later whatever Enter did.
+# It is gone.
+#
+# The control arm at the bottom presses the SAME key with the overlay closed
+# and requires it to submit. Delete the Enter presses and that arm fails.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=search
 
@@ -7,21 +25,33 @@ expect_text "Answer any one of these to submit"
 expect_text "Search conversations"
 
 focus_ui ask_option_q1_0
+expect_focused ask_option_q1_0
 key SPACE
-wait_frames 10
+wait_frames 12
 expect_text "Answer any one of these to submit"
 
 key ENTER
-wait_frames 10
+wait_frames 12
+# No consequence. The card is still here and still unanswered: Enter did not
+# reach it, so nothing was submitted and nothing was retired.
+expect_text "The agent is asking"
 expect_text "Answer any one of these to submit"
-expect_no_text "Sending your answer…"
 
 key ESCAPE
 wait_frames 20
 expect_no_text "Search conversations"
 
+# Control arm. With session search gone the card has its keys back: SPACE picks...
 focus_ui ask_option_q1_0
 wait_frames 6
 key SPACE
 wait_frames 12
 expect_no_text "Answer any one of these to submit"
+
+# ...and ENTER, the very key the overlay refused, submits. A successful
+# resolve retires the ask, so the card itself goes. If Enter never reaches the
+# card -- unbound, uninjected, or simply not pressed -- the question is still
+# on screen here and this fails.
+key ENTER
+wait_frames 40
+expect_no_text "The agent is asking"
