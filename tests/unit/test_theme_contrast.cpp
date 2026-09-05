@@ -47,6 +47,17 @@ static void check_mode(theme::Mode mode, const char* name) {
                  theme::text_primary(), theme::panel_bg());
     check_direct((std::string(name) + " panel secondary").c_str(),
                  theme::text_secondary(), theme::panel_bg());
+    // The ask card's arity hints ("Pick one", "Pick any") and its free-text
+    // label ("Or write your own answer · Other") sit on the recessed card
+    // fill. They were text_faint, which is 2.63:1 on the dark card and 4.50:1
+    // on the light one -- one fails outright and the other clears the floor by
+    // 0.002, so a single rounding of the card fill would drop it too. They are
+    // the labels that say whether a question takes one answer or several, so
+    // they are not decoration.
+    check_direct((std::string(name) + " ask arity").c_str(),
+                 theme::text_secondary(), theme::panel_bg_2());
+    check_direct((std::string(name) + " ask other label").c_str(),
+                 theme::text_secondary(), theme::panel_bg_2());
     theme::Color dangerTint = theme::destructive();
     dangerTint.a = mode == theme::Mode::Light ? 34 : 16;
     check_direct((std::string(name) + " destructive surface").c_str(),

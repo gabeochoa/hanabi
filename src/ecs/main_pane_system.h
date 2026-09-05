@@ -5183,7 +5183,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             pixels(ask_arity_w(bodyTextW)),
                             pixels(hanabi::ask::kOptionLineH)})
                         .with_transparent_bg()
-                        .with_custom_text_color(theme::text_faint())
+                        .with_custom_text_color(theme::text_secondary())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Right)
                         .with_debug_name("ask_arity_" + q.key));
@@ -5313,7 +5313,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kNoteH)})
                         .with_transparent_bg()
-                        .with_custom_text_color(theme::text_faint())
+                        .with_custom_text_color(theme::text_secondary())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
                         .with_text_overflow(TextOverflow::Ellipsis)

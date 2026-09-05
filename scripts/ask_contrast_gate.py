@@ -71,6 +71,85 @@ PAIRED = [
 ]
 
 
+# The ask card's body labels: the arity hints beside each prompt ("Pick one",
+# "Pick any") and the free-text label under the options ("Or write your own
+# answer · Other").
+#
+# They are neither action labels (no button rect to derive a box from) nor
+# note lines (they live inside the scrolling body, beside the question they
+# belong to), so they get their own table. The boxes are the elements' own
+# rects, read off the widget tree at these two baselines' size.
+#
+# They were drawn in text_faint. Measured off these very baselines that was
+# 2.59:1 on the dark card and 4.38:1 on the light one -- and the light figure
+# is the reason this is a pixel row and not only a token assertion: the token
+# pair computes to 4.5024:1, which passes a unit check and still fails on
+# screen once the glyph is anti-aliased onto the card.
+BODY_LABEL_BOXES = [
+    ("Pick one", 978, 1042, 252, 268),
+    ("Pick any", 978, 1042, 410, 426),
+    ("Other", 328, 1042, 356, 374),
+]
+
+BODY_LABELS = [
+    ("55_ask_card_dark.png", BODY_LABEL_BOXES),
+    ("56_ask_card_light.png", BODY_LABEL_BOXES),
+]
+
+# What those labels actually measured, on these very baselines, when they were
+# drawn in text_faint. NOT the nominal token: the peak glyph pixel comes back
+# a shade off it (the light card read 112,112,123 against a 110,110,122 token),
+# and the difference decides the verdict -- the token pair computes to
+# 4.5024:1 and the pixels came out at 4.38:1. The self-check paints these back
+# to prove the rows would catch a return to that ink.
+FAINT_INK = {
+    "55_ask_card_dark.png": (99, 99, 111),
+    "56_ask_card_light.png": (112, 112, 123),
+}
+
+
+def body_label_measure(image, x0, x1, y0, y1):
+    pixels = [image.getpixel((x, y))
+              for x in range(x0, min(x1, image.size[0]))
+              for y in range(y0, min(y1, image.size[1]))]
+    fill = Counter(pixels).most_common(1)[0][0]
+    ink = max(pixels, key=lambda p: abs(luminance(p) - luminance(fill)))
+    return fill, ink, contrast(ink, fill)
+
+
+def body_label_failures(name, rows):
+    found = []
+    for label, ratio, ink in rows:
+        if ratio < MIN_RATIO:
+            found.append(
+                f"{name} body label {label!r} ink {ink} is {ratio:.2f}:1, "
+                f"below {MIN_RATIO}:1")
+    return found
+
+
+def body_label_self_check():
+    """Repainting a body label in the old faint ink must be rejected."""
+    for name, boxes in BODY_LABELS:
+        image = Image.open(BASELINES / name).convert("RGB").copy()
+        label, x0, x1, y0, y1 = boxes[0]
+        fill, _, clean = body_label_measure(image, x0, x1, y0, y1)
+        if clean < MIN_RATIO:
+            raise SystemExit(
+                f"ask-contrast body-label self-check: {name} {label!r} is "
+                f"already {clean:.2f}:1 before tampering")
+        faint = FAINT_INK[name]
+        for x in range(x0, min(x1, image.size[0])):
+            for y in range(y0, min(y1, image.size[1])):
+                if image.getpixel((x, y)) != fill:
+                    image.putpixel((x, y), faint)
+        _, _, dimmed = body_label_measure(image, x0, x1, y0, y1)
+        if dimmed >= MIN_RATIO:
+            raise SystemExit(
+                f"ask-contrast body-label self-check: {name} {label!r} "
+                f"repainted in the old faint ink still measures "
+                f"{dimmed:.2f}:1, so the row would not catch a revert")
+
+
 def luminance(color):
     def channel(value):
         v = value / 255.0
@@ -376,6 +455,22 @@ def main():
                   for top, bottom, line_ink, ratio in rows))
         failures.extend(note_failures(name, rows, card_fill, expected))
 
+    labels = 0
+    for name, boxes in BODY_LABELS:
+        path = BASELINES / name
+        if not path.exists():
+            raise SystemExit(f"ask-contrast: missing baseline {name}")
+        image = Image.open(path).convert("RGB")
+        rows = []
+        for label, x0, x1, y0, y1 in boxes:
+            fill, ink, ratio = body_label_measure(image, x0, x1, y0, y1)
+            rows.append((label, ratio, ink))
+        labels += len(rows)
+        print(f"  {name.split('_')[0]:>3} body      " +
+              " ".join(f"[{label} {ratio:.2f}:1]"
+                       for label, ratio, _ in rows))
+        failures.extend(body_label_failures(name, rows))
+
     for disabled_row, enabled_row in PAIRED:
         dim = {label for (row, label) in by_control if row == disabled_row}
         lit = {label for (row, label) in by_control if row == enabled_row}
@@ -409,10 +504,13 @@ def main():
           f"{notes} note lines across {len(NOTE_ROWS)} notes, each note's "
           f"ink >= {MIN_RATIO}:1 measured at its best-covered pixel and every "
           f"line drawn in that same ink to within "
-          f"{1.0 - NOTE_LINE_COVERAGE:.0%} coverage)")
+          f"{1.0 - NOTE_LINE_COVERAGE:.0%} coverage; "
+          f"{labels} body labels across {len(BODY_LABELS)} cards, each "
+          f">= {MIN_RATIO}:1)")
 
 
 if __name__ == "__main__":
     self_check()
     note_self_check()
+    body_label_self_check()
     main()
