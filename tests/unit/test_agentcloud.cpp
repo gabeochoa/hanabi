@@ -1243,6 +1243,65 @@ static void test_the_watermark_drops_a_late_frame() {
     CHECK(asks_now() == 1);
 }
 
+// A pending_elicitations row with "elicitation": null must not kill the turn.
+//
+// The rows in an attach's state go into asks_ behind an is_object() check and
+// nothing else, and upsert_ask then walks that list on the next
+// elicitation_requested frame. It read the seq with nlohmann's .value(),
+// which falls back for an ABSENT key but throws type_error.302 on a key that
+// is present and null. There is no catch anywhere on the turn loop, so one
+// null row in one attach was std::terminate on the next question the agent
+// asked --- the same defect class as title:null above, on the ask path.
+static void test_a_null_elicitation_row_does_not_kill_the_turn() {
+    std::printf("a present-null elicitation seq is survived, not thrown on\n");
+    nlohmann::json state = nlohmann::json::object();
+    state["pending_elicitations"] = nlohmann::json::array({
+        // present, and null --- the shape .value() cannot fall back for
+        nlohmann::json{{"elicitation", nullptr},
+                       {"tool", "AskUserQuestion"},
+                       {"message", "a row the server sent without a seq"},
+                       {"requested_schema", ""}},
+        nlohmann::json{{"elicitation", 41},
+                       {"tool", "AskUserQuestion"},
+                       {"message", "a well-formed neighbour"},
+                       {"requested_schema", ""}},
+    });
+
+    std::vector<std::string> reports;
+    api::StreamSink sink;
+    sink.on_event = [&reports](const api::StreamEvent& e) {
+        if (e.kind == api::StreamEventKind::AsksChanged)
+            reports.push_back(e.payload);
+    };
+
+    api::agentcloud::LiveTurn turn;
+    turn.seed_asks(state, sink);
+
+    const nlohmann::json raised = {
+        {"type", "frame"},
+        {"seq", 42},
+        {"event", nlohmann::json{{"type", "elicitation_requested"},
+                                 {"tool", "AskUserQuestion"},
+                                 {"message", "the next question"},
+                                 {"requested_schema", ""}}}};
+    turn.feed(raised, sink);
+
+    // Got here at all: the null row was read as "no seq" rather than thrown
+    // on. And the new ask is a new row, not a clobber of the null one.
+    CHECK(!reports.empty());
+    const auto st = nlohmann::json::parse(reports.back(), nullptr, false);
+    CHECK(!st.is_discarded());
+    const auto asks = api::elicitation::asks_from_state(st, "owner");
+    bool sawNext = false;
+    bool sawNeighbour = false;
+    for (const auto& a : asks) {
+        if (a.message == "the next question") sawNext = true;
+        if (a.message == "a well-formed neighbour") sawNeighbour = true;
+    }
+    CHECK(sawNext);
+    CHECK(sawNeighbour);
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -1303,6 +1362,7 @@ int main() {
     test_fork_wire_contract_and_child_catalog();
     test_backward_paging_never_rewinds_the_live_plan();
     test_the_watermark_drops_a_late_frame();
+    test_a_null_elicitation_row_does_not_kill_the_turn();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

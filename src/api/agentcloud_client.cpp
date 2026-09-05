@@ -1142,9 +1142,15 @@ void LiveTurn::seed_asks(const json& state, const StreamSink& sink) {
 }
 
 void LiveTurn::upsert_ask(json entry) {
-    const int64_t seq = entry.value("elicitation", int64_t{0});
+    // The two reads below are the last .value() calls on this path, and
+    // asks_ is fed straight from the server's own pending_elicitations rows
+    // (seed_asks checks only is_object). A row with "elicitation": null makes
+    // .value() throw type_error.302 -- it falls back for an ABSENT key, never
+    // for a present null -- and nothing on the turn loop catches, so it is a
+    // terminate. int_or is what every other reader in this file uses.
+    const int64_t seq = int_or(entry, "elicitation", 0);
     for (json& held : asks_)
-        if (held.value("elicitation", int64_t{-1}) == seq) {
+        if (int_or(held, "elicitation", -1) == seq) {
             held = std::move(entry);
             return;
         }
