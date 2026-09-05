@@ -154,6 +154,8 @@ class MockClient : public Client {
                     ? std::string(elicitation::action_word(action))
                     : std::string(fail));
         resolvedAsks_.insert(ask.id());
+        if (resolvedAtRead_.load() < 0)
+            resolvedAtRead_.store(session_reads().load());
         return Result<std::string>::success(
             elicitation::action_word(action));
     }
@@ -202,6 +204,17 @@ class MockClient : public Client {
     // live API: ?limit=N returns the newest N ascending + hasMore=true.
     static int vanish_after() {
         if (const char* v = std::getenv("HANABI_ASK_VANISH_AFTER");
+            v != nullptr && *v != '\0')
+            return std::atoi(v);
+        return 2;
+    }
+
+    // How many reads separate answering the first ask from the second one
+    // being raised. The gap is the point of the fixture: for those reads the
+    // thread has NO asks, and an empty snapshot used to erase the session
+    // from the sweep permanently.
+    static int raised_gap() {
+        if (const char* v = std::getenv("HANABI_ASK_RAISED_GAP");
             v != nullptr && *v != '\0')
             return std::atoi(v);
         return 2;
@@ -711,6 +724,9 @@ class MockClient : public Client {
     // stateless). Merged into list_sessions/get_session above.
     std::vector<Session> created_;
     std::set<std::string> resolvedAsks_;
+    // The read counter at the moment the first ask was resolved; -1 until
+    // then. raise_second_ask() measures its gap from here.
+    mutable std::atomic<int> resolvedAtRead_{-1};
     std::size_t fork_count_ = 0;
 
     // In-memory sink for the settings-write path (see update_settings). Lets
@@ -906,6 +922,31 @@ class MockClient : public Client {
         for (const auto& a : s.pending_asks)
             if (resolvedAsks_.count(a.id()) == 0) kept.push_back(a);
         s.pending_asks = std::move(kept);
+        raise_second_ask(s);
+    }
+
+    // The agent asks a SECOND question after the user answers the first --
+    // later in the same turn, which is when it usually happens.
+    //
+    // Between the two the thread has no asks at all for `raised_gap()` reads.
+    // That window is the fixture's whole point: the app used to erase the
+    // session on an empty snapshot AND stamp it, which took it out of the
+    // periodic sweep for good, so the second question never arrived.
+    //
+    // Deterministic from the read counter and the resolved set alone -- no
+    // clock, no randomness, same rule as vanish_after().
+    void raise_second_ask(Session& s) const {
+        const char* ask = std::getenv("HANABI_ASK_DEMO");
+        if (ask == nullptr || std::string_view(ask) != "raised") return;
+        const int at = resolvedAtRead_.load();
+        if (at < 0) return;
+        if (session_reads().load() <= at + raised_gap()) return;
+        auto second = mock_pending_asks("1", s.summary.id);
+        if (second.empty()) return;
+        second[0].seq = 91;
+        second[0].message =
+            "One more before I run it: which cycle books the correction?";
+        s.pending_asks.push_back(std::move(second[0]));
     }
 
     static constexpr const char* kChildAskSession = "kid-mock";
@@ -979,6 +1020,7 @@ class MockClient : public Client {
             {"file_keys", nlohmann::json::array({"q4"})},
             {"timeout_ms", 600000},
         };
+        if (mode == "raised") return mock_pending_asks("approval", owner);
         if (mode == "two") {
             auto first = mock_pending_asks("1", owner);
             auto second = mock_pending_asks("approval", owner);

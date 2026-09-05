@@ -727,9 +727,24 @@ struct AppComponent : public afterhours::BaseComponent {
     float lastPaneContentH = 0.0f;
     float lastComposerChromeH = 0.0f;
 
-    [[nodiscard]] bool ask_load_is_stale(const std::string& id,
-                                         std::uint64_t stamp) const {
-        return askState.load_is_stale(id, stamp);
+    [[nodiscard]] bool ask_is_stale(const std::string& askId,
+                                    std::uint64_t stamp) const {
+        return askState.ask_is_stale(askId, stamp);
+    }
+
+    // Drop from a landing load only the asks it is too old to speak for.
+    //
+    // The predecessor of this vetoed the WHOLE load when anything in the
+    // session had been resolved since it was requested. That is the common
+    // case during a live turn, and the load it threw away was the one holding
+    // the ask raised after the one just answered.
+    [[nodiscard]] std::vector<api::PendingAsk> without_dropped_asks(
+        std::vector<api::PendingAsk> fresh, std::uint64_t stamp) const {
+        std::vector<api::PendingAsk> kept;
+        kept.reserve(fresh.size());
+        for (auto& a : fresh)
+            if (!ask_is_stale(a.id(), stamp)) kept.push_back(std::move(a));
+        return kept;
     }
 
     void apply_attach_asks(const std::string& id,
@@ -746,12 +761,27 @@ struct AppComponent : public afterhours::BaseComponent {
             askRescued.keep(id, hanabi::ask::draft_text_of(a, at->second));
         }
         askState.adopt(asks, before);
+        // An empty snapshot retires the asks it replaces -- and nothing else.
+        //
+        // It used to also erase the session and stamp it, which had two costs.
+        // The stamp vetoed every in-flight load for the thread, so a snapshot
+        // that was merely EARLY (the server had not listed the new ask yet)
+        // silenced the one that would have carried it. And the erase took the
+        // session out of the periodic sweep, which only visits threads it
+        // already holds asks for -- so nothing ever asked again. One empty
+        // attach permanently blinded the thread.
+        //
+        // The entry stays, emptied. asks_for() still reports nothing, so the
+        // card still closes; the sweep still has a thread to watch. Only for a
+        // thread that HAS had asks, though -- minting one here for a thread
+        // that never had any would put every thread ever opened on the 20s
+        // poll.
         if (asks.empty()) {
-            attachAsks.erase(id);
-            askState.forget_session(id);
-        }
-        else
+            for (const auto& a : before) askState.note_drop(a.id());
+            if (known != attachAsks.end()) known->second.clear();
+        } else {
             attachAsks[id] = asks;
+        }
     }
 
     [[nodiscard]] std::string ask_session_of(const std::string& askId) const {
@@ -764,14 +794,16 @@ struct AppComponent : public afterhours::BaseComponent {
     }
 
     void drop_attach_ask(const std::string& id, const std::string& askId) {
-        askState.note_drop(id);
+        askState.note_drop(askId);
         const auto it = attachAsks.find(id);
         if (it == attachAsks.end()) return;
         std::vector<api::PendingAsk> kept;
         for (const auto& a : it->second)
             if (a.id() != askId) kept.push_back(a);
-        if (kept.empty()) attachAsks.erase(it);
-        else it->second = std::move(kept);
+        // Keep the entry even when it empties. Answering the last ask of a
+        // turn is the moment the next one is most likely to arrive, and the
+        // sweep only watches threads it has an entry for.
+        it->second = std::move(kept);
         askState.forget(askId);
     }
 

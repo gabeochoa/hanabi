@@ -144,30 +144,32 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                                 const std::string& asksJson,
                                 std::uint64_t stamp) {
         if (asksJson.empty()) return;
-        if (app.ask_load_is_stale(id, stamp)) return;
         const auto state = nlohmann::json::parse(asksJson, nullptr, false);
         if (state.is_discarded() || !state.is_object()) return;
         app.apply_attach_asks(
             id,
-            keep_newer_asks(
-                app, id,
-                keep_busy_ask(app, id,
-                              keep_probed_child_questions(
-                                  app, id,
-                                  api::elicitation::asks_from_state(state,
-                                                                    id))),
+            app.without_dropped_asks(
+                keep_newer_asks(
+                    app, id,
+                    keep_busy_ask(app, id,
+                                  keep_probed_child_questions(
+                                      app, id,
+                                      api::elicitation::asks_from_state(state,
+                                                                        id))),
+                    stamp),
                 stamp));
     }
 
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
                                   bool authoritative, std::uint64_t stamp) {
         if (!authoritative) return;
-        if (app.ask_load_is_stale(s.summary.id, stamp)) return;
         app.apply_attach_asks(
             s.summary.id,
-            keep_newer_asks(
-                app, s.summary.id,
-                keep_busy_ask(app, s.summary.id, s.pending_asks), stamp));
+            app.without_dropped_asks(
+                keep_newer_asks(
+                    app, s.summary.id,
+                    keep_busy_ask(app, s.summary.id, s.pending_asks), stamp),
+                stamp));
     }
     static std::vector<api::PendingAsk> keep_newer_asks(
         const AppComponent& app, const std::string& id,
@@ -1503,7 +1505,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
             const Pane& pane = app.panes[i];
             if (pane.selectedId.empty()) continue;
-            if (app.asks_for(pane.selectedId) == nullptr) continue;
+            // Membership, not contents. A thread whose asks have all been
+            // answered is precisely the one whose next ask we are waiting
+            // for; gating on asks_for() (which reports nothing for an empty
+            // list) made the sweep stop at the moment it mattered most.
+            if (app.attachAsks.count(pane.selectedId) == 0) continue;
             request_ask_refresh(app, pane.selectedId);
         }
     }

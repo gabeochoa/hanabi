@@ -51,6 +51,19 @@ struct State {
 
     std::map<std::string, int64_t> seenAt;
     std::uint64_t loadSeq = 0;
+    // Drop authority is per ASK, not per session.
+    //
+    // It used to be per session: resolving one ask stamped the whole thread,
+    // and load_is_stale() then threw away every load already in flight for it.
+    // But a load in flight during a live turn is exactly the one carrying the
+    // NEXT ask the agent raised, so answering the first question discarded the
+    // second -- it never reached the card, its draft never existed, and the
+    // thread was left looking answered. The authority was (session, loadSeq);
+    // the thing actually authorised was "ask A is resolved".
+    //
+    // Keyed by ask id it says only what it knows. An older load may not bring
+    // THIS ask back; everything else it carries is none of this stamp's
+    // business.
     std::map<std::string, std::uint64_t> dropStamp;
 
     std::map<std::string, std::uint64_t> bornStamp;
@@ -63,10 +76,10 @@ struct State {
         const auto at = bornStamp.find(id);
         return at != bornStamp.end() && at->second > stamp;
     }
-    void note_drop(const std::string& session) { dropStamp[session] = loadSeq; }
-    [[nodiscard]] bool load_is_stale(const std::string& session,
-                                     std::uint64_t stamp) const {
-        const auto at = dropStamp.find(session);
+    void note_drop(const std::string& askId) { dropStamp[askId] = loadSeq; }
+    [[nodiscard]] bool ask_is_stale(const std::string& askId,
+                                    std::uint64_t stamp) const {
+        const auto at = dropStamp.find(askId);
         return at != dropStamp.end() && stamp <= at->second;
     }
 
@@ -87,10 +100,6 @@ struct State {
             else
                 seenAt.insert_or_assign(a.id(), now);
         }
-    }
-
-    void forget_session(const std::string& session) {
-        dropStamp[session] = loadSeq;
     }
 
     void forget(const std::string& id) {

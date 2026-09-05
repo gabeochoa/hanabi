@@ -319,17 +319,24 @@ static void test_budget_pays_the_composer_first() {
 static void test_a_stale_load_cannot_resurrect() {
     std::printf("stale loads cannot resurrect a card\n");
     ask::State state;
-    const std::string sid = "s1";
+    const std::string gone = "s1/41";
+    const std::string later = "s1/42";
 
     const std::uint64_t bStamp = state.next_load_stamp();
     const std::uint64_t aStamp = state.next_load_stamp();
-    state.note_drop(sid);
+    state.note_drop(gone);
 
-    CHECK(state.load_is_stale(sid, bStamp));
-    CHECK(state.load_is_stale(sid, aStamp));
+    CHECK(state.ask_is_stale(gone, bStamp));
+    CHECK(state.ask_is_stale(gone, aStamp));
     const std::uint64_t fresh = state.next_load_stamp();
-    CHECK(!state.load_is_stale(sid, fresh));
-    CHECK(!state.load_is_stale("other", bStamp));
+    CHECK(!state.ask_is_stale(gone, fresh));
+
+    // The authority is this ask, not its thread. A sibling raised in the same
+    // turn rides the same loads and must survive all of them.
+    CHECK(!state.ask_is_stale(later, bStamp));
+    CHECK(!state.ask_is_stale(later, aStamp));
+    CHECK(!state.ask_is_stale(later, fresh));
+    CHECK(!state.ask_is_stale("s2/41", bStamp));
 }
 
 static void test_a_reserved_note_costs_exactly_one_note() {
@@ -577,14 +584,61 @@ static void test_a_dropped_session_cannot_resurrect_an_ask() {
     st.adopt({a}, {});
     st.answers[a.id()].text["q1"] = "typed";
 
-    st.note_drop("s1");
+    st.note_drop(a.id());
     st.adopt({}, {a});
-    st.forget_session("s1");
     CHECK(st.answers.count(a.id()) == 0);
     CHECK(st.bornStamp.count(a.id()) == 0);
 
-    CHECK(st.load_is_stale("s1", inflight));
+    CHECK(st.ask_is_stale(a.id(), inflight));
     CHECK(!st.born_after(a.id(), inflight));
+}
+
+// Resolving one ask must not discard another raised later in the same turn.
+//
+// The load in flight while the user answers ask A is the load that carries
+// ask B. Under session-keyed drop authority, answering A stamped the whole
+// thread and that load was thrown away whole: B never reached the card, and
+// the draft the user had already typed into it never existed.
+static void test_answering_one_ask_keeps_the_next() {
+    std::printf("answering one ask keeps the one raised after it\n");
+    ask::State st;
+    api::PendingAsk a;
+    a.owner_session = "s1";
+    a.seq = 41;
+    api::PendingAsk b;
+    b.owner_session = "s1";
+    b.seq = 42;
+
+    st.adopt({a}, {});
+    st.answers[a.id()].text["q1"] = "yes";
+
+    // A load goes out mid-turn; the agent raises B while it is in flight.
+    const std::uint64_t carrying_b = st.next_load_stamp();
+
+    // The user answers A before that load lands.
+    st.note_drop(a.id());
+
+    // A is retired for this load and every older one...
+    CHECK(st.ask_is_stale(a.id(), carrying_b));
+    // ...and B, which the same load carries, is not touched by A's stamp.
+    CHECK(!st.ask_is_stale(b.id(), carrying_b));
+
+    // B lands, keeps its identity and takes a draft of its own.
+    st.adopt({b}, {a});
+    st.answers[b.id()].text["q1"] = "second answer";
+    CHECK(st.answers.count(a.id()) == 0);
+    CHECK(st.answers.count(b.id()) == 1);
+    CHECK(st.answers[b.id()].text["q1"] == "second answer");
+    CHECK(st.bornStamp.count(b.id()) == 1);
+
+    // Answering B in turn retires B alone; A stays retired.
+    st.note_drop(b.id());
+    CHECK(st.ask_is_stale(b.id(), carrying_b));
+    CHECK(st.ask_is_stale(a.id(), carrying_b));
+    // A newer load speaks for both again.
+    const std::uint64_t after = st.next_load_stamp();
+    CHECK(!st.ask_is_stale(a.id(), after));
+    CHECK(!st.ask_is_stale(b.id(), after));
 }
 
 static void test_rescues_do_not_overwrite_each_other() {
@@ -754,6 +808,7 @@ int main() {
     test_the_shared_overlay_set_is_declared();
     test_metrics_track_the_questions_not_the_id();
     test_a_dropped_session_cannot_resurrect_an_ask();
+    test_answering_one_ask_keeps_the_next();
     test_rescues_do_not_overwrite_each_other();
     test_clicked_answers_are_rescued_too();
     test_an_unreadable_approval_is_not_approvable();

@@ -1,0 +1,49 @@
+# Answering one ask must not discard the one raised after it.
+#
+# Drop authority used to be keyed by SESSION: resolving an ask stamped the
+# whole thread, and every load already in flight for it was thrown away whole.
+# During a live turn the in-flight load is exactly the one carrying the agent's
+# NEXT question, so answering the first discarded the second.
+#
+# The empty gap between the two made it permanent. An attach snapshot with no
+# asks erased the session from attachAsks and stamped it, and the periodic
+# sweep only visits threads it already holds asks for -- so after the gap
+# nothing was left to ask again, and the second question never arrived at all.
+#
+# The `raised` fixture is that sequence, deterministically: an approval, then
+# two reads with nothing pending, then a second question. It needs no
+# HANABI_ASK_FAIL --- the resolve has to actually succeed for drop_attach_ask
+# to run, which is the code under test.
+#
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=raised HANABI_ASK_REFRESH_SECS=0.2
+
+require_thread t2
+expect_text "The agent needs approval"
+expect_text "bash may write outside the workspace; a human has to allow it."
+
+click_ui ask_submit
+wait_frames 30
+
+# The first ask is answered and gone.
+expect_no_text "bash may write outside the workspace; a human has to allow it."
+
+# Through the empty gap and out the other side: the sweep kept watching, so
+# the question raised after the answer arrives.
+wait_frames 200
+expect_text "One more before I run it: which cycle books the correction?"
+
+# It is a real card, not a husk: answer it.
+click_ui ask_text_q3
+wait_frames 4
+type "book it against 2026-09"
+wait_frames 6
+expect_input_text ask_text_q3 "book it against 2026-09"
+
+# ...and the draft and the card's identity both survive the sweeps that keep
+# arriving underneath it. A refresh that re-adopted the ask under a new
+# identity would drop the answer on the floor here.
+wait_frames 120
+expect_text "One more before I run it: which cycle books the correction?"
+expect_input_text ask_text_q3 "book it against 2026-09"
+expect_no_text "Answer to submit"
