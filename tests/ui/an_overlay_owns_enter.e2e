@@ -1,19 +1,51 @@
+# A modal sheet owns Enter even when the ask card's own BUTTON has focus.
+#
+# The sibling tests (an_overlay_{find,palette,search}_owns_the_card,
+# an_overlay_owns_the_options_too) all focus an option ROW, which is inside
+# ask_body_content -- so widgetOwnsEnter is false and Enter goes through
+# drive_ask_keyboard, gated on keys_live(). This one focuses Approve and Deny,
+# which live in ask_actions: widgetOwnsEnter is TRUE, the card's key handler
+# steps aside, and the button's own activation is what Enter reaches. That
+# path is gated on input_live() instead -- a different predicate, and the only
+# test that covers it.
+#
+# What Enter does when it gets through is decide the approval: Deny resolves
+# it, Approve resolves it, and either way drop_attach_ask retires the card and
+# the command is gone. A modal sheet is on screen; the user is looking at
+# settings, not at this. So the consequence to assert the absence of is the
+# card's disappearance.
+#
+# `expect_no_text "Sending your answer..."` used to sit under both arms and
+# was removed: busyId is set and cleared inside one loader tick against the
+# in-memory mock, so that string is never on screen twenty frames later
+# whatever Enter did. It could not fail, on any build, and it read like the
+# assertion that was doing the work.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=approval HANABI_TEST_OVERLAY=settings
 
 require_thread t2
 expect_text "The agent needs approval"
+expect_text "./scripts/release_batch.sh --force"
+# The sheet really is up -- otherwise the arms below would be testing an
+# unobstructed card and passing for the wrong reason.
+expect_text "Appearance, behavior, notifications, and local data"
 
+# Deny is asked for focus and takes a real Enter. Two things stop it, and
+# `focus_ui` failing to stick is the first: while the sheet is up the card's
+# buttons are not focusable at all, so focus stays out on the sheet's own list.
+# Enter therefore reaches no button, the approval is not decided, and the card
+# is still on screen, undecided.
 focus_ui ask_decline
 key ENTER
 wait_frames 20
-expect_no_text "Sending your answer…"
 expect_text "The agent needs approval"
+expect_text "./scripts/release_batch.sh --force"
 
+# Same for Approve.
 focus_ui ask_submit
 key ENTER
 wait_frames 20
-expect_no_text "Sending your answer…"
 expect_text "The agent needs approval"
 expect_text "./scripts/release_batch.sh --force"
 
@@ -21,7 +53,13 @@ key ESCAPE
 wait_frames 20
 expect_no_text "Appearance, behavior, notifications, and local data"
 
+# Control arm. With the sheet gone the button takes the same key it just
+# refused, and a successful resolve retires the ask -- so the card goes. If
+# Enter never reaches the button (deleted, unbound, uninjected) the approval
+# is still sitting here and this fails.
 focus_ui ask_submit
+expect_focused ask_submit
 key ENTER
 wait_frames 25
+expect_no_text "accept — press Approve to try again."
 expect_no_text "The agent needs approval"
