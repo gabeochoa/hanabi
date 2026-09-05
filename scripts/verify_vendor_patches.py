@@ -25,6 +25,24 @@ PATCHES = {
     "266-explicit-disabled-label-color.patch": "label",
 }
 
+# NOTHING APPLIES THESE PATCHES. The app compiles the submodule verbatim, so a
+# green run here says the patch is a good upstream contribution -- it says
+# nothing about hanabi's binary. What IS about the binary is the other half:
+# the pin lacks each behaviour, so hanabi carries its own stand-in, and the
+# mistake this gate exists to catch is someone deleting a stand-in because
+# "the patch handles it". Each entry is (file, symbol) that must still be there.
+COMPENSATORS = {
+    "351-report-font-atlas-exhaustion.patch": [
+        ("src/util/atlas_guard.h", "prefont_zero_count"),
+        ("scripts/atlas_gate.sh", "atlas"),
+    ],
+    "266-explicit-disabled-label-color.patch": [
+        ("src/ui/theme.h", "ask_action_disabled_ink"),
+        ("src/ecs/main_pane_system.h", "ask_action_disabled_ink"),
+        ("scripts/ask_contrast_gate.py", "disabled"),
+    ],
+}
+
 
 def run(
     args: list[str], *, cwd: Optional[Path] = None
@@ -42,8 +60,31 @@ def require_ok(result: subprocess.CompletedProcess[str], label: str) -> None:
 def require_red(result: subprocess.CompletedProcess[str], label: str) -> None:
     if result.returncode != 0:
         return
-    sys.stderr.write(f"{label} was unexpectedly green on the pinned base\n")
+    patch = label.split(":", 1)[0]
+    sys.stderr.write(
+        f"{patch}: the pin now HAS this behaviour -- the patch landed "
+        f"upstream. Delete it from vendor_patches/ and PATCHES, and retire "
+        f"the local workaround it duplicates (see COMPENSATORS).\n"
+    )
     raise SystemExit(1)
+
+
+def require_compensators(patch_name: str) -> None:
+    for rel, symbol in COMPENSATORS.get(patch_name, []):
+        path = ROOT / rel
+        if not path.exists():
+            sys.stderr.write(
+                f"{patch_name}: the pin lacks this behaviour and hanabi's "
+                f"stand-in {rel} is gone. The shipping binary has neither.\n"
+            )
+            raise SystemExit(1)
+        if symbol not in path.read_text(encoding="utf-8", errors="replace"):
+            sys.stderr.write(
+                f"{patch_name}: the pin lacks this behaviour and hanabi's "
+                f"stand-in {symbol} is no longer in {rel}. The shipping "
+                f"binary has neither.\n"
+            )
+            raise SystemExit(1)
 
 
 def vendor_revision() -> subprocess.CompletedProcess[str]:
@@ -194,7 +235,9 @@ def verify_patch(temp: Path, base_tree: Path, pin_tree: Path, contract: Path,
     else:
         raise SystemExit(f"{patch_name}: unknown patch kind {kind!r}")
 
-    print(f"PASS {patch_name}: red before, green after -- at the pin")
+    print(f"PASS {patch_name}: the pin does NOT have this behaviour; the "
+          f"patch adds it -- upstream contribution, not a build input")
+    require_compensators(patch_name)
 
 
 def main() -> int:
@@ -218,8 +261,9 @@ def main() -> int:
         for patch_name, kind in PATCHES.items():
             verify_patch(temp, base_tree, pin_tree, contract, patch_name, kind)
 
-    print(f"PASS all {len(PATCHES)} vendor patches against the pinned "
-          f"tree {PIN}")
+    print(f"PASS all {len(PATCHES)} vendor patches are absent from the "
+          f"pinned tree {PIN} and apply cleanly to it. The app builds "
+          f"against the UNPATCHED pin; hanabi's own stand-ins are what ship.")
     return 0
 
 

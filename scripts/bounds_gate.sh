@@ -129,12 +129,9 @@ done
 
 sort -u "$FOUND" -o "$FOUND"
 
-# SPLIT ARMS, ask-scoped. The composer's narrow-pane geometry overflows at
-# every split width -- reproduced with the ask card off screen entirely, and
-# `git diff 73d5cffe..HEAD` touches none of it -- so these states cannot be
-# checked whole without gating a pre-existing defect this feature did not
-# cause. What IS this feature's to keep clean is every `ask_*` element, and
-# that is what these check.
+# THE ASK STATES. Narrow and split geometries the main list does not reach,
+# measured whole and held to the same baseline. Two of these six carry no
+# HANABI_SPLIT: the overflows live at 340 wide, not at a split width.
 ASK_STATES=(
     "HANABI_WIN_W=487 HANABI_WIN_H=620 HANABI_SPLIT=t3 HANABI_ASK_DEMO=approval"
     "HANABI_WIN_W=487 HANABI_WIN_H=620 HANABI_SPLIT=t3 HANABI_ASK_DEMO=1"
@@ -182,23 +179,25 @@ for line in open(sys.argv[1], errors="replace"):
     m = re.match(r"\[bounds\]\s+(\S+)\s+in\s+(\S+)\s+over by (.*?)(?:\s+\[|$)", line)
     if not m:
         continue
-    if not m.group(1).startswith("ask_"):
-        continue
     sides = " ".join(sorted(s for s in ("left", "right", "top", "bottom")
                             if s + "=" in m.group(3)))
     print(f"{m.group(1)} in {m.group(2)} {sides}")
 PY
 done
 sort -u "$ASK_FOUND" -o "$ASK_FOUND"
+ASK_NEW="$WORK/ask_new.txt"
+comm -23 "$ASK_FOUND" <(grep -v '^#' "$BASELINE" | grep -v '^$' | sort -u) \
+    > "$ASK_NEW"
 
-if [ -s "$ASK_FOUND" ]; then
-    echo "bounds-gate: FAIL: the ask card escapes its own boxes in a split:" >&2
-    sed 's/^/  /' "$ASK_FOUND" >&2
+if [ -s "$ASK_NEW" ]; then
+    echo "bounds-gate: FAIL: element(s) escaping their parent's content box" \
+         "in an ask state:" >&2
+    sed 's/^/  /' "$ASK_NEW" >&2
     echo "" >&2
     echo "  The card and its rows must fit whatever pane they are given." >&2
     exit 1
 fi
-echo "bounds-gate: ask split arms clean (${#ASK_STATES[@]} states)."
+echo "bounds-gate: ask states clean (${#ASK_STATES[@]} states)."
 
 
 if [ "${1:-}" = "--update" ]; then
