@@ -304,8 +304,11 @@ inline bool ask_entry_from_frame(const std::string& frame_json,
     const json& event = wrapped != nullptr ? *wrapped : root;
     if (detail::str_field(event, "type") != "elicitation_requested")
         return false;
-    const int64_t seq = detail::int_field(root, "seq", 0);
-    if (seq <= 0) return false;
+    if (!root.is_object() || !root.contains("seq") ||
+        !root.at("seq").is_number_integer())
+        return false;
+    const int64_t seq = root.at("seq").get<int64_t>();
+    if (seq < 0) return false;
     json out = json::object();
     out["elicitation"] = seq;
     out["tool"] = detail::str_field(event, "tool");
@@ -315,6 +318,10 @@ inline bool ask_entry_from_frame(const std::string& frame_json,
     if (event.is_object() && event.contains("deadline_unix_ms") &&
         event.at("deadline_unix_ms").is_number_integer())
         out["deadline_unix_ms"] = event.at("deadline_unix_ms");
+    const int64_t stamped = detail::int_field(root, "created_at_unix_ms", 0);
+    const int64_t window = detail::int_field(event, "timeout_ms", 0);
+    if (!out.contains("deadline_unix_ms") && stamped > 0 && window > 0)
+        out["deadline_unix_ms"] = stamped + window;
     const std::string kind = detail::str_field(event, "kind");
     if (!kind.empty()) out["kind"] = kind;
     if (event.is_object() && event.contains("input") &&
@@ -333,7 +340,9 @@ inline std::vector<PendingAsk> asks_from_state(
     std::vector<PendingAsk> out;
     if (const json* own = detail::array_field(state, "pending_elicitations"))
         for (const json& e : *own) {
-            if (!e.is_object() || !e.contains("elicitation")) continue;
+            if (!e.is_object() || !e.contains("elicitation") ||
+                !e.at("elicitation").is_number_integer())
+                continue;
             out.push_back(ask_from_entry(e, owner_session, ""));
         }
     std::sort(out.begin(), out.end(),
@@ -349,6 +358,9 @@ inline std::vector<PendingAsk> asks_from_state(
             const std::string session = detail::str_field(e, "session");
             const json* nested = detail::object_field(e, "elicitation");
             if (session.empty() || nested == nullptr) continue;
+            if (!nested->contains("elicitation") ||
+                !nested->at("elicitation").is_number_integer())
+                continue;
             children.push_back(
                 ask_from_entry(*nested, owner_session, session));
         }

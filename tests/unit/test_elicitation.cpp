@@ -283,6 +283,11 @@ static void test_state_decode() {
     const json approval_only = json::parse(R"({"pending_elicitations":[
         {"elicitation":1,"kind":"approval"}]})");
     CHECK(!el::asks_from_state(approval_only, "own")[0].schema_unreadable);
+
+    const json nulled = json::parse(R"({"pending_elicitations":[
+        {"elicitation":null,"message":"one"},
+        {"elicitation":null,"message":"two"}]})");
+    CHECK(el::asks_from_state(nulled, "own").empty());
 }
 
 static void test_settlement() {
@@ -408,6 +413,10 @@ static void test_child_order() {
     CHECK(asks[0].child_session == "aaa");
     CHECK(asks[1].child_session == "kid" && asks[1].seq == 4);
     CHECK(asks[2].child_session == "kid" && asks[2].seq == 10);
+
+    const json headless = json::parse(R"({"child_pending_elicitations":[
+        {"session":"kid","elicitation":{"message":"no id"}}]})");
+    CHECK(el::asks_from_state(headless, "own").empty());
 }
 
 static void test_approval_cap_and_frames() {
@@ -443,6 +452,28 @@ static void test_approval_cap_and_frames() {
     CHECK(!el::ask_entry_from_frame(
         R"({"event":{"type":"elicitation_requested"}})", &entry));
     CHECK(!el::ask_entry_from_frame("not json", &entry));
+
+    CHECK(el::ask_entry_from_frame(raised, &entry));
+    CHECK(!entry.contains("deadline_unix_ms"));
+
+    const std::string stamped = R"({"type":"frame","seq":71,
+        "created_at_unix_ms":1700000000000,"event":{
+        "type":"elicitation_requested","tool":"AskUserQuestion",
+        "message":"Which ledger?","requested_schema":"{}",
+        "timeout_ms":180000}})";
+    CHECK(el::ask_entry_from_frame(stamped, &entry));
+    CHECK(entry.contains("deadline_unix_ms"));
+    CHECK(entry["deadline_unix_ms"] == 1700000180000);
+    CHECK(el::ask_from_entry(entry, "own", "").deadline_unix_ms ==
+          1700000180000);
+
+    const std::string zeroSeq = R"({"type":"frame","seq":0,"event":{
+        "type":"elicitation_requested","tool":"t","message":"m",
+        "requested_schema":"{}","timeout_ms":1000}})";
+    CHECK(el::ask_entry_from_frame(zeroSeq, &entry));
+    CHECK(entry["elicitation"] == 0);
+    CHECK(!el::ask_entry_from_frame(
+        R"({"seq":null,"event":{"type":"elicitation_requested"}})", &entry));
 
     {
         const std::string own = el::unconfirmed_reason(false);
