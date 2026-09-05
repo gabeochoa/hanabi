@@ -4,6 +4,7 @@
 
 #include "../../src/api/elicitation.h"
 #include "../../src/ecs/ask_card.h"
+#include "../../src/util/wrap_count.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                 \
@@ -33,6 +34,13 @@ static PendingAsk demo_form() {
             "q3":{"type":"string"},
             "q4":{"type":"string"}}})",
         {"q4"});
+    return a;
+}
+
+static PendingAsk approval_with(const std::string& input) {
+    PendingAsk a;
+    a.kind = AskKind::Approval;
+    a.input = input;
     return a;
 }
 
@@ -629,23 +637,99 @@ static void test_clicked_answers_are_rescued_too() {
     CHECK(ask::draft_text_of(ask, api::AskAnswer{}).empty());
 }
 
+// The honest "you cannot read this, so you cannot approve it" condition.
+//
+// This replaces input_unreadable(), which asked whether the widest WRAPPED
+// span was wider than the column it had just been wrapped to. It never was:
+// wrapping to a column is what makes a span fit in it, and the ask card breaks
+// over-long tokens, so no input this app can build made that predicate true.
+// Approve stayed live behind a guard that was structurally always false.
+//
+// What actually makes an approval unreadable is vertical: the body view is
+// smaller than a single row, so the card draws "Too short to show the
+// questions" where the command should be. That is body_too_short(), it is
+// measured from the same natural height the body reserves, and submit_ask()
+// and the Approve button now both read it.
 static void test_an_unreadable_approval_is_not_approvable() {
-    std::printf("an approval line wider than its column is unreadable\n");
+    std::printf("an approval too short to show is not approvable\n");
     PendingAsk approval;
     approval.kind = AskKind::Approval;
     approval.input = R"({"command":"./release.sh --allow-outside-workspace"})";
-    CHECK(ask::input_unreadable(approval, 301.0f, 300.0f));
-    CHECK(!ask::input_unreadable(approval, 300.0f, 300.0f));
-    CHECK(!ask::input_unreadable(approval, 299.0f, 300.0f));
-    CHECK(!ask::input_unreadable(approval, 900.0f, 0.0f));
 
+    const float natural = ask::body_h(approval, 16, {});
+    CHECK(natural == ask::kNoteH * 16.0f);
+
+    // Room for less than one option row: the view collapses and the card says
+    // so instead of showing a slice of the command.
+    CHECK(ask::body_too_short(ask::body_view_h(natural, 12.0f), natural));
+    CHECK(ask::body_view_h(natural, 12.0f) == 0.0f);
+
+    // Room for one note line but still under an option row: same verdict, and
+    // the view is exactly the one line the message occupies.
+    CHECK(ask::body_view_h(natural, 20.0f) == ask::kNoteH);
+    CHECK(ask::body_too_short(ask::body_view_h(natural, 20.0f), natural));
+
+    // Room for more than an option row: NOT too short. The body scrolls, and
+    // every span is reachable, so the approval is readable and approvable.
+    const float roomy = ask::body_view_h(natural, ask::kOptionH + 1.0f);
+    CHECK(roomy == ask::kOptionH + 1.0f);
+    CHECK(!ask::body_too_short(roomy, natural));
+
+    // A body with room for all of it is never too short.
+    CHECK(!ask::body_too_short(ask::body_view_h(natural, natural), natural));
+    CHECK(ask::body_view_h(natural, natural + 50.0f) == natural);
+
+    // An approval with no input reserves nothing and cannot be too short.
     PendingAsk empty;
     empty.kind = AskKind::Approval;
-    CHECK(!ask::input_unreadable(empty, 900.0f, 300.0f));
+    CHECK(ask::body_h(empty, 0, {}) == 0.0f);
+    CHECK(!ask::body_too_short(0.0f, ask::body_h(empty, 0, {})));
+}
 
-    PendingAsk form = demo_form();
-    form.input = approval.input;
-    CHECK(!ask::input_unreadable(form, 900.0f, 300.0f));
+// The reserve must come from the wrapper that DRAWS, not one that answers a
+// different question.
+//
+// A command line is one long unbreakable token after another, and that is the
+// case where the two wrappers disagree: wrapped_line_count() puts an over-long
+// word on a line of its own, while the ask card's span pass breaks it. Reserve
+// from the counter and the card is half the height the glyphs need, so the
+// draw ellipsises and the tail of the command -- the part that says
+// --allow-outside-workspace -- is never on screen.
+//
+// Pinned here on the fixture string itself so a return to the counter is a red
+// test rather than a screenshot somebody has to notice.
+static void test_a_command_reserves_the_lines_it_draws() {
+    std::printf("an approval reserves the spans the draw uses\n");
+    // 7px a glyph: narrow enough to stand in for the 340px card's column.
+    const auto measure = [](const std::string& s) {
+        return static_cast<float>(s.size()) * 7.0f;
+    };
+    const std::string command =
+        R"({"command":"./scripts/release_batch.sh --force --cycle=2026-09 )"
+        R"(--ledger=/var/finance/payouts/2026-09/ledger.csv )"
+        R"(--out=/var/finance/payouts/2026-09/settled.csv )"
+        R"(--notify=payout-owner@example.test --skip-reconcile-check )"
+        R"(--allow-outside-workspace"})";
+    const float column = 190.0f;
+
+    std::vector<std::pair<std::size_t, std::size_t>> drawn;
+    hanabi::text::wrapped_line_spans(command, column, measure, drawn,
+                                     /*break_long_words=*/true);
+    const int counted =
+        hanabi::text::wrapped_line_count(command, column, measure);
+
+    CHECK(static_cast<int>(drawn.size()) > counted);
+    CHECK(ask::body_h(approval_with(command),
+                      static_cast<int>(drawn.size()), {}) >
+          ask::body_h(approval_with(command), counted, {}));
+
+    // Every byte of the command is inside some drawn span -- so a body tall
+    // enough for all of them hides nothing.
+    CHECK(!drawn.empty());
+    CHECK(drawn.front().first == 0);
+    CHECK(drawn.back().second == command.size());
+    CHECK(command.find("--allow-outside-workspace") >=
+          drawn[static_cast<std::size_t>(counted) - 1].first);
 }
 
 int main() {
@@ -673,6 +757,7 @@ int main() {
     test_rescues_do_not_overwrite_each_other();
     test_clicked_answers_are_rescued_too();
     test_an_unreadable_approval_is_not_approvable();
+    test_a_command_reserves_the_lines_it_draws();
     if (g_failures == 0) {
         std::printf("ask card: all checks passed\n");
         return 0;

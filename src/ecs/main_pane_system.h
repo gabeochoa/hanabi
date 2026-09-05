@@ -4518,11 +4518,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return api::elicitation::capped_input(ask.input);
     }
 
+    // The approval body reserves height for exactly the spans that will be
+    // DRAWN, by asking the same wrapper the draw asks.
+    //
+    // count_lines() answers a different question: it is
+    // wrapped_line_count(), which puts an over-long word on a line of its own
+    // rather than splitting it (src/util/wrap_count.h says so -- "the first
+    // word of an output line is accepted without being measured"). The draw
+    // path goes through ask_wrap_spans(), which passes break_long_words=true.
+    // A command line is nothing BUT over-long words, so the two disagreed by
+    // a factor of two: at 340x620 the longapproval fixture reserved 8 lines
+    // and the span list had 16, so render_ask_wrapped() ellipsised at line 8
+    // and `--allow-outside-workspace` was never on screen -- with Approve
+    // enabled, because the body reported itself as fitting.
+    //
+    // One wrapper, one answer. Height, scroll extent and tooShort all come
+    // from this count, so none of them can disagree with the glyphs.
     static int ask_input_lines(const api::PendingAsk& ask, float textW) {
         if (ask.kind != api::AskKind::Approval || ask.input.empty()) return 0;
-        const int lines =
-            count_lines(ask_input_text(ask), textW, theme::type::SM);
-        return lines < 1 ? 1 : lines;
+        std::vector<std::pair<std::size_t, std::size_t>> spans;
+        ask_wrap_spans(ask_input_text(ask), textW, spans);
+        return spans.empty() ? 1 : static_cast<int>(spans.size());
     }
 
     static void ask_wrap_spans(
@@ -4713,25 +4729,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               ask_text_w(app));
     }
 
-    static bool ask_input_unreadable(const api::PendingAsk& ask, float textW) {
-        if (ask.kind != api::AskKind::Approval || ask.input.empty())
-            return false;
-        const std::string text = ask_input_text(ask);
-        std::vector<std::pair<std::size_t, std::size_t>> spans;
-        ask_wrap_spans(text, textW, spans);
-        float widest = 0.0f;
-        for (const auto& span : spans) {
-            const float w =
-                afterhours::ui::measure_text_line(
-                    text.substr(span.first, span.second - span.first),
-                    afterhours::ui::UIComponent::DEFAULT_FONT, theme::type::SM)
-                    .x;
-            if (w > widest) widest = w;
-        }
-        return hanabi::ask::input_unreadable(ask, widest,
-                                             text_wrap_width(textW));
-    }
-
     static float ask_height_budget(const AppComponent& app) {
         const float contentH = app.lastPaneContentH > 0.0f
                                    ? app.lastPaneContentH
@@ -4861,8 +4858,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::ask::submit_blocked(ask,
                                         app.askState.answer_for(ask.id())))
             return;
-        if (action == api::AskAction::Accept &&
-            ask_input_unreadable(ask, ask_body_text_w(app, ask)))
+        // An approval the reader cannot SEE is not one they can give. The
+        // measured condition for that is the layout's own tooShort -- the
+        // body view is smaller than one option row, so the card is drawing
+        // "Too short to show the questions" where the command should be.
+        //
+        // This used to ask input_unreadable(), which compared the widest
+        // wrapped span against the column it was wrapped to. Spans wrapped to
+        // a column always fit inside it, so the answer was false on every
+        // input this app can build, and Approve stayed live behind it.
+        if (action == api::AskAction::Accept && ask_layout(app, ask).tooShort)
             return;
         app.requestAskSessionId = app.pane().openSession->summary.id;
         app.requestAsk = ask;
@@ -5364,9 +5369,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("ask_actions"));
 
         const bool expired = ask_expired(app, ask);
-        const bool unreadable = ask_input_unreadable(ask, bodyTextW);
         const bool submitOff = busy || blocked || !answerable || !inputLive ||
-                               expired || tooShort || unreadable;
+                               expired || tooShort;
         auto submit = button(ctx, mk(actions.ent(), 1),
             ComponentConfig{}
                 .with_label(submitOff ? std::string() : submitLabel)

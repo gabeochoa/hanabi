@@ -1,9 +1,35 @@
+# A command too wide for the column is broken, not clipped.
+#
+# At 340 the approval column is narrower than a single path argument, so the
+# wrapper has to split inside a token. break_long_words=true is what does it;
+# without it an over-long word goes on a line of its own and runs off the
+# card.
+#
+# The second half of that sentence went untested for as long as the first was
+# passing. The card measured its height with a counter that does NOT break
+# long words while drawing with the pass that does, so it reserved 8 rows for
+# a command that needs 20 and render_ask_wrapped ellipsised the rest away ---
+# the tokens were broken AND the command was clipped, and this script only
+# ever looked at the first two rows. It now checks both, and
+# a_narrow_approval_shows_every_flag.e2e checks the tail in full.
+#
+# The offsets below moved when the body started scrolling: an honest extent
+# means a scrollbar, a scrollbar costs 10px of column, and a narrower column
+# breaks the same token in a different place.
+#
 # settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
 
 require_thread t2
 expect_text "The agent needs approval  ·  bash"
 
-assert_ui ask_approval_input_1 text=ipts/release_batc
-assert_ui ask_approval_input_2 text=h.sh
+# Broken mid-token, on the exact byte the column runs out at.
+assert_ui ask_approval_input_1 text=cripts/release_
+assert_ui ask_approval_input_2 text=batch.sh
+
+# And not clipped: the row after the last one the old build drew still exists,
+# and no row ends in the truncation ellipsis.
+assert_ui ask_approval_input_8 text=csv
+expect_no_text "ledger.csv…"
+
 assert_ui ask_submit text=OK

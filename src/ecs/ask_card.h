@@ -325,14 +325,6 @@ inline int clamp_note_lines(int measured) {
     return measured;
 }
 
-inline bool input_unreadable(const api::PendingAsk& ask, float widestLine,
-                             float column) {
-    if (ask.kind != api::AskKind::Approval) return false;
-    if (ask.input.empty()) return false;
-    if (column <= 0.0f) return false;
-    return widestLine > column;
-}
-
 inline float chrome_h(const api::PendingAsk& ask, int messageLines,
                       bool showNote, int noteLines) {
     float h = kPad * 2.0f + kHeadH + kButtonsH;

@@ -1,0 +1,37 @@
+# The approval body reserves the lines it draws, so no flag is cut off.
+#
+# The card measured its height with wrapped_line_count(), which leaves an
+# over-long word on a line of its own, and drew with the span pass, which
+# breaks it. A command line is nothing but over-long words, so at 340x620 the
+# fixture reserved 8 rows for a command that wraps to 20: render_ask_wrapped()
+# ellipsised at row 8 and the last twelve rows were never built.
+#
+# What that hid was the whole tail of the command --- --out=, --notify=,
+# --skip-reconcile-check, and --allow-outside-workspace, the flag this very
+# approval exists to ask about. The head still said "bash may write outside
+# the workspace" while the only evidence of it was off the card.
+#
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
+
+require_thread t2
+expect_text "The agent needs approval  ·  bash"
+expect_text "bash may write"
+
+# Twenty rows reserved, twenty rows built. Under the old measure the row list
+# stopped at eight and this element did not exist, so this line times out on a
+# revert.
+assert_ui ask_approval_input_19 hidden=false
+assert_ui ask_approval_input_18 text=--allow-outside-
+
+# Nothing was cut to make it fit. The pre-fix build ended its last row with an
+# ellipsis right here, and that ellipsis was the whole defect: it is what a
+# reader saw instead of the flag.
+expect_no_text "ledger.csv…"
+expect_no_text "settled.csv…"
+
+# The content is taller than the viewport, which is the honest state: the tail
+# is off-screen and reachable, not absent. (a_long_approval_scrolls_to_its_
+# last_flag.e2e walks it into view.)
+expect_text "--out=/var/finan"
+expect_no_text "--allow-outside-"

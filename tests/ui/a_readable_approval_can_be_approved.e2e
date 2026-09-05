@@ -1,0 +1,38 @@
+# A readable approval is approvable, and approving it resolves the ask.
+#
+# The third half of the same defect. With the body reporting itself as fitting
+# in 8 rows, tooShort was false, Approve was live, and a click on it approved a
+# command whose last flag --- --allow-outside-workspace --- had never been on
+# screen. The button was not wrong to be enabled; the body was wrong about
+# what it was showing.
+#
+# Now the extent is honest, so the enablement means what it says: everything
+# is reachable, therefore Approve is live, therefore it resolves. The opposite
+# case, a body genuinely too short to show anything, is
+# a_hidden_command_cannot_be_approved.e2e.
+#
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
+
+require_thread t2
+expect_text "The agent needs approval  ·  bash"
+
+# Live, and labelled: a disabled Approve draws its label through the
+# foreground pass with an empty text field, so a text assertion on the button
+# is an enablement assertion.
+assert_ui ask_submit text=OK
+assert_ui ask_decline text=No
+
+# Not the too-short card. At this size the body scrolls instead, and nothing
+# is cut: an approval is only approvable because everything in it is legible,
+# so the absence of the truncation ellipsis is part of what makes the live
+# button correct.
+expect_no_text "Too short to show the questions"
+expect_no_text "ledger.csv…"
+
+click_ui ask_submit
+wait_frames 20
+
+# Resolved and retired --- no error note, no card.
+expect_no_text "accept — press Approve to try again."
+expect_no_text "The agent needs approval  ·  bash"

@@ -1,0 +1,38 @@
+# The approval body scrolls over the whole command, not over a clipped copy.
+#
+# Reserving 8 rows for a 20-row command did not only ellipsise the draw --- it
+# told the scroll view the content was 144px tall when the glyphs needed 360.
+# The body was then its own full height, so there was nothing to scroll: the
+# tail of the command was unreachable, not merely off-screen.
+#
+# The extent comes from the same spans now. At 340x620 the viewport is 177px
+# over 360px of content, so 183px of travel, and that is exactly enough to
+# bring the last row inside the viewport.
+#
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
+
+require_thread t2
+disable_animations
+
+# The viewport is 177px tall from y=300, so its bottom edge is 477. The last
+# row starts at 642 --- 165px below it, unreachable if the extent were the
+# clipped 144px the old measure reported.
+assert_ui ask_body y=300 h=177
+assert_ui ask_approval_input_19 y=642
+expect_no_text "--allow-outside-"
+
+mouse_move 250 400
+scroll_wheel 0 -40
+wait_frames 30
+
+# 183px of travel, all of it used: the last two rows are inside the viewport
+# and the flag this approval is about can finally be read.
+assert_ui ask_approval_input_19 y=459
+assert_ui ask_approval_input_18 y=441
+expect_text "--allow-outside-"
+expect_text "--skip-reconcile-"
+
+# The first row moved the same 183px the other way, so the body scrolled
+# rather than re-laying itself out at a new height.
+assert_ui ask_approval_input_0 y=117
