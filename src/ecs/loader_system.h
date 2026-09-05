@@ -96,7 +96,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (app.askRefreshes.count(id) != 0) return;
         auto& entry = app.askRefreshes[id];
         entry.stamp = app.next_ask_load_stamp();
-        api::Client* c = app.client.get();
+        std::shared_ptr<api::Client> c = app.client;
         entry.future = std::async(std::launch::async, [c, id] {
             return c->get_session(id, kAskRefreshWindow);
         });
@@ -358,7 +358,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptPending = true;
                 pane.transcriptPendingId = id;
                 pane.askLoadStamp = app.next_ask_load_stamp();
-                api::Client* c = app.client.get();
+                std::shared_ptr<api::Client> c = app.client;
                 pane.transcriptFuture = std::async(std::launch::async, [c, id] {
                     return c->get_session(id, kMessagesWindow);
                 });
@@ -536,7 +536,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.listState = LoadState::Loading;
                 }
             }
-            api::Client* c = app.client.get();
+            std::shared_ptr<api::Client> c = app.client;
             app.listFuture = std::async(std::launch::async,
                                         [c] { return c->list_sessions(); });
         }
@@ -597,7 +597,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 app.subagentListPending = true;
                 app.subagentListState = LoadState::Loading;
-                api::Client* c = app.client.get();
+                std::shared_ptr<api::Client> c = app.client;
                 app.subagentListFuture = std::async(std::launch::async, [c] {
                     return c->list_subagents(
                         AppComponent::kMaxSubagentSessions);
@@ -714,7 +714,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.steerPending = true;
             app.steerSessionId = id;
             app.sendingPrompt = prompt;  // reuse the "…" in-flight hint
-            api::Client* c = app.client.get();
+            std::shared_ptr<api::Client> c = app.client;
             // Opt-in debug trace (HANABI_DUMP), mirroring http_client.cpp's
             // gated fprintf — proves the steer-vs-send routing fired without
             // spamming a normal run.
@@ -764,7 +764,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             std::string prompt = app.requestKickoffPrompt;
             app.requestKickoffPrompt.clear();
             app.kickoffPending = true;
-            api::Client* c = app.client.get();
+            std::shared_ptr<api::Client> c = app.client;
             app.kickoffFuture = std::async(std::launch::async, [c, prompt] {
                 return c->create_session(prompt);
             });
@@ -799,7 +799,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.requestRenameId.clear();
             app.requestRenameTitle.clear();
             app.renameInFlightId = id;
-            api::Client* c = app.client.get();
+            std::shared_ptr<api::Client> c = app.client;
             app.renameFuture = std::async(std::launch::async, [c, id, title] {
                 return c->rename_session(id, title);
             });
@@ -828,10 +828,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             const api::AskAnswer answer = app.askState.answer_for(ask.id());
             app.requestAskSessionId.clear();
             app.askInFlightSession = sid;
+            app.askInFlightAction = action;
             app.askState.busyId = ask.id();
             app.askState.errorId.clear();
             app.askState.errorText.clear();
-            api::Client* c = app.client.get();
+            std::shared_ptr<api::Client> c = app.client;
             app.askFuture =
                 std::async(std::launch::async, [c, sid, ask, action, answer] {
                     return c->resolve_ask(sid, ask, action, answer);
@@ -863,8 +864,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.raise_toast(
                         std::string(r.error) +
                             (onScreen ? " — your answer is in the composer"
-                                      : " — your answer is saved for that "
-                                        "thread"),
+                                      : " — reopen that thread to get your "
+                                        "answer back"),
                         "", AppComponent::ToastUndo::None);
                 } else {
                     app.raise_toast(r.error, "",
@@ -873,7 +874,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 app.askState.errorId = askId;
                 app.askState.errorText = r.error;
-                app.askState.errorAction = app.requestAskAction;
+                app.askState.errorAction = app.askInFlightAction;
             }
         }
 
@@ -883,7 +884,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             const std::string title = app.requestForkTitle;
             app.forkPending = true;
             app.forkError.clear();
-            api::Client* c = app.client.get();
+            std::shared_ptr<api::Client> c = app.client;
             app.forkFuture =
                 std::async(std::launch::async, [c, source, prompt, title] {
                     return prompt.empty()
@@ -955,7 +956,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.pane().scrollBottomPending = id;  // keep the new bubble in view
                 }
             }
-            api::Client* c = app.client.get();
+            std::shared_ptr<api::Client> c = app.client;
             app.sendFuture = std::async(std::launch::async, [c, id, prompt] {
                 return c->send_message(id, prompt);
             });
@@ -1329,7 +1330,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 app.settingsPending = true;
                 app.settingsState = LoadState::Loading;
-                api::Client* c = app.client.get();
+                std::shared_ptr<api::Client> c = app.client;
                 app.settingsFuture = std::async(
                     std::launch::async, [c] { return c->get_settings(); });
             }
@@ -1407,7 +1408,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         snap.user_id = app.settings.user_id;
         snap.raw_json = build_settings_payload(s);
 
-        api::Client* c = app.client.get();
+        std::shared_ptr<api::Client> c = app.client;
         settings_sync_pending_ = true;
         settings_sync_future_ = std::async(std::launch::async, [c, snap] {
             return c->update_settings(snap);
@@ -1456,7 +1457,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.anchorPrevMsgCount =
                     pane.openSession ? pane.openSession->messages.size() : 0;
                 pane.loadOlderPendingId = pane.selectedId;
-                api::Client* client = app.client.get();
+                std::shared_ptr<api::Client> client = app.client;
                 const std::string id = pane.selectedId;
                 pane.loadOlderFuture = std::async(
                     std::launch::async,
@@ -1501,7 +1502,6 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // sync_subscriptions().
     void drive_ask_refresh(AppComponent& app, float dt) {
         drain_ask_refresh(app);
-        if (app.attachAsks.empty()) return;
         if (!app.askState.busyId.empty()) return;
         app.askRefreshDue -= dt;
         if (app.askRefreshDue > 0.0f) return;
@@ -1509,11 +1509,6 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
             const Pane& pane = app.panes[i];
             if (pane.selectedId.empty()) continue;
-            // Membership, not contents. A thread whose asks have all been
-            // answered is precisely the one whose next ask we are waiting
-            // for; gating on asks_for() (which reports nothing for an empty
-            // list) made the sweep stop at the moment it mattered most.
-            if (app.attachAsks.count(pane.selectedId) == 0) continue;
             request_ask_refresh(app, pane.selectedId);
         }
     }
@@ -1529,7 +1524,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 ls.dirty->store(false);
                 ls.lastRefetch = now;
                 if (id == app.pane().selectedId) app.requestListRefresh = true;
-                api::Client* c = app.client.get();
+                std::shared_ptr<api::Client> c = app.client;
                 std::string sid = id;
                 ls.askLoadStamp = app.next_ask_load_stamp();
                 ls.future = std::async(std::launch::async, [c, sid] {
@@ -1731,7 +1726,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // instant even before the first chunk arrives.
             app.streamPhase = AppComponent::StreamPhase::Thinking;
             app.streamStartedAt = static_cast<int64_t>(std::time(nullptr));
-            api::Client* c = app.client.get();
+            std::shared_ptr<api::Client> c = app.client;
             const std::uint64_t askStamp = app.next_ask_load_stamp();
             app.streamCollectFuture = std::async(
                 std::launch::async, [c, id, prompt, askStamp]() {
@@ -1780,8 +1775,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 note_outbox_failure(app, id, prompt);
             }
-            if (got.error.empty())
-                adopt_turn_asks(app, id, got.asksJson, got.askStamp);
+            adopt_turn_asks(app, id, got.asksJson, got.askStamp);
             if (!streamPane.openSession || streamPane.openSession->summary.id != id) {
                 app.streamPhase = AppComponent::StreamPhase::Idle;
             } else if (!got.error.empty()) {

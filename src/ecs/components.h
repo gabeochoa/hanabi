@@ -325,7 +325,7 @@ struct Pane {
 
 // Singleton: owns the API client and the whole app's data + view state.
 struct AppComponent : public afterhours::BaseComponent {
-    std::unique_ptr<api::Client> client;
+    std::shared_ptr<api::Client> client;
     std::string backend_label;
     // Web/session URL base for the "Copy URL" tab action (from config
     // web_base_url / env HANABI_WEB_BASE_URL). Empty => host-neutral
@@ -815,6 +815,7 @@ struct AppComponent : public afterhours::BaseComponent {
     api::PendingAsk requestAsk;
     api::AskAction requestAskAction = api::AskAction::Accept;
     std::string askInFlightSession;
+    api::AskAction askInFlightAction = api::AskAction::Accept;
     std::future<api::Result<std::string>> askFuture;
 
     [[nodiscard]] const std::vector<api::PendingAsk>* asks_for(

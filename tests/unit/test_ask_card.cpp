@@ -143,6 +143,14 @@ static void test_submit_gate() {
     single.questions = api::elicitation::parse_schema(
         R"({"properties":{"q1":{"type":"string"}}})", {});
     CHECK(ask::blocked_reason(single) == "Answer to submit");
+
+    PendingAsk fileOnlyForm;
+    fileOnlyForm.questions = api::elicitation::parse_schema(
+        R"({"properties":{"q1":{"type":"string"}}})", {"q1"});
+    CHECK(fileOnlyForm.answerable_questions() == 0);
+    CHECK(ask::submit_blocked(fileOnlyForm, AskAnswer{}));
+    CHECK(ask::blocked_reason(fileOnlyForm) ==
+          "Nothing here can be answered from hanabi");
 }
 
 static void test_return_intent() {

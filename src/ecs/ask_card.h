@@ -345,6 +345,8 @@ inline std::string with_file_caveat(const api::PendingAsk& ask,
 }
 
 inline std::string blocked_reason(const api::PendingAsk& ask) {
+    if (ask.answerable_questions() == 0)
+        return "Nothing here can be answered from hanabi";
     if (ask.answerable_questions() > 1) return "Answer any one of these to submit";
     return "Answer to submit";
 }
