@@ -1834,8 +1834,11 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
         std::string settled;
         std::string by;
         if (elicitation::fold_ask_resolved(frame, &seq, &settled, &by) &&
-            seq == ask.seq)
+            seq == ask.seq) {
+            if (!elicitation::resolved_by_this_client(by))
+                return fail(elicitation::kAskSettledElsewhereReason);
             return Result<std::string>::success(settled);
+        }
     }
 }
 

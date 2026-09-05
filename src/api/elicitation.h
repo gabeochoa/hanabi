@@ -462,6 +462,13 @@ inline constexpr const char* kAskLikelyLandedReason =
 inline constexpr const char* kAskGoneReason =
     "this question is no longer pending";
 
+inline constexpr const char* kAskSettledElsewhereReason =
+    "the server settled this question first";
+
+inline bool resolved_by_this_client(const std::string& by) {
+    return by.empty() || by == "user";
+}
+
 inline constexpr std::size_t kApprovalInputCap = 4000;
 
 inline std::string capped_input(const std::string& in) {

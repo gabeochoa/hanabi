@@ -335,6 +335,12 @@ static void test_settlement() {
           "q1: CAT  ·  q2: A, B");
     CHECK(el::answered_summary("").empty());
     CHECK(el::answered_summary("{}").empty());
+
+    CHECK(el::resolved_by_this_client("user"));
+    CHECK(el::resolved_by_this_client(""));
+    CHECK(!el::resolved_by_this_client("timeout"));
+    CHECK(!el::resolved_by_this_client("killswitch"));
+    CHECK(!el::resolved_by_this_client("channel"));
 }
 
 static void test_typed_and_cap() {
