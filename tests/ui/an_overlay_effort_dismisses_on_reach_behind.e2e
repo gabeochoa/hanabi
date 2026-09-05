@@ -1,6 +1,6 @@
 # The effort popover dismisses when an ask row behind it takes focus.
 #
-# See an_overlay_model_owns_the_card.e2e for why the old form of this test
+# See an_overlay_model_dismisses_on_reach_behind.e2e for why the old form of this test
 # (focus a row, press SPACE and ENTER, require the card untouched) asserted a
 # state that cannot exist, and passed only on the back of the ENTER un-pick.
 #

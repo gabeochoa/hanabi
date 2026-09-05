@@ -1,0 +1,28 @@
+# The model popover owns Escape, even with an ask card behind it.
+#
+# The three an_overlay_*_dismisses_on_reach_behind scripts press no key, and no
+# other script presses one with THIS popover up: composer_model_picker dismisses
+# by clicking a row, and composer_effort_picker / plan_and_goal_* cover the
+# effort and plan branches. escape_system.h:60-61 is the one popover branch
+# nothing reaches, so delete it and the suite stays green.
+#
+# Both arms are live: the first fails if the picker never opened, the second if
+# Escape went somewhere else -- to the card, which would decline the approval
+# and retire it, or nowhere, which leaves the picker up.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=approval HANABI_TEST_OVERLAY=model
+
+require_thread t2
+expect_text "The agent needs approval"
+# GPT-5.5 is a row only the picker draws.
+expect_text "GPT-5.5"
+
+key ESCAPE
+wait_frames 20
+expect_no_text "GPT-5.5"
+
+# Escape reached the picker and stopped there: the approval behind it is
+# untouched, still undecided, still on screen.
+expect_text "The agent needs approval"
+expect_text "./scripts/release_batch.sh --force"

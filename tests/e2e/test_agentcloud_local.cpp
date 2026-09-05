@@ -301,6 +301,12 @@ int main() {
         std::fprintf(stderr, "the turn reported no pending-ask state\n");
         return 1;
     }
+    if (streamed != "Looking at the ledger now.") {
+        std::fprintf(stderr,
+                     "the assistant's reply never reached the sink: %s\n",
+                     streamed.c_str());
+        return 1;
+    }
     if (spent > 30) {
         std::fprintf(stderr,
                      "a parked run held the turn for %llds; it must settle "

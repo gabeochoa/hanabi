@@ -7,15 +7,15 @@
 # named was never on screen. HANABI_PLAN_DEMO=1 gives it one, the way
 # scripts/screens.sh does for baselines 50-54.
 #
-# See an_overlay_model_owns_the_card.e2e for the rest.
+# See an_overlay_model_dismisses_on_reach_behind.e2e for the rest.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=plan HANABI_PLAN_DEMO=1
 
 require_thread t2
 expect_text "The agent is asking"
-expect_text "Goal"
+expect_text "Goal and plan"
 
 focus_ui ask_option_q1_0
 wait_frames 12
-expect_no_text "Goal"
+expect_no_text "Goal and plan"

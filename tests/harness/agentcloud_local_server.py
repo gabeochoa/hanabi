@@ -150,9 +150,10 @@ def _serve(conn):
                     continue
                 send_frame(conn, {"sub": sub, "msg": {
                     "type": "frame", "frame": "durable", "seq": 70,
-                    "event": {"type": "block", "index": 0,
-                              "kind": {"kind": "text"},
-                              "text": "Looking at the ledger now."}}})
+                    "event": {"type": "block", "run": 7, "call": 128,
+                              "index": 0,
+                              "block": {"kind": "text",
+                                        "text": "Looking at the ledger now."}}}})
                 send_frame(conn, {"sub": sub, "msg": {
                     "type": "frame", "frame": "durable", "seq": 71,
                     "event": {
