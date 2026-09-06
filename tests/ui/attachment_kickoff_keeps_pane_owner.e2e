@@ -1,0 +1,13 @@
+# A kickoff keeps the pane that owned the draft even if focus moves before the
+# create completes; the new tab opens there and leaves the focused pane intact.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_SPLIT=t6
+
+require_thread t2
+require_thread t6
+expect_panes t2 t6 0
+kickoff_then_focus 1 kickoff-owner
+wait_frames 50
+require_thread new1
+expect_panes new1 t6 1
+expect_backend_message new1 kickoff-owner

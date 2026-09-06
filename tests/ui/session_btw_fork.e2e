@@ -1,6 +1,8 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_DROP_TEST=tests/fixtures/attachments/sample.md
 
 require_thread t2
+expect_text "sample.md"
 click_ui composer_reply_input
 type "/btw why did it refuse?"
 key ENTER
@@ -8,4 +10,5 @@ wait_frames 40
 require_thread fork1
 expect_text "BTW: why did it refuse?"
 expect_text "why did it refuse?"
+expect_text "File · sample.md"
 screenshot /tmp/hanabi_session_btw_fork.png

@@ -11,8 +11,10 @@
 #include <future>
 
 #include "../settings.h"
+#include "../api/attachments.h"
 #include "../api/disk_cache.h"
 #include "load_older_model.h"
+#include "pane_state.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -232,17 +234,33 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // Flip the optimistic user bubble's sync badge (LocalOnly/Persisting ->
     // Synced/Failed). Finds it by app.optimisticSendId in the open transcript;
     // no-op if the id is empty or the thread was switched away.
-    static void mark_optimistic(AppComponent& app, api::SyncState st) {
-        if (app.optimisticSendId.empty() || !app.pane().openSession) return;
-        for (auto it = app.pane().openSession->messages.rbegin();
-             it != app.pane().openSession->messages.rend(); ++it) {
-            if (it->id == app.optimisticSendId) {
+    static Pane* target_pane(AppComponent& app,
+                             const api::OutgoingTarget& target) {
+        if (target.pane_index < 0 || target.pane_index >= 2) return nullptr;
+        return &app.panes[static_cast<std::size_t>(target.pane_index)];
+    }
+
+    static Pane* target_transcript(AppComponent& app,
+                                   const api::OutgoingMessage& message) {
+        Pane* pane = target_pane(app, message.target);
+        if (pane == nullptr || !pane->openSession ||
+            pane->openSession->summary.id != message.target.session_id)
+            return nullptr;
+        return pane;
+    }
+
+    static void mark_optimistic(Pane* pane, const std::string& optimisticId,
+                                api::SyncState st) {
+        if (pane == nullptr || optimisticId.empty() || !pane->openSession) return;
+        for (auto it = pane->openSession->messages.rbegin();
+             it != pane->openSession->messages.rend(); ++it) {
+            if (it->id == optimisticId) {
                 it->sync = st;
                 const std::size_t index =
-                    app.pane().openSession->messages.size() - 1 -
+                    pane->openSession->messages.size() - 1 -
                     static_cast<std::size_t>(std::distance(
-                        app.pane().openSession->messages.rbegin(), it));
-                app.pane().note_transcript_update(index);
+                        pane->openSession->messages.rbegin(), it));
+                pane->note_transcript_update(index);
                 return;
             }
         }
@@ -271,9 +289,21 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // role+text).
             if (m.sync == api::SyncState::None) continue;
             bool already = false;
-            for (const auto& f : fresh.messages) {
+            for (auto& f : fresh.messages) {
                 if ((!m.id.empty() && f.id == m.id) ||
                     (f.role == m.role && !m.text.empty() && f.text == m.text)) {
+                    for (auto& incoming : f.attachments) {
+                        for (const auto& local : m.attachments) {
+                            if (incoming.name != local.name ||
+                                incoming.media_type != local.media_type)
+                                continue;
+                            if (incoming.path.empty()) incoming.path = local.path;
+                            if (incoming.size_bytes == 0)
+                                incoming.size_bytes = local.size_bytes;
+                            break;
+                        }
+                    }
+                    if (f.local_id.empty()) f.local_id = m.local_id;
                     already = true;
                     break;
                 }
@@ -407,6 +437,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptPending = false;
                 pane.transcriptPendingId.clear();
                 if (r.ok) {
+                    reconcile_optimistic(pane, r.value);
                     // Insert into the cache (capped to the last 20 msgs) and
                     // mark most-recently-used, then render. Also persist to
                     // disk for the next session's instant (stale) paint.
@@ -495,18 +526,17 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // to the existing immediate START below (no behavior change for the
         // common single-send case). drive_send_queue only ever re-sets the flag
         // when the session is free, so this intercept never re-captures it.
-        if (!app.pane().selectedId.empty() && app.sending_for(app.pane().selectedId)) {
-            if (!app.requestStreamPrompt.empty()) {
-                app.enqueue_send(app.pane().selectedId,
-                                 std::move(app.requestStreamPrompt));
-                app.requestStreamPrompt.clear();
-            }
-            if (!app.requestSendPrompt.empty()) {
-                app.enqueue_send(app.pane().selectedId,
-                                 std::move(app.requestSendPrompt));
-                app.requestSendPrompt.clear();
-            }
-        }
+        const auto queue_if_busy = [&](std::optional<api::OutgoingMessage>& request) {
+            if (!request || request->target.session_id.empty() ||
+                !app.sending_for(request->target.session_id))
+                return;
+            const std::string id = request->target.session_id;
+            api::disk_cache::outbox_add(id, *request);
+            app.enqueue_send(id, std::move(*request));
+            request.reset();
+        };
+        queue_if_busy(app.requestStream);
+        queue_if_busy(app.requestSend);
 
         // --- Session list ---
         if (app.requestListRefresh && !app.listPending) {
@@ -699,91 +729,124 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // We only steer the OPEN thread (steer targets a specific session and
         // reuses the open transcript for the appended turn). A steer already in
         // flight for this session holds off a second dispatch (steerPending).
-        if (app.should_steer_open() && !app.steerPending &&
-            !app.pane().selectedId.empty() && app.pane().openSession &&
-            app.pane().openSession->summary.id == app.pane().selectedId &&
-            (!app.requestSendPrompt.empty() ||
-             !app.requestStreamPrompt.empty())) {
-            std::string prompt = !app.requestStreamPrompt.empty()
-                                     ? app.requestStreamPrompt
-                                     : app.requestSendPrompt;
-            // Consume BOTH so the downstream send/stream paths don't also fire.
-            app.requestStreamPrompt.clear();
-            app.requestSendPrompt.clear();
-            std::string id = app.pane().selectedId;
-            app.steerPending = true;
-            app.steerSessionId = id;
-            app.sendingPrompt = prompt;  // reuse the "…" in-flight hint
-            std::shared_ptr<api::Client> c = app.client;
-            // Opt-in debug trace (HANABI_DUMP), mirroring http_client.cpp's
-            // gated fprintf — proves the steer-vs-send routing fired without
-            // spamming a normal run.
-            if (std::getenv("HANABI_DUMP"))
-                fprintf(stderr,
-                        "[HANABI_DUMP] steer: routing into RUNNING session %s "
-                        "(state==Running, supports_steer)\n",
-                        id.c_str());
-            app.steerFuture = std::async(std::launch::async, [c, id, prompt] {
-                return c->steer(id, prompt);
-            });
+        std::optional<api::OutgoingMessage>* steerRequest =
+            app.requestStream ? &app.requestStream
+                              : (app.requestSend ? &app.requestSend : nullptr);
+        if (steerRequest != nullptr && app.should_steer((*steerRequest)->target) &&
+            !app.steerPending) {
+            api::OutgoingMessage message = std::move(**steerRequest);
+            const std::string id = message.target.session_id;
+            app.requestStream.reset();
+            app.requestSend.reset();
+            message.interrupt = true;
+            if (app.client->supports_stream()) {
+                app.requestStream = std::move(message);
+            } else {
+                app.steerPending = true;
+                app.steerSessionId = id;
+                app.sendingMessage = message;
+                std::shared_ptr<api::Client> c = app.client;
+                if (std::getenv("HANABI_DUMP"))
+                    fprintf(stderr,
+                            "[HANABI_DUMP] steer: routing into RUNNING session %s "
+                            "(state==Running, supports_steer)\n",
+                            id.c_str());
+                app.steerFuture =
+                    std::async(std::launch::async, [c, id, message] {
+                        return c->steer(id, message);
+                    });
+            }
         }
         if (app.steerPending && app.steerFuture.valid()) {
             if (app.steerFuture.wait_for(std::chrono::seconds(0)) ==
                 std::future_status::ready) {
                 auto r = app.steerFuture.get();
                 app.steerPending = false;
-                std::string userText = app.sendingPrompt;
-                app.sendingPrompt.clear();
+                api::OutgoingMessage sent = std::move(app.sendingMessage);
+                app.sendingMessage = {};
+                const std::string userText = sent.text;
+                Pane* pane = target_transcript(app, sent);
                 if (r.ok) {
-                    // Append the user's steering message + the returned reply to
-                    // the open transcript, mirroring the reply path so the
-                    // transcript reads as a full turn, then refresh the cache.
-                    if (app.pane().openSession &&
-                        app.pane().openSession->summary.id == app.steerSessionId) {
+                    if (pane != nullptr) {
                         api::Message um;
                         um.role = api::Role::User;
                         um.id = app.steerSessionId + "-u" +
-                                std::to_string(app.pane().openSession->messages.size());
+                                std::to_string(pane->openSession->messages.size());
                         um.text = userText;
+                        um.local_id = sent.local_id;
+                        um.attachments = sent.attachments;
                         um.created_at = r.value.created_at;
                         const std::size_t first =
-                            app.pane().openSession->messages.size();
-                        app.pane().openSession->messages.push_back(std::move(um));
-                        app.pane().openSession->messages.push_back(r.value);
-                        app.pane().note_transcript_append(first, 2);
-                        app.transcriptCache.put(*app.pane().openSession);
+                            pane->openSession->messages.size();
+                        pane->openSession->messages.push_back(std::move(um));
+                        pane->openSession->messages.push_back(r.value);
+                        pane->note_transcript_append(first, 2);
+                        app.transcriptCache.put(*pane->openSession);
                     }
-                } else {
-                    app.pane().transcriptError = r.error;
+                } else if (pane != nullptr) {
+                    pane->transcriptError = r.error;
                 }
             }
         }
 
         // --- Kickoff (composer "Start" -> create a NEW session) ---
-        if (!app.requestKickoffPrompt.empty() && !app.kickoffPending) {
-            std::string prompt = app.requestKickoffPrompt;
-            app.requestKickoffPrompt.clear();
+        if (app.requestKickoff && !app.kickoffPending) {
+            api::OutgoingMessage message = std::move(*app.requestKickoff);
+            app.requestKickoff.reset();
             app.kickoffPending = true;
+            app.kickoffMessage = message;
+            app.kickoffPaneIndex = std::clamp(message.target.pane_index, 0, 1);
+            app.transfer = std::make_shared<AppComponent::TransferShared>();
+            std::shared_ptr<AppComponent::TransferShared> transfer = app.transfer;
             std::shared_ptr<api::Client> c = app.client;
-            app.kickoffFuture = std::async(std::launch::async, [c, prompt] {
-                return c->create_session(prompt);
-            });
+            app.kickoffFuture = std::async(
+                std::launch::async, [c, message, transfer] {
+                    api::StreamSink sink;
+                    sink.on_upload = [transfer](const api::UploadProgress& p) {
+                        transfer->phase.store(static_cast<int>(p.phase));
+                        transfer->fileIndex.store(p.file_index);
+                        transfer->fileCount.store(p.file_count);
+                        transfer->sentBytes.store(p.sent_bytes);
+                        transfer->totalBytes.store(p.total_bytes);
+                    };
+                    sink.is_cancelled = [transfer] { return transfer->cancel.load(); };
+                    return c->create_with_message(message, sink);
+                });
         }
         if (app.kickoffPending && app.kickoffFuture.valid()) {
             if (app.kickoffFuture.wait_for(std::chrono::seconds(0)) ==
                 std::future_status::ready) {
                 auto r = app.kickoffFuture.get();
                 app.kickoffPending = false;
+                app.transfer.reset();
+                api::OutgoingMessage message = std::move(app.kickoffMessage);
+                app.kickoffMessage = {};
                 if (r.ok) {
-                    // Refresh the list so the new thread appears, and open it
-                    // in a TAB (requestOpenTab, not requestOpenId) so the view
-                    // transitions Home -> Chat and a tab is created for the new
-                    // session — otherwise the kickoff loaded the transcript but
-                    // left the user on Home with no visible tab.
+                    if (r.value.input_accepted)
+                        release_sent_attachments(message);
                     app.requestListRefresh = true;
-                    app.requestOpenTab = r.value;
+                    app.requestOpenTab = r.value.session_id;
+                    app.requestOpenTabPane = app.kickoffPaneIndex;
+                    app.requestOpenTabKeep = true;
+                    if (!r.value.input_accepted) {
+                        message.target.session_id = r.value.session_id;
+                        message.target.draft_key = r.value.session_id;
+                        if (r.value.input_failure.kind ==
+                            api::SendFailureKind::Unknown) {
+                            message.auto_retry = false;
+                            api::disk_cache::outbox_add(r.value.session_id, message);
+                            app.outboxRetry.adopt(r.value.session_id, message);
+                        } else {
+                            restore_to_composer(app.kickoffPaneIndex,
+                                                r.value.session_id, message,
+                                                r.value.input_failure.message);
+                        }
+                        app.listError = r.value.input_failure.message;
+                    }
                 } else {
-                    // Surface the failure on the list rail (non-fatal).
+                    restore_to_composer(app.kickoffPaneIndex,
+                                        message.target.draft_key, message,
+                                        r.error);
                     app.listError = r.error;
                 }
             }
@@ -879,17 +942,47 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
 
         if (!app.requestForkSourceId.empty() && !app.forkFuture.valid()) {
-            const std::string source = app.requestForkSourceId;
-            const std::string prompt = app.requestForkPrompt;
+            const std::optional<api::OutgoingMessage> requested =
+                std::move(app.requestForkMessage);
+            app.requestForkMessage.reset();
+            const std::string source =
+                requested && !requested->target.session_id.empty()
+                    ? requested->target.session_id
+                    : app.requestForkSourceId;
+            const int sourcePane =
+                requested && requested->target.pane_index >= 0
+                    ? std::clamp(requested->target.pane_index, 0, 1)
+                    : std::clamp(app.requestForkPane, 0, 1);
+            app.requestForkPane = sourcePane;
             const std::string title = app.requestForkTitle;
             app.forkPending = true;
             app.forkError.clear();
+            app.forkMessage = requested.value_or(api::OutgoingMessage{});
+            app.transfer = std::make_shared<AppComponent::TransferShared>();
+            std::shared_ptr<AppComponent::TransferShared> transfer = app.transfer;
             std::shared_ptr<api::Client> c = app.client;
-            app.forkFuture =
-                std::async(std::launch::async, [c, source, prompt, title] {
-                    return prompt.empty()
-                               ? c->fork_session(source)
-                               : c->fork_with_prompt(source, prompt, title);
+            app.forkFuture = std::async(
+                std::launch::async, [c, source, requested, title, transfer] {
+                    if (!requested) {
+                        auto plain = c->fork_session(source);
+                        if (!plain.ok)
+                            return api::Result<api::CreateOutcome>::failure(
+                                plain.error);
+                        api::CreateOutcome outcome;
+                        outcome.session_id = std::move(plain.value);
+                        return api::Result<api::CreateOutcome>::success(
+                            std::move(outcome));
+                    }
+                    api::StreamSink sink;
+                    sink.on_upload = [transfer](const api::UploadProgress& p) {
+                        transfer->phase.store(static_cast<int>(p.phase));
+                        transfer->fileIndex.store(p.file_index);
+                        transfer->fileCount.store(p.file_count);
+                        transfer->sentBytes.store(p.sent_bytes);
+                        transfer->totalBytes.store(p.total_bytes);
+                    };
+                    sink.is_cancelled = [transfer] { return transfer->cancel.load(); };
+                    return c->fork_with_message(source, *requested, title, sink);
                 });
         }
         if (app.forkFuture.valid() &&
@@ -897,68 +990,90 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 std::future_status::ready) {
             auto r = app.forkFuture.get();
             app.forkPending = false;
+            app.transfer.reset();
+            api::OutgoingMessage message = std::move(app.forkMessage);
+            app.forkMessage = {};
+            const int forkPane = message.target.pane_index >= 0
+                                     ? std::clamp(message.target.pane_index, 0, 1)
+                                     : std::clamp(app.requestForkPane, 0, 1);
             if (r.ok) {
+                if (r.value.input_accepted)
+                    release_sent_attachments(message);
                 app.requestListRefresh = true;
-                app.requestOpenTab = r.value;
-                app.requestOpenTabPane = std::clamp(app.requestForkPane, 0, 1);
+                app.requestOpenTab = r.value.session_id;
+                app.requestOpenTabPane = forkPane;
                 app.requestOpenTabKeep = true;
-                app.forkError.clear();
+                if (!r.value.input_accepted) {
+                    message.target.pane_index = forkPane;
+                    message.target.session_id = r.value.session_id;
+                    message.target.draft_key = r.value.session_id;
+                    if (r.value.input_failure.kind ==
+                        api::SendFailureKind::Unknown) {
+                        message.auto_retry = false;
+                        api::disk_cache::outbox_add(r.value.session_id, message);
+                        app.outboxRetry.adopt(r.value.session_id, message);
+                    } else {
+                        restore_to_composer(forkPane, r.value.session_id, message,
+                                            r.value.input_failure.message);
+                    }
+                    app.forkError = r.value.input_failure.message;
+                } else {
+                    app.forkError.clear();
+                }
                 app.forkRestoreDraft.clear();
                 app.forkRestoreSessionId.clear();
             } else {
+                api::OutgoingMessage attachmentsOnly = message;
+                attachmentsOnly.text.clear();
+                restore_to_composer(forkPane,
+                                    message.target.session_id.empty()
+                                        ? app.requestForkSourceId
+                                        : message.target.session_id,
+                                    attachmentsOnly, r.error);
                 app.forkError = r.error;
             }
             app.requestForkSourceId.clear();
-            app.requestForkPrompt.clear();
+            app.requestForkMessage.reset();
             app.requestForkTitle.clear();
         }
 
         // --- Reply (transcript composer "Send" -> continue the open thread) ---
-        if (!app.requestSendPrompt.empty() && !app.sendPending &&
-            !app.pane().selectedId.empty()) {
-            std::string prompt = app.requestSendPrompt;
-            std::string id = app.pane().selectedId;
-            app.requestSendPrompt.clear();
+        if (app.requestSend && !app.sendPending &&
+            !app.requestSend->target.session_id.empty()) {
+            api::OutgoingMessage message = std::move(*app.requestSend);
+            const std::string id = message.target.session_id;
+            app.requestSend.reset();
             app.sendPending = true;
             app.sendSessionId = id;
-            app.sendingPrompt = prompt;
-            // OPTIMISTIC + local-first: append the user's message to the open
-            // transcript IMMEDIATELY with sync=Persisting (in flight), and
-            // record it in the local outbox (survives a crash). On success it
-            // flips to Synced + the reply is appended; on failure it flips to
-            // Failed and STAYS in the outbox, where drive_outbox() picks it up
-            // and tries again. We remember the optimistic bubble's id so the
-            // resolver can find + update it.
-            //
-            // A retry issued by drive_outbox() came OUT of the store, so it
-            // must not be written back into it (that is how one failed prompt
-            // becomes four), and its bubble is already in the transcript.
-            const bool fromOutbox = claim_outbox_dispatch(app, id, prompt);
-            if (!fromOutbox) api::disk_cache::outbox_add(id, prompt);
+            const bool fromOutbox = claim_outbox_dispatch(app, id, message);
+            api::disk_cache::outbox_begin_delivery(id, message);
+            app.sendingMessage = message;
             app.optimisticSendId.clear();
-            if (app.pane().openSession && app.pane().openSession->summary.id == id) {
-                if (fromOutbox && adopt_local_bubble(app, prompt)) {
-                    app.pane().scrollBottomPending = id;
+            Pane* pane = target_transcript(app, message);
+            if (pane != nullptr) {
+                if (fromOutbox && adopt_local_bubble(*pane, message,
+                                                    app.optimisticSendId)) {
+                    pane->scrollBottomPending = id;
                 } else {
                     api::Message um;
                     um.role = api::Role::User;
                     um.id = id + "-u" +
-                            std::to_string(app.pane().openSession->messages.size());
-                    um.text = prompt;
-                    um.created_at =
-                        static_cast<int64_t>(std::time(nullptr));
+                            std::to_string(pane->openSession->messages.size());
+                    um.text = message.text;
+                    um.local_id = message.local_id;
+                    um.attachments = message.attachments;
+                    um.created_at = static_cast<int64_t>(std::time(nullptr));
                     um.sync = api::SyncState::Persisting;
                     app.optimisticSendId = um.id;
-                    const std::size_t first =
-                        app.pane().openSession->messages.size();
-                    app.pane().openSession->messages.push_back(std::move(um));
-                    app.pane().note_transcript_append(first, 1);
-                    app.pane().scrollBottomPending = id;  // keep the new bubble in view
+                    const std::size_t first = pane->openSession->messages.size();
+                    pane->openSession->messages.push_back(std::move(um));
+                    pane->note_transcript_append(first, 1);
+                    pane->scrollBottomPending = id;
                 }
             }
             std::shared_ptr<api::Client> c = app.client;
-            app.sendFuture = std::async(std::launch::async, [c, id, prompt] {
-                return c->send_message(id, prompt);
+            app.sendFuture = std::async(std::launch::async, [c, id, message] {
+                return c->send_message(id, message);
             });
         }
         if (app.sendPending && app.sendFuture.valid()) {
@@ -966,51 +1081,45 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 std::future_status::ready) {
                 auto r = app.sendFuture.get();
                 app.sendPending = false;
-                // Remember the prompt for the user bubble, then clear the hint.
-                std::string userText = app.sendingPrompt;
-                app.sendingPrompt.clear();
+                api::OutgoingMessage sent = std::move(app.sendingMessage);
+                app.sendingMessage = {};
+                const std::string userText = sent.text;
+                Pane* pane = target_transcript(app, sent);
                 if (r.ok) {
-                    // The optimistic user bubble is ALREADY in the transcript
-                    // (appended at dispatch with sync=Persisting). Flip it to
-                    // Synced, append the assistant reply, drop it from the local
-                    // outbox (confirmed on the server), and refresh the cache.
-                    if (app.pane().openSession &&
-                        app.pane().openSession->summary.id == app.sendSessionId) {
-                        mark_optimistic(app, api::SyncState::Synced);
-                        // Fallback: if the optimistic bubble wasn't recorded
-                        // (e.g. the thread was switched at dispatch), reconstruct
-                        // the user turn so the transcript still reads complete.
+                    if (pane != nullptr) {
+                        mark_optimistic(pane, app.optimisticSendId,
+                                        api::SyncState::Synced);
                         const std::size_t first =
-                            app.pane().openSession->messages.size();
+                            pane->openSession->messages.size();
                         if (app.optimisticSendId.empty()) {
                             api::Message um;
                             um.role = api::Role::User;
                             um.id = app.sendSessionId + "-u" +
                                     std::to_string(
-                                        app.pane().openSession->messages.size());
+                                        pane->openSession->messages.size());
                             um.text = userText;
+                            um.local_id = sent.local_id;
+                            um.attachments = sent.attachments;
                             um.created_at = r.value.created_at;
                             um.sync = api::SyncState::Synced;
-                            app.pane().openSession->messages.push_back(std::move(um));
+                            pane->openSession->messages.push_back(std::move(um));
                         }
-                        app.pane().openSession->messages.push_back(r.value);
-                        app.pane().note_transcript_append(
-                            first,
-                            app.pane().openSession->messages.size() - first);
-                        app.transcriptCache.put(*app.pane().openSession);
+                        pane->openSession->messages.push_back(r.value);
+                        pane->note_transcript_append(
+                            first, pane->openSession->messages.size() - first);
+                        app.transcriptCache.put(*pane->openSession);
                     }
-                    api::disk_cache::outbox_remove(app.sendSessionId, userText);
-                    app.outboxRetry.confirmed(app.sendSessionId, userText);
+                    api::disk_cache::outbox_remove_message(app.sendSessionId,
+                                                           sent.local_id);
+                    app.outboxRetry.confirmed(app.sendSessionId, sent);
+                    release_sent_attachments(sent, pane);
                     app.optimisticSendId.clear();
                 } else {
-                    // Send failed: mark the optimistic bubble Failed, leave the
-                    // prompt in the outbox and hand it to the retry policy,
-                    // which backs off and tries it again. Before this existed
-                    // the entry sat on disk forever and "kept in the outbox to
-                    // retry" was only the first half of a sentence.
-                    mark_optimistic(app, api::SyncState::Failed);
-                    app.pane().transcriptError = r.error;
-                    note_outbox_failure(app, app.sendSessionId, userText);
+                    mark_optimistic(pane, app.optimisticSendId,
+                                    api::SyncState::Failed);
+                    if (pane != nullptr) pane->transcriptError = r.error;
+                    note_outbox_failure(app, app.sendSessionId, sent,
+                                        api::SendFailureKind::Retryable);
                 }
             }
         }
@@ -1027,6 +1136,42 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     }
 
   private:
+    static void release_sent_attachments(api::OutgoingMessage& message,
+                                         Pane* pane = nullptr) {
+        for (auto& attachment : message.attachments) {
+            api::disk_cache::remove_retained_attachment(attachment);
+            attachment.path.clear();
+        }
+        if (pane == nullptr || !pane->openSession) return;
+        for (auto& local : pane->openSession->messages) {
+            if (local.local_id != message.local_id) continue;
+            for (auto& attachment : local.attachments) attachment.path.clear();
+        }
+    }
+
+    static void restore_to_composer(int paneIndex,
+                                    const std::string& id,
+                                    const api::OutgoingMessage& message,
+                                    const std::string& notice) {
+        auto& state = model::pane_states().touch(model::pane_key(paneIndex, id));
+        if (state.replyDraft.empty()) state.replyDraft = message.text;
+        else if (state.replyDraft.find(message.text) == std::string::npos)
+            state.replyDraft = message.text + "\n\n" + state.replyDraft;
+        for (const auto& attachment : message.attachments) {
+            if (state.attachments.size() >= api::attachments::kMaxCount) break;
+            if (std::find(state.attachments.begin(), state.attachments.end(),
+                          attachment) == state.attachments.end())
+                state.attachments.push_back(attachment);
+        }
+        state.attachmentNotice = notice;
+        state.replyDraftLoaded = true;
+        state.persistedReplyDraft = state.replyDraft;
+        state.persistedAttachments = state.attachments;
+        api::disk_cache::save_draft_state(
+            model::persisted_reply_key(paneIndex, id),
+            api::disk_cache::Draft{state.replyDraft, state.attachments});
+    }
+
     // ---- Settings-sync state (see drive_settings_sync) -------------------
     // Debounce window: coalesce a burst of preference clicks into one push.
     static constexpr std::chrono::milliseconds kSyncDebounce{1500};
@@ -1070,46 +1215,64 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // Is this (id, prompt) the dispatch drive_outbox() just issued? Consumes
     // the flag, so the answer is true exactly once per retry.
     static bool claim_outbox_dispatch(AppComponent& app, const std::string& id,
-                                      const std::string& prompt) {
+                                      const api::OutgoingMessage& message) {
         if (!app.outboxSuppressAdd) return false;
-        if (app.outboxRetryId != id || app.outboxRetryPrompt != prompt)
+        if (app.outboxRetryId != id ||
+            app.outboxRetryMessage.local_id != message.local_id)
             return false;
         app.outboxSuppressAdd = false;
+        app.outboxRetryMessage = {};
         return true;
     }
 
     // Find the locally-originated bubble already holding `prompt` and take it
     // over as the optimistic bubble for this attempt, rather than appending a
     // duplicate. True if one was adopted.
-    static bool adopt_local_bubble(AppComponent& app,
-                                   const std::string& prompt) {
-        if (!app.pane().openSession) return false;
-        for (auto it = app.pane().openSession->messages.rbegin();
-             it != app.pane().openSession->messages.rend(); ++it) {
+    static bool adopt_local_bubble(Pane& pane,
+                                   const api::OutgoingMessage& message,
+                                   std::string& optimisticId) {
+        if (!pane.openSession) return false;
+        for (auto it = pane.openSession->messages.rbegin();
+             it != pane.openSession->messages.rend(); ++it) {
             if (it->role != api::Role::User) continue;
             if (it->sync == api::SyncState::None) continue;
-            if (it->text != prompt) continue;
+            if (!message.local_id.empty() && !it->local_id.empty()
+                    ? it->local_id != message.local_id
+                    : it->text != message.text)
+                continue;
             it->sync = api::SyncState::Persisting;
-            app.optimisticSendId = it->id;
+            it->local_id = message.local_id;
+            it->attachments = message.attachments;
+            optimisticId = it->id;
             const std::size_t index =
-                app.pane().openSession->messages.size() - 1 -
+                pane.openSession->messages.size() - 1 -
                 static_cast<std::size_t>(std::distance(
-                    app.pane().openSession->messages.rbegin(), it));
-            app.pane().note_transcript_update(index);
+                    pane.openSession->messages.rbegin(), it));
+            pane.note_transcript_update(index);
             return true;
         }
         return false;
     }
 
-    static void mark_local_prompt(Pane& pane, const std::string& prompt,
+    static bool same_local_message(const api::Message& row,
+                                   const api::OutgoingMessage& message) {
+        if (!message.local_id.empty() && !row.local_id.empty())
+            return row.local_id == message.local_id;
+        return row.text == message.text;
+    }
+
+    static void mark_local_prompt(Pane& pane,
+                                  const api::OutgoingMessage& message,
                                   api::SyncState st) {
         if (!pane.openSession) return;
         for (auto it = pane.openSession->messages.rbegin();
              it != pane.openSession->messages.rend(); ++it) {
             if (it->role != api::Role::User) continue;
             if (it->sync == api::SyncState::None) continue;
-            if (it->text != prompt) continue;
+            if (!same_local_message(*it, message)) continue;
             it->sync = st;
+            it->local_id = message.local_id;
+            it->attachments = message.attachments;
             const std::size_t index =
                 pane.openSession->messages.size() - 1 -
                 static_cast<std::size_t>(
@@ -1119,13 +1282,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
     }
 
-    static void drop_local_prompt(Pane& pane, const std::string& prompt) {
+    static void drop_local_prompt(Pane& pane,
+                                  const api::OutgoingMessage& message) {
         if (!pane.openSession) return;
         auto& msgs = pane.openSession->messages;
         for (auto it = msgs.begin(); it != msgs.end(); ++it) {
             if (it->role != api::Role::User) continue;
             if (it->sync == api::SyncState::None) continue;
-            if (it->text != prompt) continue;
+            if (!same_local_message(*it, message)) continue;
             msgs.erase(it);
             pane.note_transcript_reset();
             return;
@@ -1166,17 +1330,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     }
 
     static void note_outbox_failure(AppComponent& app, const std::string& id,
-                                    const std::string& prompt) {
+                                    api::OutgoingMessage message,
+                                    api::SendFailureKind kind) {
         const int64_t now = static_cast<int64_t>(std::time(nullptr));
-        // The prompt is already on disk (outbox_add ran at dispatch); this is
-        // where the retry loop learns about it.
-        app.outboxRetry.adopt(id, prompt);
-        app.outboxRetry.failed(id, prompt, now);
+        message.auto_retry = kind == api::SendFailureKind::Retryable;
+        api::disk_cache::outbox_remove_message(id, message.local_id);
+        api::disk_cache::outbox_add(id, message);
+        app.outboxRetry.adopt(id, message);
+        app.outboxRetry.failed(id, message, now);
         fprintf(stderr,
                 "[outbox] send failed for %s; %zu prompt(s) held on disk, "
-                "retrying (attempt %d)\n",
+                "%s (attempt %d)\n",
                 id.c_str(), app.outboxRetry.count_for(id),
-                app.outboxRetry.attempts_for(id, prompt));
+                message.auto_retry ? "retrying" : "waiting for a manual retry",
+                app.outboxRetry.attempts_for(id, message));
     }
 
     // Paint any unconfirmed prompt for the OPEN thread that the transcript
@@ -1184,17 +1351,24 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // after a relaunch: the server never heard the prompt, so no refetch will
     // ever produce it, and without this the user's words are on disk and
     // nowhere else.
-    static void restore_outbox_bubbles(AppComponent& app) {
-        if (!app.pane().openSession) return;
-        const std::string id = app.pane().openSession->summary.id;
+    static void restore_outbox_bubbles(AppComponent& app, Pane& pane) {
+        if (!pane.openSession) return;
+        const std::string id = pane.openSession->summary.id;
         if (app.outboxRetry.count_for(id) == 0) return;
-        const std::size_t firstAdded =
-            app.pane().openSession->messages.size();
+        const std::size_t firstAdded = pane.openSession->messages.size();
         for (const auto& e : app.outboxRetry.entries()) {
             if (e.sessionId != id) continue;
+            api::OutgoingMessage message = e.message;
+            if (message.local_id.empty()) {
+                message.local_id = "legacy-" + id + "-" +
+                                   std::to_string(firstAdded);
+                message.text = e.prompt;
+            }
             bool present = false;
-            for (const auto& m : app.pane().openSession->messages) {
-                if (m.role == api::Role::User && m.text == e.prompt) {
+            for (const auto& m : pane.openSession->messages) {
+                if (m.role != api::Role::User) continue;
+                if ((!message.local_id.empty() && m.local_id == message.local_id) ||
+                    (m.local_id.empty() && m.text == message.text)) {
                     present = true;
                     break;
                 }
@@ -1203,16 +1377,17 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             api::Message um;
             um.role = api::Role::User;
             um.id = id + "-ob" +
-                    std::to_string(app.pane().openSession->messages.size());
-            um.text = e.prompt;
+                    std::to_string(pane.openSession->messages.size());
+            um.local_id = message.local_id;
+            um.text = message.text;
+            um.attachments = message.attachments;
             um.created_at = static_cast<int64_t>(std::time(nullptr));
             um.sync = api::SyncState::LocalOnly;
-            app.pane().openSession->messages.push_back(std::move(um));
-            app.pane().scrollBottomPending = id;
+            pane.openSession->messages.push_back(std::move(um));
+            pane.scrollBottomPending = id;
         }
-        const std::size_t added =
-            app.pane().openSession->messages.size() - firstAdded;
-        if (added != 0) app.pane().note_transcript_append(firstAdded, added);
+        const std::size_t added = pane.openSession->messages.size() - firstAdded;
+        if (added != 0) pane.note_transcript_append(firstAdded, added);
     }
 
     void drive_outbox(AppComponent& app) {
@@ -1226,8 +1401,21 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.outboxRestored = true;
             std::vector<api::outbox::Entry> found;
             for (const auto& id : api::disk_cache::outbox_sessions())
-                for (const auto& p : api::disk_cache::outbox_list(id))
-                    found.push_back(api::outbox::Entry{id, p, 0, 0});
+                for (auto message : api::disk_cache::outbox_messages(id)) {
+                    if (!message.target.valid()) {
+                        message.target.session_id = id;
+                        message.target.draft_key = id;
+                        message.target.pane_index = 0;
+                        for (int pane = 0; pane < 2; ++pane)
+                            if (app.panes[static_cast<std::size_t>(pane)]
+                                    .selectedId == id) {
+                                message.target.pane_index = pane;
+                                break;
+                            }
+                    }
+                    found.push_back(
+                        api::outbox::Entry{id, message.text, 0, 0, message});
+                }
             if (!found.empty()) {
                 app.outboxRetry.restore(found);
                 fprintf(stderr,
@@ -1238,19 +1426,30 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
-        if (!app.requestRetryPrompt.empty() &&
-            !app.requestRetrySessionId.empty()) {
-            const std::string id = std::move(app.requestRetrySessionId);
-            const std::string prompt = std::move(app.requestRetryPrompt);
+        if (app.requestRetryMessage) {
+            api::OutgoingMessage message =
+                std::move(*app.requestRetryMessage);
+            const std::string id = !message.target.session_id.empty()
+                                       ? message.target.session_id
+                                       : app.requestRetrySessionId;
             app.requestRetrySessionId.clear();
-            app.requestRetryPrompt.clear();
-            if (!app.outboxRetry.holds(id, prompt))
-                api::disk_cache::outbox_add(id, prompt);
-            app.outboxRetry.retry_now(id, prompt);
+            app.requestRetryMessage.reset();
+            if (id.empty()) return;
+            message.auto_retry = message.attachments.empty();
+            if (!message.target.valid()) {
+                message.target.session_id = id;
+                message.target.draft_key = id;
+                message.target.pane_index = 0;
+            }
+            api::disk_cache::outbox_add(id, message);
+            if (!app.outboxRetry.holds(id, message))
+                app.outboxRetry.adopt(id, message, 0);
+            app.outboxRetry.retry_now(id, message);
         }
 
         if (app.outboxRetry.empty()) return;
-        restore_outbox_bubbles(app);
+        for (std::size_t pane = 0; pane < app.active_pane_count(); ++pane)
+            restore_outbox_bubbles(app, app.panes[pane]);
 
         const int64_t now = static_cast<int64_t>(std::time(nullptr));
         // A retry can only be dispatched into the OPEN thread, for the same
@@ -1260,29 +1459,39 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // until it is opened.
         const api::outbox::Entry* pick = app.outboxRetry.next(
             now, [&app](const std::string& id) {
-                if (id != app.pane().selectedId) return false;
                 if (app.sending_for(id)) return false;
-                if (!app.pane().openSession || app.pane().openSession->summary.id != id)
-                    return false;
-                if (!app.requestSendPrompt.empty()) return false;
-                if (!app.requestStreamPrompt.empty()) return false;
-                if (!app.pendingSendQueue.empty()) return false;
-                return true;
+                if (app.requestSend || app.requestStream) return false;
+                for (std::size_t pane = 0; pane < app.active_pane_count(); ++pane) {
+                    const auto& owner = app.panes[pane];
+                    if (owner.selectedId == id && owner.openSession &&
+                        owner.openSession->summary.id == id)
+                        return true;
+                }
+                return false;
             });
         if (!pick) return;
 
         const std::string id = pick->sessionId;
-        const std::string prompt = pick->prompt;
+        api::OutgoingMessage message = pick->message;
+        if (message.local_id.empty()) {
+            message.local_id = api::attachments::make_local_id();
+            message.text = pick->prompt;
+        }
+        if (!message.target.valid()) {
+            message.target.session_id = id;
+            message.target.draft_key = id;
+            message.target.pane_index = 0;
+        }
         app.outboxRetry.attempted(*pick);
         app.outboxRetryId = id;
-        app.outboxRetryPrompt = prompt;
+        app.outboxRetryMessage = message;
         app.outboxSuppressAdd = true;
         fprintf(stderr, "[outbox] retrying a held prompt for %s (attempt %d)\n",
-                id.c_str(), app.outboxRetry.attempts_for(id, prompt));
+                id.c_str(), app.outboxRetry.attempts_for(id, message));
         if (app.client->supports_stream())
-            app.requestStreamPrompt = prompt;
+            app.requestStream = std::move(message);
         else
-            app.requestSendPrompt = prompt;
+            app.requestSend = std::move(message);
     }
 
     void drive_send_queue(AppComponent& app) {
@@ -1293,25 +1502,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         for (auto it = app.pendingSendQueue.begin();
              it != app.pendingSendQueue.end(); ++it) {
             const std::string& id = it->sessionId;
-            if (app.sending_for(id)) continue;  // busy: keep it queued
-            // Don't stomp an un-consumed dispatch for this same session.
-            if (!app.requestSendPrompt.empty() && app.pane().selectedId == id) continue;
-            if (!app.requestStreamPrompt.empty() && app.pane().selectedId == id)
-                continue;
-            // Dispatch this one. The existing reply/stream START blocks read
-            // requestSendPrompt/requestStreamPrompt for app.pane().selectedId, so a
-            // queued send only fires against the OPEN thread — which is the
-            // only thread the composer can target anyway. If the queued send
-            // is for a non-open thread, hold it until that thread is opened
-            // (keeps ordering; never sends into the wrong transcript).
-            if (app.pane().selectedId != id) continue;
-            const std::string prompt = it->prompt;
+            if (app.sending_for(id)) continue;
+            if (app.requestSend || app.requestStream) continue;
+            api::OutgoingMessage message = std::move(it->message);
             app.pendingSendQueue.erase(it);
+            app.outboxRetryId = id;
+            app.outboxRetryMessage = message;
+            app.outboxSuppressAdd = true;
             if (app.client->supports_stream())
-                app.requestStreamPrompt = prompt;
+                app.requestStream = std::move(message);
             else
-                app.requestSendPrompt = prompt;
-            return;  // one dispatch per frame; the rest drain on later frames.
+                app.requestSend = std::move(message);
+            return;
         }
     }
 
@@ -1557,6 +1759,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         adopt_attach_asks(app, fresh, /*authoritative=*/true,
                                           ls.askLoadStamp);
                         pane.openSession = std::move(fresh);
+                        app.transcriptCache.put(*pane.openSession);
+                        save_and_trim(app, *pane.openSession);
                         pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;
                         pane.transcriptError.clear();
@@ -1702,33 +1906,25 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // collection async and poll it below; the UI stays responsive while the
         // reply is gathered. The sink captures deltas into a queue; a
         // non-streaming backend simply yields one delta.
-        if (!app.requestStreamPrompt.empty() && !app.streamActive &&
-            !app.streamCollecting && !app.pane().selectedId.empty() && app.client &&
-            app.pane().openSession &&
-            app.pane().openSession->summary.id == app.pane().selectedId) {
-            std::string prompt = app.requestStreamPrompt;
-            std::string id = app.pane().selectedId;
-            app.requestStreamPrompt.clear();
-            // The outbox covers THIS path too, and for a long time it did not.
-            // The write side was wired only into the synchronous reply above,
-            // and every backend that ships -- the mock and agentcloud both --
-            // reports supports_stream(), so the composer takes this branch and
-            // the crash-safe log the local-first work was built for was never
-            // written on the path the app actually runs. (COMMIT_AUDIT CB3
-            // found the missing READER; this is the missing WRITER.)
-            const bool fromOutbox = claim_outbox_dispatch(app, id, prompt);
-            if (!fromOutbox) api::disk_cache::outbox_add(id, prompt);
+        if (app.requestStream && !app.streamActive &&
+            !app.streamCollecting && app.client &&
+            !app.requestStream->target.session_id.empty()) {
+            api::OutgoingMessage message = std::move(*app.requestStream);
+            const std::string id = message.target.session_id;
+            app.requestStream.reset();
+            (void)claim_outbox_dispatch(app, id, message);
+            api::disk_cache::outbox_begin_delivery(id, message);
             app.streamCollecting = true;
-            app.streamPendingPrompt = prompt;
+            app.streamPendingMessage = message;
             app.streamPendingSession = id;
-            app.streamPaneIndex = app.focusedPane;
-            // Show the "thinking" affordance immediately so the send feels
-            // instant even before the first chunk arrives.
+            app.streamPaneIndex = std::clamp(message.target.pane_index, 0, 1);
             app.streamPhase = AppComponent::StreamPhase::Thinking;
             app.streamStartedAt = static_cast<int64_t>(std::time(nullptr));
+            app.transfer = std::make_shared<AppComponent::TransferShared>();
+            std::shared_ptr<AppComponent::TransferShared> transfer = app.transfer;
             std::shared_ptr<api::Client> c = app.client;
             app.streamCollectFuture = std::async(
-                std::launch::async, [c, id, prompt]() {
+                std::launch::async, [c, id, message, transfer]() {
                     AppComponent::StreamCollected out;
                     api::StreamSink sink;
                     sink.on_delta = [&out](const std::string& d) {
@@ -1737,14 +1933,26 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     sink.on_done = [&out](const api::Message& m) {
                         out.finalMsg = m;
                     };
-                    sink.on_error = [&out](const std::string& e) {
-                        out.error = e;
+                    sink.on_failure = [&out](const api::SendFailure& failure) {
+                        out.error = failure.message;
+                        out.failureKind = failure.kind;
                     };
+                    sink.on_upload = [transfer](const api::UploadProgress& p) {
+                        transfer->phase.store(static_cast<int>(p.phase));
+                        transfer->fileIndex.store(p.file_index);
+                        transfer->fileCount.store(p.file_count);
+                        transfer->sentBytes.store(p.sent_bytes);
+                        transfer->totalBytes.store(p.total_bytes);
+                    };
+                    sink.on_accepted = [&out](std::uint64_t input) {
+                        out.acceptedInput = input;
+                    };
+                    sink.is_cancelled = [transfer] { return transfer->cancel.load(); };
                     sink.on_event = [&out](const api::StreamEvent& ev) {
                         if (ev.kind == api::StreamEventKind::AsksChanged)
                             out.asksJson = ev.payload;
                     };
-                    c->send_message_streaming(id, prompt, sink);
+                    c->send_message_streaming(id, message, sink);
                     return out;
                 });
         }
@@ -1756,22 +1964,36 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             AppComponent::StreamCollected got = app.streamCollectFuture.get();
             app.streamCollecting = false;
             const std::string id = app.streamPendingSession;
-            const std::string prompt = app.streamPendingPrompt;
-            app.streamPendingPrompt.clear();
+            api::OutgoingMessage message = std::move(app.streamPendingMessage);
+            app.streamPendingMessage = {};
             app.streamPendingSession.clear();
+            app.transfer.reset();
             const int ownerIndex = std::clamp(app.streamPaneIndex, 0, 1);
             Pane& streamPane = app.panes[static_cast<std::size_t>(ownerIndex)];
 
-            // The open thread may have changed while we were collecting; only
-            // apply the result if the target thread is still open. The OUTBOX
-            // verdict does not depend on that: whether the server took the
-            // prompt is decided by got.error, not by what the user is looking
-            // at now.
-            if (got.error.empty()) {
-                api::disk_cache::outbox_remove(id, prompt);
-                app.outboxRetry.confirmed(id, prompt);
+            const bool accepted = got.acceptedInput != 0 || got.error.empty();
+            const bool restoreDraft =
+                got.failureKind == api::SendFailureKind::Cancelled ||
+                got.failureKind == api::SendFailureKind::Rejected;
+            if (accepted) {
+                api::disk_cache::outbox_remove_message(id, message.local_id);
+                app.outboxRetry.confirmed(id, message);
+                release_sent_attachments(
+                    message,
+                    streamPane.openSession &&
+                            streamPane.openSession->summary.id == id
+                        ? &streamPane
+                        : nullptr);
+            } else if (restoreDraft) {
+                api::disk_cache::outbox_remove_message(id, message.local_id);
+                app.outboxRetry.confirmed(id, message);
+                restore_to_composer(
+                    ownerIndex, id, message,
+                    got.failureKind == api::SendFailureKind::Cancelled
+                        ? "Upload cancelled. Your draft is unchanged."
+                        : got.error);
             } else {
-                note_outbox_failure(app, id, prompt);
+                note_outbox_failure(app, id, message, got.failureKind);
             }
             adopt_turn_asks(app, id, got.asksJson, app.next_ask_load_stamp());
             if (!streamPane.openSession || streamPane.openSession->summary.id != id) {
@@ -1779,22 +2001,37 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else if (!got.error.empty()) {
                 streamPane.transcriptError = got.error;
                 app.streamPhase = AppComponent::StreamPhase::Idle;
-                mark_local_prompt(streamPane, prompt, api::SyncState::Failed);
+                if (accepted) {
+                    drop_local_prompt(streamPane, message);
+                    api::Message user;
+                    user.role = api::Role::User;
+                    user.id = std::to_string(got.acceptedInput);
+                    user.local_id = message.local_id;
+                    user.text = message.text;
+                    user.attachments = message.attachments;
+                    user.created_at = static_cast<int64_t>(std::time(nullptr));
+                    user.sync = api::SyncState::Synced;
+                    const std::size_t first = streamPane.openSession->messages.size();
+                    streamPane.openSession->messages.push_back(std::move(user));
+                    streamPane.note_transcript_append(first, 1);
+                } else if (restoreDraft) {
+                    drop_local_prompt(streamPane, message);
+                } else {
+                    mark_local_prompt(streamPane, message,
+                                      api::SyncState::Failed);
+                }
                 sync_stream_transcript(app, ownerIndex);
             } else {
-                // Append the User bubble + an empty Assistant bubble that fills
-                // in as we drain. The live Assistant message's index is
-                // remembered so the drain can rewrite its text each frame.
-                // A restored/failed copy of this same prompt may already be
-                // sitting in the transcript (drive_outbox paints one so the
-                // user's words are visible before the retry lands); it is the
-                // same turn, so it goes rather than doubling.
-                drop_local_prompt(streamPane, prompt);
+                drop_local_prompt(streamPane, message);
                 api::Message um;
                 um.role = api::Role::User;
-                um.id = id + "-u" +
-                        std::to_string(streamPane.openSession->messages.size());
-                um.text = prompt;
+                um.id = got.acceptedInput == 0
+                            ? id + "-u" +
+                                  std::to_string(streamPane.openSession->messages.size())
+                            : std::to_string(got.acceptedInput);
+                um.local_id = message.local_id;
+                um.text = message.text;
+                um.attachments = message.attachments;
                 um.created_at = got.finalMsg.created_at;
                 const std::size_t first =
                     streamPane.openSession->messages.size();

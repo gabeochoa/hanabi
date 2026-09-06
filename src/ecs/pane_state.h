@@ -55,6 +55,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../api/attachments.h"
+#include "../api/types.h"
 #include "../ui/minimap_marks.h"
 #include "../ui/minimap_scrub.h"
 #include "follow_latch.h"
@@ -112,6 +114,11 @@ struct PaneState {
     std::vector<std::string> sent;   // oldest first
     std::size_t walkIndex = 0;       // steps back from the live draft
     std::string stashedDraft;        // the draft the walk started from
+    std::vector<api::Attachment> attachments;
+    std::vector<api::Attachment> persistedAttachments;
+    std::string attachmentNotice;
+    float attachmentLayoutHeight = 0.0f;
+    int attachmentLayoutGrace = 0;
 
     std::string copiedMessageKey;
     std::chrono::steady_clock::time_point copiedMessageAt{};
@@ -119,8 +126,26 @@ struct PaneState {
     std::chrono::steady_clock::time_point retriedMessageAt{};
     std::string focusedMessageActionKey;
 
-    bool worth_keeping() const { return !replyDraft.empty(); }
+    bool worth_keeping() const {
+        return !replyDraft.empty() || !attachments.empty();
+    }
 };
+
+inline api::OutgoingMessage snapshot_outgoing(
+    PaneState& state, std::string text, api::OutgoingTarget target,
+    bool supportsAttachments) {
+    std::vector<api::Attachment> files;
+    if (supportsAttachments) {
+        files = state.attachments;
+    } else if (!state.attachments.empty()) {
+        state.attachmentNotice =
+            "Text sent; files stayed here because this backend cannot upload them.";
+    }
+    api::OutgoingMessage message = api::attachments::outgoing(
+        std::move(text), std::move(files), std::move(target));
+    if (!message.attachments.empty()) message.auto_retry = false;
+    return message;
+}
 
 template <class Messages>
 void update_unread(PaneState& state, const Messages& messages,

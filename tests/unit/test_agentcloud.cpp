@@ -7,11 +7,14 @@
 // with an opaque body, which reads like an auth problem rather than a typo.
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
 #include "../../src/api/agentcloud_auth.h"
 #include "../../src/api/agentcloud_client.h"
+#include "../../src/api/attachments.h"
 #include "../../src/ecs/thread_model.h"
 #include "../../vendor/nlohmann/json.hpp"
 
@@ -1366,6 +1369,95 @@ static void test_a_null_elicitation_row_does_not_kill_the_turn() {
     CHECK(sawNeighbour);
 }
 
+static void test_attachment_message_contract() {
+    std::printf("attachment message wire contract\n");
+    const auto dir = std::filesystem::temp_directory_path() /
+                     "hanabi-attachment-contract";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "pixel.png", std::ios::binary) << "abc";
+    std::ofstream(dir / "notes.md", std::ios::binary) << "# hi\n";
+    auto image = api::attachments::stage((dir / "pixel.png").string());
+    auto note = api::attachments::stage((dir / "notes.md").string());
+    CHECK(image.ok);
+    CHECK(note.ok);
+    if (!image.ok || !note.ok) return;
+    api::OutgoingMessage message = api::attachments::outgoing(
+        "read these", {image.value, note.value},
+        api::OutgoingTarget{1, "session-7", "session-7"});
+    api::attachments::mark_delivery_started(message);
+    const auto encoded =
+        api::agentcloud::message_request_json(message, "after_tool_round");
+    CHECK(encoded.ok);
+    if (encoded.ok) {
+        const auto wire = nlohmann::json::parse(encoded.value);
+        CHECK(wire.size() == 1);
+        CHECK(wire["messages"].size() == 1);
+        const auto& input = wire["messages"][0];
+        CHECK(input.size() == 3);
+        CHECK(input["text"] == "read these");
+        CHECK(input["apply"] == "after_tool_round");
+        CHECK(input["attachments"].size() == 2);
+        CHECK(input["attachments"][0]["name"] == "pixel.png");
+        CHECK(input["attachments"][0]["media_type"] == "image/png");
+        CHECK(input["attachments"][0]["data"] == "YWJj");
+        CHECK(input["attachments"][1]["name"] == "notes.md");
+        CHECK(input["attachments"][1]["media_type"] == "text/markdown");
+        CHECK(input["attachments"][1]["data"] == "IyBoaQo=");
+        CHECK(!input.contains("files"));
+        CHECK(!input.contains("file_bytes"));
+    }
+    std::filesystem::remove_all(dir);
+}
+
+static void test_attachment_staging_limits() {
+    const auto dir = std::filesystem::temp_directory_path() /
+                     "hanabi-attachment-limits";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "archive.zip", std::ios::binary) << "zip";
+    CHECK(!api::attachments::stage((dir / "archive.zip").string()).ok);
+    {
+        std::ofstream large(dir / "large.pdf", std::ios::binary);
+        large.seekp(static_cast<std::streamoff>(api::attachments::kMaxFileBytes));
+        large.put('x');
+    }
+    CHECK(!api::attachments::stage((dir / "large.pdf").string()).ok);
+    api::OutgoingMessage tooMany;
+    tooMany.attachments.resize(api::attachments::kMaxCount + 1);
+    CHECK(!api::attachments::validate_message(tooMany).ok);
+    std::filesystem::remove_all(dir);
+}
+
+static void test_attachment_response_contract() {
+    const auto accepted =
+        api::agentcloud::parse_message_response(R"({"input_ids":[81]})");
+    CHECK(accepted.ok && accepted.value == 81);
+    CHECK(!api::agentcloud::parse_message_response("{}").ok);
+    CHECK(!api::agentcloud::parse_message_response(
+               R"({"input_ids":[81,82]})")
+               .ok);
+    CHECK(api::agentcloud::message_http_failure(413, "{}").kind ==
+          api::SendFailureKind::Rejected);
+    CHECK(api::agentcloud::message_http_failure(503, "{}").kind ==
+          api::SendFailureKind::Unknown);
+    CHECK(api::agentcloud::message_http_failure(
+              400, R"({"error":{"message":"hosted CLI sessions reject attachments"}})")
+              .message == "hosted CLI sessions reject attachments");
+}
+
+static void test_user_input_attachment_handles_are_preserved() {
+    const std::string page = R"({"frames":[{"seq":9,"created_at_unix_ms":1000,"event":{"type":"user_input","text":"read it","files":[{"media_type":"application/pdf","file_id":"991","name":"report.pdf"},{"media_type":"image/png","file_id":"992","name":"chart.png"}]}}]})";
+    const auto messages = parse_page_frames(page);
+    CHECK(messages.size() == 1);
+    if (messages.size() != 1) return;
+    CHECK(messages[0].attachments.size() == 2);
+    CHECK(messages[0].attachments[0].file_id == "991");
+    CHECK(messages[0].attachments[0].name == "report.pdf");
+    CHECK(!messages[0].attachments[0].is_image());
+    CHECK(messages[0].attachments[1].is_image());
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -1424,6 +1516,10 @@ int main() {
     test_rename_echo_folds_into_the_title();
     test_only_a_rename_frame_touches_the_title();
     test_fork_wire_contract_and_child_catalog();
+    test_attachment_message_contract();
+    test_attachment_staging_limits();
+    test_attachment_response_contract();
+    test_user_input_attachment_handles_are_preserved();
     test_backward_paging_never_rewinds_the_live_plan();
     test_the_watermark_drops_a_late_frame();
     test_the_watermark_outlives_the_turn();

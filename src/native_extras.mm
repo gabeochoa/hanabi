@@ -19,12 +19,14 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
+#include "api/attachments.h"
 #include "native_extras.h"
 
 // Debug-only native logging. The hotkey register/unregister fires on EVERY
@@ -752,15 +754,12 @@ bool native_take_open_thread(char* out, int cap) {
 
 #import <MetalKit/MetalKit.h>
 
-// The image types a chip can show and a future send path could carry. Kept in
-// step with what the orchestrator's message route accepts today (png, jpeg,
-// gif, webp) so hanabi never takes in a file the backend would refuse.
-static bool hanabi_is_image_path(NSString* path) {
+// The file types the orchestrator's message route accepts today.
+static bool hanabi_is_attachment_path(NSString* path) {
     if (path == nil) return false;
-    NSString* ext = [[path pathExtension] lowercaseString];
-    return [ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] ||
-           [ext isEqualToString:@"jpeg"] || [ext isEqualToString:@"gif"] ||
-           [ext isEqualToString:@"webp"];
+    const char* value = [path fileSystemRepresentation];
+    return value != nullptr &&
+           !api::attachments::media_type_for_path(value).empty();
 }
 
 // ---- the pending-drop queue (AppKit writes, the frame loop drains) ---------
@@ -789,7 +788,7 @@ static void push_dropped_path(const std::string& path) {
         readObjectsForClasses:@[ [NSURL class] ]
                       options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
     for (NSURL* u in urls)
-        if (hanabi_is_image_path([u path])) return NSDragOperationCopy;
+        if (hanabi_is_attachment_path([u path])) return NSDragOperationCopy;
     return NSDragOperationNone;
 }
 
@@ -804,13 +803,13 @@ static void push_dropped_path(const std::string& path) {
                       options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
     int taken = 0;
     for (NSURL* u in urls) {
-        if (!hanabi_is_image_path([u path])) continue;
+        if (!hanabi_is_attachment_path([u path])) continue;
         const char* p = [[u path] UTF8String];
         if (p == nullptr) continue;
         push_dropped_path(std::string(p));
         ++taken;
     }
-    if (taken > 0) NSLog(@"native_extras: file drop -> %d image(s)", taken);
+    if (taken > 0) NSLog(@"native_extras: file drop -> %d attachment(s)", taken);
     return taken > 0;
 }
 
@@ -839,7 +838,7 @@ void native_filedrop_install(void) {
         }
         [view registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
         installed = true;
-        NSLog(@"native_extras: file-drop destination installed (image files)");
+        NSLog(@"native_extras: file-drop destination installed (attachments)");
     }
 }
 
@@ -865,6 +864,46 @@ bool native_take_dropped_image(char* out, int cap) {
 void native_simulate_file_drop(const char* path) {
     if (path == nullptr || path[0] == '\0') return;
     push_dropped_path(std::string(path));
+}
+
+int native_pick_attachments(void) {
+    if (const char* test = std::getenv("HANABI_PICK_FILE_TEST");
+        test != nullptr && test[0] != '\0') {
+        const std::string paths(test);
+        int accepted = 0;
+        std::size_t start = 0;
+        while (start <= paths.size()) {
+            const std::size_t end = paths.find(';', start);
+            const std::string path = paths.substr(
+                start, end == std::string::npos ? std::string::npos
+                                                : end - start);
+            if (!path.empty()) {
+                push_dropped_path(path);
+                ++accepted;
+            }
+            if (end == std::string::npos) break;
+            start = end + 1;
+        }
+        return accepted;
+    }
+    @autoreleasepool {
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.canChooseDirectories = NO;
+        panel.canChooseFiles = YES;
+        panel.allowsMultipleSelection = YES;
+        panel.prompt = @"Attach";
+        [NSApp activateIgnoringOtherApps:YES];
+        if ([panel runModal] != NSModalResponseOK) return 0;
+        int accepted = 0;
+        for (NSURL* url in [panel URLs]) {
+            if (!hanabi_is_attachment_path([url path])) continue;
+            const char* path = [[url path] fileSystemRepresentation];
+            if (path == nullptr) continue;
+            push_dropped_path(path);
+            ++accepted;
+        }
+        return accepted;
+    }
 }
 
 // ---- clipboard ------------------------------------------------------------
@@ -915,7 +954,7 @@ bool native_take_clipboard_image(char* out, int cap) {
             readObjectsForClasses:@[ [NSURL class] ]
                           options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
         for (NSURL* u in urls) {
-            if (!hanabi_is_image_path([u path])) continue;
+            if (!hanabi_is_attachment_path([u path])) continue;
             const char* p = [[u path] UTF8String];
             if (p == nullptr) continue;
             std::strncpy(out, p, static_cast<size_t>(cap - 1));

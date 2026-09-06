@@ -41,6 +41,9 @@ session_of_sub = {}
 # it believes, not what it did on the wire.
 _probe_lock = threading.Lock()
 attach_counts = {}
+attachment_received = threading.Event()
+attachment_payload = None
+posted_targets = set()
 
 
 def _dumps(v):
@@ -105,11 +108,68 @@ def _serve(conn):
         request = b""
         while b"\r\n\r\n" not in request:
             request += conn.recv(4096)
+        head, body = request.split(b"\r\n\r\n", 1)
+        lines = head.decode().split("\r\n")
+        method, target, _ = lines[0].split(" ", 2)
         headers = {}
-        for line in request.decode().split("\r\n")[1:]:
+        for line in lines[1:]:
             if ":" in line:
                 key, value = line.split(":", 1)
                 headers[key.lower()] = value.strip()
+        if method == "POST":
+            global attachment_payload
+            length = int(headers.get("content-length", "0"))
+            while len(body) < length:
+                body += conn.recv(length - len(body))
+            require(headers.get("crypto_auth_tokens") == "local-test-token", headers)
+            attachment_payload = json.loads(body[:length].decode())
+            messages = attachment_payload.get("messages", [])
+            require(len(messages) == 1, attachment_payload)
+            message = messages[0]
+            require(set(message) == {"text", "apply", "attachments"}, message)
+            require(message.get("apply") == "after_tool_round", message)
+            require("idempotency_key" not in message, message)
+            files = message.get("attachments", [])
+            if target == "/sessions/reject-local/messages":
+                response = b'{"error":"attachment storage unavailable"}'
+                conn.sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    + b"Content-Type: application/json\r\n"
+                    + f"Content-Length: {len(response)}\r\n".encode()
+                    + b"Connection: close\r\n\r\n"
+                    + response)
+                return
+            if target == "/sessions/attachment-local/messages":
+                require(message.get("text") == "inspect both files", message)
+                require([f.get("name") for f in files] ==
+                        ["tiny.png", "notes.md"], files)
+                require([f.get("media_type") for f in files] ==
+                        ["image/png", "text/markdown"], files)
+                require([base64.b64decode(f.get("data", "")) for f in files] ==
+                        [b"png-bytes", b"# notes\n"], files)
+                input_id = 81
+            elif target == "/sessions/created-attachment-local/messages":
+                require(message.get("text") == "start with evidence", message)
+                require([f.get("name") for f in files] == ["notes.md"], files)
+                input_id = 91
+            elif target == "/sessions/fork-bare/messages":
+                require(message.get("text") == "fork with evidence", message)
+                require([f.get("name") for f in files] == ["tiny.png"], files)
+                input_id = 92
+            else:
+                raise ProtocolError(target)
+            response = json.dumps({"input_ids": [input_id]},
+                                  separators=(",", ":")).encode()
+            conn.sendall(
+                b"HTTP/1.1 202 Accepted\r\n"
+                + b"Content-Type: application/json\r\n"
+                + f"Content-Length: {len(response)}\r\n".encode()
+                + b"Connection: close\r\n\r\n"
+                + response)
+            posted_targets.add(target)
+            if target == "/sessions/attachment-local/messages":
+                attachment_received.set()
+            return
         accept = base64.b64encode(
             hashlib.sha1((headers["sec-websocket-key"] +
                           "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
@@ -317,6 +377,11 @@ def _serve(conn):
                 continue
             elif kind == "page":
                 msg = {"type": "page", "frames": [], "done": True}
+            elif kind == "create":
+                require(command.get("title") == "start with evidence", command)
+                require("input" not in command, command)
+                msg = {"type": "created",
+                       "session": {"session_id": "created-attachment-local"}}
             elif kind == "fork_with_prompt":
                 require(command["source_session_id"] == "source-local", 'command["source_session_id"] == "source-local"')
                 require(command["prompt"] == "why local?", 'command["prompt"] == "why local?"')
@@ -346,6 +411,27 @@ def _serve(conn):
             else:
                 msg = {"type": "error", "message": f"unexpected {kind}"}
             send_frame(conn, {"sub": sub, "msg": msg})
+            if kind == "attach" and command.get("session_id") == "attachment-local":
+                require(attachment_received.wait(timeout=10),
+                        "attachment HTTP route was never called")
+                send_frame(conn, {"sub": sub, "msg": {
+                    "type": "frame", "frame": "durable", "seq": 81,
+                    "event": {"type": "user_input", "text": "inspect both files",
+                              "files": [
+                                  {"media_type": "image/png", "file_id": "9001",
+                                   "name": "tiny.png"},
+                                  {"media_type": "text/markdown", "file_id": "9002",
+                                   "name": "notes.md"},
+                              ]}}})
+                send_frame(conn, {"sub": sub, "msg": {
+                    "type": "frame", "frame": "durable", "seq": 82,
+                    "event": {"type": "block", "run": 8, "call": 129,
+                              "index": 0,
+                              "block": {"kind": "text",
+                                        "text": "Both attachments arrived."}}}})
+                send_frame(conn, {"sub": sub, "msg": {
+                    "type": "frame", "frame": "durable", "seq": 83,
+                    "event": {"type": "run_finished"}}})
     return True
 
 
@@ -361,14 +447,14 @@ def _accept_loop(listener):
             break
         served += 1
         listener.settimeout(idle_window)
-        if all(not t.is_alive() for t in _served_threads):
-            break
     return served
 
 
 def _report(served):
     if served == 0:
         raise SystemExit("no client ever connected")
+    if "/sessions/attachment-local/messages" not in posted_targets:
+        _thread_errors.append("attachment HTTP route was never called")
     for thread in list(_served_threads):
         thread.join(timeout=45)
     for text in _thread_errors:

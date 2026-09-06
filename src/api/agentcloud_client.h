@@ -52,6 +52,9 @@ class AgentcloudClient : public Client {
     bool supports_send() const override { return ready(); }
     bool supports_steer() const override { return ready(); }
     bool supports_stream() const override { return ready(); }
+    bool supports_attachments() const override { return ready(); }
+    Result<CreateOutcome> create_with_message(
+        const OutgoingMessage& message, const StreamSink& sink) override;
 
     // rename_v1 is announced on attach, so the capability question is settled
     // per session rather than per client: this says the verb exists, and
@@ -70,6 +73,9 @@ class AgentcloudClient : public Client {
     Result<std::string> fork_with_prompt(const std::string& session_id,
                                          const std::string& prompt,
                                          const std::string& title) override;
+    Result<CreateOutcome> fork_with_message(
+        const std::string& session_id, const OutgoingMessage& message,
+        const std::string& title, const StreamSink& sink) override;
 
     bool supports_subagents() const override { return ready(); }
     Result<std::vector<SessionSummary>> list_subagents(
@@ -78,10 +84,17 @@ class AgentcloudClient : public Client {
     void send_message_streaming(const std::string& session_id,
                                 const std::string& prompt,
                                 const StreamSink& sink) override;
+    void send_message_streaming(const std::string& session_id,
+                                const OutgoingMessage& message,
+                                const StreamSink& sink) override;
     Result<Message> send_message(const std::string& session_id,
                                  const std::string& prompt) override;
+    Result<Message> send_message(const std::string& session_id,
+                                 const OutgoingMessage& message) override;
     Result<Message> steer(const std::string& session_id,
                           const std::string& prompt) override;
+    Result<Message> steer(const std::string& session_id,
+                          const OutgoingMessage& message) override;
 
     std::string backend_label() const override;
 
@@ -98,8 +111,19 @@ class AgentcloudClient : public Client {
 
     // attach, then input, then read the turn out as it arrives. `apply` is
     // required on the wire -- there is no server-side default.
-    void run_turn(const std::string& session_id, const std::string& prompt,
+    void run_turn(const std::string& session_id,
+                  const OutgoingMessage& message,
                   const std::string& apply, const StreamSink& sink);
+
+    struct MessagePost {
+        bool accepted = false;
+        std::uint64_t input_id = 0;
+        SendFailure failure;
+    };
+    MessagePost post_message(const std::string& session_id,
+                             const OutgoingMessage& message,
+                             const std::string& apply,
+                             const StreamSink& sink);
 
     // attach + page on ONE socket: attach binds the principal for the
     // subscription and page inherits it, so splitting them would re-attach for
@@ -142,6 +166,10 @@ std::string fork_command_json(const std::string& source_session_id);
 std::string fork_with_prompt_command_json(const std::string& source_session_id,
                                           const std::string& prompt,
                                           const std::string& title);
+Result<std::string> message_request_json(const OutgoingMessage& message,
+                                         const std::string& apply);
+Result<std::uint64_t> parse_message_response(const std::string& body);
+SendFailure message_http_failure(int status, const std::string& body);
 std::string parse_created_session_id(const std::string& msg_json);
 bool hello_has_capability(const std::string& hello_json,
                           const std::string& capability);

@@ -622,6 +622,7 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string selectDemo;
     std::string themeChoice = "dark";
     bool composerOpen = false;
+    api::OutgoingTarget composerOverlayTarget;
     std::string composerDraft;
     hanabi::ask::RescuedDrafts askRescued;
 
@@ -639,53 +640,39 @@ struct AppComponent : public afterhours::BaseComponent {
     // serviced by LoaderSystem via the same std::async + poll pattern as
     // list/transcript. Set by the composer (kickoff) / transcript composer
     // (reply); cleared on consume.
-    std::string requestKickoffPrompt;  // start a NEW session from this prompt
-    std::string requestSendPrompt;     // reply into the OPEN session
+    std::optional<api::OutgoingMessage> requestKickoff;
+    std::optional<api::OutgoingMessage> requestSend;
     std::string requestRetrySessionId;
-    std::string requestRetryPrompt;
+    std::optional<api::OutgoingMessage> requestRetryMessage;
     // What Enter in the composer submitted, before it has been routed. The
     // text-input listener is attached once and lives for the entity's whole
     // life, so it cannot be the thing that decides between kickoff and reply —
     // it would decide with whatever was true on the frame it was attached.
     // It parks the text here and the composer, which recomputes the mode every
     // frame, routes it exactly as the Send button does.
-    std::string composerSubmit;
-    // Whether Cmd was held when that Enter landed. A FACT the listener
-    // observed, not a decision it took: whether the chord sends depends on the
-    // send-key setting, which the user can change between one Enter and the
-    // next, so only the per-frame router may read the setting (see
-    // hanabi::enter_sends in settings.h).
-    bool composerSubmitWithCmd = false;
+    struct ComposerSubmission {
+        api::OutgoingMessage message;
+        bool withCmd = false;
+    };
+    std::optional<ComposerSubmission> composerSubmit;
+
+    [[nodiscard]] api::OutgoingTarget current_composer_target() const {
+        api::OutgoingTarget target;
+        target.pane_index = std::clamp(focusedPane, 0, 1);
+        const Pane& owner = panes[static_cast<std::size_t>(target.pane_index)];
+        const bool reply = view == SmartView::Chat && !owner.selectedId.empty();
+        target.session_id = reply ? owner.selectedId : std::string();
+        target.draft_key = reply ? target.session_id : std::string("__kickoff__");
+        return target;
+    }
     // The prompt currently being sent, for a "sending…" hint while in flight.
-    std::string sendingPrompt;
+    api::OutgoingMessage sendingMessage;
 
     // Composer history (Up/Down walk) and the half-typed draft now live
     // TOGETHER in ecs::model::pane_states() — one bounded LRU keyed by session
     // id, instead of this map plus four function-local statics in
     // main_pane_system.h, none of which was ever pruned. See ecs/pane_state.h
     // for what the bound is and what it costs.
-
-    // Images pasted or dropped onto the composer, in the order they arrived.
-    // A PATH each, never bytes: the transcript's inline-image cache turns a
-    // path into a texture, so the chip's thumbnail costs nothing new.
-    //
-    // NOT keyed by thread, unlike the draft above. hanabi cannot SEND an image
-    // on any backend it speaks (see the note over the chips row in
-    // main_pane_system.h), so an attachment never moves with a message and
-    // there is no per-thread lifetime to respect yet. When a send path exists
-    // this becomes a per-thread slot the way the draft is.
-    struct Attachment {
-        // Absolute path to the image on this machine.
-        std::string path;
-        // What the chip calls it — the file's base name.
-        std::string name;
-    };
-    std::vector<Attachment> composerAttachments;
-    // The most images the composer will hold. Not an arbitrary number: it is
-    // the cap the orchestrator's own message route enforces (five per
-    // message), so hanabi never accumulates a set that could not be sent even
-    // once a send path exists.
-    static constexpr size_t kMaxAttachments = 5;
 
     // Slash-command menu (the dropdown a "/" draft raises over the composer).
     // Its open state lives on the app rather than in the composer's own
@@ -830,8 +817,10 @@ struct AppComponent : public afterhours::BaseComponent {
     }
 
     // Kickoff async state (create_session).
-    std::future<api::Result<std::string>> kickoffFuture;
+    std::future<api::Result<api::CreateOutcome>> kickoffFuture;
     bool kickoffPending = false;
+    api::OutgoingMessage kickoffMessage;
+    int kickoffPaneIndex = 0;
 
     // ==== Agent steering (Phase STEER) ====================================
     // When a message is sent into the OPEN thread while that thread's agent is
@@ -843,11 +832,19 @@ struct AppComponent : public afterhours::BaseComponent {
     // When false the loader takes the normal send/stream path (no behavior
     // change). Kept as a method (not a stored flag) so it always reflects the
     // live client + open-session state with no staleness.
+    bool should_steer(const api::OutgoingTarget& target) const {
+        if (!client || !client->supports_steer() || !target.valid() ||
+            target.session_id.empty())
+            return false;
+        const int paneIndex = std::clamp(target.pane_index, 0, 1);
+        const Pane& owner = panes[static_cast<std::size_t>(paneIndex)];
+        return owner.openSession &&
+               owner.openSession->summary.id == target.session_id &&
+               owner.openSession->summary.state == api::ThreadState::Running;
+    }
+
     bool should_steer_open() const {
-        if (!client || !client->supports_steer()) return false;
-        const Pane& p = pane();
-        if (!p.openSession) return false;
-        return p.openSession->summary.state == api::ThreadState::Running;
+        return should_steer(current_composer_target());
     }
 
     // Steer async state (steer() into selectedId). Parallels the reply
@@ -879,8 +876,8 @@ struct AppComponent : public afterhours::BaseComponent {
     api::outbox::Retry outboxRetry;
     bool outboxRestored = false;      // the startup enumeration has run
     bool outboxSuppressAdd = false;   // this dispatch came FROM the outbox
-    std::string outboxRetryId;        // the retry occupying the send slot
-    std::string outboxRetryPrompt;
+    std::string outboxRetryId;
+    api::OutgoingMessage outboxRetryMessage;
 
     // Phase STREAM: live token-by-token replies. When the active backend
     // supports_stream(), the transcript composer routes Send through here
@@ -892,7 +889,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // the live Assistant message's text. On done it finalizes + refreshes the
     // cache. Deterministic + offline for the mock: no worker thread, no timers.
     enum class StreamPhase { Idle, Thinking, Streaming, Done };
-    std::string requestStreamPrompt;   // reply into the OPEN session, streamed.
+    std::optional<api::OutgoingMessage> requestStream;
     bool streamActive = false;         // a stream is in flight.
     std::string streamSessionId;       // which session the stream targets.
     int streamPaneIndex = 0;
@@ -925,11 +922,22 @@ struct AppComponent : public afterhours::BaseComponent {
         std::vector<std::string> chunks;
         api::Message finalMsg;
         std::string error;
+        api::SendFailureKind failureKind = api::SendFailureKind::Retryable;
+        std::uint64_t acceptedInput = 0;
         std::string asksJson;
     };
+    struct TransferShared {
+        std::atomic<int> phase{-1};
+        std::atomic<std::size_t> fileIndex{0};
+        std::atomic<std::size_t> fileCount{0};
+        std::atomic<std::uint64_t> sentBytes{0};
+        std::atomic<std::uint64_t> totalBytes{0};
+        std::atomic<bool> cancel{false};
+    };
+    std::shared_ptr<TransferShared> transfer;
     std::future<StreamCollected> streamCollectFuture;
     bool streamCollecting = false;      // a worker is gathering the reply.
-    std::string streamPendingPrompt;    // prompt being collected (for the User bubble).
+    api::OutgoingMessage streamPendingMessage;
     std::string streamPendingSession;   // session the collection targets.
 
 
@@ -976,6 +984,7 @@ struct AppComponent : public afterhours::BaseComponent {
     struct PendingSend {
         std::string sessionId;
         std::string prompt;
+        api::OutgoingMessage message;
     };
     std::vector<PendingSend> pendingSendQueue;
 
@@ -1001,8 +1010,22 @@ struct AppComponent : public afterhours::BaseComponent {
     // Enqueue a user send for `id`. The composer calls this for EVERY send; the
     // loader decides whether to dispatch immediately (nothing in flight) or
     // hold it in the queue. Ordered per session (push_back = FIFO).
+    void enqueue_send(const std::string& id, api::OutgoingMessage message) {
+        if (!message.target.valid()) {
+            message.target.session_id = id;
+            message.target.draft_key = id;
+            message.target.pane_index = 0;
+        }
+        const std::string prompt = message.text;
+        pendingSendQueue.push_back(
+            PendingSend{id, prompt, std::move(message)});
+    }
+
     void enqueue_send(const std::string& id, const std::string& prompt) {
-        pendingSendQueue.push_back(PendingSend{id, prompt});
+        api::OutgoingMessage message;
+        message.text = prompt;
+        message.target = api::OutgoingTarget{0, id, id};
+        pendingSendQueue.push_back(PendingSend{id, prompt, std::move(message)});
     }
 
     // ==== Session rename (durable echo, never local optimism) =============
@@ -1072,14 +1095,15 @@ struct AppComponent : public afterhours::BaseComponent {
     std::future<api::Result<std::string>> renameFuture;
 
     std::string requestForkSourceId;
-    std::string requestForkPrompt;
+    std::optional<api::OutgoingMessage> requestForkMessage;
     std::string requestForkTitle;
     int requestForkPane = 0;
     bool forkPending = false;
+    api::OutgoingMessage forkMessage;
     std::string forkError;
     std::string forkRestoreDraft;
     std::string forkRestoreSessionId;
-    std::future<api::Result<std::string>> forkFuture;
+    std::future<api::Result<api::CreateOutcome>> forkFuture;
 
     std::uint64_t sessionCatalogRevision = 1;
 

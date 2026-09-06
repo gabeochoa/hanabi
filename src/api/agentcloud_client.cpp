@@ -1,4 +1,5 @@
 #include "agentcloud_client.h"
+#include "attachments.h"
 
 #include <algorithm>
 #include <chrono>
@@ -12,6 +13,11 @@
 #include <unordered_map>
 #include <utility>
 #include <string>
+
+#ifdef HANABI_ENABLE_TLS
+#define CPPHTTPLIB_OPENSSL_SUPPORT
+#endif
+#include <httplib.h>
 
 #include "../../vendor/nlohmann/json.hpp"
 #include "../ws_socket.h"
@@ -514,6 +520,64 @@ std::string fork_with_prompt_command_json(const std::string& source_session_id,
         .dump();
 }
 
+Result<std::string> message_request_json(const OutgoingMessage& message,
+                                         const std::string& apply) {
+    const auto valid = attachments::validate_message(message);
+    if (!valid.ok) return Result<std::string>::failure(valid.error);
+    json files = json::array();
+    for (const Attachment& attachment : message.attachments) {
+        auto encoded = attachments::read_base64(attachment);
+        if (!encoded.ok) return Result<std::string>::failure(encoded.error);
+        files.push_back({{"media_type", attachment.media_type},
+                         {"name", attachment.name},
+                         {"data", std::move(encoded.value)}});
+    }
+    const std::string body =
+        json{{"messages", json::array({json{{"text", message.text},
+                                             {"apply", apply},
+                                             {"attachments", std::move(files)}}})}}
+            .dump();
+    if (body.size() > attachments::kMaxRequestBytes)
+        return Result<std::string>::failure(
+            "Those files are too large to send together. Remove one and try again.");
+    return Result<std::string>::success(body);
+}
+
+Result<std::uint64_t> parse_message_response(const std::string& body) {
+    const json response = json::parse(body, nullptr, false);
+    if (response.is_discarded() || !response.contains("input_ids") ||
+        !response["input_ids"].is_array() || response["input_ids"].size() != 1 ||
+        !response["input_ids"][0].is_number_unsigned())
+        return Result<std::uint64_t>::failure(
+            "The server accepted the upload but returned no input id.");
+    const std::uint64_t id = response["input_ids"][0].get<std::uint64_t>();
+    if (id == 0)
+        return Result<std::uint64_t>::failure(
+            "The server accepted the upload but returned no input id.");
+    return Result<std::uint64_t>::success(id);
+}
+
+SendFailure message_http_failure(int status, const std::string& body) {
+    const json response = json::parse(body, nullptr, false);
+    std::string detail;
+    if (!response.is_discarded()) {
+        detail = str_or(response, "message", "");
+        if (detail.empty()) detail = str_or(response, "error", "");
+        if (detail.empty() && response.contains("error") &&
+            response["error"].is_object()) {
+            detail = str_or(response["error"], "message", "");
+            if (detail.empty()) detail = str_or(response["error"], "detail", "");
+        }
+    }
+    if (detail.empty()) detail = "HTTP " + std::to_string(status);
+    SendFailureKind kind = SendFailureKind::Unknown;
+    if (status == 400 || status == 401 || status == 403 || status == 404 ||
+        status == 409 || status == 413 || status == 415 || status == 422 ||
+        status == 431)
+        kind = SendFailureKind::Rejected;
+    return SendFailure{kind, detail};
+}
+
 std::string parse_created_session_id(const std::string& msg_json) {
     const json msg = json::parse(msg_json, nullptr, false);
     if (msg.is_discarded()) return {};
@@ -571,6 +635,30 @@ Result<std::vector<SessionSummary>> AgentcloudClient::list_subagents(
         agentcloud::parse_subagents_reply(msg_json, limit));
 }
 
+Result<CreateOutcome> AgentcloudClient::create_with_message(
+    const OutgoingMessage& message, const StreamSink& sink) {
+    std::string title = message.text;
+    const std::size_t newline = title.find('\n');
+    if (newline != std::string::npos) title.resize(newline);
+    if (title.size() > 120) title.resize(120);
+    json command = {{"cmd", "create"}};
+    if (!title.empty()) command["title"] = title;
+    std::string error;
+    const std::string reply =
+        round_trip(command.dump(), "created", &error, kForkTimeoutSecs);
+    if (reply.empty()) return Result<CreateOutcome>::failure(error);
+    CreateOutcome outcome;
+    outcome.session_id = agentcloud::parse_created_session_id(reply);
+    if (outcome.session_id.empty())
+        return Result<CreateOutcome>::failure(
+            "created reply had no destination session id");
+    const MessagePost posted =
+        post_message(outcome.session_id, message, "after_tool_round", sink);
+    outcome.input_accepted = posted.accepted;
+    if (!posted.accepted) outcome.input_failure = posted.failure;
+    return Result<CreateOutcome>::success(std::move(outcome));
+}
+
 Result<std::string> AgentcloudClient::fork_session(
     const std::string& session_id) {
     std::string error;
@@ -607,6 +695,27 @@ Result<std::string> AgentcloudClient::fork_with_prompt(
         return Result<std::string>::failure(
             "created reply had no destination session id");
     return Result<std::string>::success(id);
+}
+
+Result<CreateOutcome> AgentcloudClient::fork_with_message(
+    const std::string& session_id, const OutgoingMessage& message,
+    const std::string& title, const StreamSink& sink) {
+    if (message.attachments.empty()) {
+        auto created = fork_with_prompt(session_id, message.text, title);
+        if (!created.ok) return Result<CreateOutcome>::failure(created.error);
+        CreateOutcome outcome;
+        outcome.session_id = std::move(created.value);
+        return Result<CreateOutcome>::success(std::move(outcome));
+    }
+    auto created = fork_session(session_id);
+    if (!created.ok) return Result<CreateOutcome>::failure(created.error);
+    CreateOutcome outcome;
+    outcome.session_id = std::move(created.value);
+    const MessagePost posted =
+        post_message(outcome.session_id, message, "after_tool_round", sink);
+    outcome.input_accepted = posted.accepted;
+    if (!posted.accepted) outcome.input_failure = posted.failure;
+    return Result<CreateOutcome>::success(std::move(outcome));
 }
 
 namespace agentcloud {
@@ -763,8 +872,21 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
 
         if (type == "user_input") {
             std::string text = str_or(e, "text", "");
-            if (text.empty()) continue;
-            push(Role::User, std::move(text));
+            const json& files = e.contains("files") && e.at("files").is_array()
+                                    ? e.at("files")
+                                    : json::array();
+            if (text.empty() && files.empty()) continue;
+            Message& user = push(Role::User, std::move(text));
+            for (const json& file : files) {
+                if (!file.is_object()) continue;
+                Attachment attachment;
+                attachment.file_id = str_or(file, "file_id", "");
+                attachment.name = str_or(file, "name", "attachment");
+                attachment.media_type =
+                    str_or(file, "media_type", "application/octet-stream");
+                if (!attachment.file_id.empty())
+                    user.attachments.push_back(std::move(attachment));
+            }
         } else if (type == "block") {
             const json& b = obj_at(e, "block");
             const std::string kind = str_or(b, "kind", "");
@@ -1484,8 +1606,111 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     return hello.dump();
 }
 
+AgentcloudClient::MessagePost AgentcloudClient::post_message(
+    const std::string& session_id, const OutgoingMessage& message,
+    const std::string& apply, const StreamSink& sink) {
+    MessagePost out;
+    if (sink.cancelled()) {
+        out.failure = {SendFailureKind::Cancelled, "Upload cancelled."};
+        return out;
+    }
+    for (std::size_t i = 0; i < message.attachments.size(); ++i) {
+        sink.emit_upload(UploadProgress{UploadPhase::Preparing,
+                                        message.attachments[i].name, i + 1,
+                                        message.attachments.size(), 0,
+                                        message.attachments[i].size_bytes});
+    }
+    auto request = agentcloud::message_request_json(message, apply);
+    if (!request.ok) {
+        out.failure = {SendFailureKind::Rejected, request.error};
+        return out;
+    }
+    if (sink.cancelled()) {
+        out.failure = {SendFailureKind::Cancelled, "Upload cancelled."};
+        return out;
+    }
+
+    const auto& cfg = auth_.config();
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        std::string auth_error;
+        const auto token = auth_.get(&auth_error);
+        if (token.empty()) {
+            out.failure = {SendFailureKind::Retryable, auth_error};
+            return out;
+        }
+        httplib::Client client(("http://" + cfg.host).c_str());
+        if (!cfg.proxy_host.empty() && cfg.proxy_port > 0)
+            client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
+        client.set_connection_timeout(5, 0);
+        client.set_read_timeout(120, 0);
+        client.set_write_timeout(120, 0);
+        const httplib::Headers headers{{"crypto_auth_tokens", token.value}};
+        const std::string path = "/sessions/" + agentcloud::percent_encode(session_id) +
+                                 "/messages";
+        std::size_t uploadedBytes = 0;
+        std::size_t uploadBytes = request.value.size();
+        const auto progress = [&](std::size_t sent, std::size_t total) {
+            uploadedBytes = sent;
+            uploadBytes = total;
+            UploadProgress update;
+            update.phase = UploadPhase::Uploading;
+            update.name = message.attachments.size() == 1
+                              ? message.attachments.front().name
+                              : std::to_string(message.attachments.size()) + " files";
+            update.file_index = message.attachments.size();
+            update.file_count = message.attachments.size();
+            update.sent_bytes = sent;
+            update.total_bytes = total;
+            sink.emit_upload(update);
+            return !sink.cancelled();
+        };
+        auto response = client.Post(path, headers, request.value,
+                                    "application/json", progress);
+        if (!response) {
+            const bool safelyCancelled =
+                sink.cancelled() && uploadedBytes < uploadBytes;
+            out.failure = safelyCancelled
+                              ? SendFailure{SendFailureKind::Cancelled,
+                                            "Upload cancelled."}
+                              : SendFailure{
+                                    SendFailureKind::Unknown,
+                                    "The upload connection ended before the server confirmed delivery. Check the transcript before retrying."};
+            return out;
+        }
+        if (response->status == 401 && attempt == 0) {
+            auth_.invalidate();
+            continue;
+        }
+        if (response->status != 202) {
+            out.failure =
+                agentcloud::message_http_failure(response->status, response->body);
+            return out;
+        }
+        auto accepted = agentcloud::parse_message_response(response->body);
+        if (!accepted.ok) {
+            out.failure = {SendFailureKind::Unknown, accepted.error};
+            return out;
+        }
+        sink.emit_upload(UploadProgress{UploadPhase::Processing,
+                                        message.attachments.size() == 1
+                                            ? message.attachments.front().name
+                                            : std::to_string(message.attachments.size()) +
+                                                  " files",
+                                        message.attachments.size(),
+                                        message.attachments.size(),
+                                        request.value.size(), request.value.size()});
+        sink.emit_accepted(accepted.value);
+        out.accepted = true;
+        out.input_id = accepted.value;
+        return out;
+    }
+    out.failure = {SendFailureKind::Rejected,
+                   "The server refused the refreshed credential."};
+    return out;
+}
+
 void AgentcloudClient::run_turn(const std::string& session_id,
-                                const std::string& prompt,
+                                const OutgoingMessage& message,
                                 const std::string& apply,
                                 const StreamSink& sink) {
     const auto& cfg = auth_.config();
@@ -1532,15 +1757,23 @@ void AgentcloudClient::run_turn(const std::string& session_id,
         return;
     }
 
-    // Post-attach commands inherit the principal bound at attach, so no auth
-    // here. `apply` is required: the wire has no default.
-    const json input_env = {
-        {"sub", 1},
-        {"payload", {{"cmd", "input"}, {"text", prompt}, {"apply", apply}}}};
-    const std::string input_wire = input_env.dump();
-    if (!ws_send_text(conn, input_wire.data(), input_wire.size())) {
-        sink.emit_error("socket closed before input was sent");
-        return;
+    if (message.attachments.empty()) {
+        json payload = {{"cmd", "input"},
+                        {"text", message.text},
+                        {"apply", apply}};
+        if (!message.local_id.empty()) payload["idempotency_key"] = message.local_id;
+        const json input_env = {{"sub", 1}, {"payload", std::move(payload)}};
+        const std::string input_wire = input_env.dump();
+        if (!ws_send_text(conn, input_wire.data(), input_wire.size())) {
+            sink.emit_error("socket closed before input was sent");
+            return;
+        }
+    } else {
+        const MessagePost posted = post_message(session_id, message, apply, sink);
+        if (!posted.accepted) {
+            sink.emit_failure(posted.failure.kind, posted.failure.message);
+            return;
+        }
     }
 
     // There is no ack. The durable user_input frame IS the acknowledgement,
@@ -1591,43 +1824,53 @@ void AgentcloudClient::run_turn(const std::string& session_id,
 }
 
 void AgentcloudClient::send_message_streaming(const std::string& session_id,
-                                              const std::string& prompt,
-                                              const StreamSink& sink) {
-    // after_tool_round is the conventional apply: it lands the message at the
-    // next tool boundary rather than cutting the agent off mid-thought.
-    run_turn(session_id, prompt, "after_tool_round", sink);
+                                               const std::string& prompt,
+                                               const StreamSink& sink) {
+    send_message_streaming(session_id, attachments::outgoing(prompt), sink);
+}
+
+void AgentcloudClient::send_message_streaming(const std::string& session_id,
+                                               const OutgoingMessage& message,
+                                               const StreamSink& sink) {
+    run_turn(session_id, message,
+             message.interrupt ? "interrupt" : "after_tool_round", sink);
 }
 
 Result<Message> AgentcloudClient::send_message(const std::string& session_id,
-                                               const std::string& prompt) {
-    // The blocking seam, for callers that have not moved to streaming. Same
-    // machinery; it simply waits for the turn to finish.
+                                                const std::string& prompt) {
+    return send_message(session_id, attachments::outgoing(prompt));
+}
+
+Result<Message> AgentcloudClient::send_message(const std::string& session_id,
+                                                const OutgoingMessage& message) {
     Result<Message> result = Result<Message>::failure("no reply");
     StreamSink sink;
     sink.on_done = [&](const Message& m) {
         result = Result<Message>::success(m);
     };
-    sink.on_error = [&](const std::string& e) {
-        result = Result<Message>::failure(e);
+    sink.on_failure = [&](const SendFailure& failure) {
+        result = Result<Message>::failure(failure.message);
     };
-    run_turn(session_id, prompt, "after_tool_round", sink);
+    run_turn(session_id, message, "after_tool_round", sink);
     return result;
 }
 
 Result<Message> AgentcloudClient::steer(const std::string& session_id,
                                         const std::string& prompt) {
-    // Steering is not a different endpoint here -- it is the same input with
-    // apply set to interrupt, which is the server-side replacement for the
-    // whole queue/steer state machine the other backend needs.
+    return steer(session_id, attachments::outgoing(prompt));
+}
+
+Result<Message> AgentcloudClient::steer(const std::string& session_id,
+                                        const OutgoingMessage& message) {
     Result<Message> result = Result<Message>::failure("no reply");
     StreamSink sink;
     sink.on_done = [&](const Message& m) {
         result = Result<Message>::success(m);
     };
-    sink.on_error = [&](const std::string& e) {
-        result = Result<Message>::failure(e);
+    sink.on_failure = [&](const SendFailure& failure) {
+        result = Result<Message>::failure(failure.message);
     };
-    run_turn(session_id, prompt, "interrupt", sink);
+    run_turn(session_id, message, "interrupt", sink);
     return result;
 }
 

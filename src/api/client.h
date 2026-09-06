@@ -446,11 +446,42 @@ struct StreamEvent {
 //   on_event  — a non-text event (Thinking / ToolCall / TitleUpdate / …).
 //   on_done   — the reply is complete; carries the final assembled Message.
 //   on_error  — the stream failed; carries a human-readable reason.
+enum class UploadPhase {
+    Preparing,
+    Uploading,
+    Processing,
+};
+
+struct UploadProgress {
+    UploadPhase phase = UploadPhase::Preparing;
+    std::string name;
+    std::size_t file_index = 0;
+    std::size_t file_count = 0;
+    std::uint64_t sent_bytes = 0;
+    std::uint64_t total_bytes = 0;
+};
+
+enum class SendFailureKind {
+    Retryable,
+    Rejected,
+    Unknown,
+    Cancelled,
+};
+
+struct SendFailure {
+    SendFailureKind kind = SendFailureKind::Retryable;
+    std::string message;
+};
+
 struct StreamSink {
     std::function<void(const std::string& delta)> on_delta;
     std::function<void(const StreamEvent& ev)> on_event;
     std::function<void(const Message& final)> on_done;
     std::function<void(const std::string& error)> on_error;
+    std::function<void(const SendFailure& failure)> on_failure;
+    std::function<void(const UploadProgress& progress)> on_upload;
+    std::function<void(std::uint64_t input_id)> on_accepted;
+    std::function<bool()> is_cancelled;
 
     void emit_delta(const std::string& d) const {
         if (on_delta) on_delta(d);
@@ -462,8 +493,28 @@ struct StreamSink {
         if (on_done) on_done(m);
     }
     void emit_error(const std::string& e) const {
-        if (on_error) on_error(e);
+        if (on_failure) on_failure(SendFailure{SendFailureKind::Retryable, e});
+        else if (on_error) on_error(e);
     }
+    void emit_failure(SendFailureKind kind, const std::string& message) const {
+        if (on_failure) on_failure(SendFailure{kind, message});
+        else if (on_error) on_error(message);
+    }
+    void emit_upload(const UploadProgress& progress) const {
+        if (on_upload) on_upload(progress);
+    }
+    void emit_accepted(std::uint64_t input_id) const {
+        if (on_accepted) on_accepted(input_id);
+    }
+    [[nodiscard]] bool cancelled() const {
+        return is_cancelled && is_cancelled();
+    }
+};
+
+struct CreateOutcome {
+    std::string session_id;
+    bool input_accepted = true;
+    SendFailure input_failure;
 };
 
 // --- Live session events (SSE) --------------------------------------------
@@ -537,6 +588,19 @@ class Client {
             "this backend does not support creating sessions");
     }
 
+    virtual Result<CreateOutcome> create_with_message(
+        const OutgoingMessage& message, const StreamSink& sink) {
+        (void)sink;
+        if (!message.attachments.empty())
+            return Result<CreateOutcome>::failure(
+                "this backend does not support attachments");
+        Result<std::string> created = create_session(message.text);
+        if (!created.ok) return Result<CreateOutcome>::failure(created.error);
+        CreateOutcome outcome;
+        outcome.session_id = std::move(created.value);
+        return Result<CreateOutcome>::success(std::move(outcome));
+    }
+
     virtual Result<std::string> fork_session(const std::string& session_id) {
         (void) session_id;
         return Result<std::string>::failure(
@@ -551,6 +615,21 @@ class Client {
         (void) title;
         return Result<std::string>::failure(
             "this backend does not support fork-with-prompt");
+    }
+
+    virtual Result<CreateOutcome> fork_with_message(
+        const std::string& session_id, const OutgoingMessage& message,
+        const std::string& title, const StreamSink& sink) {
+        (void)sink;
+        if (!message.attachments.empty())
+            return Result<CreateOutcome>::failure(
+                "this backend does not support attachments");
+        Result<std::string> created =
+            fork_with_prompt(session_id, message.text, title);
+        if (!created.ok) return Result<CreateOutcome>::failure(created.error);
+        CreateOutcome outcome;
+        outcome.session_id = std::move(created.value);
+        return Result<CreateOutcome>::success(std::move(outcome));
     }
 
     virtual bool supports_fork() const { return false; }
@@ -577,6 +656,14 @@ class Client {
             "this backend does not support replies");
     }
 
+    virtual Result<Message> send_message(const std::string& session_id,
+                                         const OutgoingMessage& message) {
+        if (!message.attachments.empty())
+            return Result<Message>::failure(
+                "this backend does not support attachments");
+        return send_message(session_id, message.text);
+    }
+
     // STEER a CURRENTLY-RUNNING agent: send a user prompt into `session_id` to
     // interrupt / redirect the in-flight turn (as opposed to send_message,
     // which starts a fresh turn). POSTs to a SEPARATE endpoint from the chat
@@ -590,6 +677,14 @@ class Client {
         (void)prompt;
         return Result<Message>::failure(
             "this backend does not support steering");
+    }
+
+    virtual Result<Message> steer(const std::string& session_id,
+                                  const OutgoingMessage& message) {
+        if (!message.attachments.empty())
+            return Result<Message>::failure(
+                "this backend does not support attachments");
+        return steer(session_id, message.text);
     }
 
     // Rename a session. The returned value is the title the SERVER settled on,
@@ -628,6 +723,8 @@ class Client {
     // configured. Default false so a backend that hasn't wired send stays
     // honestly disabled.
     virtual bool supports_send() const { return false; }
+
+    virtual bool supports_attachments() const { return false; }
 
     // Whether this client can STEER a currently-running agent (Phase STEER).
     // The http adapter does only when a steer path is configured; the mock
@@ -723,6 +820,20 @@ class Client {
             return;
         }
         // Non-streaming backend: deliver the full text as one delta, then done.
+        sink.emit_delta(r.value.text);
+        sink.emit_done(r.value);
+    }
+
+    virtual void send_message_streaming(const std::string& session_id,
+                                        const OutgoingMessage& message,
+                                        const StreamSink& sink) {
+        Result<Message> r = message.interrupt
+                                ? steer(session_id, message)
+                                : send_message(session_id, message);
+        if (!r.ok) {
+            sink.emit_error(r.error);
+            return;
+        }
         sink.emit_delta(r.value.text);
         sink.emit_done(r.value);
     }

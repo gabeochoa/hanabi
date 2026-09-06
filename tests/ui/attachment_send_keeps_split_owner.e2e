@@ -1,0 +1,15 @@
+# A send owns the split pane and session that raised it. Moving focus in the
+# same frame cannot redirect either text or staged files into the other pane.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_DROP_TEST=tests/fixtures/attachments/sample.pdf HANABI_SPLIT=t6
+
+require_thread t2
+require_thread t6
+expect_panes t2 t6 0
+expect_text "sample.pdf"
+submit_then_focus 1 split-owner
+wait_frames 50
+expect_panes t2 t6 1
+expect_backend_message t2 split-owner
+expect_backend_attachment t2 sample.pdf
+expect_backend_no_message t6 split-owner

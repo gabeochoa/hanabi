@@ -1,0 +1,12 @@
+# Staging follows the session, not whichever tab becomes active later.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_DROP_TEST=tests/fixtures/attachments/sample.pdf
+
+require_thread t2
+expect_text "sample.pdf"
+click_ui tab_t6
+wait_frames 15
+expect_no_text "sample.pdf"
+click_ui tab_t2
+wait_frames 15
+expect_text "sample.pdf"

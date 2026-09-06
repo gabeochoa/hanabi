@@ -128,6 +128,17 @@ std::uint64_t epoch();
 // The stable key for the "New task" composer draft (no session id yet).
 inline const char* new_draft_key() { return "new"; }
 
+struct Draft {
+    std::string text;
+    std::vector<Attachment> attachments;
+};
+
+Result<Attachment> retain_attachment(const Attachment& attachment);
+void remove_retained_attachment(const Attachment& attachment);
+
+void save_draft_state(const std::string& key, const Draft& draft);
+Draft load_draft_state(const std::string& key);
+
 // Persist / restore the composer draft TEXT for `key`. Saving an empty string
 // is equivalent to clear_draft(key) (an empty draft is nothing to preserve).
 void save_draft(const std::string& key, const std::string& text);
@@ -157,6 +168,11 @@ void clear_draft(const std::string& key);
 void outbox_add(const std::string& id, const std::string& prompt);
 void outbox_remove(const std::string& id, const std::string& prompt);
 std::vector<std::string> outbox_list(const std::string& id);
+void outbox_add(const std::string& id, const OutgoingMessage& message);
+void outbox_begin_delivery(const std::string& id, OutgoingMessage& message);
+void outbox_remove_message(const std::string& id,
+                           const std::string& local_id);
+std::vector<OutgoingMessage> outbox_messages(const std::string& id);
 std::vector<std::string> outbox_sessions();
 
 // --- Cache cap / eviction (feature #C) ----------------------------------

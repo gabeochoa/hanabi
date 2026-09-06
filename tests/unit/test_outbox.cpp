@@ -24,6 +24,7 @@
 #include <vector>
 #include <unistd.h>
 
+#include "../../src/api/attachments.h"
 #include "../../src/api/disk_cache.h"
 #include "../../src/api/outbox.h"
 
@@ -51,10 +52,12 @@ static int relaunched_reader() {
                 static_cast<int>(getpid()));
 
     const auto ids = api::disk_cache::outbox_sessions();
-    CHECK(ids.size() == 2);
-    if (ids.size() == 2) {
-        CHECK(ids[0] == "s-alpha");   // sorted, so a restore is deterministic
+    CHECK(ids.size() == 4);
+    if (ids.size() == 4) {
+        CHECK(ids[0] == "s-alpha");
         CHECK(ids[1] == "s-beta");
+        CHECK(ids[2] == "s-files");
+        CHECK(ids[3] == "s-manual");
     }
 
     const auto alpha = api::disk_cache::outbox_list("s-alpha");
@@ -66,6 +69,31 @@ static int relaunched_reader() {
     const auto beta = api::disk_cache::outbox_list("s-beta");
     CHECK(beta.size() == 1);
     if (beta.size() == 1) CHECK(beta[0] == "a prompt in another thread");
+    const auto files = api::disk_cache::outbox_messages("s-files");
+    CHECK(files.size() == 1);
+    if (files.size() == 1) {
+        CHECK(files[0].local_id == "message-with-files");
+        CHECK(files[0].text == "inspect these");
+        CHECK(files[0].attachments.size() == 2);
+        CHECK(files[0].attachments[0].name == "chart.png");
+        CHECK(files[0].attachments[1].name == "notes.md");
+    }
+
+    const auto manual = api::disk_cache::outbox_messages("s-manual");
+    CHECK(manual.size() == 1);
+    if (manual.size() == 1) {
+        CHECK(!manual[0].auto_retry);
+        CHECK(manual[0].attachment_delivery_started);
+        const api::OutgoingTarget expectedTarget{1, "s-manual", "s-manual"};
+        CHECK(manual[0].target == expectedTarget);
+        api::outbox::Retry retry;
+        retry.restore({api::outbox::Entry{
+            "s-manual", manual[0].text, 0, 0, manual[0]}});
+        auto anywhere = [](const std::string&) { return true; };
+        CHECK(retry.next(0, anywhere) == nullptr);
+        CHECK(retry.retry_now("s-manual", manual[0]));
+        CHECK(retry.next(0, anywhere) != nullptr);
+    }
 
     // The confirmed one is gone and stayed gone.
     CHECK(api::disk_cache::outbox_list("s-gamma").empty());
@@ -81,12 +109,26 @@ static void test_survives_a_restart(const char* self, const char* dir) {
     api::disk_cache::outbox_add("s-alpha", "first thing I typed");
     api::disk_cache::outbox_add("s-alpha", "second thing I typed");
     api::disk_cache::outbox_add("s-beta", "a prompt in another thread");
+    api::OutgoingMessage files;
+    files.local_id = "message-with-files";
+    files.text = "inspect these";
+    files.attachments = {
+        api::Attachment{"/tmp/chart.png", "chart.png", "image/png", "", 4},
+        api::Attachment{"/tmp/notes.md", "notes.md", "text/markdown", "", 5},
+    };
+    api::disk_cache::outbox_add("s-files", files);
+    api::OutgoingMessage manual = files;
+    manual.local_id = "manual-in-flight";
+    manual.text = "do not replay after restart";
+    manual.target = api::OutgoingTarget{1, "s-manual", "s-manual"};
+    api::disk_cache::outbox_add("s-manual", manual);
+    api::disk_cache::outbox_begin_delivery("s-manual", manual);
     // One that the server DID confirm: it must not come back from the dead.
     api::disk_cache::outbox_add("s-gamma", "this one landed");
     api::disk_cache::outbox_remove("s-gamma", "this one landed");
 
     // Visible in this process first, so a failure below is attributable.
-    CHECK(api::disk_cache::outbox_sessions().size() == 2);
+    CHECK(api::disk_cache::outbox_sessions().size() == 4);
 
     std::string cmd = std::string("HANABI_CACHE_DIR='") + dir + "' '" + self +
                       "' --relaunch";
@@ -105,7 +147,7 @@ static std::vector<api::outbox::Entry> store(
     std::initializer_list<std::pair<const char*, const char*>> rows) {
     std::vector<api::outbox::Entry> v;
     for (const auto& r : rows)
-        v.push_back(api::outbox::Entry{r.first, r.second, 0, 0});
+        v.push_back(api::outbox::Entry{r.first, r.second, 0, 0, {}});
     return v;
 }
 
@@ -235,6 +277,55 @@ static void test_retry_now_reuses_the_durable_entry() {
     CHECK(r.size() == 1);
 }
 
+static void test_attachment_retry_keeps_the_original_files() {
+    std::printf("test_attachment_retry_keeps_the_original_files\n");
+    api::outbox::Retry r;
+    api::OutgoingMessage message;
+    message.local_id = "attachment-message";
+    message.text = "inspect this";
+    message.attachments.push_back(
+        api::Attachment{"/tmp/report.pdf", "report.pdf", "application/pdf", "", 42});
+    r.adopt("s-files", message);
+    auto anywhere = [](const std::string&) { return true; };
+    const api::outbox::Entry* first = r.next(0, anywhere);
+    CHECK(first != nullptr);
+    if (!first) return;
+    CHECK(first->message.attachments == message.attachments);
+    r.attempted(*first);
+    r.failed("s-files", message, 100);
+    CHECK(r.next(101, anywhere) == nullptr);
+    CHECK(r.retry_now("s-files", message));
+    const api::outbox::Entry* retried = r.next(101, anywhere);
+    CHECK(retried != nullptr);
+    if (retried)
+        CHECK(retried->message.attachments == message.attachments);
+}
+
+static void test_unknown_attachment_outcome_waits_for_manual_retry() {
+    std::printf("test_unknown_attachment_outcome_waits_for_manual_retry\n");
+    api::outbox::Retry r;
+    api::OutgoingMessage message;
+    message.local_id = "unknown-message";
+    message.text = "inspect this";
+    message.attachments.push_back(
+        api::Attachment{"/tmp/chart.png", "chart.png", "image/png", "", 42});
+    api::attachments::mark_delivery_started(message);
+    r.adopt("s-files", message);
+    auto anywhere = [](const std::string&) { return true; };
+    CHECK(r.next(0, anywhere) == nullptr);
+    CHECK(r.retry_now("s-files", message));
+    const auto* retried = r.next(0, anywhere);
+    CHECK(retried != nullptr);
+    if (retried) {
+        CHECK(!retried->message.auto_retry);
+        r.attempted(*retried);
+    }
+    api::outbox::Retry afterCrash;
+    afterCrash.restore({api::outbox::Entry{
+        "s-files", message.text, 1, 0, message}});
+    CHECK(afterCrash.next(0, anywhere) == nullptr);
+}
+
 static void test_a_hand_resend_does_not_double_send() {
     std::printf("test_outbox_a_hand_resend_does_not_double_send\n");
     api::outbox::Retry r;
@@ -266,6 +357,8 @@ int main(int argc, char** argv) {
     test_one_dead_thread_does_not_starve_the_others();
     test_restore_does_not_reset_a_backoff();
     test_retry_now_reuses_the_durable_entry();
+    test_attachment_retry_keeps_the_original_files();
+    test_unknown_attachment_outcome_waits_for_manual_retry();
     test_a_hand_resend_does_not_double_send();
 
     unsetenv("HANABI_CACHE_DIR");

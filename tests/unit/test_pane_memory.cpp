@@ -159,6 +159,8 @@ static void test_two_panes_on_one_thread_keep_their_own() {
     ecs::model::PaneState& right = store.touch(ecs::model::pane_key(1, id));
 
     left.replyDraft = "typed on the left";
+    left.attachments.push_back(
+        api::Attachment{"/tmp/left.pdf", "left.pdf", "application/pdf", "", 10});
     left.latch.follow = false;          // the reader scrolled the left pane up
     left.lastScrollY = 900.0f;
     left.haveLastScrollY = true;
@@ -171,6 +173,9 @@ static void test_two_panes_on_one_thread_keep_their_own() {
 
     CHECK(left.replyDraft == "typed on the left");
     CHECK(right.replyDraft.empty());
+    CHECK(left.attachments.size() == 1);
+    CHECK(left.attachments[0].name == "left.pdf");
+    CHECK(right.attachments.empty());
     CHECK(left.copiedMessageKey == "same-message");
     CHECK(right.copiedMessageKey.empty());
     CHECK(left.retriedMessageKey == "same-message");

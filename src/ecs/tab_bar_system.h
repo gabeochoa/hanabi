@@ -868,7 +868,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 } else if (item.action == 6) {
                     if (!app.forkPending && app.requestForkSourceId.empty()) {
                         app.requestForkSourceId = keepId;
-                        app.requestForkPrompt.clear();
+                        app.requestForkMessage.reset();
                         app.requestForkTitle.clear();
                         app.requestForkPane = app.focusedPane;
                     }

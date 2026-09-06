@@ -800,7 +800,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 case Action::Fork:
                     if (!app.forkPending && app.requestForkSourceId.empty()) {
                         app.requestForkSourceId = targetId;
-                        app.requestForkPrompt.clear();
+                        app.requestForkMessage.reset();
                         app.requestForkTitle.clear();
                         app.requestForkPane = app.focusedPane;
                     }

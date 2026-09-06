@@ -115,13 +115,11 @@ void native_openurl_install(void);
 // AppComponent::requestOpenTab to open + navigate to the thread.
 bool native_take_open_thread(char* out, int cap);
 
-// ---- 6. Image attachments: clipboard paste + file drop ---------------------
+// ---- 6. Attachments: clipboard paste + file drop ---------------------------
 //
-// Both answer with a filesystem PATH to an image, never with bytes: the
-// transcript's inline-image cache (src/ui/inline_image.h) already turns a path
-// into a texture, so a path is the one currency both the chip thumbnail and any
-// future send path can spend. AppKit owns the pixels only long enough to write
-// them somewhere the C++ side can read.
+// Both answer with a filesystem path. Image paths feed the thumbnail cache;
+// every supported path feeds the production attachment encoder. Raw clipboard
+// pixels are written to a PNG before crossing this seam.
 //
 // The two halves poll differently, and deliberately:
 //   * A PASTE is a pull. The chord (Cmd+V) is a C++ key read, and the
@@ -141,13 +139,13 @@ bool native_take_open_thread(char* out, int cap);
 // pasteboard allocates.
 bool native_take_clipboard_image(char* out, int cap);
 
-// Register the app window as a drag destination for image files. Idempotent;
-// main-thread + an existing window required, so the frame loop installs it on
+// Register the app window as a drag destination for supported attachment files.
+// Idempotent; main-thread + an existing window required, so the frame loop installs it on
 // the first windowed frame alongside the hotkey. NEVER call from the headless
 // path. No-op (with a log) if the window is not up yet — call again next frame.
 void native_filedrop_install(void);
 
-// One-shot: if an image file was dropped on the window since the last call,
+// One-shot: if a supported file was dropped on the window since the last call,
 // writes its path into `out` (UTF-8, NUL-terminated, up to cap-1 bytes) and
 // returns true, then clears. Returns false (leaving out untouched) when
 // nothing is pending. Drops arrive one path per call — a multi-file drop
@@ -162,6 +160,7 @@ bool native_take_dropped_image(char* out, int cap);
 // harness cannot produce one. main.cpp calls this once when HANABI_DROP_TEST is
 // set. It does NOT simulate AppKit's delivery — that half stays manual.
 void native_simulate_file_drop(const char* path);
+int native_pick_attachments(void);
 // ---- 6. Native file picker (NSOpenPanel) -----------------------------------
 //
 // One modal ask: "which folder?". Blocks until the user answers — the frame

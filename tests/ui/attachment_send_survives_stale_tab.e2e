@@ -1,0 +1,13 @@
+# A tab can change after Enter but before the loader consumes the request. The
+# immutable envelope still delivers the staged file and text to the old tab.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_DROP_TEST=tests/fixtures/attachments/sample.md
+
+require_thread t2
+expect_text "sample.md"
+submit_then_retarget t6 stale-owner
+wait_frames 50
+require_thread t6
+expect_backend_message t2 stale-owner
+expect_backend_attachment t2 sample.md
+expect_backend_no_message t6 stale-owner

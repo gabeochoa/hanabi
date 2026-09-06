@@ -1,0 +1,15 @@
+# A backend without an attachment capability still sends the text and keeps the
+# staged file in this thread's composer instead of pretending it was delivered.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_DROP_TEST=tests/fixtures/attachments/sample.pdf HANABI_MOCK_NO_ATTACHMENTS=1
+
+require_thread t2
+expect_text "sample.pdf"
+expect_text "files stay in the composer on this backend"
+click_ui composer_reply_input
+type "send only these words"
+key ENTER
+wait_frames 45
+expect_text "send only these words"
+expect_text "sample.pdf"
+expect_text "files stayed here because this backend cannot upload them"

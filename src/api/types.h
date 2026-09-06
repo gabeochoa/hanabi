@@ -160,6 +160,44 @@ enum class SyncState {
     Failed,
 };
 
+// One file attached to an authored message. `path` is this client's durable
+// local copy when it has one; `file_id` is the backend's durable handle when it
+// has one. Either can be empty, but a staged attachment always has a path and a
+// transcript attachment always has a name and media type.
+struct Attachment {
+    std::string path;
+    std::string name;
+    std::string media_type;
+    std::string file_id;
+    std::uint64_t size_bytes = 0;
+
+    [[nodiscard]] bool is_image() const {
+        return media_type.rfind("image/", 0) == 0;
+    }
+    bool operator==(const Attachment&) const = default;
+};
+
+struct OutgoingTarget {
+    int pane_index = -1;
+    std::string session_id;
+    std::string draft_key;
+
+    [[nodiscard]] bool valid() const {
+        return pane_index >= 0 && !draft_key.empty();
+    }
+    bool operator==(const OutgoingTarget&) const = default;
+};
+
+struct OutgoingMessage {
+    std::string local_id;
+    std::string text;
+    std::vector<Attachment> attachments;
+    bool auto_retry = true;
+    bool interrupt = false;
+    bool attachment_delivery_started = false;
+    OutgoingTarget target;
+};
+
 // One message inside a session transcript.
 struct Message {
     std::string id;
@@ -230,6 +268,8 @@ struct Message {
     // builds Messages by aggregate initialization — a member inserted above
     // this line silently reinterprets every one of those literals.
     EventKind kind = EventKind::Text;
+    std::string local_id;
+    std::vector<Attachment> attachments;
 };
 
 // Lightweight summary of a session for the list view.

@@ -19,6 +19,7 @@
 #include <afterhours/src/logging.h>
 #include <afterhours/src/plugins/files.h>
 
+#include "api/attachments.h"
 #include "menubar.h"
 #include "native_extras.h"
 #include "preload.h"
@@ -399,7 +400,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     // Backspace deletes it later this frame -- so this has to be ahead of the
     // UI systems that build the fields (text_edit_chords_system.h).
     sm.register_update_system(std::make_unique<ecs::TextEditChordsSystem>());
-    // Pasted / dropped images become composer attachments here, before the UI
+    // Pasted images / dropped files become composer attachments here, before
     // systems: MainPaneSystem reserves the composer strip from that list.
     sm.register_update_system(std::make_unique<ecs::AttachmentIntakeSystem>());
 
@@ -1209,6 +1210,15 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         }
     }
 
+    if (const char* d = std::getenv("HANABI_UPLOAD_DEMO"); d && *d &&
+        std::string(d) != "0") {
+        app->transfer = std::make_shared<ecs::AppComponent::TransferShared>();
+        app->transfer->phase.store(
+            static_cast<int>(api::UploadPhase::Uploading));
+        app->transfer->sentBytes.store(50);
+        app->transfer->totalBytes.store(100);
+    }
+
     // Screenshot affordance: HANABI_SELECT_DEMO=<text> pre-selects a run of
     // the open thread's first assistant message, so the selection band can be
     // photographed without a live drag. Render-only.
@@ -1272,7 +1282,8 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     if (const char* d = std::getenv("HANABI_KICKOFF_DEMO"); d && *d &&
         std::string(d) != "0") {
         app->view = ecs::SmartView::Home;
-        app->requestKickoffPrompt = d;
+        app->requestKickoff = api::attachments::outgoing(
+            d, {}, api::OutgoingTarget{app->focusedPane, "", "__kickoff__"});
     }
 }
 
@@ -1507,12 +1518,18 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
         for (const auto& e : std::filesystem::directory_iterator(dir, ec))
             if (e.path().extension() == ".png") pngs.push_back(e.path().string());
         std::sort(pngs.begin(), pngs.end());
+        const std::string attachmentId = app->pane().openSession
+                                             ? app->pane().openSession->summary.id
+                                             : std::string("__kickoff__");
+        auto& attachments = ecs::model::pane_states()
+                                .touch(ecs::model::pane_key(app->focusedPane,
+                                                          attachmentId))
+                                .attachments;
         for (const std::string& png : pngs) {
-            const size_t slash = png.find_last_of('/');
-            app->composerAttachments.push_back(
-                {png, slash == std::string::npos ? png : png.substr(slash + 1)});
+            auto staged = api::attachments::stage(png);
+            if (staged.ok) attachments.push_back(std::move(staged.value));
             pump(3);
-            app->composerAttachments.clear();
+            attachments.clear();
             pump(1);
         }
         std::printf("[ladder] attached and removed %zu images one at a time\n",

@@ -447,6 +447,173 @@ struct HandleExpectNotFocusedCommand
     }
 };
 
+struct HandleSubmitThenFocusCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("submit_then_focus")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("submit_then_focus requires pane and text");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr || !app->splitOpen) {
+            cmd.fail("submit_then_focus requires an open split");
+            return;
+        }
+        const api::OutgoingTarget target = app->current_composer_target();
+        auto& state = ecs::model::pane_states().touch(
+            ecs::model::pane_key(target.pane_index, target.draft_key));
+        const std::string text = joined_args(cmd, 1);
+        state.replyDraft = text;
+        ecs::AppComponent::ComposerSubmission submitted;
+        submitted.message = ecs::model::snapshot_outgoing(
+            state, text, target,
+            app->client && app->client->supports_attachments());
+        app->composerSubmit = std::move(submitted);
+        app->focusedPane = std::clamp(cmd.arg_as<int>(0), 0, 1);
+        cmd.consume();
+    }
+};
+
+struct HandleSubmitThenRetargetCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("submit_then_retarget")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("submit_then_retarget requires session and text");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr || !app->client) {
+            cmd.fail("submit_then_retarget needs an app client");
+            return;
+        }
+        const api::OutgoingTarget target = app->current_composer_target();
+        auto& state = ecs::model::pane_states().touch(
+            ecs::model::pane_key(target.pane_index, target.draft_key));
+        const std::string text = joined_args(cmd, 1);
+        state.replyDraft = text;
+        ecs::AppComponent::ComposerSubmission submitted;
+        submitted.message = ecs::model::snapshot_outgoing(
+            state, text, target, app->client->supports_attachments());
+        app->composerSubmit = std::move(submitted);
+        auto replacement = app->client->get_session(cmd.arg(0));
+        if (!replacement.ok) {
+            cmd.fail("submit_then_retarget could not open the replacement session");
+            return;
+        }
+        ecs::Pane& pane = app->panes[static_cast<std::size_t>(target.pane_index)];
+        pane.selectedId = cmd.arg(0);
+        pane.openSession = std::move(replacement.value);
+        pane.note_transcript_reset();
+        app->view = ecs::SmartView::Chat;
+        cmd.consume();
+    }
+};
+
+struct HandleKickoffThenFocusCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("kickoff_then_focus")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("kickoff_then_focus requires pane and text");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr || !app->client || !app->splitOpen) {
+            cmd.fail("kickoff_then_focus requires an open split");
+            return;
+        }
+        const int owner = std::clamp(app->focusedPane, 0, 1);
+        const api::OutgoingTarget target{owner, "", "__kickoff__"};
+        auto& state = ecs::model::pane_states().touch(
+            ecs::model::pane_key(target.pane_index, target.draft_key));
+        const std::string text = joined_args(cmd, 1);
+        state.replyDraft = text;
+        app->requestKickoff = ecs::model::snapshot_outgoing(
+            state, text, target, app->client->supports_attachments());
+        app->focusedPane = std::clamp(cmd.arg_as<int>(0), 0, 1);
+        cmd.consume();
+    }
+};
+
+struct HandleExpectBackendMessageCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() ||
+            (!cmd.is("expect_backend_message") &&
+             !cmd.is("expect_backend_no_message") &&
+             !cmd.is("expect_backend_attachment")))
+            return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("backend assertion requires session and value");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr || !app->client) {
+            cmd.fail("backend message assertion needs an app client");
+            return;
+        }
+        const std::string expected = joined_args(cmd, 1);
+        const auto session = app->client->get_session(cmd.arg(0));
+        bool found = false;
+        if (session.ok) {
+            if (cmd.is("expect_backend_attachment")) {
+                for (const auto& message : session.value.messages)
+                    for (const auto& attachment : message.attachments)
+                        if (attachment.name == expected) found = true;
+            } else {
+                for (const auto& message : session.value.messages)
+                    if (message.role == api::Role::User &&
+                        message.text == expected) {
+                        found = true;
+                        break;
+                    }
+            }
+        }
+        const bool want = !cmd.is("expect_backend_no_message");
+        if (found == want) {
+            cmd.consume();
+            return;
+        }
+        if (want && cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("session '{}' {} message '{}'",
+                             cmd.arg(0), found ? "unexpectedly contains"
+                                              : "does not contain",
+                             expected));
+    }
+};
+
+struct HandleExpectUploadCancelledCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_upload_cancelled")) return;
+        const ecs::AppComponent* app = app_component();
+        if (app != nullptr && app->transfer && app->transfer->cancel.load()) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail("upload cancellation was not requested");
+    }
+};
+
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
     sm.register_update_system(std::make_unique<HandleExpectNotFocusedCommand>());
@@ -459,6 +626,11 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleSeedReplyDraftCommand>());
     sm.register_update_system(std::make_unique<HandleExpectReplyDraftCommand>());
+    sm.register_update_system(std::make_unique<HandleSubmitThenFocusCommand>());
+    sm.register_update_system(std::make_unique<HandleSubmitThenRetargetCommand>());
+    sm.register_update_system(std::make_unique<HandleKickoffThenFocusCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectBackendMessageCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectUploadCancelledCommand>());
 }
 
 }  // namespace hanabi::e2e

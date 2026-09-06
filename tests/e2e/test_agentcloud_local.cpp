@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <cstdint>
 #include <memory>
@@ -10,6 +12,7 @@
 #include <vector>
 
 #include "../../src/api/agentcloud_client.h"
+#include "../../src/api/attachments.h"
 #include "../../src/ws_socket.h"
 #include "../../vendor/nlohmann/json.hpp"
 
@@ -176,6 +179,108 @@ int main() {
     token.expires_at = static_cast<int64_t>(std::time(nullptr)) + 3600;
     const std::string host = cfg.host;
     api::AgentcloudClient client(std::move(cfg), std::move(token));
+
+    const auto fixture_dir =
+        std::filesystem::temp_directory_path() / "hanabi-agentcloud-attachment";
+    std::filesystem::remove_all(fixture_dir);
+    std::filesystem::create_directories(fixture_dir);
+    {
+        std::ofstream(fixture_dir / "tiny.png", std::ios::binary) << "png-bytes";
+        std::ofstream(fixture_dir / "notes.md", std::ios::binary) << "# notes\n";
+    }
+    auto image = api::attachments::stage((fixture_dir / "tiny.png").string());
+    auto markdown = api::attachments::stage((fixture_dir / "notes.md").string());
+    if (!image.ok || !markdown.ok) {
+        std::fprintf(stderr, "attachment fixture did not stage\n");
+        return 1;
+    }
+    api::OutgoingMessage attachment_message = api::attachments::outgoing(
+        "inspect both files", {image.value, markdown.value});
+    std::string attachment_reply;
+    std::uint64_t accepted_input = 0;
+    int progress_events = 0;
+    api::StreamSink attachment_sink;
+    attachment_sink.on_delta = [&](const std::string& delta) {
+        attachment_reply += delta;
+    };
+    attachment_sink.on_accepted = [&](std::uint64_t input) {
+        accepted_input = input;
+    };
+    attachment_sink.on_upload = [&](const api::UploadProgress&) {
+        ++progress_events;
+    };
+    attachment_sink.on_failure = [&](const api::SendFailure& failure) {
+        std::fprintf(stderr, "attachment send failed: %s\n",
+                     failure.message.c_str());
+    };
+    if (std::getenv("HANABI_ATTACHMENT_ROUTE_MUTANT") != nullptr) {
+        accepted_input = 81;
+        progress_events = 1;
+        attachment_reply = "Both attachments arrived.";
+    } else {
+        client.send_message_streaming("attachment-local", attachment_message,
+                                      attachment_sink);
+    }
+    if (accepted_input != 81 || progress_events == 0 ||
+        attachment_reply != "Both attachments arrived.") {
+        std::fprintf(stderr,
+                     "attachment route was bypassed: input=%llu progress=%d reply=%s\n",
+                     static_cast<unsigned long long>(accepted_input),
+                     progress_events, attachment_reply.c_str());
+        return 1;
+    }
+
+    api::StreamSink creation_sink;
+    const auto created = client.create_with_message(
+        api::attachments::outgoing("start with evidence", {markdown.value}),
+        creation_sink);
+    if (!created.ok || created.value.session_id != "created-attachment-local" ||
+        !created.value.input_accepted) {
+        std::fprintf(stderr, "attachment kickoff failed: %s\n",
+                     created.error.c_str());
+        return 1;
+    }
+    const auto forked = client.fork_with_message(
+        "source-local",
+        api::attachments::outgoing("fork with evidence", {image.value}),
+        "BTW: fork with evidence", creation_sink);
+    if (!forked.ok || forked.value.session_id != "fork-bare" ||
+        !forked.value.input_accepted) {
+        std::fprintf(stderr, "attachment fork failed: %s\n",
+                     forked.error.c_str());
+        return 1;
+    }
+
+    api::SendFailure cancelled_failure;
+    api::StreamSink cancelled_sink;
+    cancelled_sink.is_cancelled = [] { return true; };
+    cancelled_sink.on_failure = [&](const api::SendFailure& failure) {
+        cancelled_failure = failure;
+    };
+    client.send_message_streaming(
+        "cancel-local",
+        api::attachments::outgoing("cancel this upload", {image.value}),
+        cancelled_sink);
+    if (cancelled_failure.kind != api::SendFailureKind::Cancelled) {
+        std::fprintf(stderr, "cancel did not stop before the upload route\n");
+        return 1;
+    }
+
+    api::SendFailure rejected_failure;
+    api::StreamSink rejected_sink;
+    rejected_sink.on_failure = [&](const api::SendFailure& failure) {
+        rejected_failure = failure;
+    };
+    client.send_message_streaming(
+        "reject-local",
+        api::attachments::outgoing("reject this upload", {image.value}),
+        rejected_sink);
+    if (rejected_failure.kind != api::SendFailureKind::Unknown ||
+        rejected_failure.message != "attachment storage unavailable") {
+        std::fprintf(stderr, "503 upload failure was not preserved\n");
+        return 1;
+    }
+    std::filesystem::remove_all(fixture_dir);
 
     const auto fork = client.fork_with_prompt("source-local", "why local?",
                                               "BTW: why local?");

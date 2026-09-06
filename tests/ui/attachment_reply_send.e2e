@@ -1,0 +1,15 @@
+# A normal reply carries multiple staged files into the user bubble.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_DROP_TEST='tests/fixtures/attachments/sample.png;tests/fixtures/attachments/sample.pdf'
+
+require_thread t2
+expect_text "sample.png"
+expect_text "sample.pdf"
+click_ui composer_reply_input
+type "review the image and report"
+key ENTER
+wait_frames 45
+expect_text "review the image and report"
+expect_text "Image · sample.png"
+expect_text "File · sample.pdf"
+expect_no_text "Ready to send"

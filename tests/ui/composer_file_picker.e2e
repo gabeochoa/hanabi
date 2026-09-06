@@ -1,0 +1,20 @@
+# The visible Attach control is keyboard-operable and uses the same native queue
+# as a drop; removing the result is keyboard-operable too.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_PICK_FILE_TEST='tests/fixtures/attachments/sample.pdf;tests/fixtures/attachments/sample.md'
+
+require_thread t2
+focus_ui composer_attach
+expect_focused composer_attach
+enter
+wait_frames 8
+expect_text "sample.pdf"
+expect_text "sample.md"
+expect_text "Ready to send"
+
+focus_ui attach_remove_0
+expect_focused attach_remove_0
+enter
+wait_frames 8
+expect_no_text "sample.pdf"
+expect_text "sample.md"

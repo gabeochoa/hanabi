@@ -13,7 +13,7 @@
 ## Server limitations
 
 1. Forking is supported only by the Agentcloud adapter and the offline mock. The generic configurable HTTP adapter has no documented fork endpoint and remains unsupported.
-2. `/btw` is text-only in Hanabi. The real protocol supports attachment-bearing `input` only when `fork_with_prompt_input_v1` is advertised; Hanabi has no uploaded-file handle path, so it intentionally sends the backward-compatible `prompt` shape.
+2. Agentcloud `/btw` sends text atomically with `fork_with_prompt`; when files are staged, Hanabi creates the bare fork and sends the first attachment-bearing message through `POST /sessions/{id}/messages`. The generic configurable HTTP adapter remains text-only.
 3. Agentcloud exposes fork lineage on summaries, but Hanabi does not yet render a return-to-source affordance or lineage grouping.
 4. Archive, star, and mute remain machine-local overlays because this client has no reachable per-viewer overlay write route. Rename and fork are server-durable.
 5. Delete remains unavailable because the server exposes no delete-session verb.

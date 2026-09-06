@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <unistd.h>
 
@@ -106,7 +107,16 @@ static void test_disk_cache_total_and_wipe() {
     CHECK(restored && restored->messages.size() == 1);
     CHECK(restored && restored->messages[0].tool_status == "failed");
 
-    api::disk_cache::save_draft("sess-a", "half typed");
+    api::disk_cache::Draft draft;
+    draft.text = "half typed";
+    draft.attachments = {
+        api::Attachment{"/tmp/report.pdf", "report.pdf", "application/pdf", "", 42},
+        api::Attachment{"/tmp/chart.png", "chart.png", "image/png", "", 84},
+    };
+    api::disk_cache::save_draft_state("sess-a", draft);
+    const auto draftBack = api::disk_cache::load_draft_state("sess-a");
+    CHECK(draftBack.text == "half typed");
+    CHECK(draftBack.attachments == draft.attachments);
     api::disk_cache::outbox_add("sess-b", "send after restart");
     {
         std::ofstream(dir + "/config.json") << "config";
@@ -126,6 +136,9 @@ static void test_disk_cache_total_and_wipe() {
     CHECK(api::disk_cache::epoch() != epochBefore);
     CHECK(!api::disk_cache::load_transcript("sess-a").has_value());
     CHECK(api::disk_cache::load_draft("sess-a") == "half typed");
+    const auto keptDraft = api::disk_cache::load_draft_state("sess-a");
+    CHECK(keptDraft.attachments.size() == 2);
+    CHECK(keptDraft.attachments[0].name == "report.pdf");
     const auto held = api::disk_cache::outbox_list("sess-b");
     CHECK(held.size() == 1 && held[0] == "send after restart");
     CHECK(std::filesystem::exists(dir + "/config.json"));
@@ -133,6 +146,43 @@ static void test_disk_cache_total_and_wipe() {
     CHECK(std::filesystem::exists(dir + "/keep.me"));
 
     std::filesystem::remove_all(dir);
+    unsetenv("HANABI_CACHE_DIR");
+}
+
+static void test_attachment_draft_retains_its_bytes() {
+    std::printf("test_attachment_draft_retains_its_bytes\n");
+    const std::string dir =
+        "/tmp/hanabi_test_attachment_cache_" + std::to_string(::getpid());
+    const std::string source = dir + "_source.pdf";
+    std::filesystem::remove_all(dir);
+    {
+        std::ofstream out(source, std::ios::binary);
+        out << "durable attachment bytes";
+    }
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::Attachment attachment{source, "source.pdf", "application/pdf", "", 24};
+    const auto retained = api::disk_cache::retain_attachment(attachment);
+    CHECK(retained.ok);
+    if (retained.ok) {
+        api::disk_cache::save_draft_state(
+            "durable", api::disk_cache::Draft{"inspect it", {retained.value}});
+        CHECK(api::disk_cache::total_bytes() >= retained.value.size_bytes);
+        std::filesystem::remove(source);
+        const auto restored = api::disk_cache::load_draft_state("durable");
+        CHECK(restored.attachments.size() == 1);
+        if (restored.attachments.size() == 1) {
+            CHECK(std::filesystem::exists(restored.attachments[0].path));
+            std::ifstream in(restored.attachments[0].path, std::ios::binary);
+            std::string bytes((std::istreambuf_iterator<char>(in)),
+                              std::istreambuf_iterator<char>());
+            CHECK(bytes == "durable attachment bytes");
+            api::disk_cache::remove_retained_attachment(restored.attachments[0]);
+        }
+        api::disk_cache::clear_draft("durable");
+    }
+    std::filesystem::remove_all(dir);
+    std::filesystem::remove(source);
     unsetenv("HANABI_CACHE_DIR");
 }
 
@@ -425,6 +475,44 @@ static void test_message_queue_ordering() {
     CHECK(drain_one("s1") == "third");
     CHECK(app.pending_send_count("s1") == 0);
     CHECK(app.pendingSendQueue.empty());
+}
+
+static void test_composer_target_prefers_selected_session_over_stale_view() {
+    std::printf("test_composer_target_prefers_selected_session_over_stale_view\n");
+    ecs::AppComponent app;
+    app.view = ecs::SmartView::Chat;
+    app.focusedPane = 1;
+    app.panes[1].selectedId = "new-tab";
+    app.panes[1].openSession.emplace();
+    app.panes[1].openSession->summary.id = "stale-tab";
+    const api::OutgoingTarget target = app.current_composer_target();
+    CHECK(target.pane_index == 1);
+    CHECK(target.session_id == "new-tab");
+    CHECK(target.draft_key == "new-tab");
+}
+
+static void test_outgoing_target_survives_focus_change() {
+    std::printf("test_outgoing_target_survives_focus_change\n");
+    ecs::AppComponent app;
+    app.focusedPane = 0;
+    app.panes[0].selectedId = "left";
+    app.panes[1].selectedId = "right";
+    ecs::model::PaneState state;
+    state.attachments.push_back(
+        api::Attachment{"/tmp/left.pdf", "left.pdf", "application/pdf", "", 8});
+    const api::OutgoingTarget target{0, "left", "left"};
+    api::OutgoingMessage message = ecs::model::snapshot_outgoing(
+        state, "left-only", target, true);
+    app.enqueue_send("left", message);
+    app.focusedPane = 1;
+    app.panes[0].selectedId = "replacement";
+    CHECK(app.pendingSendQueue.size() == 1);
+    if (app.pendingSendQueue.size() == 1) {
+        const auto& held = app.pendingSendQueue.front().message;
+        CHECK(held.target == target);
+        CHECK(held.attachments.size() == 1);
+        CHECK(held.attachments[0].name == "left.pdf");
+    }
 }
 
 // sending_for() must cover the streaming paths too (collect + active).
@@ -1146,6 +1234,7 @@ static void test_the_mock_catalog_cannot_carry_paused() {
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
+    test_attachment_draft_retains_its_bytes();
     test_disk_cache_round_trips_the_brakes();
     test_an_old_cache_file_still_loads();
     test_paused_survives_restart_and_the_next_refresh();
@@ -1154,6 +1243,8 @@ int main() {
     test_the_mock_catalog_cannot_carry_paused();
     test_cache_wipe_keeps_visible_panes_and_rejects_old_reads();
     test_message_queue_ordering();
+    test_composer_target_prefers_selected_session_over_stale_view();
+    test_outgoing_target_survives_focus_change();
     test_sending_for_covers_stream();
     test_newest_n_window();
     test_content_search_memo_is_not_stale();

@@ -1,0 +1,16 @@
+# An attachment-bearing /btw keeps its source and destination pane when focus
+# moves in the submission frame.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_DROP_TEST=tests/fixtures/attachments/sample.md HANABI_SPLIT=t6
+
+require_thread t2
+require_thread t6
+expect_panes t2 t6 0
+expect_text "sample.md"
+submit_then_focus 1 '/btw fork-owner'
+wait_frames 60
+require_thread fork1
+expect_panes fork1 t6 1
+expect_backend_message fork1 fork-owner
+expect_backend_attachment fork1 sample.md
+expect_backend_no_message t6 fork-owner

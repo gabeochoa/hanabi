@@ -1,7 +1,7 @@
 #pragma once
 
 // ---------------------------------------------------------------------------
-// Native intake: pasted and dropped images become composer attachments.
+// Native intake: pasted images and dropped files become composer attachments.
 //
 // AppKit observes (an image on the pasteboard, a file let go of over the
 // window) and this is the one place that turns those observations into app
@@ -22,9 +22,12 @@
 #include <cstdlib>
 #include <string>
 
+#include "../api/attachments.h"
+#include "../api/disk_cache.h"
 #include "../keys.h"
 #include "../native_extras.h"
 #include "components.h"
+#include "pane_state.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -40,9 +43,23 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
         // and the injector cannot produce one (afterhours_gaps.md #60 for why
         // sokol's own drop support is out of reach).
         if (!dropTestFired_) {
-            dropTestFired_ = true;
-            if (const char* d = std::getenv("HANABI_DROP_TEST"); d && *d)
-                native_simulate_file_drop(d);
+            ++dropTestFrames_;
+            if (dropTestFrames_ >= 6) {
+                dropTestFired_ = true;
+                if (const char* d = std::getenv("HANABI_DROP_TEST"); d && *d) {
+                    const std::string paths(d);
+                    std::size_t start = 0;
+                    while (start <= paths.size()) {
+                        const std::size_t end = paths.find(';', start);
+                        const std::string path = paths.substr(
+                            start, end == std::string::npos ? std::string::npos
+                                                            : end - start);
+                        if (!path.empty()) add(*app, path.c_str());
+                        if (end == std::string::npos) break;
+                        start = end + 1;
+                    }
+                }
+            }
         }
 
         char path[1024];
@@ -61,15 +78,53 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
 
   private:
     static void add(AppComponent& app, const char* path) {
-        if (app.composerAttachments.size() >= AppComponent::kMaxAttachments)
+        api::OutgoingTarget target =
+            app.composerOpen && app.composerOverlayTarget.valid()
+                ? app.composerOverlayTarget
+                : app.current_composer_target();
+        auto& state = model::pane_states().touch(
+            model::pane_key(target.pane_index, target.draft_key));
+        const std::string persistedKey = model::persisted_reply_key(
+            target.pane_index, target.draft_key);
+        if (!state.replyDraftLoaded) {
+            const api::disk_cache::Draft saved =
+                api::disk_cache::load_draft_state(persistedKey);
+            state.replyDraft = saved.text;
+            state.attachments = saved.attachments;
+            state.persistedReplyDraft = saved.text;
+            state.persistedAttachments = saved.attachments;
+            state.replyDraftLoaded = true;
+        }
+        if (state.attachments.size() >= api::attachments::kMaxCount) {
+            state.attachmentNotice = "A message can carry at most five files.";
+            app.raise_toast(state.attachmentNotice, "",
+                            AppComponent::ToastUndo::None);
             return;
-        std::string p(path);
-        const size_t slash = p.find_last_of('/');
-        app.composerAttachments.push_back(
-            {p, slash == std::string::npos ? p : p.substr(slash + 1)});
+        }
+        auto staged = api::attachments::stage(path);
+        if (!staged.ok) {
+            state.attachmentNotice = staged.error;
+            app.raise_toast(state.attachmentNotice, "",
+                            AppComponent::ToastUndo::None);
+            return;
+        }
+        auto retained = api::disk_cache::retain_attachment(staged.value);
+        if (!retained.ok) {
+            state.attachmentNotice = retained.error;
+            app.raise_toast(state.attachmentNotice, "",
+                            AppComponent::ToastUndo::None);
+            return;
+        }
+        state.attachments.push_back(std::move(retained.value));
+        state.attachmentNotice.clear();
+        api::disk_cache::save_draft_state(
+            persistedKey,
+            api::disk_cache::Draft{state.replyDraft, state.attachments});
+        state.persistedAttachments = state.attachments;
     }
 
     bool dropTestFired_ = false;
+    int dropTestFrames_ = 0;
 };
 
 }  // namespace ecs

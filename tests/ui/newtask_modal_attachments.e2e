@@ -1,0 +1,20 @@
+# The command-opened new-task sheet exposes the same attachment draft and native picker.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer HANABI_DROP_TEST=tests/fixtures/attachments/sample.pdf HANABI_PICK_FILE_TEST=tests/fixtures/attachments/sample.md
+
+expect_text "New task"
+expect_text "sample.pdf"
+focus_ui composer_modal_attachment_remove
+enter
+wait_frames 6
+expect_text "No files attached"
+focus_ui composer_modal_attach
+enter
+wait_frames 8
+expect_text "sample.md"
+click_ui composer_input
+type "start from the attached brief"
+click_ui composer_start
+wait_frames 45
+expect_text "start from the attached brief"
+expect_text "File · sample.md"

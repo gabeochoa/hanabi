@@ -1,0 +1,8 @@
+# The screenshot-only attachment fixture must reach the same staged UI as a real intake.
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ATTACH_DEMO=tests/fixtures/attachments/sample.png HANABI_WIN_W=760 HANABI_WIN_H=620
+
+require_thread t2
+expect_text "sample.png"
+expect_text "Ready to send"
+assert_ui attach_chip_0 hidden=false

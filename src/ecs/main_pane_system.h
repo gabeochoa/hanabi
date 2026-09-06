@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../api/attachments.h"
 #include "../api/disk_cache.h"
 #include "../test_hooks.h"
 #include "../util/capture_clock.h"
@@ -4375,17 +4376,97 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // ---- Composer attachments (pasted / dropped images) -------------------
+    // ---- Composer attachments (pasted images / dropped files) -------------
     // Height of the chips block, and the ONE place the number comes from: the
     // strip's total height is reserved a full system earlier (layout->
     // composerHeight, set in for_each_with), so a block that measured itself
     // differently from what it draws would leave the input hanging off the
     // bottom of the strip.
+    static model::PaneState& staged_state(const api::OutgoingTarget& target) {
+        return model::pane_states().touch(
+            model::pane_key(target.pane_index, target.draft_key));
+    }
+
+    static model::PaneState& staged_state(AppComponent& app) {
+        return staged_state(app.current_composer_target());
+    }
+
+    static api::OutgoingMessage snapshot_composer_message(
+        AppComponent& app, std::string text,
+        api::OutgoingTarget target = {}) {
+        if (!target.valid()) target = app.current_composer_target();
+        auto& state = staged_state(target);
+        return model::snapshot_outgoing(
+            state, std::move(text), std::move(target),
+            app.client && app.client->supports_attachments());
+    }
+
+    static void consume_composer_snapshot(const api::OutgoingMessage& message) {
+        if (!message.target.valid()) return;
+        auto& state = staged_state(message.target);
+        for (const auto& sent : message.attachments) {
+            const auto found = std::find(state.attachments.begin(),
+                                         state.attachments.end(), sent);
+            if (found != state.attachments.end()) state.attachments.erase(found);
+        }
+        state.replyDraft.clear();
+        if (!message.attachments.empty()) state.attachmentNotice.clear();
+        state.persistedReplyDraft.clear();
+        state.persistedAttachments = state.attachments;
+        api::disk_cache::save_draft_state(
+            model::persisted_reply_key(message.target.pane_index,
+                                       message.target.draft_key),
+            api::disk_cache::Draft{"", state.attachments});
+    }
+
+    static void remember_composer_snapshot(
+        const api::OutgoingMessage& message) {
+        if (!message.target.valid()) return;
+        auto& state = staged_state(message.target);
+        state.sent.push_back(message.text);
+        state.walkIndex = 0;
+        state.stashedDraft.clear();
+    }
+
+    static std::vector<api::Attachment>& staged_attachments(AppComponent& app) {
+        return staged_state(app).attachments;
+    }
+
     static constexpr float kAttachChipH = 38.0f;
     static constexpr float kAttachNoteH = 16.0f;
-    static float attachments_h(const AppComponent& app) {
-        if (app.composerAttachments.empty()) return 0.0f;
-        return kAttachChipH + kAttachNoteH + 6.0f;  // chips, note, gap under
+    static constexpr float kAttachMinSlotW = 140.0f;
+    static float attachment_content_w(const AppComponent& app) {
+        float gutter = (app.lastComposerPaneW - kComposerReadCol) * 0.5f +
+                       kComposerColInset;
+        if (gutter < kContentInset) gutter = kContentInset;
+        return std::max(80.0f, app.lastComposerPaneW - 2.0f * gutter);
+    }
+    static std::size_t attachment_columns(const AppComponent& app,
+                                          std::size_t count) {
+        if (count == 0) return 1;
+        const auto fit = static_cast<std::size_t>(
+            std::max(1.0f, std::floor(attachment_content_w(app) /
+                                      kAttachMinSlotW)));
+        return std::min(count, fit);
+    }
+    static float attachments_h(AppComponent& app) {
+        auto& state = staged_state(app);
+        const std::size_t count = state.attachments.size();
+        if (count == 0) {
+            if (state.attachmentLayoutGrace > 0) {
+                --state.attachmentLayoutGrace;
+                return state.attachmentLayoutHeight;
+            }
+            state.attachmentLayoutHeight = 0.0f;
+            return 0.0f;
+        }
+        const std::size_t columns = attachment_columns(app, count);
+        const std::size_t rows = (count + columns - 1) / columns;
+        state.attachmentLayoutHeight =
+            kAttachChipH * static_cast<float>(rows) + kAttachNoteH + 6.0f +
+            (rows > 1 ? 8.0f : 0.0f);
+        state.attachmentLayoutGrace = 2;
+        return state.attachmentLayoutHeight;
     }
 
     static std::size_t open_ask_index(const AppComponent& app) {
@@ -5552,25 +5633,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            keysLive);
     }
 
-    // A chip per pasted/dropped image, and one line saying plainly that they
-    // are not going anywhere.
-    //
-    // WHY THE CHIP SAYS SO. hanabi cannot send an image on ANY backend it
-    // speaks today: api::Client's send seam is send_message(session_id,
-    // prompt) — two strings — and all three adapters take it at its word (the
-    // mock, the generic http adapter's {session_id, message} body, and the
-    // agentcloud adapter's `{"cmd":"input","text":…,"apply":…}` frame). The
-    // orchestrator itself is NOT the blocker: its HTTP message route accepts
-    // inline `attachments[]` (base64, five per message) and uploads them
-    // server-side, and its socket `input` command carries `files` — but those
-    // are file-id HANDLES a client can only get by uploading first, and that
-    // upload path is not something this client has. So the honest state is:
-    // take the image in, show it, and say it stays here. A chip that looked
-    // like an attachment and vanished on send would be the worst of the three
-    // options.
+    // Staged files stay attached to one pane. The capability line below tells
+    // the truth for adapters that can still send only the text.
     void render_attachments(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app, float gutter) {
-        if (app.composerAttachments.empty()) return;
+        auto& state = staged_state(app);
+        auto& attachments = state.attachments;
+        if (attachments.empty()) return;
 
         auto strip = div(ctx, mk(parent, 4),
             ComponentConfig{}
@@ -5588,24 +5657,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_attachments"));
 
+        const float contentW = attachment_content_w(app);
+        const std::size_t columns = attachment_columns(app, attachments.size());
+        const std::size_t rows = (attachments.size() + columns - 1) / columns;
+        const float chipW = contentW / static_cast<float>(columns) - 8.0f;
         auto chips = div(ctx, mk(strip.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kAttachChipH)})
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(kAttachChipH *
+                                                static_cast<float>(rows))})
                 .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_flex_wrap(FlexWrap::Wrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("composer_attach_chips"));
 
         int removeAt = -1;
-        for (size_t i = 0; i < app.composerAttachments.size(); ++i) {
-            const auto& att = app.composerAttachments[i];
+        for (size_t i = 0; i < attachments.size(); ++i) {
+            const auto& att = attachments[i];
             const std::string idx = std::to_string(i);
 
             auto chip = div(ctx, mk(chips.ent(), static_cast<int>(i) + 1),
                 ComponentConfig{}
-                    .with_size(ComponentSize{pixels(196), pixels(30)})
+                    .with_size(ComponentSize{pixels(chipW), pixels(30)})
                     .with_margin(Margin{.right = pixels(8)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
@@ -5621,22 +5696,46 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // draws nothing rather than a broken box — the name beside it
             // still says which file this is.
             const std::string path = att.path;
+            const bool image = att.is_image();
             div(ctx, mk(chip.ent(), 1),
                 ComponentConfig{}
                     .with_size(ComponentSize{pixels(22), pixels(22)})
                     .with_margin(Margin{.right = pixels(6)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
-                    .with_on_draw_bg([path](RectangleType r) {
-                        hanabi::inline_image::draw(path, r.x, r.y, r.width,
-                                                   r.height);
+                    .with_on_draw_bg([path, image](RectangleType r) {
+                        if (image) {
+                            hanabi::inline_image::draw(path, r.x, r.y, r.width,
+                                                       r.height);
+                            return;
+                        }
+                        const theme::Color ink = theme::text_secondary();
+                        afterhours::draw_line_ex(
+                            {r.x + 4.0f, r.y + 2.0f},
+                            {r.x + 18.0f, r.y + 2.0f}, 1.0f, ink);
+                        afterhours::draw_line_ex(
+                            {r.x + 18.0f, r.y + 2.0f},
+                            {r.x + 18.0f, r.y + 20.0f}, 1.0f, ink);
+                        afterhours::draw_line_ex(
+                            {r.x + 18.0f, r.y + 20.0f},
+                            {r.x + 4.0f, r.y + 20.0f}, 1.0f, ink);
+                        afterhours::draw_line_ex(
+                            {r.x + 4.0f, r.y + 20.0f},
+                            {r.x + 4.0f, r.y + 2.0f}, 1.0f, ink);
+                        afterhours::draw_line_ex(
+                            {r.x + 7.0f, r.y + 8.0f},
+                            {r.x + 15.0f, r.y + 8.0f}, 1.0f, ink);
+                        afterhours::draw_line_ex(
+                            {r.x + 7.0f, r.y + 12.0f},
+                            {r.x + 15.0f, r.y + 12.0f}, 1.0f, ink);
                     })
                     .with_debug_name("attach_thumb_" + idx));
 
             div(ctx, mk(chip.ent(), 2),
                 ComponentConfig{}
                     .with_label(att.name)
-                    .with_size(ComponentSize{pixels(140), pixels(20)})
+                    .with_size(ComponentSize{pixels(std::max(24.0f, chipW - 56.0f)),
+                                             pixels(20)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_secondary())
                     .with_font_size(theme::type::SM)
@@ -5664,11 +5763,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (x) removeAt = static_cast<int>(i);
         }
 
+        const bool canAttach = app.client && app.client->supports_attachments();
+        const std::string note = !state.attachmentNotice.empty()
+                                     ? state.attachmentNotice
+                                     : (canAttach
+                                            ? "Ready to send · 5 files max"
+                                            : "Text will send; files stay in the composer on this backend");
         div(ctx, mk(strip.ent(), 2),
             ComponentConfig{}
-                .with_label(std::string(product_branding::kAppName) +
-                            " can't send images yet \xe2\x80\x94 these stay in the composer")
+                .with_label(note)
                 .with_size(ComponentSize{percent(1.0f), pixels(kAttachNoteH)})
+                .with_margin(Margin{.top = pixels(rows > 1 ? 8.0f : 0.0f)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::ask_caveat_ink())
                 .with_font_size(theme::type::SM)
@@ -5676,9 +5781,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_attach_note"));
 
-        if (removeAt >= 0)
-            app.composerAttachments.erase(app.composerAttachments.begin() +
-                                          removeAt);
+        if (removeAt >= 0) {
+            api::disk_cache::remove_retained_attachment(
+                attachments[static_cast<std::size_t>(removeAt)]);
+            attachments.erase(attachments.begin() + removeAt);
+            state.attachmentNotice.clear();
+            const bool reply = app.view == SmartView::Chat &&
+                               app.pane().openSession;
+            const std::string id = reply
+                                       ? app.pane().openSession->summary.id
+                                       : std::string("__kickoff__");
+            api::disk_cache::save_draft_state(
+                model::persisted_reply_key(app.focusedPane, id),
+                api::disk_cache::Draft{state.replyDraft, attachments});
+            state.persistedAttachments = attachments;
+        }
     }
     static const char* goal_phase_label(api::GoalPhase phase) {
         switch (phase) {
@@ -5992,6 +6109,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          AppComponent& app, float paneW, float composerH,
                          bool kickoff = false, float absX = -1.0f,
                          float absY = -1.0f) {
+        (void)kickoff;
         // KICKOFF mode: rendered on the Home landing screen (no thread open) so
         // you can start typing the moment the app opens — every daily-driver
         // chat app has a persistent input on its landing view. In kickoff mode
@@ -6004,30 +6122,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // session id and bind a reference to THIS thread's slot, so each thread
         // keeps its own in-progress reply (kept function-local to avoid growing
         // AppComponent; the map is small — one short string per opened thread).
-        const std::string draftKey =
-            kickoff ? std::string("__kickoff__")
-                    : (app.pane().openSession ? app.pane().openSession->summary.id
-                                       : std::string());
-        // Draft and sent-history are ONE entry in the bounded per-thread store
-        // (ecs/pane_state.h), keyed the same way they always were, so the two
-        // can never disagree about which thread they belong to -- and so the
-        // pair is bounded instead of growing forever, one entry per thread the
-        // composer ever rendered. Eviction refuses any entry holding an unsent
-        // draft, so the bound costs typing nothing.
-        const std::string composerStateKey =
-            model::pane_key(app.focusedPane, draftKey);
+        const api::OutgoingTarget composerTarget =
+            app.current_composer_target();
+        const bool targetKickoff = composerTarget.session_id.empty();
+        const std::string& draftKey = composerTarget.draft_key;
+        const std::string composerStateKey = model::pane_key(
+            composerTarget.pane_index, composerTarget.draft_key);
         model::PaneState& composerState =
             model::pane_states().touch(composerStateKey);
         std::string& replyDraft = composerState.replyDraft;
-        const std::string persistedDraftKey =
-            model::persisted_reply_key(app.focusedPane, draftKey);
-        if (!kickoff && !draftKey.empty() && !composerState.replyDraftLoaded) {
-            if (replyDraft.empty())
-                replyDraft = api::disk_cache::load_draft(persistedDraftKey);
+        const std::string persistedDraftKey = model::persisted_reply_key(
+            composerTarget.pane_index, composerTarget.draft_key);
+        if (!draftKey.empty() && !composerState.replyDraftLoaded) {
+            const api::disk_cache::Draft saved =
+                api::disk_cache::load_draft_state(persistedDraftKey);
+            if (replyDraft.empty()) replyDraft = saved.text;
+            if (composerState.attachments.empty())
+                composerState.attachments = saved.attachments;
             composerState.persistedReplyDraft = replyDraft;
+            composerState.persistedAttachments = composerState.attachments;
             composerState.replyDraftLoaded = true;
         }
-        if (!kickoff && !draftKey.empty()) {
+        if (!targetKickoff && !draftKey.empty()) {
             if (const std::string* rescued = app.askRescued.find(draftKey)) {
                 replyDraft = replyDraft.empty()
                                  ? *rescued
@@ -6038,17 +6154,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
         model::PaneState& history = composerState;
-        const auto remember_sent = [&history](const std::string& text) {
-            history.sent.push_back(text);
-            history.walkIndex = 0;
-            history.stashedDraft.clear();
-        };
 
         // Consume a welcome-screen suggestion-chip seed into the new-task draft
         // (once). Applies to the new-task composers (kickoff Home composer or
         // the empty-key overlay) so it never overwrites a real thread's
         // in-progress reply.
-        if (!app.welcomeSeed.empty() && (kickoff || draftKey.empty())) {
+        if (!app.welcomeSeed.empty() && targetKickoff) {
             replyDraft = app.welcomeSeed;
             app.welcomeSeed.clear();
         }
@@ -6062,12 +6173,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // still owns the field afterward.
         static bool replyDemoSeeded = false;
         if (!replyDemoSeeded && !draftKey.empty()) {
-            replyDemoSeeded = true;
-            if (const char* d = std::getenv("HANABI_REPLY_DEMO"); d && *d)
+            if (const char* d = std::getenv("HANABI_REPLY_DEMO"); d && *d) {
+                replyDemoSeeded = true;
                 replyDraft = d;
-            if (const char* a = std::getenv("HANABI_ATTACH_DEMO"); a && *a)
-                app.composerAttachments.push_back(
-                    {std::string(a), "ledger-mismatch.png"});
+            }
+        }
+        static bool attachmentDemoSeeded = false;
+        if (!attachmentDemoSeeded && app.view == SmartView::Chat &&
+            app.pane().openSession) {
+            if (const char* a = std::getenv("HANABI_ATTACH_DEMO"); a && *a) {
+                auto staged = api::attachments::stage(a);
+                if (staged.ok) {
+                    attachmentDemoSeeded = true;
+                    auto retained =
+                        api::disk_cache::retain_attachment(staged.value);
+                    if (retained.ok)
+                        staged_attachments(app).push_back(
+                            std::move(retained.value));
+                }
+            }
         }
 
         // Screenshot affordance: HANABI_SEND_DEMO=<text> fires an actual reply
@@ -6077,10 +6201,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // frame or two later — well within the capture's 45-frame budget.
         // Ignored when unset; no network (the mock generates the reply).
         static bool sendDemoFired = false;
-        if (!sendDemoFired && app.pane().openSession) {
+        if (!sendDemoFired && !targetKickoff) {
             if (const char* d = std::getenv("HANABI_SEND_DEMO"); d && *d) {
                 sendDemoFired = true;
-                app.requestSendPrompt = d;
+                app.requestSend = snapshot_composer_message(app, d,
+                                                            composerTarget);
             }
         }
 
@@ -6091,81 +6216,85 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // drain after K tokens for the mid-stream shot; leave it unset for the
         // completed shot. Ignored when unset; no network (the mock streams).
         static bool streamDemoFired = false;
-        if (!streamDemoFired && app.pane().openSession && app.client &&
-            app.client->supports_stream()) {
+        const auto& composerPane =
+            app.panes[static_cast<std::size_t>(composerTarget.pane_index)];
+        const bool composerTargetLoaded =
+            composerPane.openSession &&
+            composerPane.openSession->summary.id == composerTarget.session_id;
+        if (!streamDemoFired && !targetKickoff && composerTargetLoaded &&
+            app.client && app.client->supports_stream()) {
             if (const char* d = std::getenv("HANABI_STREAM_DEMO"); d && *d) {
                 streamDemoFired = true;
-                app.requestStreamPrompt = d;
+                app.requestStream = snapshot_composer_message(app, d,
+                                                              composerTarget);
             }
         }
 
         const bool canSend = app.client && app.client->supports_send();
         const bool canStream = app.client && app.client->supports_stream();
-        const std::string& openId = draftKey;  // same value: the open thread id
-        // A brake the SERVER holds. Frozen refuses input outright -- a message
-        // typed into a frozen thread is never answered -- and halted only
-        // warns, because input still queues against a resume.
+        const auto outgoing = [&](const std::string& text) {
+            return snapshot_composer_message(app, text, composerTarget);
+        };
+        const std::string& openId = composerTarget.session_id;
         const ecs::model::Brake brake = ecs::model::brake_for(
             openId, app.find_summary(openId),
-            app.pane().openSession ? &*app.pane().openSession : nullptr);
+            !targetKickoff &&
+                    app.panes[static_cast<std::size_t>(composerTarget.pane_index)]
+                        .openSession &&
+                    app.panes[static_cast<std::size_t>(composerTarget.pane_index)]
+                            .openSession->summary.id == openId
+                ? &*app.panes[static_cast<std::size_t>(composerTarget.pane_index)]
+                       .openSession
+                : nullptr);
 
-        // Enter parked its text here (see the listener at the bottom of this
-        // function). Route it the same way the Send button does, with the mode
-        // recomputed for THIS frame.
-        //
-        // A slash draft is held back instead: it is a command to this client,
-        // not a message to the agent, and it is carried out further down where
-        // the field entity exists (a completion has to be written back into
-        // it).
-        std::string slashSubmit;
-        // Enter is not always the send key. When it is not, the keystroke is
-        // dropped here and the draft is left exactly as typed — which is why
-        // the field is emptied HERE, on the decision, instead of by the
-        // listener that merely saw the key.
+        std::optional<AppComponent::ComposerSubmission> slashSubmit;
         bool clearFieldAfterSubmit = false;
-        if (!app.composerSubmit.empty() && brake.refuses_input) {
-            // The keystroke path reaches the backend without consulting the
-            // Send button's own enablement, so the brake has to be applied
-            // here as well -- and the draft is LEFT WHERE IT IS. Clearing the
-            // field for a send that was never made loses what the reader
-            // typed, which is worse than the send they cannot make.
-            app.composerSubmit.clear();
-            app.composerSubmitWithCmd = false;
-        } else if (!app.composerSubmit.empty()) {
-            const std::string text = std::move(app.composerSubmit);
-            const bool withCmd = app.composerSubmitWithCmd;
-            app.composerSubmit.clear();
-            app.composerSubmitWithCmd = false;
-            if (hanabi::enter_sends(Settings::get().get_send_key(), withCmd)) {
-                if (hanabi::slash::is_command_text(text)) {
-                    slashSubmit = text;
+        if (app.composerSubmit) {
+            AppComponent::ComposerSubmission submitted =
+                std::move(*app.composerSubmit);
+            app.composerSubmit.reset();
+            const api::OutgoingTarget& target = submitted.message.target;
+            const int paneIndex = std::clamp(target.pane_index, 0, 1);
+            const Pane& owner = app.panes[static_cast<std::size_t>(paneIndex)];
+            const ecs::model::Brake submittedBrake = ecs::model::brake_for(
+                target.session_id, app.find_summary(target.session_id),
+                owner.openSession &&
+                        owner.openSession->summary.id == target.session_id
+                    ? &*owner.openSession
+                    : nullptr);
+            if (!submittedBrake.refuses_input &&
+                hanabi::enter_sends(Settings::get().get_send_key(),
+                                    submitted.withCmd)) {
+                if (hanabi::slash::is_command_text(submitted.message.text)) {
+                    slashSubmit = std::move(submitted);
                 } else if (canStream || canSend) {
-                    if (kickoff) app.requestKickoffPrompt = text;
-                    else if (canStream) app.requestStreamPrompt = text;
-                    else app.requestSendPrompt = text;
-                    remember_sent(text);
+                    remember_composer_snapshot(submitted.message);
+                    consume_composer_snapshot(submitted.message);
+                    if (target.session_id.empty())
+                        app.requestKickoff = std::move(submitted.message);
+                    else if (canStream)
+                        app.requestStream = std::move(submitted.message);
+                    else
+                        app.requestSend = std::move(submitted.message);
+                    clearFieldAfterSubmit = target == composerTarget;
                 }
-                replyDraft.clear();
-                clearFieldAfterSubmit = true;
             }
         }
         // "Sending" covers BOTH the synchronous reply in flight and a live
         // stream draining into this thread — either disables the composer. In
         // kickoff mode it's the create_session round-trip (kickoffPending).
-        const bool sending =
-            kickoff ? app.kickoffPending
-                    : ((app.sendPending && app.sendSessionId == openId) ||
-                       (app.streamActive && app.streamSessionId == openId));
+        const bool sending = targetKickoff ? app.kickoffPending
+                                            : app.sending_for(openId);
         const bool hasText = !replyDraft.empty();
-        const size_t queued = kickoff ? 0 : app.pending_send_count(openId);
+        const size_t queued = targetKickoff ? 0 : app.pending_send_count(openId);
         // The loader QUEUES a send that arrives while one is in flight (FIFO,
         // drained when the current turn finishes), so Send stays enabled during
         // a send — you can line up the next message. Only truly-unavailable
         // (no backend / empty field) disables it. Kickoff needs supports_send
         // (create_session shares the chat_path) and no in-flight kickoff.
         const bool sendEnabled =
-            kickoff ? (canSend && hasText && !app.kickoffPending)
-                    : (canSend && hasText && !brake.refuses_input);
+            targetKickoff ? (canSend && hasText && !app.kickoffPending)
+                          : (canSend && hasText && !brake.refuses_input);
 
         // Center the composer's CONTENT under the reading column. Two numbers,
         // not one, because Puffin's composer is a column inside a column: the
@@ -6249,7 +6378,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Whether Send is really STEER: the agent is running and the backend
         // can interrupt it. Read here because both the meter row's caption
         // (below) and the send button (further down) turn on it.
-        const bool steerMode = !kickoff && app.should_steer_open();
+        const bool steerMode =
+            !targetKickoff && app.should_steer(composerTarget);
 
         // Meta row ABOVE the input: the model label and the capacity meter at
         // the left, the control pills at the right — Puffin's arrangement
@@ -6393,6 +6523,47 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                   currentEffort);
         }
 
+        const bool uploadCancelable =
+            app.transfer &&
+            app.transfer->phase.load() ==
+                static_cast<int>(api::UploadPhase::Uploading) &&
+            app.transfer->sentBytes.load() < app.transfer->totalBytes.load();
+        if (!compactComposer) {
+            auto attachButton = button(ctx, mk(rightMeta.ent(), 1),
+                ComponentConfig{}
+                    .with_label("Attach")
+                    .with_size(ComponentSize{pixels(52), pixels(18)})
+                    .with_transparent_bg()
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Center)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(9.0f)
+                    .with_debug_name("composer_attach"));
+            if (attachButton) native_pick_attachments();
+            if (uploadCancelable) {
+                auto cancel = button(ctx, mk(rightMeta.ent(), 4),
+                    ComponentConfig{}
+                        .with_label("Cancel upload")
+                        .with_size(ComponentSize{pixels(92), pixels(18)})
+                        .with_margin(Margin{.left = pixels(4)})
+                        .with_transparent_bg()
+                        .with_border(theme::border(), pixels(1.0f))
+                        .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_cursor(afterhours::ui::CursorType::Pointer)
+                        .with_alignment(TextAlignment::Center)
+                        .with_click_activation(ClickActivationMode::Press)
+                        .with_corner_radius(9.0f)
+                        .with_debug_name("composer_upload_cancel"));
+                if (cancel) app.transfer->cancel.store(true);
+            }
+        }
+
         const api::Session* stripSession =
             app.pane().openSession ? &*app.pane().openSession : nullptr;
         const bool hasPlan = stripSession && stripSession->plan &&
@@ -6516,7 +6687,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             caption = app.slashNotice;
         else if (!canSend)
             caption =
-                "read-only \xe2\x80\x94 this backend doesn't support replies";
+                "read-only — this backend doesn't support replies";
+        else if (app.transfer && app.transfer->phase.load() >= 0 &&
+                 (app.kickoffPending || app.streamCollecting || app.forkPending)) {
+            const auto phase = static_cast<api::UploadPhase>(
+                app.transfer->phase.load());
+            const std::uint64_t sent = app.transfer->sentBytes.load();
+            const std::uint64_t total = app.transfer->totalBytes.load();
+            if (phase == api::UploadPhase::Preparing)
+                caption = "Preparing attachments…";
+            else if (phase == api::UploadPhase::Processing)
+                caption = "Upload complete · waiting for the server…";
+            else if (total > 0)
+                caption = "Uploading " + std::to_string((sent * 100) / total) + "%";
+            else
+                caption = "Uploading…";
+        }
         else if (sending && queued > 0)
             caption = "sending\xe2\x80\xa6  \xc2\xb7  " +
                       std::to_string(queued) + " queued";
@@ -6652,7 +6838,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("composer_selected"));
         }
 
-        render_attachments(ctx, bar.ent(), app, composerGutter);
+        const auto& attachmentState = staged_state(app);
+        if (attachmentState.attachments.empty() ||
+            composerH + 0.5f >=
+                kComposerBaseH + attachmentState.attachmentLayoutHeight)
+            render_attachments(ctx, bar.ent(), app, composerGutter);
 
         // Puffin's input is an OUTLINED box on the window colour, with a 19px
         // circular send button 9px to its right. Measured on the reference: the
@@ -6756,7 +6946,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // otherwise draw.
         const char* placeholder =
             brake.refuses_input  ? "This thread is frozen"
-            : kickoff            ? "Start a new conversation\xe2\x80\xa6"
+            : targetKickoff       ? "Start a new conversation\xe2\x80\xa6"
             : phSteer            ? "Steer the running agent\xe2\x80\xa6"
                                  : "Message hanabi\xe2\x80\xa6";
         // The FIELD inside the box is 29px, not the box's 45. Not a style
@@ -6822,6 +7012,44 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_corner_radius(7.0f)
                 .with_debug_name("composer_reply_input"));
         ctx.theme.font_muted = savedMuted;
+
+        if (compactComposer) {
+            const float compactY = (kInputH - 20.0f) * 0.5f;
+            auto compactAttach = button(ctx, mk(inputWrap.ent(), 4),
+                ComponentConfig{}
+                    .with_label("+")
+                    .with_size(ComponentSize{pixels(20), pixels(20)})
+                    .with_absolute_position(inputW - 26.0f, compactY)
+                    .with_custom_background(theme::panel_bg())
+                    .with_border(theme::border_soft(), pixels(1.0f))
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Center)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(10.0f)
+                    .with_debug_name("composer_attach"));
+            if (compactAttach) native_pick_attachments();
+            if (uploadCancelable) {
+                auto compactCancel = button(ctx, mk(inputWrap.ent(), 5),
+                    ComponentConfig{}
+                        .with_label("×")
+                        .with_size(ComponentSize{pixels(20), pixels(20)})
+                        .with_absolute_position(inputW - 50.0f, compactY)
+                        .with_custom_background(theme::panel_bg())
+                        .with_border(theme::border_soft(), pixels(1.0f))
+                        .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_cursor(afterhours::ui::CursorType::Pointer)
+                        .with_alignment(TextAlignment::Center)
+                        .with_click_activation(ClickActivationMode::Press)
+                        .with_corner_radius(10.0f)
+                        .with_debug_name("composer_upload_cancel"));
+                if (compactCancel) app.transfer->cancel.store(true);
+            }
+        }
 
         // The two things text_area does to this field that text_input did
         // not, undone: it paints an opaque Theme::Usage::Secondary fill over
@@ -7076,78 +7304,94 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.forkError.clear();
         }
 
-        // Carry out a parsed command. Only /new has somewhere to go today; the
-        // rest report what is missing rather than reaching the agent as text.
-        // `typed` is put back in the field for anything that did not run, so
-        // a refused command leaves the words you wrote where you can edit
-        // them — Enter empties the field before this is reached.
+        const auto set_target_field = [&](const api::OutgoingTarget& target,
+                                          const std::string& text) {
+            auto& targetState = staged_state(target);
+            targetState.replyDraft = text;
+            targetState.persistedReplyDraft = text;
+            api::disk_cache::save_draft_state(
+                model::persisted_reply_key(target.pane_index,
+                                           target.draft_key),
+                api::disk_cache::Draft{text, targetState.attachments});
+            if (target == composerTarget) set_field(text);
+        };
+
         const auto run_slash = [&](const hanabi::slash::Parsed& p,
-                                   const std::string& typed) {
+                                   const std::string& typed,
+                                   const api::OutgoingTarget& target,
+                                   const api::OutgoingMessage* captured) {
             const hanabi::slash::Command* cmd = hanabi::slash::find(p.verb);
             if (cmd == nullptr) {
                 app.slashNotice = "/" + p.verb + " is not a command";
-                set_field(typed);
+                set_target_field(target, typed);
                 return;
             }
             if (cmd->name == "model") {
                 app.modelPopoverOpen = true;
                 app.effortPopoverOpen = false;
                 app.slashNotice.clear();
-                set_field("");
+                set_target_field(target, "");
                 return;
             }
             if (cmd->name == "effort") {
                 app.effortPopoverOpen = true;
                 app.modelPopoverOpen = false;
                 app.slashNotice.clear();
-                set_field("");
+                set_target_field(target, "");
                 return;
             }
             if (cmd->name == "btw") {
                 if (p.args.empty()) {
                     app.slashNotice = "Type a question after /btw.";
-                    set_field(typed);
+                    set_target_field(target, typed);
                     return;
                 }
-                if (openId.empty()) {
+                if (target.session_id.empty()) {
                     app.slashNotice =
                         "Open a writable session before using /btw.";
-                    set_field(typed);
+                    set_target_field(target, typed);
                     return;
                 }
                 if (!app.client || !app.client->supports_fork()) {
                     app.slashNotice =
                         "This backend does not support BTW forks.";
-                    set_field(typed);
+                    set_target_field(target, typed);
                     return;
                 }
                 if (app.forkPending || !app.requestForkSourceId.empty()) {
                     app.slashNotice = "A fork is already being created.";
-                    set_field(typed);
+                    set_target_field(target, typed);
                     return;
                 }
-                app.requestForkSourceId = openId;
-                app.requestForkPrompt = p.args;
+                api::OutgoingMessage message =
+                    captured != nullptr
+                        ? *captured
+                        : snapshot_composer_message(app, p.args, target);
+                message.text = p.args;
+                remember_composer_snapshot(message);
+                consume_composer_snapshot(message);
+                app.requestForkSourceId = target.session_id;
+                app.requestForkMessage = std::move(message);
                 app.requestForkTitle = hanabi::slash::btw_title(p.args);
-                app.requestForkPane = app.focusedPane;
+                app.requestForkPane = target.pane_index;
                 app.forkRestoreDraft = typed;
-                app.forkRestoreSessionId = openId;
+                app.forkRestoreSessionId = target.session_id;
                 app.slashNotice = "Creating BTW fork\xe2\x80\xa6";
-                set_field("");
+                set_target_field(target, "");
                 return;
             }
             if (!cmd->runnable) {
                 app.slashNotice =
                     "/" + std::string(cmd->name) + " \xe2\x80\x94 " +
                     std::string(cmd->unwired);
-                set_field(typed);
+                set_target_field(target, typed);
                 return;
             }
             if (cmd->name == "new") {
                 // The same new-conversation sheet Cmd+N raises.
                 app.composerOpen = true;
                 app.slashNotice.clear();
-                set_field("");
+                set_target_field(target, "");
             }
         };
 
@@ -7162,7 +7406,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 p.matched = true;
                 p.verb = std::string(cmd.name);
                 p.known = true;
-                run_slash(p, hanabi::slash::completion(cmd));
+                run_slash(p, hanabi::slash::completion(cmd), composerTarget,
+                          nullptr);
             } else {
                 set_field(hanabi::slash::completion(cmd));
             }
@@ -7176,9 +7421,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // Enter with the menu up takes the highlighted row; with it down (the
         // draft has reached its argument) it runs what was typed.
-        if (!slashSubmit.empty()) {
-            if (slashOpen) choose_slash(app.slashMenuIndex);
-            else run_slash(hanabi::slash::parse(slashSubmit), slashSubmit);
+        if (slashSubmit) {
+            AppComponent::ComposerSubmission submitted =
+                std::move(*slashSubmit);
+            if (submitted.message.target == composerTarget && slashOpen) {
+                choose_slash(app.slashMenuIndex);
+            } else {
+                run_slash(hanabi::slash::parse(submitted.message.text),
+                          submitted.message.text, submitted.message.target,
+                          &submitted.message);
+            }
         }
 
         // Up/Down belong to the menu while it is up — the history walk below
@@ -7287,9 +7539,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            (text.back() == '\n' || text.back() == '\r' ||
                             text.back() == ' '))
                         text.pop_back();
-                    if (text.empty()) return;  // nothing to send
-                    appPtr->composerSubmit = text;
-                    appPtr->composerSubmitWithCmd = hanabi::keys::cmd_down();
+                    if (text.empty()) return;
+                    AppComponent::ComposerSubmission submitted;
+                    submitted.message =
+                        snapshot_composer_message(*appPtr, std::move(text));
+                    submitted.withCmd = hanabi::keys::cmd_down();
+                    appPtr->composerSubmit = std::move(submitted);
                 });
         }
 
@@ -7369,7 +7624,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (hanabi::slash::is_command_text(replyDraft)) {
                 const std::string typed = replyDraft;
                 if (slashOpen) choose_slash(app.slashMenuIndex);
-                else run_slash(hanabi::slash::parse(typed), typed);
+                else
+                    run_slash(hanabi::slash::parse(typed), typed,
+                              composerTarget, nullptr);
             } else {
                 // Kickoff (Home landing composer) starts a NEW session via
                 // create_session (LoaderSystem opens it as a tab). A normal
@@ -7379,13 +7636,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // one-shot path (no regression). All are one-shot flags
                 // serviced by LoaderSystem; setting only one per turn keeps
                 // them mutually exclusive.
-                if (kickoff)
-                    app.requestKickoffPrompt = replyDraft;
+                api::OutgoingMessage message = outgoing(replyDraft);
+                remember_composer_snapshot(message);
+                consume_composer_snapshot(message);
+                if (targetKickoff)
+                    app.requestKickoff = std::move(message);
                 else if (canStream)
-                    app.requestStreamPrompt = replyDraft;
+                    app.requestStream = std::move(message);
                 else
-                    app.requestSendPrompt = replyDraft;
-                remember_sent(replyDraft);
+                    app.requestSend = std::move(message);
                 replyDraft.clear();
             }
         }
@@ -7461,10 +7720,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             replyDraft = inputRes.ent()
                              .get<afterhours::text_input::HasTextAreaState>()
                              .text();
-        if (!kickoff && !draftKey.empty() &&
-            replyDraft != composerState.persistedReplyDraft) {
-            api::disk_cache::save_draft(persistedDraftKey, replyDraft);
+        if (!draftKey.empty() &&
+            (replyDraft != composerState.persistedReplyDraft ||
+             composerState.attachments != composerState.persistedAttachments)) {
+            api::disk_cache::save_draft_state(
+                persistedDraftKey,
+                api::disk_cache::Draft{replyDraft, composerState.attachments});
             composerState.persistedReplyDraft = replyDraft;
+            composerState.persistedAttachments = composerState.attachments;
         }
         lastSlashDraft = replyDraft;
 
@@ -8240,6 +8503,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::inline_image::available(m.image_path))
             h += 8.0f + hanabi::inline_image::fitted_height(m.image_path, textW) +
                  4.0f;
+        if (!m.attachments.empty())
+            h += 6.0f + 22.0f * static_cast<float>(m.attachments.size());
         return h;
     }
 
@@ -8338,7 +8603,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!isLive) {
             if (const float* w = render_cache().hug(hugKey, maxTextW, m.text)) {
                 hanabi::prof::tick("cache.hug_hit");
-                return box_from_text_w(*w);
+                return box_from_text_w(m.attachments.empty()
+                                           ? *w
+                                           : std::max(*w, 190.0f));
             }
             hanabi::prof::tick("cache.hug_miss");
         }
@@ -8375,8 +8642,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               theme::text_px(lineBuf, theme::type::BODY));
         }
         const float textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
-        if (!isLive) render_cache().put_hug(hugKey, m.text, maxTextW, textW);
-        return box_from_text_w(textW);
+        const float attachmentWidth = m.attachments.empty()
+                                          ? textW
+                                          : std::max(textW, 190.0f);
+        if (!isLive)
+            render_cache().put_hug(hugKey, m.text, maxTextW, attachmentWidth);
+        return box_from_text_w(attachmentWidth);
     }
 
     // The box the hugged text width implies. One place, so the memoized path
@@ -9305,7 +9576,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          Entity& turn, float hostW, theme::Color hostFill,
                          int index, const std::string& key,
                          const std::string& rawText, int64_t sentAt = 0,
-                         bool retryable = false) {
+                         bool retryable = false,
+                         const std::string& localId = {},
+                         const std::vector<api::Attachment>& attachments = {}) {
         model::PaneState* state = message_action_state();
         AppComponent* app = app_singleton();
         Pane* pane = painting_pane();
@@ -9418,7 +9691,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (button.get<afterhours::ui::HasClickListener>().down) {
                 if (app != nullptr && pane != nullptr && pane->openSession) {
                     app->requestRetrySessionId = pane->openSession->summary.id;
-                    app->requestRetryPrompt = rawText;
+                    api::OutgoingMessage retry;
+                    retry.local_id = localId.empty()
+                                         ? api::attachments::make_local_id()
+                                         : localId;
+                    retry.text = rawText;
+                    retry.attachments = attachments;
+                    retry.target = api::OutgoingTarget{
+                        paneIndex, pane->openSession->summary.id,
+                        pane->openSession->summary.id};
+                    if (!retry.attachments.empty()) retry.auto_retry = false;
+                    app->requestRetryMessage = std::move(retry);
                     record_retried(key);
                 }
             }
@@ -9576,6 +9859,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             });
             auto uEl = div(ctx, uep, ucfg);
             selectable_text(ctx, uEl.ent(), userBody, theme::type::BODY);
+            for (std::size_t attachmentIndex = 0;
+                 attachmentIndex < m.attachments.size(); ++attachmentIndex) {
+                const auto& attachment = m.attachments[attachmentIndex];
+                const std::string label =
+                    std::string(attachment.is_image() ? "Image · " : "File · ") +
+                    attachment.name;
+                div(ctx, mk(bub.ent(), 40 + static_cast<int>(attachmentIndex)),
+                    ComponentConfig{}
+                        .with_label(label)
+                        .with_size(ComponentSize{percent(1.0f), pixels(22)})
+                        .with_margin(Margin{.top =
+                                                pixels(attachmentIndex == 0 ? 6 : 0)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_roundness(0.0f)
+                        .with_debug_name("message_attachment_" +
+                                         std::to_string(attachmentIndex)));
+            }
             // WhatsApp-style sync glyph in the bubble's bottom-right corner.
             // gap #28 (nested child of a custom-bg bubble + on_draw_fg didn't
             // fire) is now FIXED upstream (afterhours bump), so we render the
@@ -9600,7 +9904,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             m.id.empty() ? ("msg" + std::to_string(index))
                                          : m.id,
                             m.text, m.created_at,
-                            m.sync != api::SyncState::Persisting);
+                            m.sync != api::SyncState::Persisting &&
+                                std::all_of(
+                                    m.attachments.begin(), m.attachments.end(),
+                                    [](const api::Attachment& attachment) {
+                                        return !attachment.path.empty();
+                                    }),
+                            m.local_id, m.attachments);
             return;
         }
 

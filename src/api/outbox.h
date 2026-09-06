@@ -54,6 +54,8 @@
 #include <string>
 #include <vector>
 
+#include "types.h"
+
 namespace api::outbox {
 
 // Seconds. First wait after a failure, then doubling, then held here.
@@ -82,10 +84,9 @@ struct Entry {
     std::string sessionId;
     std::string prompt;
     int attempts = 0;
-    // Wall-clock second before which this entry must not be tried again. 0 =
-    // ready now, which is what a freshly restored entry is: the reason the app
-    // is starting is usually that the last one ended.
     int64_t notBefore = 0;
+    OutgoingMessage message;
+    bool forceRetry = false;
 };
 
 class Retry {
@@ -98,7 +99,7 @@ class Retry {
         std::vector<Entry> merged;
         merged.reserve(fromStore.size());
         for (const auto& in : fromStore) {
-            const Entry* known = find(in.sessionId, in.prompt);
+            const Entry* known = find_key(in.sessionId, key_of(in));
             merged.push_back(known ? *known : in);
         }
         entries_ = std::move(merged);
@@ -116,6 +117,9 @@ class Retry {
         // the others' entries behind it.
         for (std::size_t k = 0; k < entries_.size(); ++k) {
             const Entry& e = entries_[(cursor_ + k) % entries_.size()];
+            if (!e.message.local_id.empty() && !e.message.auto_retry &&
+                !e.forceRetry)
+                continue;
             if (e.notBefore > now) continue;
             if (!dispatchable(e.sessionId)) continue;
             return &e;
@@ -128,11 +132,12 @@ class Retry {
     void attempted(const Entry& picked) {
         inFlight_ = true;
         inFlightId_ = picked.sessionId;
-        inFlightPrompt_ = picked.prompt;
+        inFlightPrompt_ = key_of(picked);
         for (std::size_t i = 0; i < entries_.size(); ++i) {
             if (entries_[i].sessionId != picked.sessionId) continue;
-            if (entries_[i].prompt != picked.prompt) continue;
+            if (key_of(entries_[i]) != key_of(picked)) continue;
             ++entries_[i].attempts;
+            entries_[i].forceRetry = false;
             cursor_ = (i + 1) % entries_.size();
             return;
         }
@@ -181,6 +186,56 @@ class Retry {
         return find(sessionId, prompt) != nullptr;
     }
 
+    bool holds(const std::string& sessionId,
+               const OutgoingMessage& message) const {
+        return find_key(sessionId, message.local_id) != nullptr;
+    }
+
+    void adopt(const std::string& sessionId, const OutgoingMessage& message,
+               int attempts = 1) {
+        if (holds(sessionId, message)) return;
+        entries_.push_back(
+            Entry{sessionId, message.text, attempts, 0, message});
+    }
+
+    void confirmed(const std::string& sessionId,
+                   const OutgoingMessage& message) {
+        release(sessionId, message.local_id);
+        erase_key(sessionId, message.local_id);
+    }
+
+    void failed(const std::string& sessionId, const OutgoingMessage& message,
+                int64_t now) {
+        release(sessionId, message.local_id);
+        for (auto& entry : entries_) {
+            if (entry.sessionId != sessionId ||
+                key_of(entry) != message.local_id)
+                continue;
+            entry.notBefore = now + backoff_for(entry.attempts);
+            return;
+        }
+    }
+
+    bool retry_now(const std::string& sessionId,
+                   const OutgoingMessage& message) {
+        if (inFlight_ && inFlightId_ == sessionId &&
+            inFlightPrompt_ == message.local_id)
+            return false;
+        for (auto& entry : entries_) {
+            if (entry.sessionId != sessionId ||
+                key_of(entry) != message.local_id)
+                continue;
+            entry.notBefore = 0;
+            entry.message = message;
+            entry.prompt = message.text;
+            entry.forceRetry = true;
+            return true;
+        }
+        entries_.push_back(
+            Entry{sessionId, message.text, 0, 0, message, true});
+        return true;
+    }
+
     // Take on an entry the store already holds but this policy has not seen --
     // the user's own send failed, so the prompt is on disk and the retry loop
     // has to pick it up from here. `attempts` is 1 because that send WAS the
@@ -189,7 +244,7 @@ class Retry {
     void adopt(const std::string& sessionId, const std::string& prompt,
                int attempts = 1) {
         if (holds(sessionId, prompt)) return;
-        entries_.push_back(Entry{sessionId, prompt, attempts, 0});
+        entries_.push_back(Entry{sessionId, prompt, attempts, 0, {}});
     }
 
     bool retry_now(const std::string& sessionId, const std::string& prompt) {
@@ -200,7 +255,7 @@ class Retry {
             e.notBefore = 0;
             return true;
         }
-        entries_.push_back(Entry{sessionId, prompt, 0, 0});
+        entries_.push_back(Entry{sessionId, prompt, 0, 0, {}});
         return true;
     }
 
@@ -218,7 +273,26 @@ class Retry {
         return e ? e->attempts : 0;
     }
 
+    int attempts_for(const std::string& sessionId,
+                     const OutgoingMessage& message) const {
+        const Entry* entry = find_key(sessionId, message.local_id);
+        return entry ? entry->attempts : 0;
+    }
+
   private:
+    static std::string key_of(const Entry& entry) {
+        return entry.message.local_id.empty() ? entry.prompt
+                                              : entry.message.local_id;
+    }
+
+    const Entry* find_key(const std::string& sessionId,
+                          const std::string& key) const {
+        for (const auto& entry : entries_)
+            if (entry.sessionId == sessionId && key_of(entry) == key)
+                return &entry;
+        return nullptr;
+    }
+
     const Entry* find(const std::string& sessionId,
                       const std::string& prompt) const {
         for (const auto& e : entries_)
@@ -232,6 +306,19 @@ class Retry {
         inFlight_ = false;
         inFlightId_.clear();
         inFlightPrompt_.clear();
+    }
+
+    void erase_key(const std::string& sessionId, const std::string& key) {
+        for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+            if (it->sessionId != sessionId || key_of(*it) != key) continue;
+            const std::size_t i =
+                static_cast<std::size_t>(it - entries_.begin());
+            entries_.erase(it);
+            if (entries_.empty()) cursor_ = 0;
+            else if (cursor_ > i) --cursor_;
+            else if (cursor_ >= entries_.size()) cursor_ = 0;
+            return;
+        }
     }
 
     void erase(const std::string& sessionId, const std::string& prompt) {

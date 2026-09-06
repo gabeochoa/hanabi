@@ -64,9 +64,9 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
         app.requestSplitClose || app.requestSplitToggle ||
         !app.requestToggleStar.empty() || !app.requestToggleArchive.empty() ||
         !app.requestResetRowOrder.empty() || app.requestNewTask ||
-        !app.requestKickoffPrompt.empty() || !app.requestSendPrompt.empty() ||
-        !app.requestRetryPrompt.empty() || !app.composerSubmit.empty() ||
-        !app.requestStreamPrompt.empty() || app.requestAuthCancel ||
+        app.requestKickoff.has_value() || app.requestSend.has_value() ||
+        app.requestRetryMessage.has_value() || app.composerSubmit.has_value() ||
+        app.requestStream.has_value() || app.requestAuthCancel ||
         !app.requestRenameId.empty() || app.renameSubmit ||
         app.requestSettings || !app.pendingSendQueue.empty() ||
         app.refocusComposer;

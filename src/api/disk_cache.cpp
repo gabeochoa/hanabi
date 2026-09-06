@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -14,6 +15,7 @@
 #include <utility>
 
 #include "../../vendor/nlohmann/json.hpp"
+#include "attachments.h"
 #include "../search/json_field_scan.h"
 
 namespace api::disk_cache {
@@ -25,6 +27,7 @@ using json = nlohmann::json;
 namespace {
 std::string g_namespace;
 std::atomic<std::uint64_t> g_epoch{1};
+std::atomic<std::uint64_t> g_attachment_sequence{1};
 
 // Short, filesystem-safe, stable token derived from an arbitrary key (e.g. a
 // base URL). A tiny FNV-1a hash rendered hex — enough to separate distinct
@@ -186,17 +189,85 @@ SessionSummary summary_from_json(const json& j) {
     return s;
 }
 
+json to_json(const Attachment& attachment) {
+    return json{{"path", attachment.path},
+                {"name", attachment.name},
+                {"media_type", attachment.media_type},
+                {"file_id", attachment.file_id},
+                {"size_bytes", attachment.size_bytes}};
+}
+
+Attachment attachment_from_json(const json& value) {
+    Attachment attachment;
+    if (!value.is_object()) return attachment;
+    attachment.path = value.value("path", "");
+    attachment.name = value.value("name", "");
+    attachment.media_type = value.value("media_type", "");
+    attachment.file_id = value.value("file_id", "");
+    attachment.size_bytes = value.value("size_bytes", std::uint64_t{0});
+    return attachment;
+}
+
+json to_json(const OutgoingMessage& message) {
+    json files = json::array();
+    for (const auto& attachment : message.attachments)
+        files.push_back(to_json(attachment));
+    return json{{"local_id", message.local_id},
+                {"text", message.text},
+                {"attachments", std::move(files)},
+                {"auto_retry", message.auto_retry},
+                {"interrupt", message.interrupt},
+                {"attachment_delivery_started",
+                 message.attachment_delivery_started},
+                {"target",
+                 {{"pane_index", message.target.pane_index},
+                  {"session_id", message.target.session_id},
+                  {"draft_key", message.target.draft_key}}}};
+}
+
+OutgoingMessage outgoing_from_json(const json& value) {
+    OutgoingMessage message;
+    if (!value.is_object()) return message;
+    message.local_id = value.value("local_id", "");
+    message.text = value.value("text", "");
+    message.auto_retry = value.value("auto_retry", true);
+    message.interrupt = value.value("interrupt", false);
+    message.attachment_delivery_started =
+        value.value("attachment_delivery_started", false);
+    if (value.contains("target") && value["target"].is_object()) {
+        const auto& target = value["target"];
+        message.target.pane_index = target.value("pane_index", -1);
+        message.target.session_id = target.value("session_id", "");
+        message.target.draft_key = target.value("draft_key", "");
+    }
+    if (value.contains("attachments") && value["attachments"].is_array())
+        for (const auto& item : value["attachments"]) {
+            Attachment attachment = attachment_from_json(item);
+            if (!attachment.name.empty())
+                message.attachments.push_back(std::move(attachment));
+        }
+    return message;
+}
+
 json to_json(const Message& m) {
     // `kind` rides alongside `role`, not instead of it: a cached row that
     // loses its kind comes back as somebody speaking, which is exactly the
     // failure EventKind exists to end. Absent on read = Text, so a file
     // written before this field still loads as what it was.
     return json{{"id", m.id},
+                {"local_id", m.local_id},
                 {"role", static_cast<int>(m.role)},
                 {"kind", static_cast<int>(m.kind)},
                 {"text", m.text},
                 {"created_at", m.created_at},
                 {"subtitle", m.subtitle},
+                {"image_path", m.image_path},
+                {"attachments", [&m] {
+                     json values = json::array();
+                     for (const auto& attachment : m.attachments)
+                         values.push_back(to_json(attachment));
+                     return values;
+                 }()},
                 // The one dropped field that something READS after a restore:
                 // find's `state:` operator resolves through tool_state_of(),
                 // which is a lookup on this string. Without it a thread
@@ -209,10 +280,18 @@ json to_json(const Message& m) {
 Message message_from_json(const json& j) {
     Message m;
     m.id = j.value("id", "");
+    m.local_id = j.value("local_id", "");
     m.role = static_cast<Role>(j.value("role", static_cast<int>(Role::Assistant)));
     m.text = j.value("text", "");
     m.created_at = j.value("created_at", (int64_t)0);
     m.subtitle = j.value("subtitle", "");
+    m.image_path = j.value("image_path", "");
+    if (j.contains("attachments") && j.at("attachments").is_array())
+        for (const auto& value : j.at("attachments")) {
+            Attachment attachment = attachment_from_json(value);
+            if (!attachment.name.empty())
+                m.attachments.push_back(std::move(attachment));
+        }
     // Absent in files written before this was saved. Empty is what those
     // files behaved as, and it is also what "the backend said nothing"
     // means to tool_state_of, so an old file degrades to the old answer
@@ -373,6 +452,71 @@ bool write_file(const std::string& path, const std::string& content) {
 }
 
 }  // namespace
+
+Result<Attachment> retain_attachment(const Attachment& attachment) {
+    if (attachment.path.empty())
+        return Result<Attachment>::failure("The selected file is no longer available.");
+    const fs::path source(attachment.path);
+    const std::string root = cache_dir();
+    if (root.empty())
+        return Result<Attachment>::failure("The attachment cache is unavailable.");
+    const fs::path dir = fs::path(root) / "attachments";
+    if (!ensure_dir(dir.string()))
+        return Result<Attachment>::failure("The attachment cache is unavailable.");
+
+    std::error_code ec;
+    const fs::path sourceCanonical = fs::weakly_canonical(source, ec);
+    ec.clear();
+    const fs::path dirCanonical = fs::weakly_canonical(dir, ec);
+    if (!ec && sourceCanonical.parent_path() == dirCanonical)
+        return Result<Attachment>::success(attachment);
+
+    const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto seq = g_attachment_sequence.fetch_add(1, std::memory_order_relaxed);
+    const std::string base = safe_name(source.stem().string());
+    const std::string ext = source.extension().string();
+    const fs::path target =
+        dir / (std::to_string(now) + "-" + std::to_string(seq) + "-" + base + ext);
+    const fs::path temp = target.string() + ".tmp";
+    fs::copy_file(source, temp, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        std::error_code ignored;
+        fs::remove(temp, ignored);
+        return Result<Attachment>::failure(
+            "The selected file could not be retained.");
+    }
+    fs::rename(temp, target, ec);
+    if (ec) {
+        std::error_code ignored;
+        fs::remove(temp, ignored);
+        return Result<Attachment>::failure("The selected file could not be retained.");
+    }
+    Attachment retained = attachment;
+    retained.path = target.string();
+    retained.size_bytes = fs::file_size(target, ec);
+    if (ec) {
+        std::error_code ignored;
+        fs::remove(target, ignored);
+        return Result<Attachment>::failure(
+            "The selected file could not be retained.");
+    }
+    note_cache_bytes_written(retained.size_bytes);
+    return Result<Attachment>::success(std::move(retained));
+}
+
+void remove_retained_attachment(const Attachment& attachment) {
+    if (attachment.path.empty()) return;
+    const std::string root = cache_dir();
+    if (root.empty()) return;
+    const fs::path dir = fs::path(root) / "attachments";
+    std::error_code ec;
+    const fs::path candidate = fs::weakly_canonical(attachment.path, ec);
+    if (ec) return;
+    const fs::path parent = fs::weakly_canonical(dir, ec);
+    if (ec || candidate.parent_path() != parent) return;
+    fs::remove(candidate, ec);
+    invalidate_cache_size_estimate();
+}
 
 // ---- session list --------------------------------------------------------
 void save_sessions(const std::vector<SessionSummary>& sessions) {
@@ -647,10 +791,11 @@ std::uint64_t total_bytes() {
     std::error_code ec;
     if (!fs::exists(dir, ec)) return 0;
     std::uint64_t total = 0;
-    for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
+    for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end;
          it.increment(ec)) {
         if (!it->is_regular_file(ec)) continue;
-        if (!is_cache_file(it->path().filename().string())) continue;
+        const bool retained = it->path().parent_path().filename() == "attachments";
+        if (!retained && !is_cache_file(it->path().filename().string())) continue;
         std::error_code sz;
         auto n = fs::file_size(it->path(), sz);
         if (!sz) total += static_cast<std::uint64_t>(n);
@@ -741,11 +886,45 @@ void update_draft_entry(const std::string& key, Fn&& mutate) {
     const bool hasQueue = entry.contains("queue") &&
                           entry["queue"].is_array() &&
                           !entry["queue"].empty();
-    if (!hasText && !hasQueue) doc["drafts"].erase(key);
+    const bool hasAttachments = entry.contains("attachments") &&
+                                entry["attachments"].is_array() &&
+                                !entry["attachments"].empty();
+    const bool hasOutbox = entry.contains("outbox") &&
+                           entry["outbox"].is_array() &&
+                           !entry["outbox"].empty();
+    if (!hasText && !hasQueue && !hasAttachments && !hasOutbox)
+        doc["drafts"].erase(key);
     doc["version"] = 1;
     write_file(drafts_file(), doc.dump());
 }
 }  // namespace
+
+void save_draft_state(const std::string& key, const Draft& draft) {
+    update_draft_entry(key, [&](json& entry) {
+        entry["text"] = draft.text;
+        json values = json::array();
+        for (const auto& attachment : draft.attachments)
+            values.push_back(to_json(attachment));
+        entry["attachments"] = std::move(values);
+    });
+}
+
+Draft load_draft_state(const std::string& key) {
+    Draft draft;
+    const json doc = load_drafts_doc();
+    if (!doc.contains("drafts") || !doc["drafts"].is_object()) return draft;
+    const auto& drafts = doc["drafts"];
+    if (!drafts.contains(key) || !drafts[key].is_object()) return draft;
+    const auto& entry = drafts[key];
+    draft.text = entry.value("text", "");
+    if (entry.contains("attachments") && entry["attachments"].is_array())
+        for (const auto& value : entry["attachments"]) {
+            Attachment attachment = attachment_from_json(value);
+            if (!attachment.path.empty() && !attachment.name.empty())
+                draft.attachments.push_back(std::move(attachment));
+        }
+    return draft;
+}
 
 void save_draft(const std::string& key, const std::string& text) {
     update_draft_entry(key, [&](json& e) { e["text"] = text; });
@@ -820,7 +999,85 @@ void outbox_remove(const std::string& id, const std::string& prompt) {
 }
 
 std::vector<std::string> outbox_list(const std::string& id) {
-    return load_queue(outbox_key(id));
+    std::vector<std::string> out;
+    for (const auto& message : outbox_messages(id))
+        out.push_back(message.text);
+    return out;
+}
+
+void outbox_add(const std::string& id, const OutgoingMessage& message) {
+    if (message.text.empty() || message.local_id.empty()) return;
+    update_draft_entry(outbox_key(id), [&](json& entry) {
+        if (!entry.contains("outbox") || !entry["outbox"].is_array())
+            entry["outbox"] = json::array();
+        for (auto& value : entry["outbox"]) {
+            if (!value.is_object() ||
+                value.value("local_id", "") != message.local_id)
+                continue;
+            value = to_json(message);
+            return;
+        }
+        entry["outbox"].push_back(to_json(message));
+    });
+}
+
+void outbox_begin_delivery(const std::string& id,
+                           OutgoingMessage& message) {
+    attachments::mark_delivery_started(message);
+    outbox_add(id, message);
+}
+
+void outbox_remove_message(const std::string& id,
+                           const std::string& local_id) {
+    update_draft_entry(outbox_key(id), [&](json& entry) {
+        if (local_id.rfind("legacy-" + id + "-", 0) == 0 &&
+            entry.contains("queue") && entry["queue"].is_array()) {
+            const std::string raw = local_id.substr(id.size() + 8);
+            char* end = nullptr;
+            const unsigned long index = std::strtoul(raw.c_str(), &end, 10);
+            if (end != raw.c_str() && *end == '\0' && index < entry["queue"].size())
+                entry["queue"].erase(entry["queue"].begin() +
+                                     static_cast<std::ptrdiff_t>(index));
+            return;
+        }
+        if (!entry.contains("outbox") || !entry["outbox"].is_array()) return;
+        auto& values = entry["outbox"];
+        for (auto it = values.begin(); it != values.end(); ++it) {
+            if (it->is_object() && it->value("local_id", "") == local_id) {
+                values.erase(it);
+                return;
+            }
+        }
+    });
+}
+
+std::vector<OutgoingMessage> outbox_messages(const std::string& id) {
+    std::vector<OutgoingMessage> out;
+    const json doc = load_drafts_doc();
+    if (!doc.contains("drafts") || !doc["drafts"].is_object()) return out;
+    const auto& drafts = doc["drafts"];
+    const std::string key = outbox_key(id);
+    if (!drafts.contains(key) || !drafts[key].is_object()) return out;
+    const auto& entry = drafts[key];
+    if (entry.contains("outbox") && entry["outbox"].is_array())
+        for (const auto& value : entry["outbox"]) {
+            OutgoingMessage message = outgoing_from_json(value);
+            if (!message.local_id.empty() && !message.text.empty())
+                out.push_back(std::move(message));
+        }
+    if (entry.contains("queue") && entry["queue"].is_array()) {
+        std::size_t index = 0;
+        for (const auto& value : entry["queue"]) {
+            if (value.is_string() && !value.get<std::string>().empty()) {
+                OutgoingMessage message;
+                message.local_id = "legacy-" + id + "-" + std::to_string(index);
+                message.text = value.get<std::string>();
+                out.push_back(std::move(message));
+            }
+            ++index;
+        }
+    }
+    return out;
 }
 
 std::vector<std::string> outbox_sessions() {
@@ -831,8 +1088,12 @@ std::vector<std::string> outbox_sessions() {
     for (const auto& [key, entry] : doc["drafts"].items()) {
         if (key.compare(0, prefix.size(), prefix) != 0) continue;
         if (!entry.is_object()) continue;
-        if (!entry.contains("queue") || !entry["queue"].is_array()) continue;
-        if (entry["queue"].empty()) continue;
+        const bool legacy = entry.contains("queue") && entry["queue"].is_array() &&
+                            !entry["queue"].empty();
+        const bool current = entry.contains("outbox") &&
+                             entry["outbox"].is_array() &&
+                             !entry["outbox"].empty();
+        if (!legacy && !current) continue;
         out.push_back(key.substr(prefix.size()));
     }
     // The JSON object's iteration order is the library's, not the user's.

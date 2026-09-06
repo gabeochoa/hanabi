@@ -265,6 +265,19 @@ class MockClient : public Client {
         return Result<std::string>::success(id);
     }
 
+    Result<CreateOutcome> create_with_message(
+        const OutgoingMessage& message, const StreamSink& sink) override {
+        (void)sink;
+        auto created = create_session(message.text);
+        if (!created.ok) return Result<CreateOutcome>::failure(created.error);
+        Session* session = find_mutable(created.value);
+        if (session != nullptr && !session->messages.empty())
+            session->messages.back().attachments = accepted_attachments(message);
+        CreateOutcome outcome;
+        outcome.session_id = std::move(created.value);
+        return Result<CreateOutcome>::success(std::move(outcome));
+    }
+
     bool supports_fork() const override { return true; }
 
     Result<std::string> fork_session(const std::string& session_id) override {
@@ -320,6 +333,20 @@ class MockClient : public Client {
         return Result<std::string>::success(id);
     }
 
+    Result<CreateOutcome> fork_with_message(
+        const std::string& session_id, const OutgoingMessage& message,
+        const std::string& title, const StreamSink& sink) override {
+        (void)sink;
+        auto created = fork_with_prompt(session_id, message.text, title);
+        if (!created.ok) return Result<CreateOutcome>::failure(created.error);
+        Session* session = find_mutable(created.value);
+        if (session != nullptr && !session->messages.empty())
+            session->messages.back().attachments = accepted_attachments(message);
+        CreateOutcome outcome;
+        outcome.session_id = std::move(created.value);
+        return Result<CreateOutcome>::success(std::move(outcome));
+    }
+
     bool supports_subagents() const override { return true; }
 
     Result<std::vector<SessionSummary>> list_subagents(
@@ -372,6 +399,9 @@ class MockClient : public Client {
     // The mock supports replies (this is the demo story): the composer becomes
     // fully functional against it.
     bool supports_send() const override { return true; }
+    bool supports_attachments() const override {
+        return std::getenv("HANABI_MOCK_NO_ATTACHMENTS") == nullptr;
+    }
 
     // The mock supports steering unconditionally (offline demo) so the
     // steer-vs-send decision in the loader can be exercised without a network.
@@ -526,6 +556,33 @@ class MockClient : public Client {
         sink.emit_done(plan.final);
     }
 
+    void send_message_streaming(const std::string& session_id,
+                                const OutgoingMessage& message,
+                                const StreamSink& sink) override {
+        if (message.interrupt) {
+            auto result = steer(session_id, message);
+            if (!result.ok) sink.emit_error(result.error);
+            else {
+                sink.emit_delta(result.value.text);
+                sink.emit_done(result.value);
+            }
+            return;
+        }
+        StreamSink adapted = sink;
+        adapted.on_done = [this, session_id, message, sink](const Message& final) {
+            Session* target = find_mutable(session_id);
+            if (target != nullptr && target->messages.size() >= 2)
+                target->messages[target->messages.size() - 2].attachments =
+                    message.attachments;
+            sink.emit_accepted(target != nullptr && target->messages.size() >= 2
+                                   ? static_cast<std::uint64_t>(
+                                         target->messages.size() - 1)
+                                   : 1);
+            sink.emit_done(final);
+        };
+        send_message_streaming(session_id, message.text, adapted);
+    }
+
     // Continue a session: append the User prompt AND a synthetic, deterministic
     // Assistant reply to that session's transcript, refresh its updated_at +
     // preview so the sidebar reflects the new activity, and return the
@@ -569,6 +626,17 @@ class MockClient : public Client {
         return Result<Message>::success(reply);
     }
 
+    Result<Message> send_message(const std::string& session_id,
+                                 const OutgoingMessage& message) override {
+        auto result = send_message(session_id, message.text);
+        if (!result.ok) return result;
+        Session* target = find_mutable(session_id);
+        if (target != nullptr && target->messages.size() >= 2)
+            target->messages[target->messages.size() - 2].attachments =
+                accepted_attachments(message);
+        return result;
+    }
+
     // Steer a "running" agent offline. The mock has no real running turn, so it
     // simply appends the user's steering message + a short "(steering) <msg>"
     // acknowledgement and returns the ack — enough for the loader's steer-vs-
@@ -608,6 +676,17 @@ class MockClient : public Client {
         return Result<Message>::success(ack);
     }
 
+    Result<Message> steer(const std::string& session_id,
+                          const OutgoingMessage& message) override {
+        auto result = steer(session_id, message.text);
+        if (!result.ok) return result;
+        Session* target = find_mutable(session_id);
+        if (target != nullptr && target->messages.size() >= 2)
+            target->messages[target->messages.size() - 2].attachments =
+                accepted_attachments(message);
+        return result;
+    }
+
     bool supports_rename() const override { return true; }
 
     // Rename offline, echo-shaped: the reply carries the title the "server"
@@ -632,6 +711,13 @@ class MockClient : public Client {
     }
 
   private:
+    static std::vector<Attachment> accepted_attachments(
+        const OutgoingMessage& message) {
+        std::vector<Attachment> stored = message.attachments;
+        for (auto& attachment : stored) attachment.path.clear();
+        return stored;
+    }
+
     static constexpr size_t kMaxTitleChars = 120;
 
     static std::string trimmed(const std::string& s) {

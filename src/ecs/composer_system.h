@@ -20,12 +20,15 @@
 #include <string>
 
 #include "../keys.h"
+#include "../native_extras.h"
 #include "ui_imports.h"
 
+#include "../api/attachments.h"
 #include "../api/disk_cache.h"
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "keyboard_focus.h"
+#include "pane_state.h"
 
 namespace ecs {
 
@@ -36,10 +39,22 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
 
         const bool justOpened = app->composerOpen && !wasOpen_;
         if (justOpened) {
-            std::string saved =
+            target_ = api::OutgoingTarget{app->focusedPane, "", "__kickoff__"};
+            app->composerOverlayTarget = target_;
+            auto& state = kickoff_state();
+            const std::string key = model::persisted_reply_key(
+                target_.pane_index, target_.draft_key);
+            const api::disk_cache::Draft saved =
+                api::disk_cache::load_draft_state(key);
+            const std::string legacy =
                 api::disk_cache::load_draft(api::disk_cache::new_draft_key());
-            if (!saved.empty() && app->composerDraft.empty())
-                app->composerDraft = saved;
+            if (app->composerDraft.empty())
+                app->composerDraft = saved.text.empty() ? legacy : saved.text;
+            if (state.attachments.empty()) state.attachments = saved.attachments;
+            state.replyDraft = app->composerDraft;
+            state.replyDraftLoaded = true;
+            state.persistedReplyDraft = state.replyDraft;
+            state.persistedAttachments = state.attachments;
             lastPersisted_ = app->composerDraft;
         }
         wasOpen_ = app->composerOpen;
@@ -70,7 +85,7 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         const auto panelRect =
-            hanabi::surface::centered(sw, sh, 440.0f, 216.0f);
+            hanabi::surface::centered(sw, sh, 440.0f, 252.0f);
         auto panel = div(
             ctx, mk(uiRoot, 8110),
             hanabi::surface::sheet(panelRect, 11)
@@ -78,6 +93,7 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
 
         render_header(ctx, panel.ent(), *app);
         render_input(ctx, panel.ent(), *app);
+        render_attachment_summary(ctx, panel.ent(), *app);
         render_actions(ctx, panel.ent(), *app);
 
         // CRASH-SAFE DRAFT PERSIST (local-first): after the input widget has
@@ -89,13 +105,24 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         // clear_draft() itself, and here composerDraft is already empty so we
         // don't rewrite a stale value. Only persist while still open.
         if (app->composerOpen && app->composerDraft != lastPersisted_) {
-            api::disk_cache::save_draft(api::disk_cache::new_draft_key(),
-                                        app->composerDraft);
+            auto& state = kickoff_state();
+            state.replyDraft = app->composerDraft;
+            api::disk_cache::save_draft_state(
+                model::persisted_reply_key(target_.pane_index,
+                                           target_.draft_key),
+                api::disk_cache::Draft{state.replyDraft, state.attachments});
+            state.persistedReplyDraft = state.replyDraft;
+            state.persistedAttachments = state.attachments;
             lastPersisted_ = app->composerDraft;
         }
     }
 
   private:
+    model::PaneState& kickoff_state() const {
+        return model::pane_states().touch(
+            model::pane_key(target_.pane_index, target_.draft_key));
+    }
+
     void render_header(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app) {
         auto header = div(ctx, mk(parent, 1),
@@ -196,6 +223,57 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    void render_attachment_summary(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent& app) {
+        auto& state = kickoff_state();
+        std::string label = "No files attached";
+        if (!state.attachments.empty()) {
+            label.clear();
+            for (const auto& attachment : state.attachments) {
+                if (!label.empty()) label += " · ";
+                label += attachment.name;
+            }
+        }
+        auto row = div(ctx, mk(parent, 4),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(32)})
+                .with_margin(Margin{.top = pixels(6)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("composer_modal_attachments"));
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(326), pixels(22)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_debug_name("composer_modal_attachment_names"));
+        if (!state.attachments.empty()) {
+            auto clear = button(ctx, mk(row.ent(), 2),
+                hanabi::surface::action_button(62.0f, false, 11)
+                    .with_label("Remove")
+                    .with_font_size(FontSize::Medium)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_debug_name("composer_modal_attachment_remove"));
+            if (clear) {
+                for (const auto& attachment : state.attachments)
+                    api::disk_cache::remove_retained_attachment(attachment);
+                state.attachments.clear();
+                state.attachmentNotice.clear();
+                api::disk_cache::save_draft_state(
+                    model::persisted_reply_key(target_.pane_index,
+                                               target_.draft_key),
+                    api::disk_cache::Draft{app.composerDraft, {}});
+            }
+        }
+    }
+
     void render_actions(UIContext<InputAction>& ctx, Entity& parent,
                         AppComponent& app) {
         auto row = div(ctx, mk(parent, 3),
@@ -211,6 +289,15 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("composer_actions"));
 
         bool hasText = !app.composerDraft.empty();
+
+        auto attach = button(ctx, mk(row.ent(), 0),
+            hanabi::surface::action_button(92.0f, false, 11)
+                .with_label("Attach")
+                .with_margin(Margin{.right = pixels(8)})
+                .with_font_size(FontSize::Medium)
+                .with_justify_content(JustifyContent::Center)
+                .with_debug_name("composer_modal_attach"));
+        if (attach) native_pick_attachments();
 
         auto cancel = button(ctx, mk(row.ent(), 1),
             hanabi::surface::action_button(92.0f, false, 11)
@@ -241,10 +328,26 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
             // one-shot requestKickoffPrompt flag (LoaderSystem runs
             // create_session async, then refreshes the list + opens the new
             // thread). Clear the draft and close the overlay.
-            app.requestKickoffPrompt = app.composerDraft;
+            auto& state = kickoff_state();
+            std::vector<api::Attachment> files;
+            if (app.client && app.client->supports_attachments()) {
+                files = std::move(state.attachments);
+                state.attachments.clear();
+            } else if (!state.attachments.empty()) {
+                app.raise_toast(
+                    "Text sent; files stayed in the new-task composer.", "",
+                    AppComponent::ToastUndo::None);
+            }
+            api::OutgoingMessage message = api::attachments::outgoing(
+                app.composerDraft, std::move(files), target_);
+            if (!message.attachments.empty()) message.auto_retry = false;
+            app.requestKickoff = std::move(message);
             app.composerDraft.clear();
-            // The draft is now in flight as a real session — drop its crash-safe
-            // local copy so a relaunch doesn't restore an already-sent prompt.
+            state.replyDraft.clear();
+            api::disk_cache::save_draft_state(
+                model::persisted_reply_key(target_.pane_index,
+                                           target_.draft_key),
+                api::disk_cache::Draft{"", state.attachments});
             api::disk_cache::clear_draft(api::disk_cache::new_draft_key());
             lastPersisted_.clear();
             app.composerOpen = false;
@@ -258,6 +361,7 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
     // The draft value last written to disk, so we only persist on change
     // (avoids rewriting drafts.json on every idle frame).
     std::string lastPersisted_;
+    api::OutgoingTarget target_{0, "", "__kickoff__"};
 };
 
 }  // namespace ecs

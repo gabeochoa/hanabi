@@ -1,0 +1,15 @@
+# At the smallest composer width the attach control stays clear of Send. During
+# an upload it remains an attach control while cancellation has its own target.
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIN_W=340 HANABI_WIN_H=620 HANABI_ASK_DEMO=two HANABI_UPLOAD_DEMO=1 HANABI_PICK_FILE_TEST=tests/fixtures/attachments/sample.md
+
+require_thread t2
+assert_ui composer_upload_cancel x=238 w=20 h=20 hidden=false
+assert_ui composer_attach x=262 w=20 h=20 hidden=false
+assert_ui composer_send x=297 w=19 h=19 hidden=false
+click_ui composer_attach
+wait_frames 8
+expect_text "sample.md"
+assert_ui composer_upload_cancel hidden=false
+click_ui composer_upload_cancel
+expect_upload_cancelled

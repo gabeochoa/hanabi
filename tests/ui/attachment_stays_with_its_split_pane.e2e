@@ -1,0 +1,15 @@
+# A staged file belongs to the focused pane, even when both panes show live
+# composers. Focusing the other pane must not borrow it.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_DROP_TEST=tests/fixtures/attachments/sample.md HANABI_SPLIT=t6
+
+require_thread t2
+expect_text "sample.md"
+
+click 850 350
+wait_frames 10
+expect_no_text "sample.md"
+
+click 420 350
+wait_frames 10
+expect_text "sample.md"
