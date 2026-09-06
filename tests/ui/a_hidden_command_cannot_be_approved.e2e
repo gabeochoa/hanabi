@@ -1,3 +1,22 @@
+# An approval nobody can read cannot be approved, and the tab ring says so.
+#
+# tooShort is checked twice: in submitOff, which disables the button and takes
+# it out of the focus ring, and at the top of submit_ask, which refuses the
+# action. Removing either one alone left every arm green, so the file could
+# not tell them apart.
+#
+# The tab arm below fixes half of that: it fails on removing submitOff's
+# tooShort and on nothing else. The other half has no arm because it has no
+# caller. submit_ask is reached from a click on Approve (dead while submitOff
+# holds), from Escape (Cancel, never Accept), and from Enter in
+# drive_ask_keyboard --- which needs focus INSIDE the card and OUTSIDE the
+# actions row. A too-short card renders one label in its body and no control
+# at all, and focus_ui on ask_body, ask_body_content, ask_card and ask_head
+# was each stolen back by the sidebar within eight frames. So while submitOff
+# stands, submit_ask's guard cannot fire, and the arm that covers it is the
+# click below with submitOff's guard removed: that is the revert where the
+# click reaches submit_ask, and the pair fails only when BOTH are gone.
+#
 # settings: {"window_width":1100,"window_height":300,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=longapproval HANABI_ASK_FAIL=echo HANABI_WIN_W=1100 HANABI_WIN_H=300
 
@@ -16,3 +35,17 @@ expect_no_text "accept — press Approve to try again."
 click_ui ask_decline
 wait_frames 20
 expect_no_text "decline — press Deny to try again."
+
+# submitOff's tooShort, alone. A disabled button is out of the focus ring, so
+# stepping BACKWARDS out of Decline leaves the card. Drop tooShort from
+# submitOff and Approve is live, is a stop again, and is what this lands on.
+# submit_ask's guard cannot move a tab stop, so this arm is blind to it.
+focus_ui ask_decline
+expect_focused ask_decline
+shift_tab
+wait_frames 8
+expect_not_focused ask_submit
+
+# ...and the card is still here, unanswered, after all of it.
+expect_text "Too short to show the questions"
+expect_text "The agent needs approval"
