@@ -545,7 +545,11 @@ static void test_a_stale_load_cannot_retire_a_live_ask() {
     fresh.seq = 42;
     st.adopt({old_ask, fresh}, {old_ask}, later);
     CHECK(st.born_after(fresh.id(), inflight));
-    CHECK(!st.born_after(old_ask.id(), inflight));
+    // The second load carried the old ask too, so the first load is now stale
+    // evidence about it: it may not retire an ask a newer snapshot has since
+    // confirmed alive.
+    CHECK(st.born_after(old_ask.id(), inflight));
+    CHECK(!st.born_after(old_ask.id(), later));
 }
 
 // An ask is ranked by the load that CARRIED it, not by how much unrelated
@@ -599,12 +603,23 @@ static void test_an_ask_is_ranked_by_the_load_that_carried_it() {
     CHECK(!st.born_after(raised.id(), newer));
     CHECK(!st.born_after(raised.id(), other_thread));
 
-    // The born stamp is the first sighting and does not drift on re-adopt: a
-    // later load that still carries the ask must not re-rank it upward, or
-    // the ask would slowly outrank everything.
+    // The born stamp follows the NEWEST load that carried the ask, not the
+    // first sighting. Recording only the first left every later load
+    // outranking it, including a load requested BEFORE the newest snapshot
+    // that confirmed the ask still there -- which is exactly the load that
+    // must not retire it. An empty snapshot from that vantage point retired a
+    // live card and the sweep put it back one poll later.
+    //
+    // Re-ranking is bounded by real evidence: the stamp can only rise to a
+    // load that actually carried the ask, so a genuinely newer snapshot still
+    // retires it.
     st.adopt({raised}, {raised}, other_thread);
-    CHECK(!st.born_after(raised.id(), newer));
     CHECK(st.born_after(raised.id(), stale));
+    CHECK(st.born_after(raised.id(), carrier));
+    CHECK(st.born_after(raised.id(), newer));
+    CHECK(!st.born_after(raised.id(), other_thread));
+    const std::uint64_t after_confirmation = st.next_load_stamp();
+    CHECK(!st.born_after(raised.id(), after_confirmation));
 }
 
 static void test_dropped_text_is_marked() {

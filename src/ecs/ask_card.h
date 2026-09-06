@@ -90,8 +90,17 @@ struct State {
     // Recorded as the carrying stamp, born_after()'s strict > is exactly the
     // rule: older load lands late, it cannot speak for this ask and the ask
     // survives; newer load lands without it, that is authoritative.
+    //
+    // It is the NEWEST carrying stamp, not the first. emplace() kept the
+    // first, which pinned the guard to the load that introduced the ask and
+    // left every later load outranking it -- including a load issued BEFORE
+    // the newest snapshot that confirmed the ask still alive, which is
+    // precisely the load that may not retire it. Overwriting makes the stamp
+    // mean "the newest vantage point from which the ask was still there", so
+    // an empty snapshot older than that confirmation is ignored instead of
+    // retiring a live ask.
     void note_born(const std::string& id, std::uint64_t stamp) {
-        bornStamp.emplace(id, stamp);
+        bornStamp.insert_or_assign(id, stamp);
     }
     [[nodiscard]] bool born_after(const std::string& id,
                                   std::uint64_t stamp) const {
