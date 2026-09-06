@@ -61,11 +61,11 @@ defaults, exactly like the existing field_* mapping.
 - `tests/`: add a test that drives DeviceCodeFlow end-to-end against a FAKE
     transport (pending a few times, then success) + an expired path + a failure
     path. Register it in the makefile test target if that's the pattern.
-- `afterhours_gaps.md`: append #22 ONLY if afterhours blocks something.
+- `afterhours_gaps.md`: append upstream a1b9a4b ONLY if afterhours blocks something.
 - `docs/config.example.json`: add the (commented/example, generic) auth keys.
 
 ## HARD constraints
-- NEVER edit vendor/. Log gaps to afterhours_gaps.md (#22 next) instead.
+- NEVER edit vendor/. Log gaps to afterhours_gaps.md (upstream a1b9a4b next) instead.
 - No real endpoint/client_id/key/URL/company name anywhere. Generic placeholders
   only (e.g. defaults empty or "example.invalid"). Grep your diff to confirm.
 - The DEFAULT experience (no auth configured) is UNCHANGED — mock loads, tests pass.
@@ -93,7 +93,7 @@ defaults, exactly like the existing field_* mapping.
   can be photographed via `output/hanabi.exe --screenshot`. Capture dark + light.
 - Confirmation that with NO auth configured, the app is byte-for-byte the same
   behavior (mock loads, all prior tests pass).
-- Any afterhours gap (#22) logged + why.
+- Any afterhours gap (upstream a1b9a4b) logged + why.
 
 ## Notes
 - Keep the state machine PURE and small; the UI just renders its state. The value

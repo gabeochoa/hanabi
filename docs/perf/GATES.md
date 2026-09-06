@@ -153,7 +153,7 @@ told the gate.
 | **scaling_gate** · frame time | same | `min ms/f 1.44 → 16.55 = 11.49x  budget 2.50x  FAIL` |
 | **scroll_gate** · level (entities) | `row_window()` returns the whole list | `entities, list expanded 381 → 6626 = 17.39x  budget 1.60x  FAIL` |
 | **scroll_gate** · trend, frame cpu | a per-frame walk over an index of every row visited, forty times a frame | `frame cpu, min-of-half 1.221x  budget 1.150x  FAIL` |
-| **scroll_gate** · trend, blocks | row ids keyed on the row INDEX, not the window slot (#115) | `live blocks /1000f +276.9  budget 40  FAIL` (its level arm goes too: `2.94x`) |
+| **scroll_gate** · trend, blocks | row ids keyed on the row INDEX, not the window slot (the gap upstream fixed in `2393fe3`) | `live blocks /1000f +276.9  budget 40  FAIL` (its level arm goes too: `2.94x`) |
 | **retire_gate** · epoch | `begin_epoch()` removed from `WidgetRetireSystem::once` | `epoch 1 after 1200 frames  FAIL` |
 | **retire_gate** · stale | `HANABI_RETIRE=0` | `stale widgets 774  budget 0  FAIL` |
 | **retire_gate** · live/built | `HANABI_RETIRE=0` | `live / built 2.15x  ceiling 1.50x  FAIL` |
@@ -854,7 +854,7 @@ All three arms have been made to fail on purpose:
 | arm | defect | read |
 | --- | --- | ---: |
 | level | `row_window()` returns the whole list | 16.61x vs 1.60 |
-| blocks | row ids keyed on the row index, not the window slot (#115's shape) | +180/1k vs 150 |
+| blocks | row ids keyed on the row index, not the window slot (the gap upstream fixed in `2393fe3`'s shape) | +180/1k vs 150 |
 | frame cpu | a per-frame walk over an index of rows visited | 1.223x vs 1.15 |
 
 The frame-CPU arm fires at about +0.47 ms of drift across the halves of a
@@ -878,7 +878,7 @@ a driven one, which is the difference between having a budget and not.
 
 ## 3c. The widget-retirement gate — does the app hold screens it stopped drawing?
 
-`scripts/retire_gate.sh`, added with the fix for `afterhours_gaps.md` #115.
+`scripts/retire_gate.sh`, added with the fix for `afterhours_gaps.md` upstream 2393fe3.
 Full write-up in `docs/perf/RETIRE.md`.
 
 afterhours never retires a widget that stops being built, so before the fix the
@@ -980,7 +980,7 @@ it against `docs/perf/soak-baseline.txt`. See `docs/perf/STRESS.md`.
 | `threads` | opens a thread every 30 frames | the heaviest thing the app does: fetch, transcript rebuild, tab |
 | `tabs` | 8 tabs, then round-robin | anything the tab strip or a per-tab cache holds on to |
 | `scrollall` | the sidebar's list EXPANDED, then swept, at 2000 sessions | the arm above scrolls the list the cap allows; this one scrolls the list the user asked for, which is the one in the report |
-| `views` | Home / Blocked / Review / Starred / Archived / a thread, on a cycle | the only arm that CHANGES SCREEN. Every other one sits on a single screen for its whole run, which is why #115 lived here for a month |
+| `views` | Home / Blocked / Review / Starred / Archived / a thread, on a cycle | the only arm that CHANGES SCREEN. Every other one sits on a single screen for its whole run, which is why the gap upstream fixed in `2393fe3` lived here for a month |
 | `bigidle` | idle, against a 2000-session catalog | a per-row leak is 100x more visible; a catalog-sized cache shows as a higher plateau rather than a slope |
 
 Memory budgets are **tighter** than the short gate's — 256 KB per 1000 frames
@@ -1095,27 +1095,21 @@ one property is one gate nobody maintains.
 
 ### Reproducing a failure
 
-Two rehearsals, both real reverts rather than a lowered ceiling.
+One rehearsal, a real revert rather than a lowered ceiling: build at the commit
+that adds only the instrument and read home20 2550 (255%), home2000 3535
+(244%), thread480 6681 (202%) — all FAIL.
 
-```bash
-# (a) the whole branch: build at the commit that adds only the instrument
-#     home20 2550 (255%), home2000 3535 (244%), thread480 6681 (202%) — all FAIL
+The second rehearsal is gone. It pointed the app's `hanabi::ui::mk` wrapper
+back at the library's and read home20 2466 (247%), but `src/ui/mk.h` no longer
+exists — upstream 5996464 made `imm::mk` allocation-free and hanabi retired the
+wrapper. That retirement was measured allocation-neutral: home2000 528.0 before
+and 528.0 after.
 
-# (b) ONE LINE, which is the shape the regression will really take.
-#     src/ui/widget_epoch.h, point the app's mk wrapper back at the library's:
-sed -i '' 's|hanabi::ui::mk(parent, otherID, location);|afterhours::ui::imm::mk(parent, otherID, location);|' \
-    src/ui/widget_epoch.h
-make -j8 && make alloc-gate
-```
+No one-line control replaced it. Dropping the `std::move` in `src/ui/div.h` was
+tried and measured — home20 539.0, home2000 591.0, thread480 2581.0, all
+passing, because the compiler elides the copy — so it is documented here as a
+non-regression rather than kept as a control that proves nothing.
 
-(b) compiles, renders identically, changes no pixel, and reads:
-
-```
-  arm             allocs/f    ceiling  of ceil   verdict
-  home20            2466.0       1000     247%   FAIL
-  home2000          3361.0       1450     232%   FAIL
-  thread480         5803.0       3300     176%   FAIL
-```
 
 A one-line change inside a wrapper whose stated job is something else entirely,
 costing two thousand mallocs a frame forever. That is what this gate is for.
@@ -1199,18 +1193,27 @@ correctness failure. Nothing gates that; the image cache is capped below the
 pool instead, with a `static_assert`, which is a promise rather than a
 measurement.
 
-### A window resize, because the headless resize path leaks worse than the app
+### A window resize, whole — layout and render target both
 
-`afterhours_gaps.md` **#200**. The headless backend honours a resize by
-recreating the offscreen render target, and `load_render_texture` →
-`sgl_make_context` creates five Metal render pipelines that
-`sgl_destroy_context` does not release: **4.8 MB per 1000 frames, 18.7 MB a
-minute** — twice the autorelease leak that started this project, and named with
-`malloc_history` (40510 live `_sg_init_pipeline` allocations over 8103
-resizes). It is the headless branch only; a real window resize goes through
-Cocoa. `HANABI_STRESS=resize` therefore resizes the LAYOUT only and measures
-flat; `HANABI_STRESS_RESIZE_BACKEND=1` reproduces #200 in one run. The
-render-target half of a resize stays unmeasured.
+`HANABI_STRESS=resize` exercises the complete resize: the ECS resolution every
+widget lays out against, AND the backend call that re-sizes the render target
+the frame draws into.
+
+It did not always. The backend half used to leak five Metal render pipelines
+per resize — 4.8 MB per 1000 frames, named with `malloc_history` at 40510 live
+`_sg_init_pipeline` allocations over 8103 resizes — so the arm resized layout
+only and the render-target half went unmeasured. Upstream `1ad3360` fixed that
+leak by sharing the sgl context, and `src/util/gfx_resize.h` defers the target
+swap to a frame boundary so recreating it cannot tear down a live pass
+(`afterhours_gaps.md` #374). Both halves run by default now, and there is no
+opt-in flag.
+
+`scripts/stress_resize_gate.sh` is what keeps that true: it reads how many
+resizes the scenario ASKED for, how many reached the backend, and the size the
+backend REPORTS afterwards (`graphics::get_screen_width/height`, read back —
+never echoed from the request). A frame loop that opens its frame outside
+`hanabi::gfx::begin_frame` shows 520 asked / 0 applied; a `set_window_size`
+that became a no-op keeps the counter and fails on the size.
 
 ### Anything only the windowed app does — with one instrument now, and no gate
 
@@ -1222,7 +1225,7 @@ one question needed answering with a real window.
 
 `HANABI_GPU_WATCH_RESIZE=1` also drags the window through
 `metal_set_window_size` every n frames — the same NSWindow frame change a
-person's drag makes. That is how `afterhours_gaps.md` #200's scope was settled:
+person's drag makes. That is how `afterhours_gaps.md` upstream 1ad3360's scope was settled:
 73 real windowed resizes, 33 distinct sizes each visited twice about forty
 resizes apart, and the GPU total is **identical to the kilobyte on 32 of the 33**
 (the one exception reads 14 MB LOWER the second time, because its first sample

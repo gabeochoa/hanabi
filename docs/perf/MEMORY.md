@@ -405,7 +405,7 @@ at 192 pt and **0.0 at 288 pt**, with no error and no log. Every wrap, hug and
 ellipsize in this app is computed from `measure_text`, so a string that measures
 zero lays out as absent. hanabi is nowhere near it — four faces x fourteen sizes
 x the ASCII set, and again at 6x, all fit — but nothing would say so if it were.
-`afterhours_gaps.md` #211.
+`afterhours_gaps.md` upstream bdea3b9.
 
 #### 5e-bis. Widget retirement does not orphan a texture, and could not
 
@@ -439,8 +439,10 @@ ran: the icon atlas's load and the image cache's eviction. Neither was leaking,
 because both are reached from inside a pooled frame loop — until the pre-warm
 started calling one of them before any frame exists.
 
-**#200 is a heap leak, not a GPU one, and the two instruments disagreeing is
-the point.** The resize arm leaks five Metal render pipelines per resize --
+**The resize leak was a heap leak, not a GPU one, and the two instruments
+disagreeing is the point.** (Historical: fixed upstream by `1ad3360`, which
+released the pipelines; the arm measures flat at pin 9ff9079. Kept because the
+INSTRUMENT lesson stands.) The arm leaked five Metal render pipelines per resize --
 +4,928 KB of RSS and +65,966 live blocks per 1000 frames, 2.4x and 3.3x over
 their budgets. The GPU column on that same run reads **-8,192 KB**: it goes
 DOWN, because the arm sweeps the render target smaller, and the leaked objects

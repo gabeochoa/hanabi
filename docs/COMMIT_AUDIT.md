@@ -67,8 +67,8 @@ that ships code**.
 - **`vendor/afterhours` claims.** The submodule is uninitialised in the audit
   worktree; only the small number of vendor claims I chased by hand (via the
   populated checkout at `/Users/gabeochoa/p/hanabi`) were verified. Gap entries
-  #115, #117, #160-#162, #180-#192 and #210-#212 all rest on claims about
-  library internals, and #115 and #117 have *already both been shown wrong* by
+  the gap upstream fixed in `2393fe3`, #117, #160-#162, the gap upstream fixed in `5996464`-the gap upstream fixed in `2caf525` and #210-#212 all rest on claims about
+  library internals, and the gap upstream fixed in `2393fe3` and #117 have *already both been shown wrong* by
   exactly this route. This is where I would look next.
 - **Puffin's Swift source and the reference PNGs.** Not present. Every
   "Puffin's source says X" and every band measurement off `ref/*.png` is
@@ -257,7 +257,7 @@ src/ui/text_select.h:274  std::chrono::milliseconds(kMultiClickMs);
 'multi_click_time' 11ee0a04 -- src tests` returns nothing. The entry's central
 conclusion — the app is structurally stuck, both halves are upstream — is wrong
 for the half that decides the behaviour. **This is the same failure as the
-known gap #115 error, one file over.** The cause is wrong too: the author's own
+known gap upstream 2393fe3 error, one file over.** The cause is wrong too: the author's own
 later evidence (`1513aa7d4288`, `140990db5583`) is that the press never lands
 (the click y is above the first body line), not that the gesture times out.
 Retracted 16 minutes later, but the commit stands as written.
@@ -834,8 +834,8 @@ Recorded so the next person does not re-chase them.
 
 - **`expect_no_text "quoted"` can never fail.** True when
   `select_word_and_line.e2e:19` and `context_bar_needs_a_denominator.e2e:13`
-  were written (2026-08-22, gap #47 open), but the vendor bump `5ad0247`
-  (2026-08-23) carried the upstream fix; gap #47 is marked "**RESOLVED
+  were written (2026-08-22, gap upstream 2d6f23d open), but the vendor bump `5ad0247`
+  (2026-08-23) carried the upstream fix; gap upstream 2d6f23d is marked "**RESOLVED
   upstream**" and ten scripts use the quoted form today. **Not an open bug.**
 - **`b25fa8c6a2ba`: "`hanabi::AutoreleaseFrame` has no callers."** Rhetorical
   framing of an RAII type — it has 12 construction sites in `src/main.cpp`, and

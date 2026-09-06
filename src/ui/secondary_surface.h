@@ -75,6 +75,7 @@ inline ComponentConfig field(float width, int layer, float height = kFieldH) {
         .with_custom_background(theme::panel_bg_2())
         .with_border(theme::border(), pixels(1.0f))
         .with_custom_text_color(theme::text_primary())
+        .with_font_size(pixels(height * kFieldFontRatio))
         .with_alignment(TextAlignment::Left)
         .with_corner_radius(kControlCorner)
         .with_render_layer(layer);

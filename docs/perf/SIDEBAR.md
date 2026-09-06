@@ -139,7 +139,7 @@ document, so it goes first.
   So the 3.15 ms this change removed was not the cost of *drawing* Home. It was
   the cost of *having drawn* Home, charged every frame for the life of the
   process. afterhours' `mk()` retains entities by UUID and nothing ever retires
-  one — filed as **afterhours_gaps.md #115**, with the measurement.
+  one — filed as **afterhours_gaps.md upstream 2393fe3**, with the measurement.
 
 - **Cost** — ~1.1 µs per entity per frame, just to exist
   (3.15 ms / 2784 entities). Which means the app-side rule is: **the high-water
@@ -512,13 +512,13 @@ Not the sidebar. After this branch the idle profile at 2000 sessions is
 dominated by afterhours' own passes, and the two biggest items are already
 filed:
 
-- **gap #42** — the draw path re-measures every string from scratch every
+- **gap upstream 2b207d4** — the draw path re-measures every string from scratch every
   frame. `position_text_ex` calls `measure_text` directly, bypassing
   `TextMeasureCache`; `rendering.h` even carries a `// TODO add some caching
   here?` at the call site. `measure_text` + `position_text_ex` were 1157 of
   3908 main-thread samples (~30%) in the scroll profile, on text identical to
   the frame before.
-- **gap #115** — nothing retires a widget (above).
+- **gap upstream 2393fe3** — nothing retires a widget (above).
 
 One thing seen in the profile that is not yet filed anywhere and is worth a
 look before it is: `imm::mk()` builds a `std::stringstream`, formats a

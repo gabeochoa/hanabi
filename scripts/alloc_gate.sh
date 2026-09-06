@@ -171,22 +171,19 @@
 #      home2000          3535.0       1450     244%   FAIL
 #      thread480         6681.0       3300     202%   FAIL
 #
-# 2. ONE LINE, which is the shape the regression will actually take. In
-#    src/ui/widget_epoch.h, point the app's mk wrapper back at the library's:
+# 2. THE ONE-LINE REHEARSAL IS GONE, and that is worth recording rather than
+#    quietly deleting. It used to point the app's `hanabi::ui::mk` wrapper back
+#    at the library's and read home20 2466 (247%). `src/ui/mk.h` no longer
+#    exists: upstream 5996464 made `imm::mk` allocation-free, so hanabi
+#    retired its wrapper. Measured across that retirement, home2000 528.0 ->
+#    528.0 -- allocation-NEUTRAL, which is why the ceilings did not move.
 #
-#      -        hanabi::ui::mk(parent, otherID, location);
-#      +        afterhours::ui::imm::mk(parent, otherID, location);
-#
-#    Nothing else changes; nothing fails to compile; every pixel is identical.
-#
-#      home20            2466.0       1000     247%   FAIL
-#      home2000          3361.0       1450     232%   FAIL
-#      thread480         5803.0       3300     176%   FAIL
-#
-#    That is what this gate exists for: a one-line change with no visible
-#    effect, inside a wrapper whose stated job is something else entirely
-#    (stamping the frame that built a widget), that costs the app two thousand
-#    mallocs a frame forever.
+#    Nothing replaced it as a one-line control. The obvious candidate --
+#    dropping the `std::move` in src/ui/div.h so the config copies -- was
+#    tried and measured: home20 539.0, home2000 591.0, thread480 2581.0, all
+#    still under ceiling and PASSING. The compiler elides the copy, so it is
+#    not a regression and would be a control that proves nothing. Rehearsal
+#    (1) above, the whole-branch revert, remains real and is the one to run.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 

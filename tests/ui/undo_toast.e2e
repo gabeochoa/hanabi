@@ -10,7 +10,7 @@
 # emptied.
 #
 # Rows are addressed by coordinate because the harness has no
-# `right_click_ui <name>` (afterhours_gaps.md #55); menu ITEMS and the toast's
+# `right_click_ui <name>` (a coordinate, not a name); menu ITEMS and the toast's
 # own buttons are addressed by name, which is safe once they are on screen.
 #
 # The thread under test is t2, "needs a decision before it can go on": the

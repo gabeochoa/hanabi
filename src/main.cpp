@@ -49,6 +49,8 @@
 #include "ui/font_system.h"
 #include "ui/link_detect.h"
 #include "ui/theme.h"
+#include "ui/theme_config.h"
+#include "util/gfx_resize.h"
 
 #include "../vendor/afterhours/src/ecs.h"
 
@@ -89,7 +91,7 @@ struct MainRenderSystem : afterhours::System<> {
 // by the menu-bar "Show hanabi" action. Declared here (no header) to match the
 // existing extern "C" style; the windowed link pulls in the .mm definition.
 extern "C" void metal_activate_app(void);
-// The real NSWindow resize, for the windowed GPU watch below (#200).
+// The real NSWindow resize, for the windowed GPU watch below.
 extern "C" void metal_set_window_size(int width, int height);
 extern "C" void metal_constrain_window_to_screen(void);
 extern "C" void metal_frame_activity_install(void);
@@ -183,6 +185,8 @@ static void setup_app_state() {
     // scripted UI suite are unaffected.
     if (const float uis = hanabi::test_hooks::ui_scale(); uis != 1.0f) {
         afterhours::ui::imm::ThemeDefaults::get().theme.ui_scale = uis;
+        // Or begin_frame restores ui_scale 1.0 on frame one (ui/theme_config.h).
+        hanabi::ui::publish_app_theme();
     }
 
     // App singleton: build the client from the environment (mock by default).
@@ -738,7 +742,7 @@ static void app_frame() {
     // gate in this repo is headless, and a resize, a menu, a hotkey and the
     // window-restore path are invisible to all of them. This does not gate
     // anything; it is the one command that answers "does dragging the real
-    // window leak?" without a profiler. See afterhours_gaps.md #200.
+    // window leak?" without a profiler.
     {
         static const int watch = [] {
             const char* v = std::getenv("HANABI_GPU_WATCH");
@@ -747,7 +751,7 @@ static void app_frame() {
         // HANABI_GPU_WATCH_RESIZE=1 also DRAGS the window, every watch frames,
         // through metal_set_window_size -- the same NSWindow frame change a
         // person's drag makes, and the same one set_window_size's windowed
-        // branch calls. That is the only way to answer #200 for a real window
+        // branch calls. That is the only way to answer it for a real window
         // from inside the process: osascript cannot resize it without
         // assistive access, which is not a permission to grant on somebody's
         // daily machine to settle a measurement.
@@ -1368,7 +1372,7 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
     const auto pump = [&sm](int n) {
         for (int i = 0; i < n; ++i) {
             const hanabi::AutoreleaseFrame framePool;
-            graphics::begin_frame();
+            hanabi::gfx::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
             graphics::end_frame();
@@ -1568,7 +1572,7 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
 // says so.
 //
 // A detector for a condition nobody has ever reached is a detector nobody has
-// ever seen work. afterhours_gaps.md #211 recorded the condition (a 2048x2048
+// ever seen work. afterhours_gaps.md #350/#353 record what is still missing (a 2048x2048
 // fontstash atlas with no error callback, whose overflow shows up as
 // measure_text returning a WRONG number and then 0.0) and recorded that hanabi
 // was nowhere near it -- which is exactly the state in which a guard is
@@ -1609,7 +1613,7 @@ static int run_atlas_stress() {
     // A reference the atlas is guaranteed to already hold, re-measured every
     // step. It must never move: fontstash caches a glyph per (codepoint,
     // size), so a size already rasterised stays correct even after the atlas
-    // fills. If THIS ever changes, the failure is something other than #211.
+    // fills. If THIS ever changes, the failure is not an atlas overflow.
     const float refPx = 13.0f;
     const float refW = theme::text_px(ascii.c_str(), refPx);
 
@@ -1739,7 +1743,7 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
         }
         policy.rendered(nowUs);
         const hanabi::AutoreleaseFrame framePool;
-        afterhours::graphics::begin_frame();
+        hanabi::gfx::begin_frame();
         afterhours::graphics::clear_background(theme::window_bg());
         sm.run(dt);
         afterhours::graphics::end_frame();
@@ -1937,7 +1941,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                 // as a 21 ms second frame that no pre-warm could ever move.
                 const hanabi::launch_curve::Frame curveFrame{"settle"};
                 const hanabi::AutoreleaseFrame framePool;
-                graphics::begin_frame();
+                hanabi::gfx::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
                 graphics::end_frame();
@@ -1961,7 +1965,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             appForWait->view = ecs::SmartView::Chat;
             for (int p = 0; p < 6; ++p) {
                 const hanabi::AutoreleaseFrame framePool;
-                graphics::begin_frame();
+                hanabi::gfx::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
                 graphics::end_frame();
@@ -1976,7 +1980,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             appForWait->view = ecs::SmartView::Chat;
             for (int p = 0; p < 6; ++p) {
                 const hanabi::AutoreleaseFrame framePool;
-                graphics::begin_frame();
+                hanabi::gfx::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
                 graphics::end_frame();
@@ -1986,7 +1990,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         if (std::getenv("HANABI_THINK_DEMO")) {
             for (int p = 0; p < 4; ++p) {
                 const hanabi::AutoreleaseFrame framePool;
-                graphics::begin_frame();
+                hanabi::gfx::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
                 graphics::end_frame();
@@ -2073,7 +2077,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             const double c0 = hanabi::soak::cpu_nanos();
             {
                 const hanabi::AutoreleaseFrame framePool;
-                graphics::begin_frame();
+                hanabi::gfx::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
                 graphics::end_frame();
@@ -2108,7 +2112,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             const unsigned long long cpu0 = hanabi::prof::cpu_nanos();
             {
                 const hanabi::AutoreleaseFrame framePool;
-                graphics::begin_frame();
+                hanabi::gfx::begin_frame();
                 graphics::clear_background(theme::window_bg());
                 sm.run(1.0f / 60.0f);
                 graphics::end_frame();
@@ -2261,7 +2265,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         {
             const hanabi::launch_curve::Frame curveFrame{"capture"};
             const hanabi::AutoreleaseFrame framePool;
-            graphics::begin_frame();
+            hanabi::gfx::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
             graphics::end_frame();
@@ -2293,7 +2297,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             if (std::getenv("HANABI_THINK_DEMO")) {
                 for (int p = 0; p < 6; ++p) {
                     const hanabi::AutoreleaseFrame framePool;
-                    graphics::begin_frame();
+                    hanabi::gfx::begin_frame();
                     graphics::clear_background(theme::window_bg());
                     sm.run(1.0f / 60.0f);
                     graphics::end_frame();
@@ -2330,7 +2334,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             // diagnostic loop leaks a render pass per frame, which is exactly
             // the defect the numbers it prints are used to hunt.
             const hanabi::AutoreleaseFrame framePool;
-            graphics::begin_frame();
+            hanabi::gfx::begin_frame();
             graphics::clear_background(theme::window_bg());
             auto a = std::chrono::high_resolution_clock::now();
             if (split) {
@@ -2444,12 +2448,21 @@ static int run_e2e(const std::string& path, int w, int h) {
     // and the input + UI systems registered by build_systems have to read it
     // in the SAME frame or a click lands one frame late and the script races
     // its own assertions.
+    // Hanabi's `resize` handler goes in FIRST, ahead of the builtin it
+    // replaces: SystemManager::run walks update_systems_ in registration
+    // order, and the builtin returns early once ours has consumed the
+    // command. src/util/gfx_resize.h says why the builtin cannot be used.
+    hanabi::e2e::register_hanabi_pre_handlers(sm);
     t::register_builtin_handlers(sm);
     t::ui_commands::register_ui_commands<InputAction>(sm);
     hanabi::e2e::register_hanabi_commands(sm);
     t::register_unknown_handler(sm);
     t::register_cleanup(sm);
     build_systems(sm);
+    // Last: it reads the UI the frame's systems just built, so an armed
+    // latency watcher settles on the frame its ink actually appeared.
+    sm.register_update_system(
+        std::make_unique<hanabi::e2e::LatencyObserverSystem>());
 
     t::platform_input::set_test_mode(true);
     int g_settle_frames = 0;
@@ -2509,7 +2522,7 @@ static int run_e2e(const std::string& path, int w, int h) {
         int settleFrames = 0;
         for (int i = 0; i < 300; ++i) {
             const hanabi::AutoreleaseFrame framePool;
-            graphics::begin_frame();
+            hanabi::gfx::begin_frame();
             graphics::clear_background(theme::window_bg());
             sm.run(1.0f / 60.0f);
             graphics::end_frame();
@@ -2590,7 +2603,7 @@ static int run_e2e(const std::string& path, int w, int h) {
         // The scripted-UI suite runs 85 scripts through this loop and nothing
         // else drains what Metal autoreleases here.
         const hanabi::AutoreleaseFrame framePool;
-        graphics::begin_frame();
+        hanabi::gfx::begin_frame();
         graphics::clear_background(theme::window_bg());
         sm.run(kDt);
         graphics::end_frame();

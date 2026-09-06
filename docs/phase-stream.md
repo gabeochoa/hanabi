@@ -73,10 +73,10 @@ Add a streaming send that reports incremental chunks. Keep it PURE + testable:
   tests/ (new test_stream: mock streaming delivers chunks over ticks → final
   message assembled correctly; SSE parser fixture test if you implement it),
   makefile (wire the test), docs/config.example.json (generic stream keys),
-  afterhours_gaps.md (append #22 ONLY if afterhours blocks something).
+  afterhours_gaps.md (append upstream a1b9a4b ONLY if afterhours blocks something).
 
 ## HARD constraints
-- NEVER edit vendor/. Log a gap (#22 next) instead.
+- NEVER edit vendor/. Log a gap (upstream a1b9a4b next) instead.
 - No real endpoint/URL/token/company name — code, comments, defaults, fixtures.
   Generic placeholders only (example.invalid). The streamed mock reply must be
   generic and MUST NOT contain any company name (assert it in the test).

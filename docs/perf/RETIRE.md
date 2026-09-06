@@ -5,7 +5,7 @@ building 696 cards at a 2000-session catalog and capped it, and then found
 something stranger while checking why the cap helped: Home had been drawn
 **twice** in the first thousand frames and was still costing 3.15 ms a frame at
 frame 800. Not the cost of drawing it — the cost of *having drawn* it. That was
-filed as `afterhours_gaps.md` #115 and worked around with a cap, which lowers
+filed as `afterhours_gaps.md` upstream 2393fe3 and worked around with a cap, which lowers
 the high-water mark and does not touch the mechanism.
 
 This is the mechanism, fixed.
@@ -220,7 +220,7 @@ sample and 2191 on the next.
 
 ## 6. Why the two existing gates are blind to this
 
-Both are good gates. Neither can see #115, and the reasons are worth keeping
+Both are good gates. Neither can see the gap upstream fixed in `2393fe3`, and the reasons are worth keeping
 because they say what a third gate had to do differently.
 
 - **`soak_gate.sh` measures a slope.** This is a plateau. With the sweep off,

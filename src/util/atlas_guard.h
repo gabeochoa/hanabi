@@ -3,71 +3,41 @@
 // ---------------------------------------------------------------------------
 // A measurement that came back WRONG must not be allowed to be silent.
 //
-// THE CONDITION. afterhours' sokol backend creates one fontstash atlas of
-// 2048x2048 R8 at init (`backends/sokol/backend.h:104`) and it never grows.
-// When a glyph will not fit, fontstash raises FONS_ATLAS_FULL through
-// `stash->handleError`; afterhours never calls `fonsSetErrorCallback`, so the
-// default handler is null, `fons__getGlyph` returns NULL, and
-// `fonsTextBounds` -- which is what `measure_text` and
-// `measure_text_internal` are -- simply DOES NOT ADVANCE for that glyph.
-// afterhours_gaps.md #211, measured:
+// THE CONDITION. The sokol backend rasterises into one fontstash atlas that
+// never grows. When a glyph will not fit, fontstash stops advancing for it, so
+// `measure_text` returns short or zero -- and measure_text is the input to
+// every wrap, hug, ellipsize and virtualization spacer in this app, so a
+// string that measures short is LAID OUT short and one that measures zero is
+// laid out as absent.
 //
-//     size 144 pt   width 5933.0
-//     size 192 pt   width  230.0
-//     size 288 pt   width    0.0
+// WHAT UPSTREAM NOW DOES, and what it still does not. At pin 9ff9079 the
+// backend registers `fonsSetErrorCallback` and warns once when the atlas
+// fills, and `AFTERHOURS_FONT_ATLAS_SIZE` sets the ceiling (afterhours_gaps.md
+// upstream bdea3b9). So the CONDITION is now reported.
 //
-// No error, no log, no exception, no return code. This is not a rendering
-// artefact somebody squints at: `measure_text` is the input to every wrap,
-// every hug-to-text, every ellipsize and every virtualization spacer in this
-// app, so a string that measures short is LAID OUT short and a string that
-// measures zero is laid out as absent. And hanabi now measures through memos
-// (src/util/text_cache.h, src/util/wrap_count.h), so a poisoned number can be
-// remembered as well as used.
-//
-// WHY IT IS DETECTED HERE RATHER THAN FIXED. vendor/afterhours is read-only in
-// this repo. The atlas size is hard-coded two lines above the `sfons_create`
-// call, the FONScontext lives in a backend-private static with no accessor, so
-// `fonsSetErrorCallback` is out of reach, and nothing reports atlas occupancy.
-// The one thing a consumer CAN do is refuse to trust the answer, which is what
-// this file is. Filed upstream as gaps #350-#353.
+// What is still missing is per-measurement completeness (#350) and a drawn
+// substitute glyph (#353): nothing says WHICH measurement was short, and a
+// dropped glyph is still not drawn. A warning that the atlas filled does not
+// tell a layout that the number it just used was wrong, and hanabi remembers
+// measurements in memos (src/util/text_cache.h, src/util/wrap_count.h), so a
+// poisoned number can be cached as well as used. This file is what refuses to
+// trust the answer.
 //
 // WHAT IT CATCHES, HONESTLY
 //
-//   * ZERO. A non-blank string that measures 0 is the terminal symptom, and it
-//     is exact: every printable glyph in every font hanabi ships has a
-//     non-zero advance, so zero can only mean "no glyph was accounted for".
-//   * NOT FINITE. A NaN width poisons a comparison rather than a layout, which
-//     is worse, and costs the same one branch to catch.
-//   * SHORT, via `probe()`. A PARTIAL drop -- 5933 where the truth is ~7900 --
-//     cannot be recognised from the number alone by anybody who does not
-//     already know the answer, so it is not guessed at. Instead `probe()` asks
-//     the question directly: it measures a glyph the atlas has never been
-//     asked for, at a size the atlas has never been asked for, and a zero
-//     advance from THAT means the atlas can no longer accept a new rect. It is
-//     the condition, one step before the corruption, and it is what the
-//     `--atlas-stress` mode and the soak column drive.
+//   * ZERO. A non-blank string that measures 0 is exact: every printable glyph
+//     in every font hanabi ships has a non-zero advance.
+//   * NOT FINITE. A NaN width poisons a comparison rather than a layout.
+//   * SHORT, via `probe()`. A partial drop cannot be recognised from the
+//     number alone, so probe() asks directly: it measures a glyph the atlas
+//     has never held at a size it has never held, and a zero advance from THAT
+//     means the atlas can take no new rect. That is the condition, one step
+//     before the corruption, and it is what `--atlas-stress` and the soak
+//     column drive.
 //
-// WHAT IT DOES NOT CATCH, said plainly: a partial drop inside an ordinary
-// measurement, on a frame where `probe()` did not run. Detecting that from
-// outside the library needs a known-good width for the exact string, which no
-// consumer has. The probe bounds how long the condition can go unnoticed; it
-// does not make every individual poisoned measurement identifiable.
-//
-// COST. `check()` is one compare on a float the caller already has, and the
-// caller already branched on it in the fallback path. `probe()` is one
-// measurement, and it is called from the soak sampler and the stress mode, not
-// from a frame.
-//
-// LOUDNESS, in four places, because the whole failure of #211 is silence:
-//   * a line on stderr, ALWAYS, on the first fault and then at a decaying rate
-//     (a fault repeats every frame once the atlas is full, and a log that
-//     scrolls a build log off the screen gets muted, which is how this class
-//     of bug survives);
-//   * `hanabi::atlas::fault_count()` and `first_fault()` -- the test hook;
-//   * `hanabi::prof` counters, so HANABI_PROF=1 and the perf gates see it;
-//   * a `text-faults` column on every soak line;
-//   * and `HANABI_ATLAS_STRICT=1` turns the first fault into an abort, which
-//     is what a debug run and scripts/atlas_gate.sh use.
+// WHAT IT DOES NOT CATCH: a partial drop inside an ordinary measurement on a
+// frame where probe() did not run. Detecting that from outside the library
+// needs a known-good width for the exact string, which is #350.
 // ---------------------------------------------------------------------------
 
 #include <cmath>
@@ -104,7 +74,7 @@ struct State {
     // Measurement is only trustworthy once a font is loaded. Before that,
     // `measure_text_internal` returns 0 by design (no context, no active
     // font), and treating the whole of launch as a fault would drown the
-    // signal in the noise that made #211 invisible in the first place.
+    // signal in the noise that made a silent atlas fill invisible.
     bool armed = false;
     unsigned long long faults = 0;
     unsigned long long prefont_zeros = 0;
@@ -169,7 +139,7 @@ inline void raise(Fault f, std::string_view text, float px) {
             "returned a width that cannot be true. The known cause is the "
             "2048x2048 font atlas being full: fontstash drops the glyph AND "
             "its advance, so every wrap, hug, ellipsis and spacer computed "
-            "from this is wrong. afterhours_gaps.md #211/#350.\n",
+            "from this is wrong. afterhours_gaps.md #350/#353.\n",
             fault_name(f), s.faults, static_cast<double>(px),
             std::string(text.substr(0, 40)).c_str());
         std::fflush(stderr);

@@ -21,7 +21,7 @@
 # 400 is inside the left one and 900 inside the right. Coordinates because the
 # runner has no element-addressed pointer move (afterhours_gaps.md #285).
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md upstream 2d6f23d.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=t2 HANABI_SPLIT=rbig

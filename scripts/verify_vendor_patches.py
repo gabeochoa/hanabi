@@ -14,11 +14,10 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
-BASE = "fc4d6253b5b77ead77ad79f589fbd1ee0662aade"
-PIN = "fc4d6253b5b77ead77ad79f589fbd1ee0662aade"
+BASE = "9ff9079556c86d0fffb7bbc11c17898a74961c26"
+PIN = "9ff9079556c86d0fffb7bbc11c17898a74961c26"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 PATCHES = {
-    "351-report-font-atlas-exhaustion.patch": "atlas",
     "210-reject-unsamplable-textures.patch": "sampler",
     "265-focus-ring-contrast-toggle.patch": "focus",
     "255-word-editing-capability.patch": "word",
@@ -32,10 +31,6 @@ PATCHES = {
 # mistake this gate exists to catch is someone deleting a stand-in because
 # "the patch handles it". Each entry is (file, symbol) that must still be there.
 COMPENSATORS = {
-    "351-report-font-atlas-exhaustion.patch": [
-        ("src/util/atlas_guard.h", "prefont_zero_count"),
-        ("scripts/atlas_gate.sh", "atlas"),
-    ],
     "266-explicit-disabled-label-color.patch": [
         ("src/ui/theme.h", "ask_action_disabled_ink"),
         ("src/ecs/main_pane_system.h", "ask_action_disabled_ink"),

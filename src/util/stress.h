@@ -76,6 +76,7 @@
 #include "../ecs/components.h"
 #include "../ecs/tab_model.h"
 #include "../ecs/ui_imports.h"
+#include "gfx_resize.h"
 #include "../../vendor/afterhours/src/plugins/window_manager.h"
 
 namespace hanabi::stress {
@@ -176,6 +177,10 @@ struct Driver {
     int baseW = 0;
     int baseH = 0;
     int resizes = 0;
+    // What the scenario last ASKED for, so the gate can compare it against
+    // what the backend reports.
+    int lastResizeW = 0;
+    int lastResizeH = 0;
     int catalogRefreshes = 0;
     std::string moreKeyScratch;
 
@@ -282,7 +287,7 @@ struct Driver {
                 // reported shape of the app getting slower was navigation --
                 // Home, then a thread, then back -- and a screen that is no
                 // longer built is still walked by every system every frame
-                // (afterhours_gaps.md #115). An arm that never changes screen
+                // (afterhours_gaps.md upstream 2393fe3). An arm that never changes screen
                 // cannot see that, and for a month none of them did.
                 //
                 // The dwell is a COUNT, not a duration, so the arm is the same
@@ -481,6 +486,8 @@ struct Driver {
                                                        static_cast<float>(baseW));
                 const int h = baseH;
                 set_window_size_now(w, h);
+                lastResizeW = w;
+                lastResizeH = h;
                 ++resizes;
                 break;
             }
@@ -550,8 +557,9 @@ struct Driver {
                     }
                     if (baseW > 0) {
                         const bool narrow = (frame / 150) % 2 == 0;
-                        set_window_size_now(
-                            narrow ? baseW - baseW / 4 : baseW, baseH);
+                        lastResizeW = narrow ? baseW - baseW / 4 : baseW;
+                        lastResizeH = baseH;
+                        set_window_size_now(lastResizeW, lastResizeH);
                         ++resizes;
                     }
                 }
@@ -561,58 +569,15 @@ struct Driver {
         }
     }
 
-    // A resize, applied the way afterhours' own e2e `resize` command applies
-    // one: the ECS resolution singleton is the authoritative source for
-    // layout, and the backend call is what re-sizes the render target. Doing
-    // only the second leaves every widget laid out at the old size, so the
-    // scenario would resize a texture and measure nothing.
-    // Whether a resize also re-sizes the RENDER TARGET, or only the layout.
-    //
-    // OFF BY DEFAULT, AND THE REASON IS AN UPSTREAM LEAK — afterhours_gaps.h
-    // #200. The headless backend honours a resize by destroying and
-    // recreating the offscreen render texture, and
-    // `load_render_texture` -> `sgl_make_context` creates five Metal render
-    // pipelines that `sgl_destroy_context` does not release. Named with
-    // MallocStackLogging + malloc_history over ~8100 resizes:
-    //
-    //   40511 live calls, 12963520 bytes  _sg_init_pipeline -> MTLVertexDescriptor
-    //   40511 live calls, 12963520 bytes  _sg_init_pipeline -> MTLVertexBufferLayout
-    //  162040 live calls,  7777920 bytes  _sg_init_pipeline -> MTLVertexAttribute
-    //    8103 live calls                  _sg_init_image  (= one per resize)
-    //
-    // 4.8 MB of RSS per 1000 frames of resizing, rising 1.00 -- larger than
-    // the Metal autorelease leak that started this whole project. It is not
-    // hanabi's and hanabi cannot reach it: vendor/afterhours is read-only and
-    // there is no seam between window_manager::set_window_size and the
-    // backend. It is also NOT what a user hits, because the WINDOWED path
-    // resizes an NSWindow (metal_set_window_size) and never touches the
-    // offscreen target -- this is a headless-harness leak.
-    //
-    // So the default arm resizes the LAYOUT only: ProvidesCurrentResolution is
-    // what every widget is laid out against and what viewport::width() feeds,
-    // so the wrap, the clip and every width-keyed cache in hanabi all see the
-    // new size. That is hanabi's own resize cost, it is gateable, and it is
-    // the half hanabi can fix. Set HANABI_STRESS_RESIZE_BACKEND=1 to include
-    // the render target and reproduce #200 in one run.
-    static bool resize_backend() {
-        static const bool on = [] {
-            const char* v = std::getenv("HANABI_STRESS_RESIZE_BACKEND");
-            return v != nullptr && *v != '\0' && std::string(v) != "0";
-        }();
-        return on;
-    }
-
+    // A resize moves the layout and the render target both: the ECS
+    // resolution singleton is what every widget lays out against, and the
+    // backend call is what re-sizes the target the frame draws into. This arm
+    // used to do only the first, because the backend half leaked five Metal
+    // render pipelines per resize. Upstream 1ad3360
+    // fixed that leak, and hanabi::gfx defers the target swap to a frame
+    // boundary (#374), so the whole resize is exercised now.
     static void set_window_size_now(int w, int h) {
-        if (w <= 0 || h <= 0) return;
-        if (auto* pcr = afterhours::EntityHelper::get_singleton_cmp<
-                afterhours::window_manager::ProvidesCurrentResolution>()) {
-            pcr->current_resolution.width = w;
-            pcr->current_resolution.height = h;
-            // Otherwise CollectCurrentResolution puts the old size straight
-            // back on the next frame and the sweep is a no-op.
-            pcr->should_refetch = false;
-        }
-        if (resize_backend()) afterhours::window_manager::set_window_size(w, h);
+        hanabi::gfx::request_resize(w, h);
     }
 
     // Close the most recently opened tab, which is what Cmd-W does to the one
@@ -657,11 +622,20 @@ struct Driver {
     // Counts are the only thing that can tell those two apart, so they are
     // printed on every run, pass or fail.
     [[nodiscard]] std::string work_done() const {
-        char buf[256];
+        char buf[320];
+        // resizes counts what the scenario ASKED for; resizes_applied counts
+        // what reached the backend at a frame boundary, with the size it
+        // landed at. A deferral that stops being drained shows the two
+        // diverging, which is what scripts/stress_resize_gate.sh reads.
+        const auto& applied = hanabi::gfx::applied_resize_size();
         std::snprintf(buf, sizeof(buf),
                       "threads_opened=%d kept_tabs=%d churn_cycles=%d "
-                      "resizes=%d catalog_refreshes=%d tabs_now=%d",
+                      "resizes=%d resizes_applied=%u applied_size=%dx%d "
+                      "resize_target=%dx%d "
+                      "catalog_refreshes=%d tabs_now=%d",
                       threadCursor, keptTabs, churnCycles, resizes,
+                      hanabi::gfx::applied_resize_count(), applied.width,
+                      applied.height, lastResizeW, lastResizeH,
                       catalogRefreshes, live_tab_count());
         return std::string(buf);
     }

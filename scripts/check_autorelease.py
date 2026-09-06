@@ -36,7 +36,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 AUTORELEASE_H = ROOT / "src" / "util" / "autorelease.h"
 
-BEGIN_FRAME = re.compile(r"\bgraphics::begin_frame\s*\(")
+# Both spellings of the frame opener. hanabi::gfx::begin_frame is the app's
+# own -- it applies a deferred resize and then opens the frame
+# (src/util/gfx_resize.h) -- and it is what every frame loop calls, so it is
+# what needs the pool. The one afterhours::graphics::begin_frame left in the
+# tree is the one INSIDE that wrapper, whose caller holds the pool; the
+# wrapper's own file is exempt below.
+BEGIN_FRAME = re.compile(r"\b(?:hanabi::gfx|graphics)::begin_frame\s*\(")
+FRAME_OPENER_OWNER = "src/util/gfx_resize.h"
 POOL_DECL = re.compile(r"\bAutoreleaseFrame\b\s+\w+\s*(?:;|\{|=)")
 
 # The OTHER call that hands back autoreleased Metal objects, and the one this
@@ -178,7 +185,9 @@ def main() -> int:
         text = path.read_text()
         rel = str(path.relative_to(ROOT))
         check_textures = rel not in TEXTURE_SEAM_EXEMPT
-        interesting = "graphics::begin_frame" in text or (
+        if path.relative_to(ROOT).as_posix() == FRAME_OPENER_OWNER:
+            continue
+        interesting = "begin_frame" in text or (
             check_textures and TEXTURE_CALL.search(text) is not None
         )
         if not interesting:
@@ -192,7 +201,7 @@ def main() -> int:
     problems = check_pool_type()
 
     if not all_failures and not problems and not unparsed:
-        print("check_autorelease: every graphics::begin_frame() and every "
+        print("check_autorelease: every frame opener and every "
               "texture load is inside an AutoreleaseFrame scope")
         return 0
 

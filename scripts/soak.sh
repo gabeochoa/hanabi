@@ -62,18 +62,18 @@
 #   churn    open a thread, leave it, close it, open the next. The motion that
 #            found docs/perf/MEMORY.md entry 1 — five per-session maps that
 #            nothing erased — done by hand, and never automated until now.
-#   resize   drag the window narrower and wider. LAYOUT only by default:
-#            afterhours_gaps.md #200 is a 4.8 MB-per-1000-frame leak in the
-#            headless backend's render-target recreation, which would swamp
-#            anything hanabi could do. HANABI_STRESS_RESIZE_BACKEND=1 puts it
-#            back and reproduces #200.
+#   resize   drag the window narrower and wider -- layout AND render target,
+#            with the target swap deferred to a frame boundary
+#            (afterhours_gaps.md #374). It used to be layout-only because the
+#            backend half leaked; upstream 1ad3360 fixed that, so there is no
+#            longer an opt-in flag and no unmeasured half.
 #   mixed    all of the above interleaved, which is the only arm that
 #            resembles use. Report-only; see GROWING ARMS.
 #   open     open every thread as a KEPT tab and never close one. Report-only;
 #            see GROWING ARMS.
 #   views    the only arm that CHANGES SCREEN. Everything else sits on one
 #            screen for its whole run, and the cost of a screen you left is
-#            exactly what afterhours does not clean up (gap #115) — so for a
+#            exactly what afterhours does not clean up (gap upstream 2393fe3) — so for a
 #            month no arm could see it. Sampled in whole navigation cycles.
 #   bigidle  the control arm against a 2000-session catalog. A per-row leak is
 #            100x more visible; a cache sized by the catalog shows as a higher

@@ -5,7 +5,7 @@
 # anything on the thread that needs it. t2 is four messages; the fetch window
 # is forty.
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md upstream 2d6f23d.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 

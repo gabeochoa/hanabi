@@ -89,7 +89,7 @@
 #   level       row_window() returns the whole list       16.61x  (vs 1.60)
 #   blocks      row ids keyed on the row INDEX rather
 #               than the window slot, so mk() mints an
-#               entity per row scrolled past (#115)     +5288/1k  (vs 40)
+#               entity per row scrolled past (the gap upstream fixed in `2393fe3`)     +5288/1k  (vs 40)
 #   frame cpu   a per-frame walk over an index of rows
 #               visited, which is the "work proportional
 #               to something that grows" shape            1.223x  (vs 1.15)

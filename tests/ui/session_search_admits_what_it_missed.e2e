@@ -28,7 +28,7 @@ expect_text "Full text for 1 of 20 threads; the rest by title and preview only"
 # And the OTHER admission stays quiet when there is nothing to admit: "ledger"
 # hits two threads, which is fewer than the six rows fit, so the panel must not
 # claim there are more (session_search_says_there_were_more.e2e is the case
-# where it must). NOTE: expect_no_text takes a BARE single word -- gap #47.
+# where it must). NOTE: expect_no_text takes a BARE single word -- gap upstream 2d6f23d.
 expect_no_text narrow
 
 # Escape puts the panel away.

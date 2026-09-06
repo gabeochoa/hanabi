@@ -4,7 +4,7 @@
 # THE BUG THIS HOLDS DOWN. afterhours' `imm::mk()` hands back the same entity
 # for a call site forever and nothing ever retires one, so a screen the app has
 # navigated away from stays in the collection and every UI system walks it,
-# every frame, for the life of the process (afterhours_gaps.md #115). Measured
+# every frame, for the life of the process (afterhours_gaps.md upstream 2393fe3). Measured
 # before the fix, at a 2000-session catalog after visiting five screens: 2844
 # entities and 4.57 ms/frame, for screens nobody was looking at.
 #

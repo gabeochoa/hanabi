@@ -14,6 +14,7 @@
 #include "../keys.h"
 #include "../ui/secondary_surface.h"
 #include "keyboard_focus.h"
+#include "../ui/edged_field.h"
 #include "ui_imports.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 
@@ -88,7 +89,7 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("rename_subtitle"));
 
-        auto field = afterhours::ui::imm::text_input(
+        auto field = hanabi::ui::edged_text_input(
             ctx, mk(panel.ent(), 2), app->renameDraft,
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f),
@@ -96,11 +97,10 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                 .with_margin(Margin{.top = pixels(8)})
                 .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
-                .with_custom_text_color(theme::text_primary())
-                .with_alignment(TextAlignment::Left)
                 .with_corner_radius(hanabi::surface::kControlCorner)
-                .with_render_layer(13)
-                .with_debug_name("rename_input"));
+                .with_render_layer(13),
+            "rename_input",
+            hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio);
 
         // Focusing the field without a mouse press is also what selects the
         // whole title, so the first keystroke replaces it (text_input.h).

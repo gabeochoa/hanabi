@@ -396,7 +396,7 @@ $(TEST_DIR)/test_elicitation: tests/unit/test_elicitation.cpp src/api/elicitatio
 	@echo "Compiling test_elicitation..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_elicitation.cpp -o $@
 
-$(TEST_DIR)/test_widget_key: tests/unit/test_widget_key.cpp src/ui/mk.h $(TEST_HDRS) | $(TEST_DIR)
+$(TEST_DIR)/test_widget_key: tests/unit/test_widget_key.cpp $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_widget_key..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_widget_key.cpp -o $@
 
@@ -694,7 +694,7 @@ $(TEST_DIR)/test_spotlight_catalog: tests/unit/test_spotlight_catalog.cpp src/ut
 	@echo "Compiling test_spotlight_catalog..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_spotlight_catalog.cpp -o $@
 
-$(TEST_DIR)/test_div_move: tests/unit/test_div_move.cpp src/ui/div.h src/ui/mk.h $(TEST_HDRS) | $(TEST_DIR)
+$(TEST_DIR)/test_div_move: tests/unit/test_div_move.cpp src/ui/div.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_div_move..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_div_move.cpp -o $@
 
@@ -761,6 +761,10 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@echo "Running find level gate (scripts/find_gate.sh)..."
 	@bash scripts/find_gate.sh
 	@$(MAKE) soak-gate
+	@echo "Running stress-resize gate (scripts/stress_resize_gate.sh)..."
+	@bash scripts/stress_resize_gate.sh
+	@echo "Running latency instrument controls (scripts/latency_delay_sweep.sh)..."
+	@bash scripts/latency_delay_sweep.sh
 	@$(MAKE) alloc-gate
 	@$(MAKE) idle-gate
 	@$(MAKE) scaling-gate
@@ -846,6 +850,12 @@ gate-audit: $(MAIN_EXE) copy-resources
 
 soak-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/soak_gate.sh
+
+stress-resize-gate: $(MAIN_EXE) copy-resources
+	@bash scripts/stress_resize_gate.sh
+
+latency-gate: uitest-build copy-resources
+	@bash scripts/latency_delay_sweep.sh
 
 scaling-gate: $(MAIN_EXE) copy-resources
 	@bash scripts/scaling_gate.sh
@@ -959,9 +969,14 @@ stress-break: $(MAIN_EXE) copy-resources
 # caused all of this — see docs/perf/GATES.md.
 # The glyph atlas measured, and the detector for it PROVED by filling the
 # atlas on purpose. Counts and exit codes only — no milliseconds, so a busy
-# box cannot move the verdict. See scripts/atlas_gate.sh and gap #211/#350.
+# box cannot move the verdict. See scripts/atlas_gate.sh and gap #350/#353.
 atlas-gate: $(MAIN_EXE)
 	@bash scripts/atlas_gate.sh
+
+# The source checks import each other (the gap checker's selftest does), and a
+# bare import writes scripts/__pycache__/*.pyc into the tree. Target-scoped so
+# nothing else changes.
+source-checks: export PYTHONDONTWRITEBYTECODE=1
 
 source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	@echo "Running source checks..."
@@ -969,7 +984,7 @@ source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	if /usr/bin/python3 scripts/branding.py --config "$(BRANDING_CONFIG)" check \
 	    $(BRANDING_ARGS) --template "$(BRANDING_TEMPLATE)" --output-dir "$(BRANDING_DIR)" --root .; then :; else rc=1; fi; \
 	if /usr/bin/python3 tests/test_branding.py; then :; else rc=1; fi; \
-	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py scripts/check_gap_references.py scripts/check_div_routing.py scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/attachment_route_gate.py; do \
+	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py scripts/check_gap_references.py scripts/check_div_routing.py scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/check_theme_config.py scripts/check_resize_deferral.py scripts/focus_edge_gate.py scripts/attachment_route_gate.py; do \
 	    if /usr/bin/python3 $$chk; then :; else rc=1; fi; \
 	done; \
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \
@@ -977,7 +992,7 @@ source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	exit $$rc
 
 .PHONY: test unit-e2e e2e perf test-real test-agentcloud-real test-agentcloud-local soak soak-gate scaling-gate memory-scaling-gate scroll-gate \
-	retire-gate alloc-gate idle-gate events-gate home-scan-gate subagent-index-gate sidebar-scan-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
+	retire-gate alloc-gate idle-gate events-gate stress-resize-gate latency-gate home-scan-gate subagent-index-gate sidebar-scan-gate chrome-gate source-checks soak-report soak-baseline stress stress-break gate-audit atlas-gate
 
 # `make test-real` — the PRE-PUSH real-data check. Builds the read-only smoke
 # test WITH TLS (so it can reach an https backend) and runs it against the

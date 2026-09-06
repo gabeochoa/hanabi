@@ -40,7 +40,7 @@ assert_ui split_focus_edge x=693
 # (600, 48) is the middle of the second one -- clear of the first tab's close
 # button at x=480, which is where a first guess at this landed and which
 # closed t2 instead. By coordinate rather than by name because the harness
-# cannot name one tab of a strip (afterhours_gaps.md #55).
+# cannot name one tab of a strip (a coordinate, not a name).
 click 600 48
 wait_frames 30
 require_thread t9

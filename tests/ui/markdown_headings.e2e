@@ -10,7 +10,7 @@
 #   md_h1 row = round(20   * 1.35) + 2*2 pad = 31
 #   md_h4 row = round(13.5 * 1.35) + 2*2 pad = 22
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md upstream 2d6f23d.
 # "##" is that word here: it is on screen only if a heading rendered raw.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}

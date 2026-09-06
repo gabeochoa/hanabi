@@ -6,7 +6,7 @@
 # thread is the three-day fixture that always shows dividers otherwise (see
 # transcript_date_dividers.e2e, which asserts exactly that from the default).
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md upstream 2d6f23d.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","show_date_dividers":false}
 # env: HANABI_DATES_DEMO=1 HANABI_OPEN=rdates

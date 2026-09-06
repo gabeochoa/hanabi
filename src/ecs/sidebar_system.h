@@ -60,18 +60,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;
 
-        // The immediate-mode text_input forces its field background to the UI
-        // theme's Secondary color and its text to theme.font (gap #17), ignoring
-        // per-widget colors. Point those at hanabi tokens so the search field's
-        // inner surface blends into its pill (panel_bg_2) instead of rendering
-        // as a jarring default dark-blue box, and its text uses our palette.
+        // text_input takes its TEXT colour from theme.font, which is global
+        // (afterhours_gaps.md #105: ctx.theme is one struct read at render
+        // time, so a per-widget colour cannot reach it). Point the theme at
+        // hanabi tokens so the search field's text uses our palette. The
+        // background is the caller's to choose -- upstream honours it -- and
+        // the field below asks for none, because the pill around it is the
+        // surface.
         ctx.theme.secondary = theme::chrome::raised();
         ctx.theme.surface = theme::chrome::raised();
         ctx.theme.font = theme::text_primary();
         // The search field's placeholder colour has to be smuggled through
-        // the THEME: text_input forces its own colours and ignores the
-        // per-widget ones (gap #17), and font_muted is the one it reads for a
-        // placeholder. ctx.theme is a single global struct read at RENDER
+        // the THEME: font_muted is the colour text_input reads for a
+        // placeholder, and there is no per-widget knob for it
+        // (afterhours_gaps.md #105). ctx.theme is a single global struct read at RENDER
         // time, not at build time, so this is not scoped to this system --
         // setting it here brightens every muted label in the frame unless the
         // next system re-asserts its own. MainPaneSystem now does; measured,
@@ -249,7 +251,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 ctx.mouse_in_subtree(scroll.ent().id) ||
                 ctx.mouse_was_in_subtree(scroll.ent().id);
         }
-        // TEMPORARY scroll indicator (afterhours gap #26): thin overlay bar
+        // TEMPORARY scroll indicator (afterhours gap upstream a1b9a4b): thin overlay bar
         // computed from the panel's live HasScrollView metrics.
         // (scrollbar now drawn by afterhours)
 
@@ -382,7 +384,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Test-only (HANABI_WIDGET_AUDIT=1): widgets that are STALE -- built
         // by a screen the app has left, never retired, and walked by every UI
-        // system on every frame since (afterhours_gaps.md #115). Holding this
+        // system on every frame since (afterhours_gaps.md upstream 2393fe3). Holding this
         // at zero is what src/ui/widget_epoch.h is for, and no other assertion
         // can see it: a widget that should have been retired is by definition
         // not on screen, and the scripted matcher only reads what rendered.
@@ -1845,8 +1847,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Editable field bound to app.searchQuery. text_input() reads/writes
         // the std::string reference and drains typed chars while focused
-        // (click to focus). It forces its own Secondary background (gap #17),
-        // so we let it FILL the pill's remaining width — but in PIXELS, not
+        // (click to focus). The pill around it owns the chrome and the field
+        // paints nothing -- upstream honours the with_transparent_bg() below
+        // -- so the field just FILLS the pill's remaining width. In PIXELS, not
         // percent(1.0): afterhours has no flex-grow, so a percent child in a
         // NoWrap row overflows past its fixed siblings. Compute the width as
         // the field's inner content box minus the reserved icon (and clear-×,
@@ -2771,7 +2774,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // reorder records where a row sits among its peers, so it needs
             // the absolute index -- but an id derived from that index would
             // mint a fresh entity for every row scrolled past and never retire
-            // one (#115), which is the leak this change exists to avoid, dressed
+            // one (the retirement gap upstream closed in 2393fe3), which is
+            // the leak this change exists to avoid, dressed
             // up as a fix. Keying on the window slot means the same handful of
             // entities are re-used as the list moves under them, which is what
             // an immediate-mode row is.

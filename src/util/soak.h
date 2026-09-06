@@ -190,7 +190,7 @@ inline HeapStat heap_in_use() {
 // produce the same zero. On a screen
 // the app has sat on those two are the same number. After navigating away from
 // one they are not, and the difference never comes back down on its own
-// (afterhours_gaps.md #115).
+// (afterhours_gaps.md upstream 2393fe3).
 inline bool census_wanted() {
     static const bool on = [] {
         const char* v = std::getenv("HANABI_SOAK_CENSUS");
@@ -321,7 +321,7 @@ inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
     // full atlas does not leak a byte -- the atlas is allocated once at init
     // and never grows, which is why no memory column can see it -- it makes
     // measure_text return a wrong number and lays the UI out from it
-    // (afterhours_gaps.md #211/#350). A soak is exactly where a slow fill
+    // (afterhours_gaps.md #350/#353). A soak is exactly where a slow fill
     // would show up, and until this column existed there was nowhere it
     // could.
     // 48pt, deliberately larger than any size the app asks for (the biggest
@@ -808,7 +808,7 @@ inline int trend_verdict(const std::vector<Sample>& s) {
                     "because contention only ever adds time. Under\n[soak] a "
                     "scroll that means work proportional to how far the list "
                     "has\n[soak] been scrolled: a widget minted per row passed "
-                    "and never retired\n[soak] (afterhours_gaps.md #115), a "
+                    "and never retired\n[soak] (afterhours_gaps.md upstream 2393fe3), a "
                     "memo keyed on the offset, or a\n[soak] window that grows "
                     "instead of sliding.\n");
     if (blockFail)
@@ -1100,7 +1100,7 @@ inline int verdict(const std::vector<Sample>& s, VerdictTrends& reportOut) {
                     "changes every frame.\n"
                     "[soak]   3. a render target or pipeline recreated on "
                     "resize without an unload\n"
-                    "[soak]      -- afterhours_gaps.md #200, which leaks five "
+                    "[soak]      -- afterhours_gaps.md #374, the frame-boundary "
                     "pipelines per resize.\n"
                     "[soak]\n[soak] CEILING WARNING: sokol's pools are FIXED "
                     "(images 128, samplers 64), so\n[soak] a runaway texture "

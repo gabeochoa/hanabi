@@ -6,7 +6,7 @@
 # folding turned off in Settings, the whole reply is there and no button is
 # offered — the end of it is what the thread opens on.
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md upstream 2d6f23d.
 # The word is `lines`, not `Show`: the sidebar's own "Show N more…" expander is
 # on screen now that the thread list is one flat list capped to the viewport,
 # and a bare `Show` matches that instead of the fold button this test is about.

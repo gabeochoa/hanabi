@@ -19,6 +19,7 @@
 #include "input_mapping.h"
 #include "ui/font_system.h"
 #include "ui/focus_visible.h"
+#include "ui/theme_config.h"
 #include "util/atlas_guard.h"
 #include "rl.h"
 
@@ -158,6 +159,12 @@ Preload& Preload::make_singleton() {
         // true, binding Tab above would also have handed afterhours every
         // arrow keystroke in the app, so a caret move would jump focus.
         theme.arrows_tab = false;
+
+        // afterhours keeps this frame's theme and the app's own in separate
+        // slots and restores the first from the second at the top of every
+        // frame (upstream b6af466), so everything configured above would be
+        // gone by frame one without this. See ui/theme_config.h.
+        hanabi::ui::publish_app_theme();
 
         // afterhours_gaps.md #71 — the snap unit is round(4 * window_height /
         // 720) and it quantizes child POSITIONS, not just sizes, so a 32px row

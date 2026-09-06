@@ -13,7 +13,7 @@
 # row's padding — hence 306 and 466.
 #
 # Rows are addressed by coordinate because the harness has no
-# `right_click_ui <name>` (afterhours_gaps.md #55) and no way to name one row of
+# `right_click_ui <name>` (a coordinate, not a name) and no way to name one row of
 # a list; the menu ITEMS are addressed by name, which is safe once it is open.
 #
 # Both asserted titles are also painted as Home cards in the main pane, and

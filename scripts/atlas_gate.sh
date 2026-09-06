@@ -3,10 +3,13 @@
 # scripts/atlas_gate.sh -- the glyph-atlas detector, proved against a REAL
 # overflow, and the app proved clear of one.
 #
-# WHY THIS GATE EXISTS. afterhours_gaps.md #211: the font atlas is a fixed
+# WHY THIS GATE EXISTS. afterhours_gaps.md #350/#353: the font atlas is a fixed
 # 2048x2048, nothing registers fontstash's FONS_ATLAS_FULL callback, and the
 # symptom of filling it is that `measure_text` returns a WRONG NUMBER and then
-# 0.0, with no error, no log and no return code. That is not a rendering
+# 0.0. Upstream bdea3b9 now logs once when the atlas fills, so the CONDITION is
+# reported -- but the individual measurement still returns its wrong number with
+# no error and no return code, which is the residue this gate watches
+# (afterhours_gaps.md #350/#353). That is not a rendering
 # glitch. `measure_text` is what every wrap, hug, ellipsis and virtualization
 # spacer in this app is computed from, and hanabi memoizes measurement in four
 # places, so a poisoned number is both used and remembered.
@@ -27,7 +30,7 @@
 #      overflowed silently (the regression); 2 if it never overflowed (the run
 #      proves nothing).
 #   2. CLEAN. A normal headless launch of the real UI must raise ZERO faults.
-#      #211's own measurement says hanabi has headroom -- four faces, fourteen
+#      The measurement behind it says hanabi has headroom -- four faces, fourteen
 #      sizes, again at 2x/3x/4x/6x -- and this is the assertion that keeps that
 #      true as sizes and scripts are added. It is also the arm that would catch
 #      a detector so trigger-happy it fires on ordinary text.
@@ -76,7 +79,7 @@ echo "    cached reference:       ${REF:-(none)}"
 case "$RC" in
     0) echo "    ok — the atlas overflowed and the detector said so" ;;
     1) echo "    FAIL: the atlas overflowed and NOTHING SAID SO." >&2
-       echo "          That silence is the whole of afterhours_gaps.md #211." >&2
+       echo "          That silence is afterhours_gaps.md #350/#353." >&2
        FAIL=1 ;;
     2) echo "    FAIL: the atlas never overflowed, so this run proves nothing" >&2
        echo "          about the detector. The sweep's ceiling needs raising." >&2
@@ -103,7 +106,7 @@ echo "    headless render exit:   ${RC2}"
 echo "    faults raised:          ${FAULTS}"
 if [ "$RC2" -ne 0 ] || [ "$FAULTS" -ne 0 ]; then
     echo "    FAIL: a normal render raised a glyph-atlas fault. Either the app" >&2
-    echo "          has reached the 2048x2048 ceiling (#211 is now live and the" >&2
+    echo "          has reached the 2048x2048 ceiling (the fill is real and the" >&2
     echo "          layout is being computed from wrong widths), or the detector" >&2
     echo "          fires on ordinary text." >&2
     tail -6 "$CLEAN_LOG" | sed 's/^/          /' >&2

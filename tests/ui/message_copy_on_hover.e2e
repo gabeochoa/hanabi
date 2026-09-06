@@ -9,7 +9,7 @@
 # NOTE: expect_no_text takes a BARE single word, never a quoted string —
 # the script parser only strips quotes for expect_text, so a quoted
 # argument here is matched WITH its quote characters and can never hit.
-# afterhours_gaps.md #47.
+# afterhours_gaps.md upstream 2d6f23d.
 
 require_thread t2
 

@@ -30,6 +30,7 @@
 #include "../util/format.h"
 #include "../util/prof.h"
 #include "components.h"
+#include "../ui/edged_field.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -148,10 +149,10 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("palette_subtitle"));
 
         const std::string before = app->paletteQuery;
-        auto input = afterhours::ui::imm::text_input(
+        auto input = hanabi::ui::edged_text_input(
             ctx, mk(panel.ent(), 2), app->paletteQuery,
-            hanabi::surface::field(contentW, 11)
-                .with_debug_name("palette_input"));
+            hanabi::surface::field(contentW, 11), "palette_input",
+            hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio);
         if (focusFrames_ > 0) {
             --focusFrames_;
             ctx.set_focus(focusable_field(input.ent()));

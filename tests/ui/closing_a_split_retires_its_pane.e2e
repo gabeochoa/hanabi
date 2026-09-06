@@ -2,7 +2,7 @@
 #
 # A widget that stops being built is not gone: `imm::mk()` hands back the same
 # entity for a call site forever and every UI system walks the whole
-# collection every frame (afterhours_gaps.md #115). src/ui/widget_epoch.h
+# collection every frame (afterhours_gaps.md upstream 2393fe3). src/ui/widget_epoch.h
 # sweeps the ones nothing has built for `grace` frames -- but a sweep is only
 # as good as what it can reach, and a pane is a new way to make several
 # hundred widgets stop existing at once. Whether the sweep takes THEM is a

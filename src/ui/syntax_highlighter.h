@@ -7,7 +7,7 @@
 // per-run colour reaches it through `with_styled_label`. Inline mono inside a
 // paragraph is a different story and is not attempted here: a `TextSpan`
 // carries colour and weight but no per-run FONT, so an inline run cannot be
-// drawn in the mono face at all (afterhours_gaps.md, the #22 follow-up).
+// drawn in the mono face at all (afterhours_gaps.md, the upstream a1b9a4b follow-up).
 //
 // This is a SCANNER, not a parser: it knows about comments, strings, numbers
 // and a keyword list per language, and nothing about grammar. That is a

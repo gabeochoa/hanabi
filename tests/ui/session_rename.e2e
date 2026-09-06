@@ -5,11 +5,17 @@
 # the row, the tab and the transcript header all render it, and asserting only
 # that "Ship notes" appeared would pass with two of the three still stale.
 #
-# The thread under test is t6, "SKU backfill — my name for it": the sixth row
-# of the activity list, whose band is y=460..492 at this window size, so 475
-# lands on it. "SKU" is the bare word that belongs to that title and to no
-# other row, card or preview; "Backfill in progress" is the first line of its
-# transcript.
+# The thread under test is t6, "SKU backfill — my name for it". "SKU" is the
+# bare word that belongs to that title and to no other row, card or preview;
+# "Backfill in progress" is the first line of its transcript.
+#
+# The secondary click names its target rather than pinning a pixel. Upstream
+# ca1736f added right_click_text; before it, the only
+# way to open a context menu from a script was `right_click 120 475`, which is
+# the sixth row's band at this one window size and goes stale the moment the
+# list moves. The opening click keeps its coordinate: that one is a plain
+# activation and click_text would match the transcript copy as readily as the
+# row.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
@@ -21,9 +27,7 @@ wait_frames 8
 expect_text "Backfill in progress"
 
 # Secondary click on the same row: the context menu opens at the cursor.
-mouse_move 120 475
-wait_frames 3
-right_click 120 475
+right_click_text "SKU backfill"
 wait_frames 4
 expect_text "Rename"
 
@@ -43,9 +47,7 @@ expect_no_text SKU
 # A refusal is shown in the modal and nothing local changes: the server has the
 # last word on the title, so an empty one comes back rejected and the row keeps
 # the name it already had.
-mouse_move 120 475
-wait_frames 3
-right_click 120 475
+right_click_text "Ship notes"
 wait_frames 4
 click_ui row_menu_rename
 wait_frames 4

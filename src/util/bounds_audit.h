@@ -32,7 +32,7 @@
 //     optimisation, it is correctness, and it cost this audit its first
 //     finding: a widget built on an earlier frame and never rebuilt keeps its
 //     parent id, its computed rect and its last position, so it looks exactly
-//     like a live overflow and is not one (afterhours_gaps.md #115 and
+//     like a live overflow and is not one (afterhours_gaps.md upstream 2393fe3 and
 //     src/ui/widget_epoch.h are what that staleness is). afterhours' own
 //     assert_no_overflow tests the same flag first, for the same reason.
 //   * a child of a scroll view. Content taller than the viewport IS a scroll

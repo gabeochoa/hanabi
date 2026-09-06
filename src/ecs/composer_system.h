@@ -21,6 +21,7 @@
 
 #include "../keys.h"
 #include "../native_extras.h"
+#include "../ui/edged_field.h"
 #include "ui_imports.h"
 
 #include "../api/attachments.h"
@@ -186,13 +187,10 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
         // Bound text input for the new-task description. The imm text_input
         // widget writes edits straight into app.composerDraft.
         //
-        // NOTE (afterhours_gaps.md #17): the text_input widget derives its font
-        // size from the field HEIGHT (field_h * 0.5f) and forces its own
-        // Theme::Usage::Secondary background — it ignores with_font_size /
-        // with_custom_background. So the field is kept single-line-height (~34)
-        // to yield a ~17px readable font, and its inner surface is themed by
-        // ctx.theme (not our tokens). A caption above labels it since the
-        // widget also ignores placeholder styling here.
+        // text_input derives its text size from the field HEIGHT
+        // (field_h * 0.5) when the caller states none, so the size is stated
+        // below: the library's default moved under this field on the
+        // fc4d625..9ff9079 bump and silently shrank it.
         div(ctx, mk(parent, 1),
             ComponentConfig{}
                 .with_label("Describe the task")
@@ -205,7 +203,7 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("composer_caption"));
 
-        auto field = afterhours::ui::imm::text_input(
+        auto field = hanabi::ui::edged_text_input(
             ctx, mk(parent, 2), app.composerDraft,
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f),
@@ -213,10 +211,9 @@ struct ComposerSystem : afterhours::System<UIContext<InputAction>> {
                 .with_margin(Margin{.top = pixels(6)})
                 .with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))
-                .with_custom_text_color(theme::text_primary())
-                .with_alignment(TextAlignment::Left)
-                .with_corner_radius(hanabi::surface::kControlCorner)
-                .with_debug_name("composer_input"));
+                .with_corner_radius(hanabi::surface::kControlCorner),
+            "composer_input",
+            hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio);
         if (focusFrames_ > 0) {
             --focusFrames_;
             ctx.set_focus(focusable_field(field.ent()));

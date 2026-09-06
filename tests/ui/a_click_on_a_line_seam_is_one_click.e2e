@@ -46,7 +46,7 @@ expect_no_text selected
 #
 # The click away first is not decoration. The multi-click window is 400ms of
 # WALL CLOCK and a scripted run's waits are frame counts (afterhours_gaps.md
-# #231), so a whole script runs inside one 400ms window and every press at the
+# the host's fixed timestep), so a whole script runs inside one 400ms window and every press at the
 # same point continues the same run -- without this, the double below would be
 # presses three and four of the run started above and would take the LINE
 # (58 selected) rather than the word (6).
@@ -57,7 +57,7 @@ expect_no_text selected
 # far away it was. Measured: with a press into empty transcript the audit
 # reads runs 1, 2, 3 at the seam and the double below is a TRIPLE. Waiting
 # longer does not help either -- `wait_frames 60` fails identically, which is
-# #231 from the other side: a headless run's frames are stepped, so a frame
+# The same property from the other side: a headless run's frames are stepped, so a frame
 # count cannot spend the 400ms of wall clock the window is measured in.
 #
 # 700,300 IS on an element with the clock pinned: the reply's body element is

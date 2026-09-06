@@ -12,6 +12,13 @@ inline constexpr float kControlCorner = 7.0f;
 inline constexpr float kSheetPadH = 24.0f;
 inline constexpr float kSheetPadV = 20.0f;
 inline constexpr float kFieldH = 38.0f;
+// afterhours' text_input sizes its text from the field HEIGHT (field_h * 0.5)
+// only when the caller states no font size of its own. Hanabi's fields stated
+// none, so 19px is what they have always drawn -- until the library's default
+// changed under them (upstream f328d13 made ComponentConfig::font_size default
+// to the type scale and auto-fit opt-in), which silently shrank every field's
+// text from 12px of ink to 9px. State the ratio instead of inheriting it.
+inline constexpr float kFieldFontRatio = 0.5f;
 inline constexpr float kMenuRowH = 36.0f;
 inline constexpr float kButtonH = 34.0f;
 inline constexpr float kTitleH = 26.0f;

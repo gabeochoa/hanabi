@@ -115,10 +115,11 @@ expanded function signature into a `std::stringstream` and hashing the
 resulting `std::string`. In this app that string is routinely 200 to 400
 characters, built a character at a time through `stringbuf::overflow`.
 
-Worked around with hanabi's own `mk` (`src/ui/mk.h`) hashing the same five
+Worked around with hanabi's own `mk` (retired at pin 9ff9079, once upstream
+`hash_call_site` landed in `5996464`) hashing the same five
 facts with no string at all — file and function by POINTER, which is stable for
 the life of the process and is the only property a key that is never persisted
-needs. Upstream ask: `afterhours_gaps.md` **#180**.
+needs. Upstream ask: `afterhours_gaps.md` **upstream 5996464**.
 
 It stacks with `src/ui/widget_epoch.h`, which was already wrapping `mk` for a
 different reason (stamping the frame that built each widget, for retirement).
@@ -377,7 +378,7 @@ which is the proof that the two defects are separable and both are held.
 | ComponentConfig label copies | ~470 | upstream (#181) |
 | hanabi's own remaining build work | ~370 | ours |
 
-**Two thirds of what is left is inside the library**, and #180, #181 and #183
+**Two thirds of what is left is inside the library**, and the gap upstream fixed in `5996464`, #181 and #183
 are the three asks that would move it. That is a different position from where
 this started, where two thirds of it was hanabi's.
 

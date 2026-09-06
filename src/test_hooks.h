@@ -105,7 +105,7 @@ inline bool row_audit() {
 
 // HANABI_WIDGET_AUDIT=1 makes the sidebar print, in a corner label, how many
 // widgets are STALE -- built by some earlier screen, never retired, and walked
-// by every UI system on every frame since (afterhours_gaps.md #115).
+// by every UI system on every frame since (afterhours_gaps.md upstream 2393fe3).
 //
 // It is the number src/ui/widget_epoch.h exists to hold at zero, and nothing
 // else can show it: a retired widget is not on screen, so the scripted matcher

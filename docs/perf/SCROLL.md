@@ -150,7 +150,7 @@ Zero spread, to the entity, and flat across a 1000x catalog.
      fling cannot turn the window back into the list.
 
   2. **The row id is the memory policy.** `mk()` retains an entity per distinct
-     id forever and nothing retires one (**#115**), so keying rows on the row
+     id forever and nothing retires one (**the gap upstream fixed in `2393fe3`**), so keying rows on the row
      INDEX — the natural spelling, the one where the widget "is" the row —
      mints an entity for every row ever scrolled past. Measured on a
      1600-frame sweep of a 2000-row list: **+180 live blocks per 1000 frames,
@@ -208,7 +208,7 @@ Zero spread, to the entity, and flat across a 1000x catalog.
   | arm | defect | read |
   |---|---|---|
   | level | `row_window()` returns the whole list | 16.61x vs 1.60 |
-  | blocks | ids keyed on row index, not window slot (#115's shape) | +277/1k vs 40 |
+  | blocks | ids keyed on row index, not window slot (the gap upstream fixed in `2393fe3`'s shape) | +277/1k vs 40 |
   | frame cpu | a per-frame walk over an index of rows visited | 1.223x vs 1.15 |
 
   The frame-CPU arm fires at about **+0.47 ms of drift across the halves of a
@@ -407,7 +407,7 @@ priced here so the next person starts from a number rather than from "measures
 as noise", which was recorded when the frame around them was 3.1 ms.
 
 The rest is afterhours' own passes, and the two biggest are already filed:
-**#42** (every string re-measured from scratch every frame) and **#115**
+**the gap upstream fixed in `2b207d4`** (every string re-measured from scratch every frame) and **the gap upstream fixed in `2393fe3`**
 (nothing retires a widget).
 
 ---

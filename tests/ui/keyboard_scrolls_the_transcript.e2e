@@ -4,7 +4,7 @@
 # so the line you were reading is still on screen. Driven on the 120-message
 # perf fixture, the only thread here tall enough to scroll far.
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md upstream 2d6f23d.
 # "#0:" is that word here: it appears in the first message and no other.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}

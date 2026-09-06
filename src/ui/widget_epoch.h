@@ -6,7 +6,6 @@
 
 #include "../../vendor/afterhours/src/plugins/ui/entity_management.h"
 #include "../../vendor/afterhours/src/plugins/ui/ui_collection.h"
-#include "mk.h"
 
 namespace hanabi::widget_epoch {
 

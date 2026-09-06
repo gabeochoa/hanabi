@@ -1,0 +1,54 @@
+# Interaction latency, part 1 of 2. docs/perf/LATENCY.md has the budgets, the
+# measurements, and why the unit is frames.
+#
+# Each arm is: arm the watcher on ink that is NOT on screen, do the input, read
+# the wait. `watch_ink` refuses to arm on anything already present, and the
+# clock starts when the input is consumed -- so a number here cannot be the
+# runner's pacing and cannot be an always-present container.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+
+require_thread t2
+wait_frames 20
+
+# 1. TYPING/SEARCH -- typing into the sidebar's search field, measured to the
+#    clear affordance, which the app draws only once a query exists. A real
+#    search path, and separate from the popup arm in part 2: this one filters a
+#    list, that one builds an overlay.
+click 140 58
+wait_frames 6
+watch_ink typing_search ui sb_search_clear
+type "disk"
+wait_frames 12
+expect_latency typing_search 8
+
+# 2. FOCUS -- an exact state transition; focus produces no new ink of its own,
+#    so the watcher reads focus itself.
+watch_ink focus focus composer_reply_input
+click_ui composer_reply_input
+wait_frames 6
+expect_latency focus 5
+
+# 3. SUBMIT -- Enter sends, measured to the assistant's acknowledgement, which
+#    is what the person is actually waiting for. Not the sent text: the
+#    composer is still drawing the draft when the watcher arms, and watch_ink
+#    refuses to arm on something already on screen.
+type "latency probe turn"
+wait_frames 8
+watch_ink submit text "Got it"
+key ENTER
+wait_frames 240
+expect_latency submit 12
+
+# Clear the query so the sidebar lists every thread again -- the arm below
+# clicks a row the filter would otherwise hide.
+click_ui sb_search_clear
+wait_frames 10
+
+# 4. CLICK TO FEEDBACK -- a sidebar row click, measured to a line only the
+#    thread it opens contains.
+watch_ink click_feedback text "412"
+click_text "two workers still out"
+wait_frames 14
+expect_latency click_feedback 11

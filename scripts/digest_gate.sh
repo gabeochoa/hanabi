@@ -93,7 +93,7 @@
 #       built 11 -> 63 on Home, over the 40 ceiling.
 #   the window kept but the frame-one fallback left as "build everything"
 #       built stays 13 and WIDGETS stay 2473 -- nothing retires a widget
-#       (gap #115), so one uncapped frame is a permanent plateau. This is why
+#       (gap upstream 2393fe3), so one uncapped frame is a permanent plateau. This is why
 #       the gate has a widget arm at all and not only a card arm.
 # ---------------------------------------------------------------------------
 set -uo pipefail
@@ -284,7 +284,7 @@ for view in $VIEWS; do
         echo "  FAIL: '$view' widget ratio ${WR}x exceeds ${WIDGET_RATIO_CEILING}x," >&2
         echo "        with only $BUILT cards built. Something OTHER than the" >&2
         echo "        cards is growing with the catalog — or a single uncapped" >&2
-        echo "        frame minted widgets that nothing retires (gap #115), in" >&2
+        echo "        frame minted widgets that nothing retires (gap upstream 2393fe3), in" >&2
         echo "        which case the card count is right and the plateau is" >&2
         echo "        permanent. docs/perf/DIGEST.md." >&2
         FAIL=1

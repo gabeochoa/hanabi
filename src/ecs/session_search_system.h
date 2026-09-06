@@ -31,6 +31,7 @@
 #include "../ui/secondary_surface.h"
 #include "components.h"
 #include "keyboard_focus.h"
+#include "../ui/edged_field.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -189,10 +190,10 @@ struct SessionSearchSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("xsearch_subtitle"));
 
         const std::string before = app->sessionSearchQuery;
-        auto inputRes = afterhours::ui::imm::text_input(
+        auto inputRes = hanabi::ui::edged_text_input(
             ctx, mk(panel.ent(), 2), app->sessionSearchQuery,
-            hanabi::surface::field(contentW, 11)
-                .with_debug_name("xsearch_input"));
+            hanabi::surface::field(contentW, 11), "xsearch_input",
+            hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio);
         if (app->sessionSearchQuery != before) app->sessionSearchIndex = 0;
         if (focusFrames_ > 0) {
             --focusFrames_;

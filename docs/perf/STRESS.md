@@ -47,16 +47,15 @@ real input would be.
 | `tabs` | round-robin between previews | **does not accumulate tabs** — see below |
 | `search` | type a query, hold it, clear it | the hold is the point; see below |
 | `open` | every thread as a KEPT tab, never closed | "open every thread until it breaks" |
-| `resize` | the window narrower and wider, one step a frame | layout only by default; see gap #200 |
+| `resize` | the window narrower and wider, one step a frame | layout only by default; see gap upstream 1ad3360 |
 | `churn` | open a thread, leave it, close it, open the next | the motion that found five unbounded per-session maps |
 | `mixed` | all of the above interleaved | the only arm that resembles use |
-| `views` | Home / Blocked / Review / Starred / Archived / a thread, on a cycle | the only one that CHANGES SCREEN, which is why #115 lived a month |
+| `views` | Home / Blocked / Review / Starred / Archived / a thread, on a cycle | the only one that CHANGES SCREEN, which is why the gap upstream fixed in `2393fe3` lived a month |
 | `digest` | Blocked, swept end to end at 96 px a frame | the screen whose job is to show everything; the biggest card list |
 | `bigidle` | `idle` against a 2000-session catalog | a per-row leak is 100x more visible. **Not a `HANABI_STRESS` value** — it is a `soak.sh` ARM (`scenario="idle"; sessions=2000`); `HANABI_STRESS=bigidle` parses to `Scenario::None` |
 
 Knobs: `HANABI_STRESS_FRAMES`, `HANABI_STRESS_SETTLE` (120),
-`HANABI_STRESS_TABS` (8), `HANABI_STRESS_EVERY`, `HANABI_STRESS_SESSIONS`,
-`HANABI_STRESS_RESIZE_BACKEND`.
+`HANABI_STRESS_TABS` (8), `HANABI_STRESS_EVERY`, `HANABI_STRESS_SESSIONS`.
 
 Thirteen arms, four at a time, **53 seconds** for the lot.
 
@@ -305,7 +304,7 @@ this branch added or changed.
 
 ### The resize arm can only measure half a resize
 
-`afterhours_gaps.md` **#200**: the headless backend honours a resize by
+`afterhours_gaps.md` **upstream 1ad3360**: the headless backend honours a resize by
 destroying and recreating the offscreen render target, and
 `load_render_texture` → `sgl_make_context` creates five Metal render pipelines
 that `sgl_destroy_context` does not release. **4.8 MB per 1000 frames, 18.7 MB
@@ -319,16 +318,18 @@ one — and it still costs, because it makes the one arm that could have gated a
 user-facing resize leak unable to gate anything.
 
 `HANABI_STRESS=resize` therefore resizes the **layout** only, which is the
-half hanabi owns:
+both halves:
 
 | | RSS per 1000 frames | |
 | --- | ---: | --- |
-| layout only (default) | +0.0 KB | PASS |
-| `HANABI_STRESS_RESIZE_BACKEND=1` | +5209.6 KB | FAIL 10.2x |
+| layout only (the old default) | +0.0 KB | PASS |
+| layout + backend (before `1ad3360`) | +5209.6 KB | FAIL 10.2x |
+| layout + backend (current, at pin 9ff9079) | +0.0 KB | PASS |
 
-The cost of the workaround: the arm draws into a render target of the wrong
-size, so it can never be extended into a screenshot test, and the
-render-target half of a resize stays unmeasured.
+The middle row is why the arm used to be half a resize. Upstream `1ad3360`
+released the pipelines it was leaking, so the whole resize now measures flat
+and the arm draws into a render target of the RIGHT size — which is what let
+`scripts/stress_resize_gate.sh` start asserting the backend's reported size.
 
 ### `open` and `mixed` cannot be gated on flatness
 

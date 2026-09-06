@@ -334,17 +334,17 @@ you. A number is worth more than an adjective.
 
 - **What I wanted** — a 45px input with 13px text and a 10px inset, i.e. the
   three properties of Puffin's box.
-- **What happened** — gap #17 says `text_input` derives its font size from the
+- **What happened** — the gap upstream fixed in `817d00e` says `text_input` derives its font size from the
   field height and ignores `with_font_size`. That is no longer true: the widget
   now honours an explicitly-set font size. The padding beside it, computed two
   lines later in the same block from the same height, still does not — and
   because the font size now works, the padding failing reads as a bug in your
   own code rather than a known gap. I lost time measuring text insets before I
   went back to the source.
-- **Cost** — ~15 minutes, and gap #17's text in this repo is now half wrong,
+- **Cost** — ~15 minutes, and the gap upstream fixed in `817d00e`'s text in this repo is now half wrong,
   which is its own hazard.
 - **Class** — `FOOTGUN`
-- **Gap filed?** — yes, `#65`, which supersedes half of #17.
+- **Gap filed?** — yes, `#65`, which supersedes half of the gap upstream fixed in `817d00e`.
 
 ### 7. A composer cannot reach the bottom of the window (not afterhours' fault)
 
@@ -455,13 +455,13 @@ geometry rather than drawing them freehand.
 - **What happened** — the transcript moved down, and three scripted tests that
   click a word, a link and a card BY COORDINATE failed. They are coordinate
   clicks because the harness cannot name a piece of text or a byte range
-  (gaps #51, #55), so tests about selection and hit-testing are pinned to
+  (gaps #51, the gap upstream fixed in `ca1736f`), so tests about selection and hit-testing are pinned to
   pixels and any layout change breaks them.
 - **Cost** — 6 coordinates re-measured off screenshots. And because the app's
   harness never registered `dump_ui`, the way to read a real rect was to
   `assert_ui <name> y=-1` and read the number back out of the failure message.
 - **Class** — `TEDIOUS`
-- **Gap filed?** — no; #51/#55 already say it. The new part is the price: a
+- **Gap filed?** — no; #51/upstream ca1736f already say it. The new part is the price: a
   layout change costs a screenshot-measuring session per pinned test.
 
 ---
@@ -856,7 +856,7 @@ region went 4.75% -> 4.55%.
 
 - **What I wanted** — a green suite after the content moved up.
 - **What the library did** — there is still no way to address a text run or ask
-  where one landed (gaps #47, #51), so `message_copy_on_hover`,
+  where one landed (gaps the gap upstream fixed in `2d6f23d`, #51), so `message_copy_on_hover`,
   `select_word_and_line` and `tracker_links` all reach into the transcript by raw
   coordinate. All three broke, and each had to be re-measured by rendering the
   thread at the test's own window size and scanning the PNG for text rows.
@@ -1549,7 +1549,7 @@ a semibold because it is the correct render, never because of a parity number.
 ### 2. Colouring one placeholder moved the main pane — gap #90 (theme)
 
 - The placeholder's colour can only be set through `ctx.theme.font_muted`
-  (text_input ignores per-widget colours, gap #17), and `ctx.theme` is one
+  (text_input ignores per-widget colours, the gap upstream fixed in `817d00e`), and `ctx.theme` is one
   global struct the RENDERER reads. Setting it in the sidebar brightened every
   muted label in the frame: `main` moved 0.14 points on a change that touched
   no main-pane code.

@@ -3,7 +3,7 @@ From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
 Date: Thu, 03 Sep 2026 22:24:00 -0400
 Subject: [PATCH] fix(ui): an explicit label colour is the caller's, disabled or not
 
-Pinned base: fc4d6253b5b77ead77ad79f589fbd1ee0662aade
+Pinned base: 9ff9079556c86d0fffb7bbc11c17898a74961c26
 
 resolve_label_color halved an explicitly supplied text colour when the widget
 was disabled. That is a light-theme rule with no theme-aware floor: on a dark

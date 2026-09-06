@@ -224,7 +224,7 @@ Each screen in hanabi exists to exercise a region of the afterhours UI library. 
 3. **Feed afterhours_gaps.md.** As gaps accumulate, propose upstream changes based on how many screens they block or distort. A gap that affects 3 screens is higher priority than one affecting 1.
 
 ### Example workflow:
-- Capture 15_settings_dark. The modal looks good overall, but the scrollable settings list is clipped without a scrollbar. **This is afterhours #26 (no built-in scrollbar).** The gap is now **visible in CI** alongside the other 14 baseline differences.
+- Capture 15_settings_dark. The modal looks good overall, but the scrollable settings list is clipped without a scrollbar. **This is afterhours upstream a1b9a4b (no built-in scrollbar).** The gap is now **visible in CI** alongside the other 14 baseline differences.
 - Over time, tally: "6 screens would look sharper with scrollbars, 3 need flex-grow, 2 need text selection." This is data, not opinion. The screenshot suite is the **instrument** that surfaces and counts library shortcomings.
 
 ### Integration with afterhours_gaps.md:
@@ -238,7 +238,7 @@ The hanabi screenshot suite (docs/breakdown/screenshot-testing.md) captures 32 c
 | afterhours gap | hanabi screen(s) blocked or distorted | baseline filename(s) |
 |---|---|---|
 | #23 (no scroll-anchor) | scroll-heavy states lose position | 20_big_transcript_dark |
-| #26 (no scrollbar) | modals and panels clipped | 15_settings_dark, 16_settings_light |
+| the gap upstream fixed in `a1b9a4b` (no scrollbar) | modals and panels clipped | 15_settings_dark, 16_settings_light |
 | #30 (no scroll-anchor/prepend) | load-older snaps to top | (design prevents capture; happens during interaction) |
 
 This table is maintained as the screenshot suite grows and gaps accumulate.

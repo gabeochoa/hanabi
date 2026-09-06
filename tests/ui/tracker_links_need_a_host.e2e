@@ -5,7 +5,7 @@
 # the id must do nothing at all. A link that opens nothing is worse than the
 # text it replaced, so the absence here is the feature.
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md upstream 2d6f23d.
 #
 # THE POINT MUST BE ON THE ID. It was (456,492) — 348px below the only tracker
 # id in this thread, which is to say on nothing. A negative test that clicks

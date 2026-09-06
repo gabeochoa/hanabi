@@ -16,7 +16,7 @@ visible paragraph on every frame, and the only way to ask cost a wrap.
 
 Written the way `docs/visual-parity/FRICTION_LOG.md` is: what was wanted, what
 happened, what it cost, numbers inline. Library halves are `#135`, `#136`,
-`#137` and `#116`, plus `#190`–`#192` filed here.
+`#137` and `#116`, plus `#190`–`the gap upstream fixed in `2caf525`` filed here.
 
 **Every headline is a COUNT.** This box is shared with several other agents
 and its load average has been observed at 29; `docs/perf/GATES.md` records an

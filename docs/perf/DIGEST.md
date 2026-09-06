@@ -137,7 +137,7 @@ So for as long as the scaling gate has existed, two of the five screens have
 been passing it the way a screen nobody renders passes it. And the "63 cards"
 I reported for Starred and Archived in this branch's first commit were not
 theirs at all: they were **Home's leftovers** — entities from the frames before
-`HANABI_VIEW` is applied, which nothing retires (gap #115). I measured a
+`HANABI_VIEW` is applied, which nothing retires (gap upstream 2393fe3). I measured a
 screen and read another screen's residue.
 
 `HANABI_STRESS_PINNED` / `HANABI_STRESS_ARCHIVED` fill them now, as a
@@ -168,14 +168,14 @@ Measured, the same binary, that fallback the only difference:
 a 1.9x improvement, on a build whose widget count had not moved by a single
 entity — 2473 against the 2472 it started at.
 
-Nothing retires a widget (#115), so ONE unmeasured frame mints four entities
+Nothing retires a widget (the gap upstream fixed in `2393fe3`), so ONE unmeasured frame mints four entities
 per matched session and the app carries all 2276 of them for the rest of the
 process. Frame two builds thirty and the census still reads 2276. A branch
 whose entire subject is entity counts came within half an hour of shipping
 with the entity count unchanged, and what caught it was reading the census
 instead of the clock.
 
-Filed as **#220**, with the one-line upstream fix that would have made it a
+Filed as **the gap upstream fixed in `2ccc38e`**, with the one-line upstream fix that would have made it a
 compile error: make `viewport_size` an `optional`, so "not measured yet" is
 not silently the same value as "measured as zero".
 
@@ -438,7 +438,7 @@ The rest follows `render_digest` exactly: the cursor walk visits every row
 built or not (so arrowing off the window scrolls to a card the next frame
 builds), `digest_card` is told `trackCursor=false` so it cannot count a row
 twice, and card ids are keyed on the window SLOT rather than the row index —
-gap #115, nothing retires a widget, so index keys would mint four entities per
+gap upstream 2393fe3, nothing retires a widget, so index keys would mint four entities per
 card ever scrolled past.
 
 The cap stays. It bounds `matched`, which is why Home's arm in

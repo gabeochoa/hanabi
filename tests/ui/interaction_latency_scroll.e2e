@@ -1,0 +1,23 @@
+# Interaction latency, part 3 of 3: scroll.
+#
+# Its own script because it needs a transcript long enough to scroll. Every
+# hand-written thread in the mock fits on screen at 1100x760, so a scroll arm
+# on one of those settles never -- a fixture that proves nothing rather than a
+# fast app. The 120-turn perf fixture is the one place there is something to
+# scroll.
+#
+# Measured to `jump_to_bottom`, the affordance the app draws only once the view
+# has left the bottom. It is ink that scrolling creates, so it cannot be
+# confused with the always-present scroll container.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
+
+require_thread rbig
+mouse_move 650 400
+wait_frames 12
+
+watch_ink scroll ui jump_to_bottom
+scroll_wheel 0 3
+wait_frames 25
+expect_latency scroll 8

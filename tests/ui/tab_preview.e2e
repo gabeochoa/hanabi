@@ -14,7 +14,7 @@
 # straight off the slot origin and is not compensated, so it still reads 288.
 #
 # Rows are clicked by coordinate because the harness cannot name one row of a
-# list (afterhours_gaps.md #55): the band starts at y=380 with 24px rows, so
+# list (a coordinate, not a name): the band starts at y=380 with 24px rows, so
 # y=386 / y=410 / y=434 are the first three threads.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}

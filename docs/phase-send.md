@@ -62,10 +62,10 @@ through the async loader. It turns hanabi from browse-only into interactive.
   kickoff creates a listable+openable session). Wire into the makefile test
   target following the existing pattern.
 - `docs/config.example.json` — add the generic chat/kickoff/prompt keys.
-- `afterhours_gaps.md` — append #22 ONLY if afterhours blocks something.
+- `afterhours_gaps.md` — append upstream a1b9a4b ONLY if afterhours blocks something.
 
 ## HARD constraints
-- NEVER edit vendor/. Log a gap (#22 next) instead.
+- NEVER edit vendor/. Log a gap (upstream a1b9a4b next) instead.
 - No real endpoint/URL/token/company name anywhere — code, comments, defaults,
   fixtures. Generic placeholders only. Grep the full diff before finishing.
 - Mock is the zero-config default and stays fully functional offline. With no

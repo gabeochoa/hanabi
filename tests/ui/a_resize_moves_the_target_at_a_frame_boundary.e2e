@@ -1,0 +1,40 @@
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIN_W=760 HANABI_WIN_H=620
+#
+# The planted control for the resize deferral (src/util/gfx_resize.h).
+#
+# afterhours' own `resize` handler destroys and recreates the headless render
+# target inline, from inside a System -- which runs mid-pass, with that
+# target's pass open and its draw commands recorded against it. Sokol's
+# validator catches the teardown and aborts the process
+# (VALIDATE_APIP_ATTACHMENTS_ALIVE). Hanabi consumes `resize` ahead of the
+# builtin and splits it: the resolution moves now, the render target moves at
+# the next frame boundary.
+#
+# The other seven resize scripts prove the app does not abort. They cannot say
+# WHY, so a deferral that quietly stopped deferring would still look green
+# until the pin moved again. This asserts the mechanism directly, by counting
+# the resizes applied at a frame boundary.
+#
+# It bites both ways. Remove the apply_pending_resize() call from the frame
+# loop and it reads `expected 1 resize(s) applied at a frame boundary, saw 0`;
+# stop consuming the command and the builtin resizes inline and the process
+# aborts before this line.
+
+require_thread t2
+wait_frames 24
+
+# Nothing deferred yet.
+expect_resizes_applied 0
+assert_ui sidebar w=220
+assert_ui composer_row x=220 w=540
+
+resize 1100 620
+
+# The layout moved on the frame that asked for it...
+wait_frames 24
+assert_ui sidebar w=280
+assert_ui composer_row x=280 w=820
+
+# ...and the render target moved exactly once, at a frame boundary.
+expect_resizes_applied 1

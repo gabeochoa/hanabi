@@ -27,8 +27,8 @@
 //   #262 proposed saving and restoring ctx.theme's Secondary around the call.
 //        That works (the usage is resolved at BUILD time, component_init.h:381
 //        -- the same reasoning gap #105 records for font_muted), and this
-//        composer has in fact been doing it since gap #17, which is why the
-//        interior never turned (57,57,68) here. But a colour is not what the
+//        composer has in fact been doing it since long before this pin,
+//        which is why the interior never turned (57,57,68) here. But a colour is not what the
 //        caller asked for: `with_transparent_bg()` asks the field to paint
 //        NOTHING, and painting the right colour instead is visibly different
 //        wherever something is underneath. See below.
@@ -108,6 +108,23 @@ inline void apply_focus_edge(afterhours::EntityID fieldId, bool focused,
     field.get<afterhours::ui::HasBorder>().border =
         afterhours::ui::Border::all(
             accent, afterhours::ui::pixels(kFocusEdgeThickness));
+}
+
+// Drop the focused border text_input puts on its own field.
+//
+// The widget adds `Border::all(ctx.theme.accent, 2px)` to the field entity
+// while focused (text_input/component.h:257). When an app draws the focused
+// edge on a WRAPPER instead -- which it must, because the field's own top row
+// is clipped (afterhours_gaps.md #375) -- that inner border is still there,
+// one pixel inside the wrapper's, and the field reads as two concentric rings
+// in two different blues.
+inline void clear_focus_border(afterhours::EntityID fieldId) {
+    auto opt = afterhours::ui::UICollectionHolder::getEntityForID(fieldId);
+    if (!opt.valid()) return;
+    auto& field = opt.asE();
+    if (!field.has<afterhours::ui::HasBorder>()) return;
+    field.get<afterhours::ui::HasBorder>().border = afterhours::ui::Border::all(
+        afterhours::colors::transparent(), afterhours::ui::pixels(0.0f));
 }
 
 }  // namespace hanabi::ui::field_chrome

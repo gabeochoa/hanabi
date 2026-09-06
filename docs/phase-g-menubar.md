@@ -43,7 +43,7 @@ presence" feature: a small icon in the system menu bar whose title/badge reflect
 
 ## Constraints (HARD)
 - Do NOT edit anything under vendor/. If sokol/afterhours blocks something, log it
-  to afterhours_gaps.md (next number is #22).
+  to afterhours_gaps.md (next number is upstream a1b9a4b).
 - No parent-company names in any file (icon, strings, comments). Generic only.
 - Only touch: src/menubar.mm (new), src/menubar.h (new), src/main.cpp (install +
   per-frame flag poll), src/ecs/components.h (maybe: requestNewTask flag). Do NOT

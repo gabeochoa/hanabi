@@ -1,7 +1,7 @@
 # Vendored afterhours patches (proven in hanabi, ready for the maintainer)
 
 `vendor/afterhours` is the pinned afterhours submodule
-(`fc4d6253b5b77ead77ad79f589fbd1ee0662aade`). This directory contains both
+(`9ff9079556c86d0fffb7bbc11c17898a74961c26`). This directory contains both
 older Hanabi-proven fixes and proof patches that are applied only to temporary
 vendor copies by `make verify-vendor-patches`. The verifier checks the base,
 checks and applies each patch independently, compiles focused probes, and
@@ -12,7 +12,7 @@ submodule is never edited.
 submodule verbatim, so a green `make verify-vendor-patches` says the patch is a
 good upstream contribution and that the PIN STILL LACKS the behaviour — it does
 not say hanabi has the fix. Where hanabi needs the behaviour it carries its own
-stand-in (`src/util/atlas_guard.h` for #351, `theme::ask_action_disabled_ink()`
+stand-in (`src/util/atlas_guard.h` for #350/#353, `theme::ask_action_disabled_ink()`
 for #266), and the verifier asserts those stand-ins are still present. If a
 patch lands upstream, bump the pin, delete the patch from here and from
 `PATCHES`, and retire the stand-in with it.
@@ -31,19 +31,28 @@ If you only want the diff applied to the working tree (no commit), use:
     git apply --check ../../vendor_patches/<file>.patch # dry-run: verify it applies
 
 Every patch states its pinned base in the commit message. The proof-patch set
-below applies independently to `fc4d625`; the older patches retain their own
+below applies independently to `9ff9079`; the older patches retain their own
 bases. After a patch lands upstream, bump Hanabi's submodule pointer and remove
 the corresponding patch here.
 
-## Verified proof patches on fc4d625
+## Verified proof patches on 9ff9079
 
-`PATCHES` in `scripts/verify_vendor_patches.py` covers the five below. The other
+`PATCHES` in `scripts/verify_vendor_patches.py` covers the four below. The other
 four files in this directory (`22`, `25`, `30`, `305`) are **not** in `PATCHES`
 and are verified by nothing.
 
+`351-report-font-atlas-exhaustion.patch` was here and is **gone: it landed
+upstream** as `bdea3b9` "Say when the font atlas is full, and let it be
+resized", which registers `fonsSetErrorCallback` and adds
+`AFTERHOURS_FONT_ATLAS_SIZE`. The verifier's own `require_red` would have
+failed on it at this pin, which is the check working as designed.
+`src/util/atlas_guard.h` STAYS: #350 (ask whether a measurement dropped a
+glyph) and #353 (draw the substitute glyph) are still open, so the probe is
+still the only way hanabi can know a measurement is wrong rather than merely
+that the atlas filled.
+
 | Patch | Gaps | Vendor delta | Focused proof |
 |---|---:|---:|---|
-| `351-report-font-atlas-exhaustion.patch` | #351 | +12 | The source contract is absent before and present after; the patched Sokol headers compile as Objective-C++. |
 | `210-reject-unsamplable-textures.patch` | #210 | +7 | The sampler validation/cleanup contract is absent before and present after; the patched Sokol headers compile. |
 | `265-focus-ring-contrast-toggle.patch` | #265 | +17/-12 | The none backend records three outlines by default in both renderers; disabling contrast records exactly one after the patch. |
 | `255-word-editing-capability.patch` | #255 | +7 | A consumer `static_assert` does not compile before; complete and incomplete action enums classify correctly after. |
@@ -55,8 +64,8 @@ Run:
 
 Expected runtime is about one minute on Apple Silicon. A pass ends with:
 
-    PASS all 5 vendor patches are absent from the pinned tree
-    fc4d6253b5b77ead77ad79f589fbd1ee0662aade and apply cleanly to it. The app
+    PASS all 4 vendor patches are absent from the pinned tree
+    9ff9079556c86d0fffb7bbc11c17898a74961c26 and apply cleanly to it. The app
     builds against the UNPATCHED pin; hanabi's own stand-ins are what ship.
 
 The probes live in `tests/vendor_probes/`; `scripts/verify_vendor_patches.py`

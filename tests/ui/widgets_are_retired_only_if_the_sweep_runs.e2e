@@ -16,7 +16,7 @@ expect_text "Home"
 
 # Open a thread. Home's cards stop being built here and, with the sweep off,
 # stop being anything else either: they stay in the collection and every UI
-# system keeps walking them (afterhours_gaps.md #115).
+# system keeps walking them (afterhours_gaps.md upstream 2393fe3).
 click 140 386
 wait_frames 30
 assert_ui transcript_scroll hidden=false

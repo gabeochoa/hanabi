@@ -55,6 +55,7 @@
 #include <format>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
 #include "../api/disk_cache.h"
@@ -62,6 +63,8 @@
 #include "../ui/link_detect.h"
 #include "../ui_context.h"
 #include "../util/clipboard.h"
+#include "../util/gfx_resize.h"
+#include "../util/latency.h"
 #include "components.h"
 #include "pane_state.h"
 
@@ -614,7 +617,272 @@ struct HandleExpectUploadCancelledCommand
     }
 };
 
+// `resize W H`, taken over from afterhours' builtin.
+//
+// The builtin destroys and recreates the headless render target inline, from
+// inside a System -- which runs mid-pass, with that target's own pass open and
+// its draw commands recorded. That is a teardown of live pass attachments and
+// sokol aborts on it. This consumes the command first and splits it: the
+// resolution moves now, the render target moves at the next frame boundary.
+// src/util/gfx_resize.h has the full account.
+//
+// Consuming it is what keeps the builtin out: HandleResizeCommand returns
+// early on cmd.is_consumed(). Registration therefore has to come BEFORE
+// register_builtin_handlers -- SystemManager::run walks update_systems_ in
+// registration order -- and `expect_resizes_applied` is the planted control
+// that proves this handler, not the builtin, did the work.
+struct HandleResizeDeferredCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    // SystemManager::tick merges newly created entities AFTER each system
+    // runs (core/system.h, `EntityHelper::merge_entity_arrays()` at the foot
+    // of the per-system block), so the FIRST system in the list never sees an
+    // entity created since the previous system -- and the runner creates the
+    // PendingE2ECommand between frames, in runner.tick(). Registering ahead of
+    // the builtins is therefore not enough on its own: without this the
+    // handler runs, iterates an entity list that does not hold the command
+    // yet, and the builtin picks the command up one system later. Merging here
+    // is what makes "registered first" mean "sees it first": tick() reads
+    // entities.size() after once() returns.
+    void once(float) override { afterhours::EntityHelper::merge_entity_arrays(); }
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("resize")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("resize requires width height arguments");
+            return;
+        }
+        const int w = cmd.arg_as<int>(0);
+        const int h = cmd.arg_as<int>(1);
+        if (w <= 0 || h <= 0) {
+            cmd.fail("resize: invalid dimensions");
+            return;
+        }
+        hanabi::gfx::request_resize(w, h);
+        cmd.consume();
+    }
+};
+
+// `expect_resizes_applied N` -- the planted control for the deferral. It reads
+// the count of resizes applied AT A FRAME BOUNDARY, so it fails both ways: if
+// the deferral regresses and the builtin resizes inline the count stays 0, and
+// if a script's resize silently stopped happening the count stays 0 too.
+struct HandleExpectResizesAppliedCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_resizes_applied")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_resizes_applied requires a count");
+            return;
+        }
+        const int want = cmd.arg_as<int>(0);
+        const int got = static_cast<int>(hanabi::gfx::applied_resize_count());
+        if (got == want) {
+            cmd.consume();
+            return;
+        }
+        cmd.fail(std::format(
+            "expected {} resize(s) applied at a frame boundary, saw {}", want,
+            got));
+    }
+};
+
+// True when a watcher's target is on screen (or focused) right now.
+inline bool latency_target_present(hanabi::latency::Kind kind,
+                                   const std::string& target) {
+    using hanabi::latency::Kind;
+    if (kind == Kind::Ui)
+        return afterhours::testing::ui_commands::
+            find_component_center<InputAction>(target)
+                .has_value();
+    if (kind == Kind::Text)
+        // The registry of text actually DRAWN this frame, which is what
+        // afterhours' own expect_text reads.
+        return afterhours::testing::VisibleTextRegistry::instance().contains(
+            target);
+    auto* ctx = afterhours::EntityHelper::get_singleton_cmp<
+        afterhours::ui::UIContext<InputAction>>();
+    if (ctx == nullptr) return false;
+    for (const auto& handle : afterhours::ui::UICollectionHolder::get()
+                                  .collection.get_entities()) {
+        if (!handle) continue;
+        const afterhours::Entity& e = *handle;
+        if (!e.has<afterhours::ui::UIComponentDebug>()) continue;
+        if (e.get<afterhours::ui::UIComponentDebug>().name() != target) continue;
+        const auto id = e.get<afterhours::ui::UIComponent>().id;
+        // Subtree too: a field's focusable element is a child of the named
+        // one, which is how afterhours' own expect_focused resolves it.
+        if (ctx->has_focus(id) || ctx->contains_in_subtree(id, ctx->focus_id))
+            return true;
+    }
+    return false;
+}
+
+// Stamps the frame an armed target first appears. A SYSTEM, not a command:
+// the runner fails a command that does not consume on its first dispatch
+// (HandleUnknownCommand), so a script-side assertion cannot wait for ink that
+// has not arrived — it looks once and is gone. This looks every frame, so the
+// frame it records is the frame the ink actually appeared on.
+struct LatencyObserverSystem
+    : afterhours::System<afterhours::ui::UIContext<InputAction>> {
+    // HANABI_LATENCY_DELAY=N holds every arm's OBSERVATION back by N frames
+    // after its target really appears. It is the falsification control: an arm
+    // whose number does not move by N was not measuring the app, and one whose
+    // number moves by N is measuring the frame its ink arrived. Unset is a
+    // hard no-op. scripts/latency_delay_sweep.sh drives it.
+    static long injected_delay() {
+        static const long n = [] {
+            const char* v = std::getenv("HANABI_LATENCY_DELAY");
+            return v != nullptr && *v != '\0' ? std::atol(v) : 0L;
+        }();
+        return n;
+    }
+    void once(float) override {
+        const long delay = injected_delay();
+        for (auto& w : hanabi::latency::watches()) {
+            if (w.pending || w.armed < 0 || w.settled >= 0) continue;
+            if (!latency_target_present(w.kind, w.target)) continue;
+            if (w.first_seen < 0) w.first_seen = hanabi::latency::now_frame();
+            if (hanabi::latency::now_frame() - w.first_seen >= delay)
+                w.settled = hanabi::latency::now_frame();
+        }
+    }
+};
+
+// Starts every pending watcher's clock on the frame an input is consumed.
+// Registered after the builtins, so `is_consumed` means the input took effect
+// on this frame rather than merely having been dispatched.
+struct LatencyInputStampSystem
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void once(float) override { afterhours::EntityHelper::merge_entity_arrays(); }
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (!cmd.is_consumed()) return;
+        static const char* kInputs[] = {
+            "click", "click_ui", "click_text", "click_button", "double_click",
+            "double_click_ui", "triple_click", "right_click", "right_click_ui",
+            "right_click_text", "middle_click", "key", "type", "scroll_wheel",
+            "focus_ui", "toggle_checkbox", "drag", "drag_to", "mouse_down",
+            "mouse_up", "select_all", "action", "click_link", "resize",
+            "enter", "tab", "escape"};
+        for (const char* name : kInputs)
+            if (cmd.is(name)) {
+                hanabi::latency::input_landed();
+                return;
+            }
+    }
+};
+
+// `watch_ink <label> <ui|text|focus> <target>` — arm a latency watcher.
+//
+// The target MUST be absent right now; arming on something already on screen
+// fails the script. That is the whole point: an assertion that merely FINDS a
+// component cannot say the interaction produced it, and an always-present
+// container (a scroll view, the tab strip, a text field) makes every arm read
+// as the runner's own pacing between two commands. This instrument had that
+// bug in all five of its first arms.
+//
+// Arm BEFORE the input. The clock starts when the next input is CONSUMED by
+// its builtin handler, so the runner's own gap between the two commands is not
+// counted and the number is the app's response alone.
+struct HandleWatchInkCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("watch_ink")) return;
+        if (!cmd.has_args(3)) {
+            cmd.fail("watch_ink requires <label> <ui|text|focus> <target>");
+            return;
+        }
+        const std::string label = cmd.arg(0);
+        const std::string kindArg = cmd.arg(1);
+        // The runner's generic parser splits on whitespace and keeps quotes,
+        // so a quoted multi-word target arrives as several args with the
+        // quotes still on. Rejoin and unquote.
+        std::string target;
+        for (size_t i = 2; i < cmd.args.size(); ++i) {
+            if (!target.empty()) target += ' ';
+            target += cmd.args[i];
+        }
+        if (target.size() >= 2 && target.front() == '"' && target.back() == '"')
+            target = target.substr(1, target.size() - 2);
+        hanabi::latency::Kind kind;
+        if (kindArg == "ui") kind = hanabi::latency::Kind::Ui;
+        else if (kindArg == "text") kind = hanabi::latency::Kind::Text;
+        else if (kindArg == "focus") kind = hanabi::latency::Kind::Focus;
+        else {
+            cmd.fail(std::format("watch_ink: unknown kind '{}'", kindArg));
+            return;
+        }
+        if (latency_target_present(kind, target)) {
+            cmd.fail(std::format(
+                "watch_ink {}: '{}' is ALREADY present — this arm would "
+                "measure the runner's pacing, not the interaction",
+                label, target));
+            return;
+        }
+        hanabi::latency::arm(label, kind, target);
+        cmd.consume();
+    }
+};
+
+// `expect_latency <label> <max_frames>` — read a settled watcher.
+struct HandleExpectLatencyCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_latency")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_latency requires <label> <max_frames>");
+            return;
+        }
+        const std::string label = cmd.arg(0);
+        const int budget = cmd.arg_as<int>(1);
+        const long frames = hanabi::latency::latency(label);
+        if (frames < 0) {
+            // Name what WAS drawn. A text watcher matches one drawn string at
+            // a time, so a needle that spans a wrap never matches and the
+            // reason is invisible without this.
+            const hanabi::latency::Watch* w = hanabi::latency::find(label);
+            std::string seen =
+                afterhours::testing::VisibleTextRegistry::instance().get_all();
+            if (seen.size() > 400) seen = seen.substr(0, 400) + " ...";
+            cmd.fail(std::format(
+                "expect_latency {}: '{}' never appeared. Visible text was: {}",
+                label, w != nullptr ? w->target : std::string("?"), seen));
+            return;
+        }
+        std::fprintf(stderr, "[latency] %s %ld\n", label.c_str(), frames);
+        if (frames > budget) {
+            cmd.fail(std::format(
+                "expect_latency {}: {} frames from input to first ink, "
+                "budget {}",
+                label, frames, budget));
+            return;
+        }
+        cmd.consume();
+    }
+};
+
+// Registered BEFORE afterhours' builtins, so the resize handler above sees
+// `resize` first. Everything else hanabi owns goes in the function below.
+inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
+    sm.register_update_system(std::make_unique<HandleResizeDeferredCommand>());
+    sm.register_update_system(
+        std::make_unique<HandleExpectResizesAppliedCommand>());
+}
+
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
+    // After the builtins on purpose: watch_ink records the frame the PREVIOUS
+    // input was consumed, which is the frame it landed.
+    sm.register_update_system(std::make_unique<LatencyInputStampSystem>());
+    sm.register_update_system(std::make_unique<HandleWatchInkCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectLatencyCommand>());
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
     sm.register_update_system(std::make_unique<HandleExpectNotFocusedCommand>());
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());

@@ -31,6 +31,7 @@
 #include "../util/text_cache.h"
 #include "../util/wrap_count.h"
 #include "transcript_render_cache.h"
+#include "../ui/edged_field.h"
 #include "../ui/field_chrome.h"
 #include "../ui/find_highlight.h"
 #include "../ui/find_nav.h"
@@ -728,7 +729,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // padding it carries plus the lines it holds, and the last line div hangs
     // out of its own parent's content box -- 21.0 in an 18.5 box, over by 2.5,
     // which is what `make bounds-gate` caught the moment this composer became
-    // a text_area (afterhours_gaps.md #309).
+    // a text_area. (The comment used to cite gap #309, which has never
+    // existed in the ledger or the index -- at origin/main either; the
+    // finding is real, the id was not.)
     //
     // So the field's height is stated here instead, with the padding resolved
     // the way the widget will actually resolve it, and with_auto_grow is not
@@ -851,7 +854,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             targetY = sv.scroll_target.y;
         }
         // Frame one has measured nothing, and "build the lot until it has" is
-        // not a harmless fallback here: nothing retires a widget (gap #115),
+        // not a harmless fallback here: nothing retires a widget (gap upstream 2393fe3),
         // so one uncapped frame mints four entities per matched session and
         // the app carries all 2276 of them for the rest of the process. The
         // frame after it builds thirty and the census still reads 2276.
@@ -889,7 +892,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::prof::AllocScope _abuild("digest.build.allocs");
         card_spacer(ctx, wrap, 90, win.above);
         // Keyed on the window SLOT, never the card index. mk() retains an
-        // entity per distinct id forever and nothing retires one (gap #115),
+        // entity per distinct id forever and nothing retires one (gap upstream 2393fe3),
         // so index keys would mint four entities for every card ever scrolled
         // past -- the virtualization would be perfect and the leak would be
         // exactly the one it was written to remove. SCROLL.md section 3
@@ -1078,7 +1081,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Strip inline-markdown DELIMITERS from a display string so the body reads
     // cleanly instead of showing literal backticks/asterisks (messages critique
     // #3 — the fastest "not a real product" tell). We can't yet COLOR the runs
-    // (afterhours' styled-label spans don't word-wrap — gap #22), so the honest
+    // (afterhours' styled-label spans don't word-wrap — gap upstream a1b9a4b), so the honest
     // interim is to drop the markers: `code` -> code, **bold** -> bold,
     // __bold__ -> bold. Display-only (api::Message untouched). Conservative:
     // only removes matched paired delimiters, leaves lone `*`/`_`/`` ` `` alone
@@ -1122,7 +1125,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return out;
     }
 
-    // ---- Inline markdown -> colored spans (gap #22 now unblocked) ----------
+    // ---- Inline markdown -> colored spans (gap upstream a1b9a4b now unblocked) ----------
     // afterhours styled labels now WORD-WRAP (upstream fbb6aef/1e95cd1) and
     // vary COLOR per run (TextSpan is text+color; no per-run weight). So instead
     // of stripping `code`/**bold**/_italic_ markers, we render each as a
@@ -3284,10 +3287,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // than the content box it sits in and afterhours warns every frame
         // (and warns is the good case — it also re-solves the layout). The
         // inset comes from the bar's padding instead.
-        afterhours::ui::imm::text_input(
+        hanabi::ui::edged_text_input(
             ctx, mk(bar.ent(), 1), pane.findQuery,
-            hanabi::surface::field(kInputW, 9, 28.0f)
-                .with_debug_name("find_input"));
+            hanabi::surface::field(kInputW, 9, 28.0f), "find_input",
+            28.0f * hanabi::surface::kFieldFontRatio);
 
         // "3 of 12", or "no matches" once something has been typed.
         std::string tally;
@@ -3503,7 +3506,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       .bottom = pixels(10),
                                       .left = pixels(gutter)})
                 .with_debug_name(scroll_name(pane_index(app, pane))));
-        // TEMPORARY scroll indicator (afterhours gap #26): afterhours has no
+        // TEMPORARY scroll indicator (afterhours gap upstream a1b9a4b): afterhours has no
         // built-in scrollbar, so paint a thin overlay bar from the panel's live
         // HasScrollView metrics. The 14px right padding above already keeps the
         // reading column clear of the bar's right strip.
@@ -5320,18 +5323,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
 
             if (q.control == api::AskControl::Text) {
-                afterhours::ui::imm::text_input(
+                hanabi::ui::edged_text_input(
                     ctx, mk(content.ent(), key++), answer.text[q.key],
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kFieldH)})
                         .with_border(theme::border(), pixels(1.0f))
-                        .with_custom_text_color(theme::text_primary())
-                        .with_font_size(theme::type::SM)
-                        .with_alignment(TextAlignment::Left)
                         .with_corner_radius(6.0f)
-                        .with_disabled(!inputLive)
-                        .with_debug_name("ask_text_" + q.key));
+                        .with_disabled(!inputLive),
+                    "ask_text_" + q.key, theme::type::SM);
                 continue;
             }
 
@@ -5432,18 +5432,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_text_overflow(TextOverflow::Ellipsis)
                         .with_debug_name("ask_other_label_" + q.key));
-                afterhours::ui::imm::text_input(
+                hanabi::ui::edged_text_input(
                     ctx, mk(content.ent(), key++), answer.text[q.free_text_key],
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kFieldH)})
                         .with_border(theme::border(), pixels(1.0f))
-                        .with_custom_text_color(theme::text_primary())
-                        .with_font_size(theme::type::SM)
-                        .with_alignment(TextAlignment::Left)
                         .with_corner_radius(6.0f)
-                        .with_disabled(!inputLive)
-                        .with_debug_name("ask_other_" + q.key));
+                        .with_disabled(!inputLive),
+                    "ask_other_" + q.key, theme::type::SM);
             }
         }
 
@@ -6851,10 +6848,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // gutter above leaves once the disc and its gap are taken off, so the
         // width is arithmetic rather than a second constant to keep in step.
         //
-        // NOTE (afterhours_gaps.md #17, and #64 below it): text_input STILL
-        // owns two things this box wants. Its font size is derived from the
-        // field height unless set explicitly (a 45px field would render 22.5px
-        // text), and its inner padding is derived from the height with no
+        // NOTE (afterhours_gaps.md #65, and #64 below it): text_input's font
+        // size is derived from the field height unless set explicitly (a 45px
+        // field would render 22.5px text) -- supported, and stated where this
+        // box needs it. What is NOT settable is the inner PADDING, derived
+        // from the height with no
         // override at all — at 45px that is a 15.75px left inset the caller
         // cannot change. So the field is given an explicit font size, and the
         // padding is what the widget decides.
@@ -6913,9 +6911,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_corner_radius(7.0f)
                 .with_debug_name("composer_input_wrap"));
 
-        // text_input forces its own Secondary bg over its rect (gap #17); point
-        // Secondary/Surface at the strip colour so the field disappears into
-        // the outlined box instead of painting a filled panel inside it.
+        // text_area paints an opaque Theme::Usage::Secondary fill over its
+        // rect and drops the caller's with_transparent_bg
+        // (afterhours_gaps.md #262); point Secondary/Surface at the strip
+        // colour so the field disappears into the outlined box instead of
+        // painting a filled panel inside it.
         ctx.theme.secondary = theme::panel_bg();
         ctx.theme.surface = theme::panel_bg();
         ctx.theme.font = theme::text_primary();
@@ -8351,7 +8351,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         ecs::model::MsgRender r;
         // Rich (assistant) path KEEPS inline markers so render_rich_body can
-        // color them as spans (gap #22); the flat (user) path strips them since
+        // color them as spans (gap upstream a1b9a4b); the flat (user) path strips them since
         // it renders one plain label. Both go through normalize_md_lines
         // (bullets / rules) via strip_inline_md.
         r.body = strip_inline_md(redact_secrets(m.text));
@@ -8663,7 +8663,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // Render an assistant body as one wrapped text box PER newline-delimited
     // segment. afterhours' word-wrap splits only on spaces and treats "\n" as a
-    // regular character (gap #22), so a single box collapses a numbered/bulleted
+    // regular character (gap upstream a1b9a4b), so a single box collapses a numbered/bulleted
     // list into a run-on paragraph AND leaves a tall empty gap (the box is sized
     // for N logical lines but the renderer draws far fewer). Splitting on "\n"
     // and giving each segment its own box restores real list breaks + makes the
@@ -11381,7 +11381,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.3f)
                     .with_debug_name("tool_out"));
             // Render each line as its OWN fixed-pitch mono row — afterhours'
-            // wrap treats '\n' as a word char (gap #24), so a single label
+            // wrap treats '\n' as a word char (gap upstream a1b9a4b), so a single label
             // would run the whole log onto one wrapped blob. Per-line rows honor
             // the hard breaks and exactly match tool_out_height (lines*pitch).
             auto outCol = div(ctx, mk(panel.ent(), 1),

@@ -15,6 +15,7 @@
 #include "../util/atlas_guard.h"
 #include "../util/text_epoch.h"
 #include "theme.h"
+#include "theme_config.h"
 
 namespace hanabi::fonts {
 namespace {
@@ -216,6 +217,9 @@ void apply(afterhours::ui::FontManager& manager, std::string_view family,
     sizing.medium = 12.0f * selected->point_scale;
     sizing.large = 14.0f * selected->point_scale;
     sizing.xl = 17.0f * selected->point_scale;
+    // A font swap is app configuration, not a one-frame override, so it has to
+    // reach the slot begin_frame restores from (ui/theme_config.h).
+    hanabi::ui::publish_app_theme();
 
     state.applied_family = selected_family;
     state.applied_emphasis = selected_emphasis;

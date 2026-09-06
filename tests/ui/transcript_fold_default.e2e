@@ -8,7 +8,7 @@
 # The thread opens at its end, so what is asserted is what sits at the BOTTOM
 # of the viewport: text scrolled out of view is not registered.
 #
-# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md #47.
+# NOTE: expect_no_text takes a BARE single word — see afterhours_gaps.md upstream 2d6f23d.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_LONGMSG_DEMO=1 HANABI_OPEN=rlong

@@ -9,7 +9,7 @@
 # the previous click landed.
 #
 # The row is addressed by coordinate because the harness has no
-# `right_click_ui <name>` (afterhours_gaps.md #55); the menu ITEM is addressed
+# `right_click_ui <name>` (a coordinate, not a name); the menu ITEM is addressed
 # by name, which is safe once the menu is open.
 #
 # The thread under test is t6, "SKU backfill — my name for it": the sixth row

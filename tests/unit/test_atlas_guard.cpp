@@ -44,7 +44,7 @@ static void test_a_good_measurement_is_silent() {
 static void test_zero_for_a_real_string_is_a_fault() {
     std::printf("test_atlas_zero_for_a_real_string_is_a_fault\n");
     reset(true);
-    // The observable symptom of afterhours_gaps.md #211, and the number the
+    // The observable symptom of a full atlas, and the number the
     // gap recorded: the 94-character printable-ASCII string at 288pt.
     hanabi::atlas::check("the ninety-four character string", 288.0f, 0.0f);
     CHECK(hanabi::atlas::fault_count() == 1);

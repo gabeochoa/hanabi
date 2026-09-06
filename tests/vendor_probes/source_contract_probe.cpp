@@ -23,14 +23,6 @@ int main(int argc, char **argv) {
     if (argc != 3) return 2;
     const std::string kind = argv[1];
     const std::string text = read_all(argv[2]);
-    if (kind == "atlas") {
-        return ordered(text, {"handle_fontstash_error", "FONS_ATLAS_FULL",
-                              "static bool reported",
-                              "fonsSetErrorCallback(g_fons_ctx, "
-                              "handle_fontstash_error, nullptr)"})
-                   ? 0
-                   : 1;
-    }
     if (kind == "sampler") {
         const auto begin =
             text.find("sg_sampler smp = make_sampler_for_filter(filter);");

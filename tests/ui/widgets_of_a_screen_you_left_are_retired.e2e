@@ -3,7 +3,7 @@
 # afterhours' `imm::mk()` hands back the same entity for a call site forever
 # and nothing ever retires one, so a screen the app has navigated away from
 # stays in the collection and every UI system walks it, every frame, for the
-# life of the process (afterhours_gaps.md #115). At a 2000-session catalog
+# life of the process (afterhours_gaps.md upstream 2393fe3). At a 2000-session catalog
 # that was 2844 entities and 4.57 ms/frame for screens nobody was looking at.
 #
 # THE ASSERTION HAS TO BE A LABEL, and that is the awkward part of testing
@@ -34,7 +34,7 @@
 expect_text "stale widgets 0"
 
 # Open a thread. Rows are clicked by coordinate because the harness cannot name
-# one row of a list (afterhours_gaps.md #55): the band starts at y=380 with
+# one row of a list (a coordinate, not a name): the band starts at y=380 with
 # 24px rows, so y=386 is the first thread. Home's cards stop being built on the
 # next frame.
 click 140 386

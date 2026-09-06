@@ -1,0 +1,76 @@
+# Symbol claims in afterhours_gaps.md that do not resolve, as they stand at
+# origin/main ad2c7989 -- captured from that revision, not assumed. They are
+# inherited debt: the ledger predates the checker that can see them. Listed
+# rather than ignored so a NEW unresolvable claim still fails the gate.
+docs/COMMIT_AUDIT.md|expect_no_text "quoted" can never fail.
+docs/SEARCH.md|find.collect | — | 2.430 ms/f
+docs/macos-bundle.md|sentinel
+docs/perf/ALLOCATIONS.md|ComponentConfig is copied three times per widget
+docs/perf/ALLOCATIONS.md|with_skip_tabbing(true) takes them out
+docs/perf/EVENTS.md|transcript.minimap @ 3,672
+docs/perf/GATES.md|UICollectionHolder's collection after the frame
+docs/perf/GATES.md|one const hanabi::AutoreleaseFrame framePool; line
+docs/perf/MEMORY.md|A Retina screen grab is 3024x1964: 31.6 MB resident
+docs/perf/SIDEBAR.md|gap #42 — the draw path re-measures every string from scratch every frame
+docs/perf/TEXT.md|Fix — src/util/wrap_count.h
+docs/perf/TEXT.md|returns the pen ADVANCE and TextMeasureCache caches the INK BOX
+docs/perf/TRANSCRIPT.md|HANABI_STRESS=scroll drives sidebar_scroll, by debug
+docs/perf/TRANSCRIPT.md|scroll_named returns false when the view is not on screen
+docs/visual-parity/FRICTION_LOG.md|UIComponent::children is cleared every frame before app code runs
+docs/visual-parity/FRICTION_LOG.md|measure_text returns the ink BOX, not the advance
+docs/visual-parity/FRICTION_LOG.md|pinned had to become a
+scripts/alloc_gate.sh|home20 2550.0 827.0
+scripts/alloc_gate.sh|home2000 3361.0 1450
+scripts/alloc_gate.sh|thread480 6687.0 2740.0
+scripts/bounds_gate.sh|The survivors are eleven
+scripts/bounds_gate.sh|assert_no_overflow measures every element against the VIEWPORT
+scripts/check_label_padding.py|afterhours_gaps.md #85, #91 and #109
+scripts/check_label_padding.py|with_padding() on an element that has a label and no child
+scripts/gen_icons.py|("automated", "repeat")
+scripts/gen_icons.py|("hand", "hand")
+scripts/scroll_gate.sh|20 sessions: 364 364 364
+scripts/scroll_gate.sh|blocks row ids keyed on the row INDEX
+scripts/scroll_gate.sh|level row_window() returns the whole list
+src/ecs/main_pane_system.h|Enter parked its text here
+src/ecs/main_pane_system.h|No spaces: assert_ui name text=<value> splits its arguments on whitespace
+src/ecs/main_pane_system.h|This used to be wrapped_lines(...).size()
+src/ecs/main_pane_system.h|afterhours has no tooltip and no accessible name
+src/ecs/main_pane_system.h|app.splitRatio = hanabi::clamp_split_ratio
+src/ecs/main_pane_system.h|hanabi::minimap::group_marks(markH, markKind, top, totalH, railH)
+src/ecs/main_pane_system.h|if (const float* w = render_cache().hug(hugKey, maxTextW))
+src/ecs/main_pane_system.h|text_area( ctx, mk(inputWrap.ent(), 1), replyDraft
+src/ecs/sidebar_footer_status.h|slot sized to the text PLUS afterhours' hardcoded 5px label inset
+src/ecs/sidebar_system.h|0.44 / 0.97 / 0.50
+src/ecs/sidebar_system.h|api::disk_cache::content_matches(s.id, q)
+src/ecs/sidebar_system.h|draw_circle_v truncates its centre to int (gap #78)
+src/ecs/sidebar_system.h|has no auto-hide mode, only a show_scrollbar bool
+src/ecs/sidebar_system.h|setting it here brightens every muted label in the frame unless the next system re-asserts its own
+src/ecs/sidebar_system.h|with_absolute_position( pixels(panelW - kCountRightPad - countW - kStarW)
+src/ecs/tab_bar_system.h|/*pinned=*/std::find(app.restorePinnedIds.begin()
+src/ecs/tab_bar_system.h|include afterhours after sokol_impl.mm has pulled in sokol_app.h
+src/ecs/tab_model.h|pinned applies to a NEWLY created tab only
+src/native_extras.mm|We now SHIP a .app bundle
+src/native_extras.mm|sokol's own drag-and-drop is unreachable from here
+src/preload.cpp|fontMgr.load_font("hyperlegible"
+src/ui/field_chrome.h|The two bits of chrome text_area gets wrong
+src/ui/focus_visible.h|The ring is off until a navigation key is pressed
+src/ui/icons_atlas.h|inline constexpr int kCell = 32
+src/ui/theme.h|MEASURED, MEMOIZED, AND NOT THE LIBRARY'S CACHE
+src/ui/theme.h|afterhours ships a TextMeasureCache wired up as a singleton, and it is unusable from here
+src/ui/widget_epoch.h|hanabi::ui::mk(parent, otherID, location)
+src/ui/widget_epoch.h|inline std::vector<unsigned> g_stamps
+src/util/atlas_guard.h|fonsSetErrorCallback is out of reach
+src/util/atlas_guard.h|probe() asks the question directly
+src/util/gpu_mem.h|device_bytes() GROUND TRUTH
+src/util/gpu_mem.h|ledger() ATTRIBUTION
+tests/ui/code_fence_only_its_last_line_hugs.e2e|assert_ui_text "exit 65" w=42
+tests/ui/composer_image_attach.e2e|HANABI_DROP_TEST feeds the pending-drop queue the way AppKit does
+tests/ui/user_turn_hugs_the_right_edge.e2e|assert_ui user_avatar x=620 y=141 w=20 h=20
+tests/ui/wheel_notch_distance_is_settable.e2e|3 x 10 x 2
+tests/ui/wheel_notch_distance_is_settable.e2e|706 = 646 + 3 x 10 x 2
+tests/ui/wheel_notch_distance_is_settable.e2e|assert_ui transcript_bottom_pad y=706
+tests/ui/wheel_scrolls_the_transcript.e2e|assert_ui transcript_bottom_pad y=766
+tests/ui/wheel_scrolls_the_transcript.e2e|one scroll_wheel command is read on two consecutive frames
+tests/unit/test_footer_geometry.cpp|assert_ui reads x/y/w/h/hidden/text (gap #86) and ROUNDS them
+tests/unit/test_native_extras.mm|native_notifications_start
+tests/unit/test_widget_retire.cpp|src/ui/widget_epoch.h puts hanabi's mk in front of afterhours

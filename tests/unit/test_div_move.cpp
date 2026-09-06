@@ -7,7 +7,6 @@
 #include <afterhours/tests/ui_test_harness.h>
 
 #include "../../src/ui/div.h"
-#include "../../src/ui/mk.h"
 
 static int g_failures = 0;
 #define REQUIRE(cond)                                                   \
@@ -53,7 +52,7 @@ static unsigned long long through_library(const std::string& label) {
     auto& ctx = h.context();
     auto& root = h.root();
     for (int i = 0; i < kWarm; ++i)
-        afterhours::ui::imm::div(ctx, hanabi::ui::mk(root, 1),
+        afterhours::ui::imm::div(ctx, afterhours::ui::imm::mk(root, 1),
                                  ComponentConfig{}
                                      .with_label(label)
                                      .with_size(ComponentSize{pixels(320),
@@ -64,7 +63,7 @@ static unsigned long long through_library(const std::string& label) {
     g_allocs = 0;
     g_counting = true;
     for (int i = 0; i < kReps; ++i)
-        afterhours::ui::imm::div(ctx, hanabi::ui::mk(root, 1),
+        afterhours::ui::imm::div(ctx, afterhours::ui::imm::mk(root, 1),
                                  ComponentConfig{}
                                      .with_label(label)
                                      .with_size(ComponentSize{pixels(320),
@@ -81,7 +80,7 @@ static unsigned long long through_hanabi(const std::string& label) {
     auto& ctx = h.context();
     auto& root = h.root();
     for (int i = 0; i < kWarm; ++i)
-        hanabi::ui::div(ctx, hanabi::ui::mk(root, 1),
+        hanabi::ui::div(ctx, afterhours::ui::imm::mk(root, 1),
                         ComponentConfig{}
                             .with_label(label)
                             .with_size(ComponentSize{pixels(320), pixels(16)})
@@ -91,7 +90,7 @@ static unsigned long long through_hanabi(const std::string& label) {
     g_allocs = 0;
     g_counting = true;
     for (int i = 0; i < kReps; ++i)
-        hanabi::ui::div(ctx, hanabi::ui::mk(root, 1),
+        hanabi::ui::div(ctx, afterhours::ui::imm::mk(root, 1),
                         ComponentConfig{}
                             .with_label(label)
                             .with_size(ComponentSize{pixels(320), pixels(16)})
@@ -144,14 +143,14 @@ static void moved_config_still_delivers_the_whole_label() {
     auto& root = h.root();
 
     auto el = hanabi::ui::div(
-        ctx, hanabi::ui::mk(root, 3),
+        ctx, afterhours::ui::imm::mk(root, 3),
         ComponentConfig{}.with_label(label).with_size(
             ComponentSize{pixels(320), pixels(16)}));
     REQUIRE(el.ent().has<afterhours::ui::HasLabel>());
     REQUIRE(el.ent().get<afterhours::ui::HasLabel>().label == label);
 
     auto again = hanabi::ui::div(
-        ctx, hanabi::ui::mk(root, 3),
+        ctx, afterhours::ui::imm::mk(root, 3),
         ComponentConfig{}.with_label("3h").with_size(
             ComponentSize{pixels(320), pixels(16)}));
     REQUIRE(again.ent().get<afterhours::ui::HasLabel>().label == "3h");
@@ -168,7 +167,7 @@ static void a_named_config_is_delivered_intact() {
     auto cfg = ComponentConfig{}.with_label(label).with_size(
         ComponentSize{pixels(320), pixels(16)});
     cfg.with_debug_name("named_cfg");
-    auto el = hanabi::ui::div(ctx, hanabi::ui::mk(root, 4), cfg);
+    auto el = hanabi::ui::div(ctx, afterhours::ui::imm::mk(root, 4), cfg);
     REQUIRE(el.ent().get<afterhours::ui::HasLabel>().label == label);
 }
 
@@ -184,13 +183,13 @@ static void a_named_config_is_consumed_by_div() {
     auto cfg = ComponentConfig{}.with_label(label).with_size(
         ComponentSize{pixels(320), pixels(16)});
 
-    auto first = hanabi::ui::div(ctx, hanabi::ui::mk(root, 5), cfg);
+    auto first = hanabi::ui::div(ctx, afterhours::ui::imm::mk(root, 5), cfg);
     REQUIRE(first.ent().has<afterhours::ui::HasLabel>());
     REQUIRE(first.ent().get<afterhours::ui::HasLabel>().label == label);
 
     REQUIRE(cfg.label.empty());
 
-    auto second = hanabi::ui::div(ctx, hanabi::ui::mk(root, 6), cfg);
+    auto second = hanabi::ui::div(ctx, afterhours::ui::imm::mk(root, 6), cfg);
     const bool second_carries_the_label =
         second.ent().has<afterhours::ui::HasLabel>() &&
         second.ent().get<afterhours::ui::HasLabel>().label == label;

@@ -28,15 +28,15 @@ numbers are independent of the main series (both happen to reuse 8–12).
 
 **Text & layout**
 - #18 no flex-grow (can't pin a trailing element right)
-- #22 styled/colored label spans don't word-wrap (blocks inline `code` pills)
+- upstream a1b9a4b styled/colored label spans don't word-wrap (blocks inline `code` pills)
 - #23 no off-screen culling / list virtualization for scroll views
-- #24 wrapped text ignores hard `\n` line breaks
+- upstream a1b9a4b wrapped text ignores hard `\n` line breaks
 - #30 no scroll-anchor / preserve-position-on-prepend (load-older snapped to top)
 - #31 virtualization window built from a STALE offset (no velocity/next-offset ⇒ fast-fling blanks)
 
 **Scroll / hit-testing / input**
 - #3 absolutely-positioned button click vs manual hit-test
-- #26 `HasScrollView` has no built-in (draggable) scrollbar
+- upstream a1b9a4b `HasScrollView` has no built-in (draggable) scrollbar
 - #29 single global `hot_id`: a hoverable child steals the parent row's hover fill
 
 **Rendering / compositing**
@@ -47,7 +47,7 @@ numbers are independent of the main series (both happen to reuse 8–12).
 
 **Per-frame cost**
 - #27 immediate-mode clears + rebuilds the whole tree every admitted frame; Hanabi now retains the last frame while idle (#540), but the upstream dirty-layer gap remains
-- #200 every headless resize leaks five Metal render pipelines (4.8 MB per 1000 frames), so a resize scenario cannot gate anything
+- upstream 1ad3360 every headless resize leaks five Metal render pipelines (4.8 MB per 1000 frames), so a resize scenario cannot gate anything
 - #340 every styled label re-wraps and re-allocates on the DRAW pass, uncached: 367 vector allocations/frame at one pane, the app's biggest single site
 - #341 (ours, unfixed) a second pane costs 1.42x frame CPU and 1.79x allocations; what the remaining 1.79x is and what fixing it would take
 
@@ -59,7 +59,7 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #339 NOT A GAP: `imm::divider` and `hsplit` already exist — the hand-rolled divider had the exact bug the library's doc comment warns about
 
 **Widgets**
-- #17 imm `text_input` ignores `with_font_size` / `with_custom_background`
+- the gap upstream fixed in `817d00e` imm `text_input` ignores `with_font_size` / `with_custom_background`
 
 **OS integration**
 - #1 / #16 no OS appearance (light/dark) query
@@ -84,13 +84,13 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #39 the e2e runner never fails a single-script run *(blocks, silently)*
 - #40 the e2e runner never observes the last command's result *(blocks)*
 - #41 the e2e harness has no worked example of a host loop
-- #42 the draw path re-measures every string every frame; `TextMeasureCache` is bypassed *(~21% of an idle frame)*
-- #43 component lookup goes through `dynamic_cast`, so type identity costs a `strcmp` *(~16%)*
+- upstream 2b207d4 the draw path re-measures every string every frame; `TextMeasureCache` is bypassed *(~21% of an idle frame)*
+- upstream 5161dbf component lookup goes through `dynamic_cast`, so type identity costs a `strcmp` *(~16%)*
 - #44 the imm builder copies `ComponentConfig` by value on every widget *(~7%)*
 
 **Added 2026-08-25** (full entries at the end of the file)
 - #160 a component is two cache misses to write four bytes; no per-entity user word *(3.6x the cost of a side table)*
-- #161 a failed scripted assertion truncates the evidence to 200 chars, and `dump_ui` is not registered
+- upstream 2caf525 a failed scripted assertion truncates the evidence to 200 chars, and `dump_ui` is not registered
 - #162 an app can retire the widgets it built and cannot see the ones the library built
 - #163 a scroll view off-screen is measured against zero children, so leaving a screen resets it to the top *(pre-dates the retirement work)*
 
@@ -102,7 +102,7 @@ numbers are independent of the main series (both happen to reuse 8–12).
 ---
 
 **Added 2026-08-25** (windowing the digest screens; full entries at the end)
-- #220 a scroll view's viewport is zero on frame one, and under #115 one uncapped frame is a permanent plateau
+- upstream 2ccc38e a scroll view's viewport is zero on frame one, and under upstream 2393fe3 one uncapped frame is a permanent plateau
 - #221 `with_label` takes `const std::string&`, so every label is a heap allocation per widget per frame
 - #222 an absolutely-positioned child still counts in its parent's flex flow (120 log lines a frame)
 - #223 the e2e runner's retry budget is named in seconds and fed by the host's `dt`, so reproducibility is the host's undocumented decision
@@ -132,15 +132,13 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #371 four small leftovers: two snippet cutters with one bug, the mock reading another backend's cache, no Unicode folding, `advance(..., Step::None)` returning 0
 - #372 the sidebar truncates search results and the catch-all group is headerless, so nothing says how many matched. NOT FIXED
 - #373 ideas considered and rejected, with reasons
-- #435 plain wrapped labels rebuild their line vectors on every draw; measured update to #42/#340
+- #435 plain wrapped labels rebuild their line vectors on every draw; measured update to upstream 2b207d4/#340
 - #436 styled labels independently rebuild nested wrapped runs every draw; measured update to #340
 - #437 the renderer exposes no byte-to-rectangle layout map, so find highlight wraps again; measured refinement of #51
 - #438 visible rich text still reparses markdown and copies configs every frame; app-owned remainder after #365
 
 **Added 2026-08-26** (the glyph atlas; full entries at the end of the file)
-- #350 nothing can be asked of the font atlas — not its occupancy, not whether a measurement dropped a glyph — so a PARTIAL drop (622 px where the truth is ~5000) is undetectable from outside *(the residue #211's detector cannot cover)*
-- #351 `fonsSetErrorCallback` is exactly the hook needed, is never called, and the `FONScontext` is a backend-private static — so `FONS_ATLAS_FULL` is raised, checked against a null pointer and discarded, twice per dropped glyph
-- #352 the atlas is a hardcoded 2048×2048 with no `graphics::Config` field, so the ceiling belongs to the library *(same request as #210's pool sizes)*
+- #350 a measurement cannot say whether IT dropped a glyph. Upstream reports the CONDITION now (`bdea3b9` registers `fonsSetErrorCallback` and warns once when the atlas fills, and `AFTERHOURS_FONT_ATLAS_SIZE` sets the ceiling), but a global one-shot warning does not say that the width `measure_text` just returned is short — so a PARTIAL drop (622 px where the truth is ~5000) is still undetectable from outside
 - #353 a dropped glyph is not DRAWN either, so an unmeasurable string is also invisible — the failure looks like missing data, not like a font problem
 **Added 2026-08-26** (shipping the multiline composer; full entries at the end)
 - #305 `text_area` re-wraps its whole text EVERY FRAME — `needs_layout_rebuild` exists and nothing calls it — and measures through the raw backend instead of `TextMeasureCache` *(+196 allocs/frame for a 130-char draft standing still; patch proven, `vendor_patches/305-…`)*
@@ -149,10 +147,10 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #308 `assert_ui` understands x/y/w/h/hidden/text and nothing about colour, so 106 scripted UI tests passed straight through both #262 and #263
 
 **Resolved / corrected**
-- #115 (a widget that stops being built is never retired) is **fixed upstream**
+- upstream 2393fe3 (a widget that stops being built is never retired) is **fixed upstream**
   by `2393fe3` + `c682382`; Hanabi now consumes the library's frame stamp,
   ordered cleanup, and retirement sweep directly. Its allocation-free `mk`
-  key remains only for the separate cost in #180.
+  key remains only for the separate cost in upstream 5996464.
 - #29 (a hoverable child steals the parent row's hover fill) is **fixed** —
   `ctx.mouse_was_in_subtree(id)` is exactly the primitive, verified against a
   real pointer; hanabi's hand-rolled workaround is deleted.
@@ -510,53 +508,6 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
 
 
 
-### #17 — imm `text_input` ignores `with_font_size` and `with_custom_background`
-- **Gap:** the immediate-mode `text_input` widget
-  (vendor/afterhours/src/plugins/ui/text_input/component.h) DERIVES its font
-  size from the field's computed HEIGHT (`derived_fs = field_h * 0.5f`) and
-  forces its inner field background to `Theme::Usage::Secondary` from
-  `ctx.theme`. So `ComponentConfig::with_font_size(...)` and
-  `with_custom_background(...)` passed to `text_input` are silently ignored:
-  a tall field yields an oversized font that overflows, and the field surface
-  can't be tinted with the app's own theme tokens.
-- **How it showed up:** Phase K composer input. A 72px-tall field rendered the
-  draft at ~36px (overflowing the box); setting `.with_font_size(FontSize::Small)`
-  had no effect; the field stayed a dark `Theme::Usage::Secondary` surface even
-  in the app's Light theme (so it reads dark-on-a-light-sheet).
-- **Why wanted:** an app with its own token-based theme needs the text field to
-  (a) size its font independently of field height and (b) use the app's
-  surface color, so the input matches the rest of the themed UI in both modes.
-- **App-code workaround (used):** constrain the field to a single-line height
-  (~34px) so the height-derived font (~17px) is readable and doesn't overflow;
-  accept that the field's inner surface is themed by `ctx.theme` rather than the
-  app tokens (dark in both modes). Add a caption above the field for labelling
-  since placeholder/label styling is likewise not honored here. See
-  src/ecs/composer_system.h (render_input).
-- **Minimal upstream help (optional):** honor an explicit `with_font_size` on
-  `text_input` when provided (fall back to the height-derived size only when
-  unset), and let `with_custom_background` override the forced
-  `Theme::Usage::Secondary` field fill.
-- **Follow-on (2026-08-01, sidebar search): no placeholder / empty-state hint.**
-  `text_input` has no `with_placeholder(...)` — an empty field renders as a
-  bare box, so the sidebar search read as an unlabeled box + magnifier
-  (hostile-review defect 13). Compounding it, the forced opaque
-  `Theme::Usage::Secondary` fill (above) means a placeholder painted BEHIND the
-  input is COVERED by the field's own fill — you can't just draw hint text under
-  it. **App-code workaround (used):** paint a faint "Search conversations" hint
-  as an ABSOLUTELY-positioned overlay child (out of flex flow, so it never
-  shifts the input) at a higher render layer than the input, drawn via
-  `on_draw_fg` + `afterhours::draw_text` and rendered only while the query is
-  empty. The overlay's screen origin is derived from the sidebar panel geometry
-  (panel xy → header height → search-wrap/field paddings + magnifier slot). See
-  `src/ecs/sidebar_system.h` (render_search, `sb_search_placeholder`).
-  **Minimal upstream help (optional):** add `with_placeholder(std::string)` to
-  `text_input` that renders the faint hint inside the field when the bound
-  string is empty (drawn on top of the field fill, cleared on first keystroke) —
-  the standard text-field affordance.
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The current source still has a text_input theme workaround for sidebar search, but the composer-specific claims are stale: composer is text_area, and text_input placeholder support exists.
-
-**Hanabi reference.** `src/ecs/sidebar_system.h` (`The immediate-mode text_input forces its field background`) — sidebar search still scopes ctx.theme to work around text_input styling. `src/ecs/sidebar_system.h` (`.with_placeholder("Search")`) — sidebar search now uses a native placeholder on text_input. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`assert_ui composer_input_wrap h=67`) — the multiline composer grows with draft content.
 
 
 
@@ -683,49 +634,6 @@ pattern already proven in `src/ecs/layout_system.h`). Do NOT patch vendor.
 
 
 
-### #22 — styled label spans (`with_styled_label`) render on ONE line, don't word-wrap
-- **Gap:** `component_config.h::with_styled_label(std::vector<TextSpan>)` +
-  `HasLabel::spans` support multi-COLOR runs (e.g. a green "+4" then a red "-2"),
-  but the render path (`rendering.h`, the `draw_text_in_rect(hasLabel.label...)`
-  call) draws the concatenated PLAIN `label` with word-wrap, and the per-span
-  COLORING is documented as "on one line". So there is no way to render
-  inline-styled runs (e.g. an inline `code` pill in a different color) that ALSO
-  word-wraps across a multi-line paragraph.
-- **Why wanted (hanabi):** the transcript wants ChatGPT/Claude-style inline
-  markdown — `` `code` `` rendered as a distinctly-colored/backgrounded run
-  inside a wrapping assistant paragraph, plus `**bold**`. Literal backticks in
-  every message are the fastest "this isn't a real product" tell (messages
-  critique #3). A wrapping body is mandatory (assistant answers are multi-line),
-  so the single-line span path can't be used for it.
-- **App-code workaround (used):** strip the markdown DELIMITERS from the body at
-  render time (`` `code` `` -> `code`, `**bold**` -> `bold`) so the noise is gone
-  and the text reads cleanly, even though we can't yet style the run. This is a
-  transform on the display string only (api::Message untouched). A short inline
-  code token could later be split into its own non-wrapping styled widget if it
-  fits, but a general wrapping-with-inline-styling body needs vendor support.
-- **UPDATE (2026-08-02):** the FENCED code-block case (multi-line ```` ``` ````
-  blocks) is now handled app-side WITHOUT this gap — a fenced run doesn't need
-  inline-in-paragraph styling, it's its own block, so main_pane_system renders
-  each inner line as a full-width sunken monospace row (no wrap needed). Only the
-  INLINE-in-a-wrapping-paragraph `code`/`**bold**` case still waits on this gap.
-- **Minimal fix (owned elsewhere — vendor/afterhours):** teach the wrapping text
-  renderer (`detail::wrap_text_to_width` + the draw loop) to carry per-run color
-  through the wrap, so a `spans` label wraps AND colors. Then hanabi can render
-  real inline-code pills. NOT done here (vendored; logged for that owner).
-- **PROVEN FIX (2026-08-02):** rewrote the buffered span draw path to word-wrap
-  runs across label_rect (each word keeps its span color; wraps on the same
-  boundaries as the plain wrapper so caller height matches). Applies + builds +
-  tests 8/8. Captured as vendor_patches/22-styled-spans-word-wrap.patch (+ tag
-  hanabi-fix-gap22) with the turnkey hanabi wiring in vendor_patches/README.md.
-  Pointer not bumped (needs maintainer push); hanabi keeps stripped inline code
-  until then.
-
-
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The old stripped-inline-code workaround is no longer the current assistant path; current code emits styled spans. There is also a separate stale source comment saying TextSpan has no weight, contradicted by the later gap postscript.
-
-**Hanabi reference.** Current code: `vendor_patches/22-styled-spans-word-wrap.patch` (`Subject: [PATCH] feat(ui): styled label spans now word-wrap across lines`) — the captured proof patch for wrapping TextSpan labels. `src/ecs/main_pane_system.h` (`Inline markdown -> colored spans`) — current transcript path treats the gap as unblocked. Tests: `tests/ui/find_sees_through_markdown.e2e` (`stores. The transcript shows "6 failures"`) — scripted coverage around rendered markdown text vs stored markdown markers.
-
 ---
 
 ### #23 — no off-screen child culling / list virtualization for scroll views
@@ -776,158 +684,6 @@ vendored source, not by running it.
 **Hanabi reference.** `src/ecs/main_pane_system.h` (`Pass 2: emit spacers + only the visible items`) — the transcript virtualizer emits spacers for off-window content and only builds visible items. `src/ecs/main_pane_system.h` (`render_bubble(ctx, col`) — visible transcript items are the only ones passed to the body renderer. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`Pass 2 is genuinely virtualized`) — measured current transcript virtualization behavior and remaining costs.
 
 
-
-### #24 — wrapped text ignores hard line breaks (`\n` is treated as a word char)
-- **Gap:** `detail::wrap_text_to_width` (rendering.h) does greedy word-wrap by
-  splitting on SPACES only; a `\n` in the label is treated as an ordinary
-  character inside a "word". So a multi-line body (numbered/bulleted list,
-  paragraphs) collapses into ONE run-on wrapped paragraph — AND any height the
-  caller computed assuming `\n` = line break is wrong, leaving a large empty gap
-  (the box is sized for N logical lines but the renderer draws far fewer).
-- **Why wanted (hanabi):** assistant answers are lists + paragraphs delimited by
-  `\n` / `\n\n`. Rendered as one box they became an unreadable run-on blob AND
-  produced a ~100px void between the author name and the visible text (a top UI
-  critique). This is distinct from #22 (that's about inline per-run COLOR; this
-  is about honoring hard breaks at all).
-- **App-code workaround (used):** the assistant body is split on `\n` and each
-  segment rendered as its OWN wrapped text box (blank line → a half-pitch gap
-  for paragraph spacing); the height model sums the same per-segment wrapped
-  heights so it matches the render exactly. Bounded by #23's virtualization so
-  the extra per-line boxes only exist for visible turns. Side benefit: real list
-  breaks + hanging structure with no vendor change.
-  UPDATE (2026-08-02): the expanded tool-output panel (render_tool_block) now
-  uses the SAME per-line split — its captured tool_result honors \n breaks +
-  indentation instead of collapsing to a run-on blob.
-- **Minimal fix (owned elsewhere — vendor/afterhours):** teach
-  `wrap_text_to_width` to force a line break on `\n` (and the draw loop + the
-  measure API #A to advance a line), so a single wrapping label honors hard
-  breaks. Pairs naturally with #22 (per-run color) and #A (a real measure/wrap
-  API that reports line count).
-
-**POSTSCRIPT 2026-08-26 (gap index) — RESOLVED UPSTREAM.** The pinned submodule
-(428047e) breaks on `\n`. `rendering.h:629` computes
-`const bool has_hard_break = text.find('\n') != std::string::npos;` and the
-branch below it is commented "Only soft-wrap when asked; otherwise break on
-'\n' alone" — so a hard newline always breaks, with or without
-`TextOverflow::Wrap`. `ui::wrap_text`'s own doc comment
-(`plugins/ui/text_measure.h`) now reads "Honors hard '\n'". The app-side
-per-segment split described above is no longer needed for correctness, though
-it is still what gives the paragraph spacing. Verified by reading the vendored
-source, not by running it.
-
-
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** Current source does not rely on one label swallowing hard breaks; rich body rendering splits on newlines and uses explicit paragraph spacing. The entry's upstream-gap statement is obsolete.
-
-**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`size_t nl = shown.find('\n', start);`) — render_rich_body walks hard-newline-delimited segments. `src/ecs/main_pane_system.h` (`blank line = half pitch`) — blank-line paragraph spacing remains an app-side behavior.
-
----
-
-# WISHLIST — what would make afterhours a joy to build on
-
-Distinct from the numbered gaps above (which are concrete missing primitives / bugs
-with app-side workarounds). This section is the aspirational maintainer-facing
-feedback Gabe asked for: patterns I had to HAND-ROLL in hanabi that feel like they
-belong IN the library, and capabilities I kept wishing existed. Each is grounded in
-real hanabi code — if a future app hits the same wall, that's the signal to promote it.
-
-## A. Text metrics are the #1 papercut — promote a real measure/wrap API
-- **What I hit:** afterhours wraps + draws text internally (`draw_text_in_rect`,
-  `wrap_text_to_width`), but app code has NO access to "how tall will this string be
-  at width W and font F?" So I hand-rolled `estimate_height()` with a fudged
-  `kGlyphW=6.2px/glyph, kLinePitch=15px` model — which was WRONG (8px/18px first),
-  producing boxes ~2x too tall so wrapped text rendered bottom-aligned in empty boxes
-  (a ~140px gap above every message; found only by instrumenting with debug bgs).
-- **What I wish existed:** `ui::measure_text(text, font, size, max_width) -> {w, h, lines}`
-  using the SAME fontstash metrics the renderer uses. Immediate-mode UIs live or die
-  on this — every scroll list, chat bubble, card, and tooltip needs to size a text box
-  to its content. Right now every app re-derives a bad approximation.
-- **Bonus:** a `children()`-that-includes-wrapped-text sizing mode, so a Column can
-  size to its wrapped text without the app precomputing pixel heights at all.
-
-## B. Per-frame work has no memo/dirty layer — promote caching hooks
-- **What I hit:** immediate mode rebuilds EVERY widget EVERY frame. For a 100+ message
-  transcript that's thousands of entities + thousands of text measurements per frame →
-  ~15-20ms/frame → ~50-65fps → visibly choppy scroll. I'm now hand-rolling per-message
-  height/text-transform caches keyed by message id.
-- **What I wish existed:** (1) a retained/memoized sub-tree ("this subtree's inputs
-  didn't change, reuse last frame's layout"), or (2) built-in text-measure caching
-  keyed by (string,font,size,width), or (3) list VIRTUALIZATION — a scroll container
-  that only builds/lays-out children intersecting the viewport. Any one of these turns
-  a long-list immediate-mode UI from 60fps to 120fps. Virtualization is the big one;
-  every chat/log/feed app needs it and every one will re-invent it.
-
-## C. Alpha compositing is a recurring trap — promote real blended fills
-- **What I hit:** `with_custom_background` with a low-alpha color renders OPAQUE (the
-  sgl default pipeline has blending off — gaps #13/#15). I built `theme::over(fg,bg)`
-  to pre-composite every tint (chips, hover washes, tool-row tints, skeleton bars) by
-  hand. EVERY translucent surface in the app goes through this workaround.
-- **What I wish existed:** a rect/texture fill path with real alpha blending (a
-  blend-enabled pipeline as the default, or a `with_blended_background`). Translucency
-  is table stakes for modern UI (hover states, scrims, tinted chips, glass) — having to
-  manually pre-composite over the KNOWN backdrop is fragile (breaks the moment the
-  backdrop isn't known, e.g. over an image or a gradient).
-
-## D. Styled text that wraps — promote it (blocks real markdown)
-- **What I hit:** `with_styled_label` (multi-color TextSpans) exists but renders
-  single-line only; it doesn't word-wrap (gap #22). So I can't render an inline `code`
-  pill inside a wrapping paragraph — I strip the markdown delimiters instead. This is
-  THE thing keeping hanabi's chat from looking like a real chat app (a UI critic ranked
-  "no inline code styling / no real lists" in the top 5 defects).
-- **What I wish existed:** wrapping + per-run styling together (color, weight, bg pill,
-  maybe a font swap to mono for code). Ideally a tiny inline-markup renderer
-  (`code`, **bold**, *italic*, lists) as a first-class label mode — every text-heavy
-  app wants it and it's painful to fake.
-
-## E. Animation/transition primitives — promote a tween + disclosure kit
-- **What I hit:** no property tween (#2), no per-item stagger (#8), no exit animation
-  (#9), no one-shot state-change trigger (#10), no shimmer/gradient-mask (#11), no
-  spring-to-slot drag (#12). I hand-rolled a smoothstep sidebar-width ease and a static
-  (un-animated) skeleton because there's no shimmer. Collapsible rows (tool piles,
-  sub-agents, folds) pop instantly with no ease.
-- **What I wish existed:** a small animation core — `animate(value, target, duration,
-  easing)` that survives immediate-mode re-creation (keyed by widget id), plus canned
-  "disclosure" (height 0↔auto ease) and "shimmer" helpers. Disclosure + shimmer alone
-  would cover 90% of what a polished app needs and every app re-invents them.
-
-## F. OS integration seams — promote a platform shim
-- **What I hit:** no OS appearance query (#1/#16 — I read AppleInterfaceStyle via my own
-  .mm), no natural-scroll-direction query (had to read com.apple.swipescrolldirection
-  in Obj-C++), menu-bar/NSStatusItem is all app-side .mm (#5), no way to open a URL /
-  activate the app / know DPI without hand-written extern "C" AppKit glue.
-- **What I wish existed:** a thin `afterhours::platform` layer: `appearance()`,
-  `natural_scroll()`, `open_url()`, `activate_app()`, `content_scale()/dpi`, and a
-  menu-bar/tray abstraction. These are the same 6 functions every desktop app writes;
-  they belong in the backend, not copy-pasted per app.
-
-## G. Headless/testing affordances — promote them (I built a pile)
-- **What I hit:** to screenshot + test hanabi I hand-built: a `--screenshot` headless
-  render path, a wait-for-async-load loop (gap #21), input injection for tests
-  (mouse/wheel/keys), and a pile of `HANABI_*_DEMO` env hooks to force UI states
-  (skeleton, streaming, auth, a specific view) for headless capture.
-- **What I wish existed:** first-class headless render-to-PNG, a deterministic
-  "render N frames then capture" test harness, and a documented input-injection API
-  for UI tests. afterhours HAS `testing::input_injector` but it's under-documented and I
-  found it by grepping. A blessed "UI snapshot test" recipe would save every app this.
-- **Bonus (gap #6):** headless capture can't supersample (hi-DPI) — a 2x offscreen
-  target just lays out larger, doesn't sharpen. A real hi-DPI headless mode would make
-  screenshot-based review crisp.
-
-## H. Small quality-of-life wins
-- **flex-grow / space-between that actually pins a trailing element** (#18) — I reserve
-  a fixed count-column width to right-align counts because there's no grow. A real
-  flex-grow (or `margin-left:auto`) would kill a whole class of geometry hacks.
-- **A monospace font tier** in the theme's FontSizing (only proportional tiers exist) —
-  code/commands/logs all want mono and I have to pass the font by name each time.
-- **Icon/atlas helpers**: I built the Lucide spritesheet + `draw_at`/`draw_fg` blit +
-  a gen script. A tiny "sprite atlas" helper (load a packed PNG + name→rect map + a
-  tinted blit) would be reusable by any app; mine is 90% generic.
-- **Scroll-to / scrollIntoView**: I poke `HasScrollView::scroll_offset = 1e9` +
-  clamp_scroll() to stick-to-bottom while streaming. A `scroll_to(entity)` /
-  `scroll_to_bottom()` API would be cleaner and less magic-number-y.
-- **A "hot"/hover state I can READ in app code** for arbitrary widgets, to drive
-  hover-only affordances (stars, message actions) without threading HasClickListener
-  everywhere.
 
 ---
 
@@ -980,75 +736,6 @@ real hanabi code — if a future app hits the same wall, that's the signal to pr
 
 
 
-### #26 — `HasScrollView` has no built-in scrollbar / scroll-indicator render
-- **Gap:** afterhours' `HasScrollView` (`vendor/afterhours/src/plugins/ui/components.h`)
-  fully TRACKS scroll state — `scroll_offset` (Vector2, `.y` grows downward),
-  `content_size` (total scrollable content, `.y`), and `viewport_size` (the
-  visible window, `.y`) — and clamps/updates them every frame. But it NEVER
-  renders a visible bar. There is no `draw_rectangle`/primitive anywhere in the
-  scroll-view render path for a track or thumb, and no config flag to opt into
-  one. So a scroll panel gives the user **no indication of scroll position, of
-  how much content there is, or even that more content exists below the fold** —
-  the content just silently clips at the viewport edge.
-- **Why wanted:** hanabi's transcript, sidebar folder/thread list, home, and
-  digest are all `preset::ScrollPanel()`s. With no bar, a long thread looks like
-  it simply ends at the last visible line; the user can't tell there's more to
-  scroll to, and has no handle on where they are in the content. Standard
-  desktop affordance (macOS overlay scrollbar) is table-stakes for a scrolling
-  region.
-- **App-code workaround (used — `src/ui/scrollbar.h`, TEMPORARY):** paint a thin,
-  muted, macOS-overlay-style indicator ourselves. `attach_scroll_indicator(ent)`
-  hangs a `HasOnDraw.fg` custom-draw on the scroll entity; the fg fires with the
-  panel's on-screen viewport rect (the scroll entity's own `rect()` is the
-  fixed viewport, not offset), and reads the LIVE `HasScrollView` metrics off the
-  entity by id at draw time (freshest, post-layout — same access pattern the
-  transcript virtualization already uses). From those three numbers it computes a
-  track (= viewport height) and a rounded thumb:
-  `thumbH = max(minThumb, trackH * viewport/content)`,
-  `thumbY = trackY + (offset/(content-viewport)) * (trackH-thumbH)`,
-  pinned to the inside of the viewport's right edge. Callers reserve a few px of
-  right padding so text never runs under the bar. It **auto-hides** when
-  `content_size.y <= viewport_size.y` (nothing to scroll). Translucency goes
-  through `theme::over()` because the fill pipeline can't alpha-blend (gaps
-  #13/#15) — a raw low-alpha color would render as a harsh opaque block. The
-  thumb is now **DRAGGABLE app-side** (2026-08-02): `scroll_indicator`'s
-  `on_draw_fg` hit-tests the thumb rect against `input::get_mouse_position()` /
-  `input::is_mouse_button_down(0)` (edge-detected per scroll-id in a function
-  static `unordered_map<EntityID, DragState>`), and on drag maps the cursor's
-  track-space y back into `scroll_offset.y` via
-  `frac = clamp((mouseY - grabDY - trackY) / (trackH - thumbH), 0, 1)`,
-  `scroll_offset.y = frac * (content - viewport)`, then `clamp_scroll()`. It
-  writes the offset during the render pass (takes effect next frame, same as the
-  jump-to-bottom pattern) and only ever mutates while THIS bar is actively
-  dragging (`s_activeDrag` global — one bar at a time), so it never fights the
-  wheel. Clicking the track above/below the thumb pages one viewport toward the
-  click. The thumb brightens (alpha 150 → 220) while hovered/dragging. It still
-  accurately reflects position + content ratio and updates every frame; still
-  **auto-hides** when content fits.
-- **Minimal upstream fix (vendor, off-limits here):** give `HasScrollView` an
-  optional built-in scrollbar render — a config flag (e.g. `with_scrollbar()`)
-  that, when the content overflows, draws a track + thumb from the metrics it
-  already computes, in the scroll view's own render pass. Ideally the thumb is
-  **draggable** (hit-test the thumb rect, map drag delta back into
-  `scroll_offset`) and auto-hides/fades like a native overlay scrollbar. Because
-  the component already owns all three metrics, this is a pure render + one
-  input-handler addition — no new state.
-
-**POSTSCRIPT 2026-08-26 (gap index) — RESOLVED UPSTREAM.** All of it landed.
-`HasScrollView` (`plugins/ui/components.h:588`) carries `show_scrollbar`
-(default **true**), `scrollbar_thickness` and `scrollbar_min_thumb`;
-`scrollbar_geometry()` (`components.h:630`) returns the track and thumb rects
-and returns nothing when `!show_scrollbar || !needed`, i.e. it auto-hides when
-the content fits; and `HandleScrollbarDrag` (`plugins/ui/systems.h:1903-1952`)
-maps a drag on the thumb back into `scroll_offset`. The draggable bar this
-entry asks for is the shipped behaviour. What is left is the *macOS overlay*
-behaviour — nothing at rest, a bar while scrolling — which is **#94**, written
-against these fields. Verified by reading the vendored source, not by running
-it.
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's requested draggable built-in scrollbar is now shipped upstream; remaining work is overlay auto-hide styling, not absence of a scrollbar.
-
-**Hanabi reference.** Current code: `src/ecs/sidebar_system.h` (`show_scrollbar =`) — current code drives the built-in HasScrollView scrollbar visibility. `src/ecs/sidebar_system.h` (`(scrollbar now drawn by afterhours)`) — the old temporary app-side scroll indicator is gone.
 
 
 
@@ -1221,7 +908,7 @@ per-row id cache + base-color baking could collapse to a single call.
 ### #29 — text_input has no placeholder support
 - **Gap:** `afterhours::ui::imm::text_input` renders an empty field with no placeholder/ghost-text affordance when the bound string is empty. The hanabi composer + sidebar search both show a blank box with no "Reply…" / "Search…" hint. A `with_placeholder("…")` (rendered as faint text, cleared on first keystroke, not part of the value) would fix it cleanly.
 - **Impact:** minor UX — the composer gives no cue what to type. Worked around by adjacent labels elsewhere; a real placeholder needs input support.
-- **Related:** gap #17 (text_input forces its own Secondary bg + derives font size from height, ignoring per-widget colors) — same widget, same "input is hard to style" family.
+- **Related:** the gap upstream fixed in `817d00e` (text_input forces its own Secondary bg + derives font size from height, ignoring per-widget colors) — same widget, same "input is hard to style" family.
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** The text_input claim is obsolete. The composer still draws its own placeholder only because it moved to text_area, which lacks that feature.
 
@@ -1312,7 +999,7 @@ has_smooth_scroll-guarded so it auto-DISABLES the day the vendor patch lands (ve
 and HANABI_SCROLL_SMOOTH=1 forces legacy instant. Pins (follow-latch to end / jump-to-top) are
 detected as snaps so stay-at-bottom is never slowed. No vendor edit; pure hanabi workaround.
 
-## gap #22 follow-up (2026-08-03): styled spans are COLOR-only (no per-run weight)
+## gap upstream a1b9a4b follow-up (2026-08-03): styled spans are COLOR-only (no per-run weight)
 The wrap-aware styled-label primitive (upstream fbb6aef/1e95cd1) that unblocked inline markdown
 carries per-run COLOR only (TextSpan{text,color}) — there is no per-run font/weight/slant. So
 hanabi renders **bold**/_italic_ as a brighter COLOR and `code` in an accent tint, not as heavier
@@ -1532,7 +1219,7 @@ NSText standard key bindings.
          overlay their own). Should be first-class (HTML `placeholder`).
 - [OK]   Caret blink; focus ring.
 - [GAP]  Config honored: with_font_size / with_custom_background were ignored
-         (gap #17); font derived from height. A field should honor explicit styling.
+         (the gap upstream fixed in `817d00e`); font derived from height. A field should honor explicit styling.
 - [GAP]  Disabled + read-only visual states (read-only: selectable, not editable).
 
 ### 9. Focus / interaction
@@ -1556,7 +1243,7 @@ NSText standard key bindings.
   4. [FIXED] caret origin (#32) — landed on hanabi/text-input-fixes.
   5. [GAP] macOS Cmd-based bindings (word/line nav, select-all, clipboard, undo).
   6. [GAP] double/triple-click + drag selection.
-  7. [GAP] first-class placeholder (#29) + honor style config (#17).
+  7. [GAP] first-class placeholder (#29) + honor style config (the gap upstream fixed in `817d00e`).
 
 ---
 
@@ -1940,199 +1627,7 @@ absolute numbers are small (a fifth of a millisecond each). They are here
 because they are pure repeated work with clean fixes, and because they scale
 with content: the same proportions on a bigger screen are a bigger bill.
 
-### #42 — The draw path re-measures every string from scratch, every frame
 
-- **What I was trying to build.** Nothing in particular — this is what an idle
-  screen costs. 315 widgets, no animation, no input, the same pixels as the
-  frame before.
-
-- **What happened.** Roughly a fifth of the frame is spent measuring text that
-  has not changed:
-
-  | | self |
-  |---|---|
-  | `stbtt_GetGlyphKernAdvance` | 11.5% |
-  | `fons__getGlyph` | 5.6% |
-  | `stbtt__GetGlyphClass` | 1.4% |
-  | `fons__getQuad` | 1.3% |
-  | `fonsDrawText` | 1.0% |
-  | | **~21%** |
-
-  The stack says why:
-
-  ```
-  RenderImm::render_me
-    -> draw_text_in_rect          (rendering.h)
-       -> position_text_ex        347 samples
-          -> measure_text(font, text, size, spacing)     <-- uncached
-             -> fonsTextBounds
-                -> fons__getQuad
-                   -> fons__tt_getGlyphKernAdvance
-                      -> stbtt_GetGlyphKernAdvance       <-- GPOS re-parse, per pair
-  ```
-
-  Two things are stacked here. `position_text_ex` measures the string to align
-  it in its rect — necessary information, but the answer is identical every
-  frame for an unchanged label. And underneath, `stbtt_GetGlyphKernAdvance`
-  walks the font's GPOS coverage tables for **every adjacent glyph pair**, with
-  no memo; `stbtt__GetCoverageIndex` and `ttUSHORT` between them were the two
-  hottest functions in the whole profile before optimisation.
-
-  The part that makes this an easy fix: **`ui::TextMeasureCache` already exists**
-  — LRU, generation-pruned, hashed on (text, font, size, spacing) — and is
-  already registered as a singleton in `utilities.h`. It appeared in a 10-second
-  profile exactly once. `rendering.h` calls the raw `measure_text` in about a
-  dozen places, including this one; only `measure_text_wrapped` takes the cache.
-  The cache is built and then not used on the path that needs it most.
-
-- **The workaround.** None available app-side — `position_text_ex` is inside the
-  renderer. hanabi memoizes at a much coarser grain (`transcript_render_cache.h`
-  caches measured message heights), which helps the app's own layout pass but
-  cannot touch what the renderer does when it draws.
-
-
-
-**Hanabi reference.** Hanabi-owned performance finding: `docs/perf/SIDEBAR.md` (`gap #42 — the draw path re-measures every string from scratch every frame`) — current perf docs still identify the afterhours draw-path measurement cost. `src/ui/theme.h` (`afterhours ships a TextMeasureCache wired up as a singleton, and it is unusable from here`) — hanabi uses its own measurement semantics where the library cache cannot be adopted directly. Measurement/gate: `docs/perf/TEXT.md` (`text measurements / frame | 492.6 | **5.3**`) — current text perf document records hanabi-side measurement reductions.
-
-- **What the library could offer instead.** Two independent changes, either one
-  worth having:
-
-  1. **Route `rendering.h`'s measurements through the cache that exists.** The
-     singleton is reachable the same way `systems.h:580` already reaches it:
-
-     ```cpp
-     if (auto *cache = EntityHelper::get_singleton_cmp<ui::TextMeasureCache>())
-       size = cache->measure(text, font_name, font_size, spacing);
-     else
-       size = measure_text(font, text.c_str(), font_size, spacing);
-     ```
-
-     Best done once behind a `measure_cached(...)` helper in `rendering.h` and
-     applied to the dozen call sites, so no new call site can forget.
-
-  2. **Memoize the kern pair.** A `(glyph_a, glyph_b, size) -> advance` map in
-     the fontstash shim would collapse the GPOS re-parse for everyone, including
-     callers who legitimately miss the measure cache. A UI draws from a small
-     alphabet; the table saturates in the first frame.
-
-- **Severity: makes it slow** — ~0.2ms/frame here, and it is the largest single
-  item left in an idle frame. Not urgent for hanabi at 0.95ms/frame, but it is
-  paid on every frame of every app on the library, forever.
-
-### #43 — Component lookup goes through `dynamic_cast`, so type identity costs a `strcmp`
-
-- **What happened.** The second-largest cluster in the same profile is C++
-  runtime type machinery, and the single hottest non-font function is `strcmp`:
-
-  | | self |
-  |---|---|
-  | `_platform_strcmp` | 9.1% |
-  | `System<UIContext, FontManager>::for_each_derived` (two sites) | 4.5% |
-  | `std::type_info::operator==` | 1.7% |
-  | `dyn_cast_slow` | 1.1% |
-  | | **~16%** |
-
-  The chain, from the unoptimised profile where it is fully legible:
-
-  ```
-  run_systems_on_ui_entities
-    -> System<UIContext, FontManager>::for_each_derived
-       -> HasAllComponents<...>::has_all
-          -> Entity::has_child_of<UIContext>()            entity.h:84
-             -> child_of<UIContext, BaseComponent>(BaseComponent*)
-                -> __dynamic_cast
-                   -> dyn_cast_try_downcast
-                      -> __si_class_type_info::search_above_dst
-                         -> std::type_info::operator==
-                            -> strcmp                     <-- comparing type NAMES
-  ```
-
-  On Apple's libc++abi, `type_info::operator==` for types from the same image
-  can fall through to comparing the mangled name strings. So each system, for
-  each UI entity, for each required child component, does a `dynamic_cast` whose
-  inner loop is string comparison. Two call sites in this profile alone (256 and
-  259 samples) were ~9.4% of the main thread. It is O(entities x systems x
-  required-components) per frame and it grows with the app.
-
-- **The workaround.** None — this is inside `System::for_each_derived`.
-
-
-
-**Hanabi reference.** Hanabi-owned performance finding: `tests/e2e/test_perf.cpp` (`=== afterhours #43: component lookup ===`) — microbenchmark compares has_child_of(dynamic_cast) to has(bitset). Measurement/gate: `tests/e2e/test_perf.cpp` (`has_child_of<T> (dynamic_cast)`) — prints ns/call and ratio for the measured component lookup cost.
-
-- **What the library could offer instead.** The type identity is already known
-  without asking the runtime. `Entity` carries a `std::bitset<128>` of component
-  ids and `components::get_type_id<T>()` gives a stable index — the same
-  mechanism `Entity::has<T>()` uses, which does not appear in the profile at
-  all. `has_child_of<T>()` could ask the same question:
-
-  ```cpp
-  template <typename T> bool has_child_of() const {
-    // instead of dynamic_cast'ing each component to T
-    for (const auto &c : children_components)
-      if (c && c->is_child_of(components::get_type_id<T>()))  // or a bitset test
-        return true;
-    return false;
-  }
-  ```
-
-  If the child relationship genuinely needs a runtime downcast, the cheap fix is
-  to **cache the answer per (entity, system)** — the set of components on a UI
-  entity is stable for the entity's life, and the imm layer reuses entities
-  across frames, so the cast result can be computed once and invalidated when a
-  component is added or removed.
-
-  A smaller, free win regardless: `__dynamic_cast` is much faster when the class
-  hierarchy is simple, and much slower when it has to search. If `child_of`
-  can be restructured so the common answer is "no" without entering libc++abi
-  at all, most of this disappears.
-
-  `docs/speed.md` already lists "remove virtual destructor / BaseComponent
-  inheritance" and the SoA/archetype work as HIGH-impact core items — this is a
-  measurement in support of that section, from a real app rather than a
-  microbenchmark, and it suggests the *type-identity* half is worth pulling out
-  as its own smaller change: the profile says `strcmp`, not cache misses.
-
-#### #43, measured
-
-A percentage of a flame graph is hard to act on, so here is the gap with a
-number on it. `make perf` in hanabi now times the two lookups head to head
-(`tests/e2e/test_perf.cpp`, "afterhours #43"), on an entity with three
-components, averaging a present component and an absent one:
-
-```
-  has_child_of<T> (dynamic_cast):     61.6 ns/call
-  has<T>          (bitset):            1.0 ns/call
-  ratio:                                63x
-```
-
-**61.6 ns versus 1.0 ns for the same question.** Two things make it that bad:
-`has_child_of` walks the whole `componentArray` — `max_num_components` slots,
-not the components the entity actually has — and dynamic_casts each one; and
-each cast's inner loop can bottom out in `strcmp` on mangled type names.
-
-What that costs per frame depends on the shape of the app.
-`run_systems_on_ui_entities` runs every system over every UI entity, and
-`for_each_derived` asks `has_child_of` once per required component. hanabi's
-idle Home digest is 315 UI entities; the render pass alone walks them with
-several derived systems. At 61.6 ns a call, a few thousand calls a frame is a
-few tenths of a millisecond — which matches the ~16% of a 0.95 ms frame the
-profile attributed to this chain, from the other direction.
-
-The scaling is the part that should worry a library author: it is
-O(entities x systems x required-components) with a ~60x constant, and every one
-of those three grows as an app gets more interesting. hanabi is a small app.
-
-**The fix looks cheap.** `Entity::has<T>()` already answers the same question
-via `components::get_type_id<T>()` and a bitset, in 1 ns, and never appears in
-a profile. If the child relationship genuinely needs a runtime downcast, the
-result is cacheable per (entity, component-type): the component set of a UI
-entity is stable for its life, and the imm layer reuses entities across frames.
-
-- **Severity: makes it slow.** ~0.15ms/frame here, 63x slower than the
-  alternative that already exists in the same header. Cheap to fix relative to
-  the rest of the speed.md list, and it scales with entity count, so it gets
-  worse exactly as an app gets more interesting.
 
 ### #44 — The imm builder copies its config a lot
 
@@ -2346,83 +1841,18 @@ entity is stable for its life, and the imm layer reuses entities across frames.
 - **Severity: makes it ugly** — cosmetic, but on the control the user looks at
   most, and it made a polished app look broken.
 
-### #47 — `expect_no_text` can never fail (its argument keeps the quotes)
-
-**RESOLVED upstream** — the vendored afterhours (submodule 428047e) carries the
-one-line fix suggested at the bottom of this entry: `parse_script` now routes
-`expect_no_text` through `parse_quoted()` alongside `expect_text`. Verified on
-the merged tree: `expect_no_text "profiling the disk"` FAILS on a frame that
-paints it, and reports the label it matched. Quoted multi-word arguments are
-usable again; the "pass a bare single word" workaround below is no longer
-required, and the comments repeating it in `tests/ui/*.e2e` are stale.
-
-- **What happened.** Every negative assertion in every UI script passes,
-  including this one, on a build where the tab plainly reads `new1`:
-
-  ```
-  expect_text    "new1"      # PASSES  — the text is on screen
-  expect_no_text "new1"      # ALSO PASSES — on the same frame
-  ```
-
-  `parse_script` gives `parse_quoted()` to `expect_text`,
-  `expect_selected_text`, `expect_input_text` and `assert_ui_text`, but
-  `expect_no_text` is not in that chain and falls through to the generic
-  tail:
-
-  ```cpp
-  } else {
-      std::string arg;
-      while (iss >> arg) cmd.args.push_back(arg);   // whitespace-split, quotes kept
-  }
-  ```
-
-  So `args[0]` is the seven characters `"new1"` — with the quote marks — and
-  `VisibleTextRegistry::contains()` is asked for a substring nothing will ever
-  contain. The handler is correct; it is never given the string the script
-  meant. A multi-word argument fails a second way: it is split on whitespace and
-  only the first fragment is ever consulted.
-
-  This is the quietest possible failure mode. `expect_no_text` is exactly the
-  assertion you write when you want to be sure something is gone, and it has
-  been answering "yes, gone" unconditionally.
-
-- **The workaround.** Pass a bare single word — `expect_no_text Copy` — and
-  choose a distinctive one, since multi-word phrases are unusable. Every script
-  in `tests/ui/` now carries a comment saying why, because the natural thing to
-  write is the quoted form and it looks right.
-
-
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** Resolved upstream; old bare-word workaround comments remain in some scripts, but current source can use quoted expect_no_text.
-
-**Hanabi reference.** Current code: `tests/ui/shortcuts_sheet.e2e` (`expect_no_text "Keyboard shortcuts"`) — current scripted tests use a quoted multi-word negative assertion. `docs/COMMIT_AUDIT.md` (`expect_no_text "quoted" can never fail.`) — audit records that this was true when written and fixed by the vendor bump. Tests: `tests/ui/shortcuts_sheet.e2e` (`Fixed in afterhours 2d6f23d.`) — test comment pins that quoted expect_no_text is the current, fixed behavior.
-
-- **What the library could offer instead.** One line, next to its sibling:
-
-  ```cpp
-  } else if (cmd.name == "expect_text" || cmd.name == "expect_no_text") {
-      cmd.args.push_back(parse_quoted());
-      cmd.wait_seconds = 1 * frame;
-  }
-  ```
-
-  Worth a wider look while in there: `parse_script`'s dispatch is a chain of
-  string comparisons plus three `constexpr` name arrays, and a command that
-  matches none of them silently gets whitespace-split args rather than an error.
-  Any command whose argument can contain a space is one forgotten branch away
-  from this same bug. Having the tables declare an arity *and* a quoting rule
-  per command — rather than the branch order deciding — would make the class
-  impossible.
-
-  A test for the harness itself, along the lines of "`expect_no_text` fails when
-  the text is present", is the other half. It is a two-line test and it would
-  have caught this the day it was written.
-
-- **Severity: blocks the feature.** Together with #39 and #40 this is three
-  independent ways a UI script reports success it did not earn. All three bit us
-  in the first hour of using the harness, and all three are small fixes.
 
 ### #48 — A codepoint the font lacks draws NOTHING, and there is no way to ask
+**Scope: the SOKOL backend only.** Upstream `3a9ecac` and `8d7d5f1` added
+`default_codepoints()` and a working `font_has_glyph()` — both in
+`src/backends/raylib/font_helper.h`, and only there. Proof at pin `9ff9079`:
+
+    git grep -n "font_has_glyph\|default_codepoints" -- src/
+      src/backends/raylib/font_helper.h:27,45,61,92
+
+Hanabi runs the sokol backend (`AFTER_HOURS_USE_METAL`, `src/sokol_impl.mm`),
+so it gets neither: a codepoint the face lacks still draws nothing, and there
+is still no way to ask. The workaround below stays for that reason.
 
 - **What I was trying to build.** Ordinary UI furniture typed as characters: a
   disclosure chevron on a collapsible row, a return-arrow in the composer's
@@ -2703,7 +2133,7 @@ required, and the comments repeating it in `tests/ui/*.e2e` are stale.
      ```
 
      which also covers the other things apps want behind text — a spell-check
-     underline, a diff tint, an inline code pill (gap #22's real fix).
+     underline, a diff tint, an inline code pill (gap upstream a1b9a4b's real fix).
 
   Either one turns 70 lines of copied constants into three, and makes
   **selection (#37) mostly free** — selection is this plus a drag, and the two
@@ -2975,57 +2405,6 @@ should.
 
 
 
-### #55 — A scripted test can right-click a coordinate, never a named element
-
-- **What I was trying to build.** The session-rename theme: right-click a
-  sidebar row, pick "Rename…", type, press Return. The context menu is the
-  entry point, so the test has to open it the way a person does.
-
-- **What I tried.**
-
-  ```
-  right_click_ui chat_row
-  ```
-
-- **What happened.** `right_click_ui` is not a command. The harness has
-  `click_ui`, `focus_ui`, `double_click_ui`, `triple_click_ui` and
-  `assert_ui`, all resolving a `debug_name` to the element's live rect — but
-  the secondary button has only the raw-coordinate form,
-  `right_click x y` (`e2e_testing/command_handlers.h:156`). The UI side is
-  complete: `UIContext::is_right_click(id)` exists and is exactly the API a
-  context menu wants. Only the driver half is missing.
-
-- **The workaround.** Hardcode the row's pixel position:
-
-  ```
-  mouse_move 120 511
-  right_click 120 511
-  ```
-
-  which is what `tests/ui/session_rename.e2e` does. It costs the property the
-  harness's own README sells `click_ui` for: a layout change now retargets the
-  click onto whatever moved into 120,511 — a different row, or empty sidebar —
-  and the test keeps passing while exercising the wrong thing (or fails for a
-  reason that has nothing to do with rename). The menu ITEM is safe, because
-  once the menu is open `click_ui row_menu_rename` finds it by name.
-
-
-
-**Hanabi reference.** `tests/ui/session_rename.e2e` (`right_click 120 475`) — rename test still hardcodes the secondary-click coordinate. `tests/ui/session_archive.e2e` (`right_click 120 475`) — archive test carries the same coordinate workaround. Tests: `tests/ui/session_rename.e2e` (`click_ui row_menu_rename`) — menu item can be addressed by name after coordinate right-click opens the menu.
-
-- **What the library could offer instead.** The same handler `click_ui`
-  already has, dispatching `simulate_right_click` instead of
-  `simulate_click` — the element lookup, the centre-of-rect maths and the
-  failure message are all written. Roughly:
-
-  ```cpp
-  // ui_commands.h, beside HandleClickUiCommand
-  if (cmd.is("right_click_ui")) { ... test_input::simulate_right_click(cx, cy); }
-  ```
-
-- **Severity: makes it fragile.** The feature is testable; the test just
-  cannot be written the robust way, so every context menu in every app that
-  vendors this gets a coordinate-keyed test.
 
 ### #56 — A newly built text_input cannot be focused programmatically
 
@@ -3528,7 +2907,7 @@ background one, so `with_border_right` survives its own children (this is #63's
   At 45px that is a forced 15.75px horizontal inset and a 5.6px vertical one.
   There is no config flag beside it — unlike the font size, which the same block
   now DOES let you win (`config.font_size_explicitly_set ? config.font_size :
-  pixels(field_h * 0.5f)`). Half of gap #17 has been fixed upstream; this half
+  pixels(field_h * 0.5f)`). Half of the gap upstream fixed in `817d00e` has been fixed upstream; this half
   has not, and the fix makes the remaining half more visible, because a caller
   who has just successfully set a 13px font on a 45px field naturally expects
   the padding beside it to take too.
@@ -3576,7 +2955,7 @@ background one, so `with_border_right` survives its own children (this is #63's
   owns the layout, the wrap, the ellipsis and the x-offset, and it never tells
   the caller where it put any of it. There is no per-run styling, no inline
   icon, and no "placeholder rect" to hang an `on_draw_fg` on. The only escape is
-  the one gap #17 already documents for the sidebar search: abandon the
+  the one the gap upstream fixed in `817d00e` already documents for the sidebar search: abandon the
   widget's placeholder entirely and re-implement it as an absolutely-positioned
   overlay whose origin you derive by hand from the panel geometry — which means
   re-deriving the very inset that #65 above will not let you set.
@@ -3952,7 +3331,7 @@ there is no way to say WHICH one you meant.**
 
 **What happened.** The scripted sidebar tests assert row order by position —
 `assert_ui_text "<row title>" y=306` is how "this thread is in slot 0" is
-written, because there is no way to name one row of a list (#55) and no
+written, because there is no way to name one row of a list (upstream ca1736f) and no
 `dump_ui` registered. But hanabi paints every sidebar row title a second time,
 as a Home digest card in the main pane. `assert_ui_text` resolves its argument
 with
@@ -4948,7 +4327,7 @@ CLASS: TEDIOUS
 one label, in one system.
 
 **What happens.** `text_input` ignores per-widget colours and reads the theme
-(gap #17), and the field's placeholder specifically reads `theme.font_muted`.
+(the gap upstream fixed in `817d00e`), and the field's placeholder specifically reads `theme.font_muted`.
 So the only way to colour it is `ctx.theme.font_muted = <colour>` — and
 `ctx.theme` is a single mutable struct on the UI context that the RENDERER
 reads, long after the system that set it has returned. There is no push/pop, no
@@ -4969,7 +4348,7 @@ was caught is that a parity number moved.
 **Why the obvious escapes do not work.**
 
 - **Per-widget colour** is what `with_custom_text_color` is, and the widgets
-  that need this are exactly the ones that ignore it (gap #17).
+  that need this are exactly the ones that ignore it (the gap upstream fixed in `817d00e`).
 - **Save and restore around the call** cannot work: the write is consumed at
   render, not at build.
 - **A second theme** is not addressable — `UIContext` has one `theme` member.
@@ -4985,7 +4364,7 @@ whole frame to reach one placeholder.
 
 
 **Minimal upstream fix.** Either honour the per-widget colours in `text_input`
-(gap #17's ask, which subsumes this), or give the context a scoped theme —
+(the gap upstream fixed in `817d00e`'s ask, which subsumes this), or give the context a scoped theme —
 `ctx.push_theme(t) / pop_theme()` recorded into the render command stream, so a
 theme edit lasts exactly as long as the subtree that made it.
 
@@ -5193,7 +4572,7 @@ caller can read back.
   lands fine — but `on_draw_fg` gets a rect and nothing else, so the widget has
   no click of its own. The star stops being a button and the row has to
   hand-hit-test a sub-rectangle of itself against `ctx.mouse.pos`, which is
-  gap #55's problem (no way to name or address part of a widget) reached from a
+  gap upstream ca1736f's problem (no way to name or address part of a widget) reached from a
   new direction.
 - **A negative margin.** `with_absolute_position()` warns and ignores margins
   outright: "For absolute elements, margins are position offsets only."
@@ -6561,79 +5940,6 @@ a placeholder — which is exactly the pair SwiftUI's `.help()` sets in one call
 
 CLASS: MISSING
 
-### #113 — Every scripted failure but one is told which element it was about; the timeout, which is the one that means "it is not there", is not
-
-**What was wanted.** To watch a new scripted test go red against a build
-without its fix, read the failure, and know from the failure alone what was
-missing.
-
-**What happens.** `assert_ui` calls `cmd.retry()` when no element carries the
-name, so a missing element is not a failure — it is a retry, thirty times, and
-then a timeout. The timeout's message is built in
-`command_handlers.h:812-824`, which special-cases exactly one command:
-
-```cpp
-if (cmd.name == "expect_text" && !cmd.args.empty()) {
-    error_msg = std::format("Text not found: '{}'. Visible: {:.200}", ...);
-} else {
-    error_msg = std::format("Command '{}' timed out after {} frames",
-                            cmd.name, PendingE2ECommand::MAX_FRAMES);
-}
-```
-
-So `expect_text` says what it was looking for and what was on screen, and
-`assert_ui`, `assert_ui_text`, `click_ui`, `focus_ui`, `expect_focused` and
-`expect_input_text` all say nothing at all. Four consecutive assertions about
-one element produce four identical lines:
-
-```
-[WARN] [TIMEOUT] assert_ui (line 47): Command 'assert_ui' timed out after 30 frames
-[WARN] [TIMEOUT] assert_ui (line 48): Command 'assert_ui' timed out after 30 frames
-[WARN] [TIMEOUT] assert_ui (line 49): Command 'assert_ui' timed out after 30 frames
-[WARN] [TIMEOUT] assert_ui (line 50): Command 'assert_ui' timed out after 30 frames
-```
-
-`cmd.args[0]` — the name — is in scope on the line above.
-
-This is #104's other half and it bites in the same place. #104 is that you
-cannot ASSERT an element is absent; this is that when an element IS absent, the
-harness declines to say which one. Between them, "did this element render?" is
-the question the harness is worst at, and it is the question every piece of
-chrome asks.
-
-**Why the obvious escapes do not work.**
-
-- **Read the line number** — works, and it is what I did. It requires the
-  script open beside the log, it does not survive the script being edited, and
-  it is no use at all in the suite runner's summary, which prints
-  `sed -n '/E2E ERROR\|TIMEOUT\|FAIL/p' | head -8` and so prints eight lines
-  that differ only in a number.
-- **Name the assertion in a comment** — comments are not in the log.
-- **Split one element's assertions across separate tests** so the test NAME
-  carries the element — one file per property, and the suite is 85 files.
-
-**The workaround, and its cost.** None available in app code; the message is
-built inside the plugin. The cost is that a red scripted test in this repo
-tells you a line number and not a fact, and the reflex it trains — open the
-script, count lines — is the reflex that made #104's missing assertion hard to
-notice in the first place.
-
-
-**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2caf525` includes the timed-out command subject in every retry-timeout diagnostic. Hanabi now consumes that behavior directly from the `fc4d625` pin; the former proof patch and probe were removed.
-
-**Hanabi reference.** `tests/ui/composer_model_picker.e2e` and the rest of the scripted suite now receive subject-bearing timeout diagnostics from the vendored runner without a local patch.
-
-
-**Minimal upstream fix.** When a command times out and has args, append them. Three lines, and it makes every
-name-taking command self-describing:
-
-```cpp
-error_msg = std::format("Command '{}'{} timed out after {} frames", cmd.name,
-                        cmd.args.empty() ? "" : std::format(" ('{}')", cmd.args[0]),
-                        PendingE2ECommand::MAX_FRAMES);
-```
-
-CLASS: FOOTGUN
 
 ### #114 — A sprite's rendered INK extent is not derivable from its atlas rect and its `draw_px`, so every icon is sized by build-measure-repeat
 
@@ -7193,7 +6499,7 @@ runtime gate and one source gate, for something a scoped type in the library
 would have made unforgettable.
 
 
-**Hanabi reference.** `src/util/autorelease.h` (`class AutoreleaseFrame`) — RAII pool that brackets frame/texture work on Apple platforms. `src/main.cpp` (`const hanabi::AutoreleaseFrame framePool;`) — main frame loops instantiate the pool around graphics work. Tests: `scripts/check_autorelease.py` (`check_autorelease: every graphics::begin_frame()`) — scripted source check is the regression gate for the workaround. Measurement/gate: `docs/perf/GATES.md` (`one const hanabi::AutoreleaseFrame framePool; line`) — gate notes show the check failing when one pool is deleted.
+**Hanabi reference.** `src/util/autorelease.h` (`class AutoreleaseFrame`) — RAII pool that brackets frame/texture work on Apple platforms. `src/main.cpp` (`const hanabi::AutoreleaseFrame framePool;`) — main frame loops instantiate the pool around graphics work. Tests: `scripts/check_autorelease.py` (`check_autorelease: every frame opener`) — scripted source check is the regression gate for the workaround. Measurement/gate: `docs/perf/GATES.md` (`one const hanabi::AutoreleaseFrame framePool; line`) — gate notes show the check failing when one pool is deleted.
 
 
 **Minimal upstream fix.** Either (a) push and pop an autorelease pool inside
@@ -7320,153 +6626,6 @@ out-of-tree driver addresses a widget rather than searching for one.
 
 ---
 
-### #115 — A widget that stops being built is never retired, so every system walks the union of every screen the app has ever shown
-
-**What was wanted.** For a screen the user has navigated away from to stop
-costing anything. hanabi's Home pane builds a card per attention-worthy
-session; open a thread and Home is gone. It should be gone from the frame
-budget too.
-
-**What happens.** It is never gone. `imm::mk()` keeps a permanent
-`std::map<UI_UUID, EntityID> existing_ui_elements` and hands back the same
-entity for the same call site forever
-(`src/plugins/ui/entity_management.h`). Nothing marks an entity as "not built
-this frame", nothing sweeps one, and the library's own
-`clear_existing_ui_elements()` is called from nowhere in the library and would
-orphan the entities rather than destroy them. Meanwhile
-`run_systems_on_ui_entities` (`src/plugins/ui/utilities.h`) iterates
-`ui_coll.get_entities_for_mod()` -- the WHOLE collection -- once per system per
-frame, twice for a render system (mutable pass then const pass). So the set
-every pass walks is the union of every widget any screen has ever built, and it
-only grows.
-
-Gap #27 records this half of the design approvingly -- "`mk()` retains ENTITIES
-by UUID (good — no per-frame alloc churn)" -- and for a screen you keep coming
-back to that is right. What it misses is that retention with no retirement is
-not a cache, it is a leak with a bounded key space.
-
-Measured in hanabi, at a 2020-session catalog, idle, chat tab open:
-
-  * `render_home` runs **twice** in the first ~1000 frames and never again
-    (instrumented count; `app.view` is Chat from frame ~3 onward).
-  * Those two frames build **696 digest cards, 2784 entities**, which are
-    still in the collection at frame 800 -- the soak's entity census reports
-    them.
-  * Frame time with them present: **4.59 ms**. With the sections capped so
-    only 80 cards are ever built: **1.44 ms**.
-
-**3.15 ms a frame, 69% of the frame, for a screen that was drawn twice.**
-Not drawn 800 times -- twice. Every one of those 800 frames paid to lay out,
-hit-test and consider drawing widgets belonging to a pane that was not on
-screen. The user's report was "it gets slower and slower until it freezes";
-this is the shape of the half of that which was not the Metal leak.
-
-**Why the obvious escapes do not work.**
-
-- **Stop building the widget when the screen is not shown.** Already true --
-  that is what made this measurable. It does not help, because the entity from
-  the two frames it WAS shown persists. There is no "and destroy what I built
-  last time" to pair with it.
-- **Call `clear_existing_ui_elements()` on a screen change.** It clears the
-  hash->id map, not the entities. The next `mk()` from the same call site
-  allocates a NEW entity and the old one stays in the collection, unreferenced
-  and still iterated. It converts a bounded set into an unbounded one.
-- **Delete the entities from the app side.** An app can reach
-  `EntityHelper::get_entities_for_mod()`, but the ids are inside `mk()`'s
-  private map; there is no way to ask "which entities belong to this subtree"
-  or "which were not built this frame". Guessing by `UIComponentDebug::name` is
-  matching on a debug string.
-- **Wait for `ClearVisibity` to make them free.** It clears visibility and
-  children, which is what makes a stale entity cheapER than a live one -- but
-  the per-entity, per-system, per-frame iteration is unconditional, and at
-  ~1.1 us per entity per frame (3.15 ms / 2784) that iteration is the cost.
-
-**The workaround, and its cost.** Cap what is ever built, everywhere, so the
-high-water mark is small: hanabi's Home now renders at most 20 cards per
-section (commit "Home's Recent list was capped..."). This is the same
-workaround gap #23 already forces for scroll views, arrived at from the other
-direction -- there it is "do not build what is off screen", here it is "do not
-build what may leave the screen", and both are the app hand-rolling the
-lifetime the framework does not offer. The cost is that every list in the app
-now needs a cap whether or not it has a scroll view, the cap has to be chosen
-by hand against a viewport, and a section header has to carry the true count
-because the rows no longer do. And it is a high-water mark, not a fix: a user
-who visits one big screen still pays for it for the rest of the session.
-
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's original claim that app-side deletion was impossible is stale; the postscript and current source show the public map plus mk shadowing workaround shipped.
-
-**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2393fe3` and `c682382` preserve survivor order, stamp every immediate widget, remove stale map entries, and retire unbuilt widgets after a configurable grace window. Hanabi now uses that lifecycle directly; its wrapper remains only to avoid the separate hot-path string construction in gap #180.
-
-**Hanabi reference.** `src/ui/mk.h` refreshes the upstream `UIElementRecord`; `src/ui/widget_epoch.h` is now a measurement/configuration adapter rather than a second retirement implementation. Tests: `tests/unit/test_widget_retire.cpp`, `tests/ui/widgets_of_a_screen_you_left_are_retired.e2e`, and `scripts/retire_gate.sh`.
-
-
-**Minimal upstream fix.** A frame stamp and a sweep. `mk()` already touches
-every live element -- write the current frame number onto the entity when it
-does. At end of frame, retire entities whose stamp is older than N frames (N a
-small grace so a screen toggled every other frame does not thrash): remove the
-id from `existing_ui_elements` and mark the entity for cleanup. Two fields and
-one pass, and it is the only place with both halves of the information. A
-weaker version that would still have caught this: expose the collection size
-and a per-frame "built" count so an app can see the two diverge -- hanabi had
-to add its own entity census to find that out.
-
-CLASS: RESOLVED UPSTREAM
-
-**POSTSCRIPT, 2026-08-25: fixed from the app side, and this entry was wrong
-about why it could not be.** The escape list above says:
-
-> **Delete the entities from the app side.** An app can reach
-> `EntityHelper::get_entities_for_mod()`, but the ids are inside `mk()`'s
-> private map [...]
-
-`existing_ui_elements` is not private. It is an `inline std::map` at namespace
-scope in `afterhours::ui::imm` (`entity_management.h`), so any app that
-includes the header can read it, iterate it and erase from it. That one
-mistaken word is the difference between "the library must fix this" and "the
-app can", and it stood in this file for a month.
-
-The second half is that `mk` can be SHADOWED. hanabi imports it through
-exactly one using-declaration and ADL cannot reach
-`afterhours::ui::imm::mk` on its own, so replacing that line puts hanabi's own
-`mk` in front of the library's at all 335 call sites at once -- forwarding to
-`imm::mk` (same call-site hash, same entity, same reuse) and recording the
-frame that built it. `src/ui/widget_epoch.h`.
-
-With both, the sweep this entry asks the library for is fifty lines of app
-code: stamp on build, and once every 15 frames walk the map and, for any entry
-whose entity has not been built for 90 frames, erase the hash AND mark the
-entity for cleanup (afterhours' own post-update bridge destroys it before the
-frame renders). Erasing the hash is the half that matters -- afterhours
-recycles EntityIDs, so an entry left pointing at a destroyed entity hands the
-next `mk()` at that call site a different widget.
-
-    views arm, 2000 sessions, 3600 frames, sampled every 360 (one whole
-    navigation cycle, so every sample is on the same screen):
-
-                    sweep off     sweep on
-      entities           2844          213     13.4x fewer
-      ms/frame           4.57         3.13     -31%
-      live heap        48.8 MB      43.5 MB    -5.3 MB
-
-**The upstream fix is still worth doing**, for four reasons the app-side
-version cannot cover:
-
-  * Every app that vendors afterhours has to write this, and each one has to
-    discover that the map is public and that `mk` is shadowable.
-  * It cannot retire what it did not create. Nine entities per run in hanabi
-    are the library's own (the UI root, scrollbars, the drag spacer) and no
-    app-side sweep can ever see them -- #162.
-  * It depends on `mk` being the ONLY way an entity enters
-    `existing_ui_elements`, which is true today and is not a documented
-    contract.
-  * It costs 0.030 ms/frame of stamping that the library would get for free:
-    `mk()` already has the entity in hand at the moment it decides to hand it
-    back. From the app side that write is a second cache line -- #160.
-
-The class stays WORKAROUND. It is a good workaround, it is gated
-(`scripts/retire_gate.sh`) and tested, and it is still an app re-implementing
-widget lifetime because the framework does not have one.
 
 ### #116 — There is no way to ask how much of a string fits in a width, so every ellipsized label is O(n) whole-string measurements
 
@@ -7511,7 +6670,7 @@ at **34% of the main thread** (2025 of ~5900 samples over 8 s) at a
 - **Use `TextMeasureCache`.** It memoizes whole-string measurements, so it
   turns O(n) DISTINCT measurements into O(n) cache lookups on a string that
   changes length every probe. It does not make the algorithm sublinear, and
-  gap #42 already records that the draw path does not consult it anyway.
+  gap upstream 2b207d4 already records that the draw path does not consult it anyway.
 
 **The workaround, and its cost.** `src/util/ellipsize.h`: 100 lines,
 binary search plus a scratch buffer, wrapped in a memo at the call site, plus
@@ -7756,119 +6915,6 @@ put them out of step. That is the shape of the fix for any coordinate a test
 pins — ask the thing that drew it — and it needs a per-feature command each
 time, because the library has nothing to ask.
 
-### #200 — Every headless resize creates five Metal render pipelines that destroying the render texture does not release, so a resize loop leaks 4.8 MB per 1000 frames — larger than the bug that started this project
-
-**What was wanted.** A stress scenario that drags the window narrower and wider
-while a soak probe watches memory. `docs/perf/GATES.md` names this as one of
-the four things it could not gate: *"no gate here presses a key, opens a menu,
-or resizes a window"*. The reason to want it is one layer below hanabi: the
-headless backend honours a resize by destroying and recreating the offscreen
-render target, and its own comment says that is fine because *"called on resize
-events only (not per-frame)"*. A drag makes them sixty a second.
-
-**What happened.** The arm goes red immediately, and it is not hanabi's.
-2000 frames of resizing, one step a frame, against the mock catalog:
-
-```
-  metric        slope /1000f    per minute @60fps   budget   rising
-  RSS             +5209.6 KB         +18754.6 KB       512     1.00   FAIL 10.2x
-  heap bytes      +4863.9 KB         +17510.0 KB       256     1.00   FAIL 19.0x
-  heap blocks    +66365.6           +238916.2         1000     1.00   FAIL 66.4x
-```
-
-18.7 MB a minute. The Metal autorelease leak that started this whole project
-(`#145`) was 9 MB a minute.
-
-**Where it is.** `MallocStackLogging=1` plus `malloc_history -allBySize`, live
-allocations after ~8100 resizes, top four by count:
-
-```
- 162040 calls   7777920 bytes  _sg_init_pipeline -> MTLVertexAttributeDescriptor
-  40511 calls  12963520 bytes  _sg_init_pipeline -> MTLVertexDescriptor
-  40511 calls  12963520 bytes  _sg_init_pipeline -> MTLVertexBufferLayoutDescriptor
-   8103 calls    388944 bytes  _sg_init_image     (exactly one per resize)
-```
-
-8103 images is one per resize, and 40510 pipelines is **five per resize**, none
-of them released. The path is
-`window_manager::set_window_size` → (headless branch) `unload_render_texture` +
-`load_render_texture` → `sgl_make_context` → `sg_make_buffer` /
-`_sg_init_pipeline`.
-
-`unload_render_texture` looks correct — it calls `sgl_destroy_context` first and
-then destroys every view, image and sampler it made. So this is not a missing
-call in afterhours' own teardown: **`sgl_destroy_context` does not release the
-render pipelines the context created**, and nothing above it can, because
-sokol_gl's pipeline pool is not reachable from the afterhours API.
-
-**Scope, stated honestly, because it changes who should care.** This is the
-HEADLESS path. `set_window_size`'s other branch calls `metal_set_window_size`,
-a Cocoa `NSWindow` resize, and never touches the offscreen target — so a person
-dragging the real window does not hit this. It is a harness leak, not a user
-one. It still matters: it makes the one scenario that could have gated a
-user-facing resize leak unable to gate anything, because 4.8 MB a thousand
-frames of upstream noise swamps whatever hanabi might be doing.
-
-**The workaround, and its cost.** `HANABI_STRESS=resize` resizes the LAYOUT
-only: it writes `ProvidesCurrentResolution` (with `should_refetch = false`, or
-`CollectCurrentResolution` puts the old size straight back) and does not call
-the backend. Every widget is laid out against that singleton and
-`viewport::width()` feeds from the same place, so the wrap, the clip and every
-width-keyed cache in hanabi see the new size — which is hanabi's own resize
-cost, and it measures flat. `HANABI_STRESS_RESIZE_BACKEND=1` puts the backend
-call back and reproduces the table above in one run.
-
-The cost is that the arm draws every frame into a render target of the wrong
-size. Nothing in a soak asserts on pixels so it does not matter here, but it
-means this arm can never be extended into a screenshot test, and it means the
-render-target half of a resize — a real cost on a real drag — stays unmeasured.
-
-
-**Hanabi reference.** `src/util/stress.h::HANABI_STRESS_RESIZE_BACKEND` — The resize stress arm defaults to layout-only and can opt back into the backend resize path to reproduce the upstream leak. Measurement/gate: `docs/perf/STRESS.md` (`layout only (default) | +0.0 KB | PASS`) — The perf report records the current workaround and the backend-resize failure slope.
-
-
-**Minimal upstream fix.** Either have `sgl_destroy_context` release the
-context's pipelines, or — better, and entirely within afterhours — stop making
-a context per render texture: `load_render_texture` creates one because it
-needs a pipeline matching the target's pixel format, and a small cache keyed on
-`(color_format, depth_format, sample_count)` would make that one context for
-the life of the process instead of one per resize. Then a resize is an image
-swap and the arm can gate the thing it was written for.
-
-**Postscript, 2026-08-25 (perf/gpu): headless-only CONFIRMED, both ways, and
-it is not GPU memory at all.**
-
-The scope paragraph above reasons from the code. Two measurements now back it.
-
-*A windowed resize leaks nothing.* `HANABI_GPU_WATCH=20
-HANABI_GPU_WATCH_RESIZE=1` drags a REAL window through
-`metal_set_window_size` and prints `-[MTLDevice currentAllocatedSize]` beside
-the window size. 73 resizes, 33 distinct sizes each visited twice about forty
-resizes apart: the GPU total is **identical to the kilobyte on 32 of the 33**,
-and the exception reads 14 MB LOWER the second time because its first sample
-predated settling. (osascript cannot do this — it needs assistive access, which
-is not a permission to grant on somebody's daily machine to settle a
-measurement — so the drag is driven from inside the process through the same
-NSWindow call `set_window_size`'s windowed branch makes.)
-
-*And the call graph is exhaustive rather than argued.* `load_render_texture`
-has exactly two call sites in the whole program, `backend.h:353` and
-`backend.h:813`, and both are inside `if (metal_detail::g_headless)` — the
-windowed `graphics::init` returns false two lines later with
-`@notimplemented`. `sgl_make_context` has exactly one afterhours call site,
-inside `load_render_texture`. A windowed app has ONE sokol-gl context, made
-once at `sgl_setup`.
-
-*It is a HEAP leak, not a GPU one.* The resize arm with the backend on reads
-`+4,928 KB` RSS and `+65,966` live blocks per 1000 frames — and the GPU column
-on the same run reads **-8,192 KB**. It goes DOWN, because the arm sweeps the
-render target smaller and the leaked objects are Objective-C descriptors
-(`MTLVertexDescriptor`, `MTLVertexAttributeDescriptor`) that
-`currentAllocatedSize` does not count. So a GPU-bytes gate can never catch this
-one, exactly as a malloc gate can never catch a texture. That is not a defect
-in either gate; it is why hanabi's soak now runs both.
-
-CLASS: BLOCKING (for the scenario; the workaround measures the other half)
 ### #170 — `Overflow::Scroll` clips what you built; there is no way to build less, so every consumer with a long list re-implements windowing against state the library writes AFTER the build
 
 **What was wanted.** A sidebar whose per-frame cost is its viewport, not its
@@ -7958,7 +7004,7 @@ every row ever scrolled past.
 
 **What happens.** `imm::mk()` keeps a permanent `std::map<UI_UUID, EntityID>`
 and hands back the same entity for the same call site forever, and nothing
-sweeps one (#115). So the id a virtualized list chooses IS its memory policy:
+sweeps one (upstream 2393fe3). So the id a virtualized list chooses IS its memory policy:
 
 - **id from the row index** -- the natural spelling, and it reads as the safe
   one because the widget then "is" the row -- mints an entity per row ever
@@ -7983,7 +7029,7 @@ those apart, because as far as it is concerned nothing happened.
 
 - **Call `clear_existing_ui_elements()` when the window moves.** It is called
   from nowhere in the library and orphans entities rather than destroying them
-  (#115), so it converts a bounded map into an unbounded entity collection.
+  (upstream 2393fe3), so it converts a bounded map into an unbounded entity collection.
 - **Hash the session id into the `mk()` id.** That is the row-index case with
   extra steps: distinct rows, distinct ids, one entity each, forever.
 - **Keep the slot and re-assert the state by hand.** There is nothing to
@@ -7997,7 +7043,7 @@ five lines, and the compiler will never tell you when a third caller picks the
 wrong one.
 
 **POSTSCRIPT, 2026-08-25 (`perf/retire`): the sweep bounds this, and does not
-remove it.** #115 is now worked around app-side -- widgets nothing has built
+remove it.** upstream 2393fe3 is now worked around app-side -- widgets nothing has built
 for 90 frames are retired -- so the first bullet's "one entity per row ever
 reached, forever" is no longer true. It is worth knowing exactly what replaces
 it, because "the leak is fixed" would be the wrong lesson.
@@ -8023,7 +7069,7 @@ allocation churn where the slot scheme has none. Everything above about the
 slot being right and not free is unchanged.
 
 
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The unbounded 'forever' claim is superseded by the #115 retirement sweep; slot keys still ship because row-index keys cause churn and a larger bounded working set.
+**POSTSCRIPT 2026-08-26 (source-reference audit).** The unbounded 'forever' claim is superseded by the upstream 2393fe3 retirement sweep; slot keys still ship because row-index keys cause churn and a larger bounded working set.
 
 **Hanabi reference.** `src/ecs/main_pane_system.h` (`Keyed on the window SLOT, never the card index.`) — Digest-card windowing deliberately keys built cards by slot rather than by absolute card index. `src/ecs/sidebar_system.h` (`The row ids run base+1 .. base+window`) — Sidebar virtualization bounds the mk id space by the visible window slots. Tests: `scripts/scroll_gate.sh` (`row ids keyed on the row INDEX`) — The scroll gate rehearses the row-index-id defect. Measurement/gate: `scripts/scroll_gate.sh` (`blocks row ids keyed on the row INDEX`) — The script records the allocation/leak signal when the slot-key workaround is removed.
 
@@ -8032,7 +7078,7 @@ slot being right and not free is unchanged.
 `mk()` taking an optional stable KEY distinct from its slot, so the library can
 re-use the slot's entity while telling the consumer the key changed -- one
 `bool key_changed` on the returned wrapper is enough to let a press be
-cancelled and a hover re-evaluated. Retiring unbuilt entities (#115) would
+cancelled and a hover re-evaluated. Retiring unbuilt entities (upstream 2393fe3) would
 solve the memory half on its own and leave this half exactly where it is.
 
 ---
@@ -8079,7 +7125,7 @@ permanent blind spot with a known shape, which is the best available outcome
 and is still a blind spot.
 
 
-**Hanabi reference.** `src/util/soak.h` (`scroll_named(const char* debugName, float dy)`) — The soak driver mutates scroll state directly rather than injecting an input event. `docs/perf/STRESS.md` (`Nothing here presses a key or opens a menu`) — Perf docs explicitly keep the input-path blind spot visible. Measurement/gate: `docs/perf/STRESS.md` (`half hanabi owns`) — The stress report distinguishes measured app-owned work from unavailable OS/input/backend paths.
+**Hanabi reference.** `src/util/soak.h` (`scroll_named(const char* debugName, float dy)`) — The soak driver mutates scroll state directly rather than injecting an input event. `docs/perf/STRESS.md` (`Nothing here presses a key or opens a menu`) — Perf docs explicitly keep the input-path blind spot visible. Measurement/gate: `docs/perf/STRESS.md` (`layout + backend (current, at pin 9ff9079)`) — The stress report distinguishes measured app-owned work from unavailable OS/input/backend paths.
 
 
 **Minimal upstream fix.** Split the injector from the harness. A tiny
@@ -8254,76 +7300,13 @@ CLASS: PERFORMANCE
 
 ---
 
-### #192 — `dump_ui` is fully implemented, is not registered, and reports itself as a typo
-
-**What was wanted.** To find which widget's width changed when the font
-changed — the geometry, not the pixels. `ui_commands.h` has exactly the right
-thing: `HandleDumpUICommand`, ~100 lines, walks the tree and emits XML with
-every element's debug name, rect and text, with optional subtree scoping.
-
-**What happens.** `register_ui_commands` does not register it. Sixteen other
-handlers in the same function are registered; this one is defined and never
-mentioned again. Its argument shape is also absent from the runner's
-`single_arg_commands` / `two_arg_commands` tables, so even if it were
-registered the parser would not hand it the name it requires.
-
-So a script containing `dump_ui` fails with:
-
-```
-[E2E ERROR] dump_ui (line 3): Unknown command: 'dump_ui'. Either a typo, or
-its handler was registered after register_unknown_handler()/
-register_all_handlers() -- custom handlers must come before those.
-```
-
-which is a message about the CONSUMER's registration order, for a command the
-consumer never had the chance to register. Everything in it is true and all of
-it points the wrong way: the reader checks their own `register_*` ordering,
-finds it correct, and concludes they mistyped a command that does not exist —
-when it does exist, in the file they are looking at.
-
-This is the same shape as #86 and #117 (a harness that cannot report where
-anything landed) with an extra turn of the knife: the capability is written,
-it works, and it is unreachable.
-
-**Why the obvious escapes do not work.**
-
-- **Register it from the app.** `HandleDumpUICommand` is public, so this is
-  possible — but the parser still will not give it an argument, so it fails on
-  `has_args(1)`. Both halves have to be worked around and one of them is
-  inside the runner's parse tables.
-- **`assert_ui <name> w=<wrong value>` and read the error.** This is what
-  hanabi does. It reports the real width in the failure message, so it is a
-  one-widget-at-a-time `dump_ui` that requires knowing the debug name in
-  advance and makes the script fail on purpose. Finding which of ~200 widgets
-  moved this way is not a search, it is a guess.
-- **Screenshot and diff.** Gives pixels, not names, and is exactly the tool
-  #86 already records as insufficient.
-
-**The workaround, and its cost.** None applied; the investigation was done
-with `assert_ui` probes against guessed names, and the question ("which
-widget's geometry depends on the face?") went unanswered. It is a detour of
-maybe forty minutes for anyone who reads `ui_commands.h`, sees the command,
-and believes it is available.
-
-
-**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2caf525` registers `dump_ui`; Hanabi consumes it directly from the `fc4d625` pin and no longer carries the local diagnostics patch.
-
-**Hanabi reference.** `tests/ui/composer_model_picker.e2e` and targeted debugging scripts can invoke `dump_ui` through the ordinary upstream command registry.
-
-
-**Minimal upstream fix.** Register `HandleDumpUICommand` in
-`register_ui_commands`. Separately, the unknown-command message should not assert a cause it
-cannot know — "no handler consumed 'dump_ui'" is both shorter and true.
-
-CLASS: TEDIOUS
-
 ---
 
 ### #160 — A component is the only per-entity storage, and it costs two cache misses to write four bytes
 
 **What was wanted.** To write one 32-bit frame number onto a widget, once per
 widget per frame, at the moment the library hands it back. This is the
-mechanical heart of retiring widgets (#115): the stamp IS the fix, so its cost
+mechanical heart of retiring widgets (upstream 2393fe3): the stamp IS the fix, so its cost
 is the fix's cost.
 
 **What happens.** The ECS's only per-entity storage is a component, and
@@ -8392,68 +7375,10 @@ a `unique_ptr`.
 
 CLASS: TEDIOUS
 
-### #161 — When a scripted assertion fails, the harness truncates the evidence to 200 characters and the command that would show the rest is not registered
-
-**What was wanted.** To find out why `expect_text "RECENT"` failed: what WAS on
-screen at that moment.
-
-**What happens.** The timeout message prints the visible-text registry through
-`{:.200}`, so on any real screen you get the first dozen labels and nothing
-else. Every failure in this session printed the same truncated sidebar --
-identical bytes for four completely different failures -- so the message tells
-you a test failed and nothing at all about why:
-
-    [TIMEOUT] expect_text (line 56): Text not found: 'RECENT'. Visible:
-      | VIEWS |   |   | Home | 9 |   | Settings |   | Blocked | 6 | ...
-
-`dump_ui` looks like the answer -- the command exists in `ui_commands.h`, and
-`dump_ui_node` builds a full tree with names, rects and labels. Putting it in a
-script gets:
-
-    [E2E ERROR] dump_ui (line 5): Unknown command: 'dump_ui'. Either a typo,
-    or its handler was registered after register_unknown_handler() /
-    register_all_handlers()
-
-so the diagnostic exists and cannot be reached from a script.
-
-Three wrong guesses cost a rebuild-and-rerun cycle each, and every one of them
-would have been answered instantly by a list of what rendered: a label that
-does not exist (`"Send"`), a click on the text inside a row rather than the row
-that carries the listener (`sv_label` vs `smart_item`), and a section header
-that is uppercased at the call site (`"Recent"` is drawn as `"RECENT"`).
-
-**Why the obvious escapes do not work.**
-
-- **Read the log.** It is the truncated string; that IS the log.
-- **Take a screenshot and look.** `screenshot` works, and a PNG answers "what
-  is on screen" for a human eye, not "what text does the registry hold" -- and
-  the registry is what the assertion reads. Drawn text (`on_draw_fg`) never
-  reaches it at all, which is exactly the kind of thing you are trying to find
-  out.
-- **Print it from the app.** Means building a debug label per question, which
-  is the (real, useful) pattern the row / snippet / widget audits already use
-  -- but those are for a permanent claim, not for finding out why today's
-  script does not match.
-
-**The workaround, and its cost.** Guess, rebuild, rerun. Three cycles here at
-about a minute each, for three facts that were all sitting in a structure the
-harness already builds.
-
-
-**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2caf525` removes the 200-character cap and registers the full tree dump. Hanabi consumes both behaviors directly from the `fc4d625` pin.
-
-**Hanabi reference.** `scripts/verify_vendor_patches.py` now verifies only the four gaps that remain unlanded; scripted UI failures and `dump_ui` use upstream diagnostics.
-
-
-**Minimal upstream fix.** Drop the limit and let the reader scroll. Better still, print the registry on failure the way
-`dump_ui` prints the tree -- one label per line, so a diff of expected against
-actual is readable.
-
-CLASS: TEDIOUS
 
 ### #162 — An app can own the lifetime of the widgets IT built, and there is no way to see the ones the library built for itself
 
-**What was wanted.** After #115 was worked around app-side, a complete answer
+**What was wanted.** After upstream 2393fe3 was worked around app-side, a complete answer
 to "what is in the UI collection and who owns it".
 
 **What happens.** hanabi's sweep can only retire entities that came through its
@@ -8478,7 +7403,7 @@ counting.
   cannot tell a library entity from an app entity created outside `mk`, and it
   cannot tell either from an entity a test spawned.
 - **Match on `UIComponentDebug::name`.** Matching on a debug string, which
-  #115 already rejected for the same reason.
+  upstream 2393fe3 already rejected for the same reason.
 - **Retire them too.** They are load-bearing: the UI root is permanent, the
   drag spacer is owned by a system that also destroys it. An app cannot know
   which is which.
@@ -8522,7 +7447,7 @@ Measured in hanabi (scripted, 60-session catalog): Home scrolled until its
 first section header sat at **y=-354**, then a trip to a thread and back, and
 the header is at **y=123** -- the top of the list.
 
-This was found while fixing #115, on the assumption that RETIRING a scroll view
+This was found while fixing upstream 2393fe3, on the assumption that RETIRING a scroll view
 would be what lost the position. It is not. The same script reads y=-354 then
 y=123 with retirement on and with `HANABI_RETIRE=0`, byte for byte: the
 position was already gone before anything was destroyed. A carve-out that kept
@@ -8536,14 +7461,14 @@ next frame's measure.
   field being recomputed, not a value being lost with the entity.
 - **Restore the offset when the screen comes back.** The app would have to
   notice the return, which means tracking per-pane "was I built last frame" --
-  the same bookkeeping #115 already forces -- and then write the offset back
+  the same bookkeeping upstream 2393fe3 already forces -- and then write the offset back
   before `MeasureScrollViews` runs but after the children exist, which is
   inside the library's post-update bridge. There is no hook there.
 - **Stop the pane from being measured while it is away.** Nothing marks a
   subtree as "not participating this frame"; `should_hide` is a render flag and
   the measure system does not consult it.
 - **Keep building the screen off-screen so it keeps its children.** That is
-  exactly the cost #115 is about.
+  exactly the cost upstream 2393fe3 is about.
 
 **The workaround, and its cost.** None in hanabi -- the behaviour predates the
 retirement work and is out of its scope. It is filed because the mechanism is
@@ -8566,122 +7491,36 @@ CLASS: WORKAROUND
 
 ---
 
-### #210 — Every GPU object comes out of a fixed pool the consumer cannot size, and the one that runs out FIRST fails silently
+### #210 — the SAMPLER is the one GPU resource with neither a size knob nor a creation check
 
-**What was wanted.** To cache decoded images without a bound the app cannot
-see, and to be told when it hit one.
+**Scope after `11e7338`.** Upstream added `AFTERHOURS_SG_PIPELINE_POOL_SIZE`
+(128), `AFTERHOURS_SG_IMAGE_POOL_SIZE` (256) and
+`AFTERHOURS_SG_BUFFER_POOL_SIZE` (256), applied at both the windowed and
+headless setup (`backend.h:227-234`). Three of the four pools a UI app
+exhausts are now sizeable, and the "default `sg_desc`, no hook" complaint this
+entry used to make is closed for them.
 
-**What happens.** sokol allocates every GPU object from fixed-size pools, set
-once in `sg_desc` at `sg_setup`. afterhours' backend calls `sg_setup` with a
-default-constructed `sg_desc` (`backends/sokol/backend.h:194` and `:791`) and
-offers no hook — not a field on `graphics::Config`, not a callback, not an
-overload — so every consumer gets sokol's defaults and cannot raise them:
+**What remains, exactly two things, both about samplers:**
 
-    images 128 | samplers 64 | views 256 | pipelines 64 | shaders 32
+1. **No `AFTERHOURS_SG_SAMPLER_POOL_SIZE`.** The sampler pool keeps sokol's
+   default while its three neighbours became tunable.
+2. **`load_render_texture` cannot report a sampler that failed to create.** It
+   builds `sg_sampler smp = make_sampler_for_filter(filter)` and returns the
+   texture without checking `sg_query_sampler_state`, so a caller receives a
+   texture that will never sample and finds out as a blank draw.
 
-`load_texture` makes one image, one view **and one sampler** per texture, so
-the **sampler pool is the binding constraint at 64** — half the image pool,
-and the number nothing in the API mentions.
+**Live probe.** `vendor_patches/210-reject-unsamplable-textures.patch` is the
+proof patch — verified absent from the pin and applying cleanly to it by
+`make verify-vendor-patches`, which is what keeps this entry honest.
 
-Measured in a process doing exactly what hanabi's launch does (`graphics::init`
-at 1180x949 plus four font faces): **the sampler pool ran out after 61 loads
-and the image pool after 124.** Three sampler slots are gone before the app
-draws anything.
+**Hanabi reference.** `vendor_patches/210-reject-unsamplable-textures.patch` —
+the check upstream does not make. Measurement/gate:
+`scripts/verify_vendor_patches.py` — proves the patch still applies, so the
+gap is still open.
 
-**The part that makes this a footgun rather than a limit.**
-`metal_texture_detail::load_texture_from_pixels` checks `sg_make_image` and
-`sg_make_view` — carefully, with a comment about not leaking the view when the
-image fails — and does **not** check `make_sampler_for_filter`. So between the
-61st texture and the 124th it returns:
+CLASS: SHARP EDGE
 
-    TextureType{ width = <the file's>, height = <the file's>,
-                 img_id = valid, view_id = valid, sampler_id = 0 }
-
-Every "did this load?" test a consumer can write reads that as success —
-hanabi's `inline_image::available` does, its composer chip does, its
-`bubble_height` image term does — and the texture cannot be sampled. Sixty
-textures of silent wrongness sit between the first pool running out and the
-second one reporting itself honestly. Past 124, `sg_make_image` fails, the
-existing check fires, and the failure is finally visible.
-
-Note also what a leak looks like from outside: a texture leaked every frame
-does **not** grow without bound. hanabi's soak probe measured it growing to
-264,048 KB and then sitting flat to the kilobyte for 800 frames, because the
-image pool was full and every further allocation failed. A slope-based leak
-detector sees a texture leak for about two seconds and then goes green.
-
-**Why the obvious escapes do not work.**
-
-- **Call `sg_setup` yourself with bigger pools** — `graphics::init` calls it,
-  the consumer's first line of graphics is `graphics::init`, and calling
-  `sg_setup` twice is undefined. There is no "configure then init" split.
-- **Query the pool and stop before it** — `sg_query_desc()` would answer, and
-  it answers about the *configuration*, not the *occupancy*. There is no
-  `sg_query_samplers_in_use()`, and the consumer cannot count the ones
-  afterhours, fontstash and sgl took for themselves.
-- **Check `sampler_id != 0` in the consumer** — this is the workaround below.
-  It is one line and it is correct, and it requires knowing that a texture can
-  come back valid-looking and unsamplable, which is exactly what the API's
-  shape says cannot happen.
-- **Share one sampler across every texture** — right, and not available:
-  `TextureType` owns its sampler id, `load_texture` makes a new one per call,
-  and there is no entry point that takes an existing sampler.
-
-**The workaround, and its cost.** hanabi caps its own texture cache at 32
-entries — sokol's 64 samplers, less 16 reserved for the app's own atlases and
-render targets, halved again for headroom (`src/util/texture_budget.h`, with a
-`static_assert` tying the two numbers together) — and treats
-`sampler_id == 0` as a failed load at the single seam every texture in the app
-comes through, destroying the orphaned image and view and counting the event
-(`src/ui/decode_to_fit.h`). The cap was **512** before this was understood,
-which is eight times what the GPU can represent, and the byte budget in front
-of it could not help: bounding BYTES does not bound OBJECTS, and the way to
-hold 512 textures is for them to be small. Measured, 80 96x96 avatars through
-the real app: **80 entries held, 20 of them unsamplable, and every "is this
-loaded?" test said yes.**
-
-The cost of the workaround is a texture cache four times smaller than the
-byte budget would allow, sized by a constant from another library's internals
-that nothing will tell us if it changes.
-
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's 'single seam every texture' claim was stale; current source also checks the icon atlas and invalid blend pipeline path.
-
-**Hanabi reference.** `src/util/texture_budget.h` (`kDefaultMaxEntries = 32`) — Hanabi caps cached textures below the measured sampler-pool ceiling. `src/ui/decode_to_fit.h` (`reject_if_unsamplable(TextureType& tex)`) — Texture loads are rejected if afterhours returns an image/view with sampler_id 0. Tests: `tests/unit/test_texture_budget.cpp::test_the_budget_bounds_what_the_device_holds` — The cache budget policy is covered independently of GPU resources. Proof patch: `vendor_patches/210-reject-unsamplable-textures.patch`; `tests/vendor_probes/source_contract_probe.cpp` verifies sampler validation plus sampler/view/image cleanup before return, and `tests/vendor_probes/sokol_backend_smoke.mm` compiles the patched backend through `make verify-vendor-patches`. Pool sizing is deliberately deferred in `vendor_patches/README.md`.
-
-
-**Minimal upstream fix.** Two things, neither large. (a) Check the sampler in
-`load_texture_from_pixels` the way the image and the view are already checked,
-and return an empty `TextureType` — three lines, and it converts sixty
-textures of silent wrongness into an honest failure every consumer already
-handles. (b) Put the pool sizes on `graphics::Config`, defaulted to sokol's,
-so an app that wants a hundred thumbnails can ask for them.
-
-**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the workaround covered the
-texture cache and missed two other consumers in the same app.** The entry says
-hanabi "treats `sampler_id == 0` as a failed load at the single seam every
-texture in the app comes through". That was true of every texture the CACHE
-loads and not true of the app. `src/ui/icons.h` does not go through that seam:
-it calls `afterhours::load_texture` directly for `icons.png` and accepted the
-result on `tex.width > 0.0f && tex.height > 0.0f` — which is verbatim the test
-this entry says cannot be trusted. The same file also called
-`sgl_make_pipeline` for its alpha-blend pipeline and set `ready = true`
-whatever came back, and the pipeline pool is 64 under the same defaults.
-
-Neither could plausibly fire: both happen once per process, at pre-warm, when
-three sampler slots are gone and nothing else has run. "Could not plausibly" is
-precisely the assumption this gap is about — the texture cap was 512 for months
-on reasoning of the same shape — so both now check. The icon atlas routes
-through `decode_to_fit::detail::reject_if_unsamplable`, and the pipeline is
-accepted only on `id != SG_INVALID_ID`, falling back to sgl's default (icons
-blit unblended, which is visibly wrong rather than a per-draw validation
-storm).
-
-Audited at the same time and clear: `src/util/prewarm.h` creates no GPU object
-of its own — it forces those two to happen earlier, which is its whole point —
-and no other file under `src/` reaches `sg_make_*`, `sgl_make_pipeline` or
-`load_texture`.
-
+---
 ---
 
 ### #230 — `UIContext::mouse.pos` is NaN until the first mouse event, and every hit test is run against it
@@ -8730,165 +7569,7 @@ CLASS: FOOTGUN
 
 ---
 
-### #211 — The glyph atlas is a fixed 2048², nothing registers fontstash's overflow callback, and the symptom is `measure_text` returning a wrong number
-
-**What was wanted.** To know whether the font atlas is bounded, and to be told
-if the app ever fills it.
-
-**What happens.** It is bounded, admirably: `backends/sokol/backend.h:104`
-creates one `sfons` atlas of 2048x2048 R8 — 4 MB, once, at init — and it never
-grows. Measured with the device counter: rasterising 94 glyphs at fifty sizes
-from 8 to 400 pt moves `-[MTLDevice currentAllocatedSize]` by **0 KB**. A whole
-category of leak simply does not exist here, and that is worth writing down.
-
-The problem is what happens at the ceiling. fontstash raises `FONS_ATLAS_FULL`
-through `stash->handleError` (`vendor/fontstash/fontstash.h:1131`), afterhours
-never calls `fonsSetErrorCallback`, and the default handler is null. So the
-glyph is dropped, and — this is the part that matters — **the measurement is
-dropped with it**. Measuring the 94-character printable-ASCII string against
-one face:
-
-    size 144 pt   width 5933.0
-    size 192 pt   width  230.0
-    size 288 pt   width    0.0
-
-No error, no log, no exception, no return code. `measure_text` is what every
-wrap, every hug-to-text and every ellipsize in a consumer is computed from
-(#103, #116, #135, #136 are all about it), so a string that measures zero is
-laid out as absent. This is not a rendering artefact that a user squints at; it
-is silent, arbitrary layout corruption whose only visible cause is that
-somebody used a big font.
-
-hanabi is not close to the ceiling — four faces x fourteen sizes x the ASCII
-set, and again at 2x, 3x, 4x and 6x, all fit with a reference measurement
-unchanged to the pixel. A consumer with CJK, or with a document viewer that
-offers a font-size slider, is a different story, and neither would find out
-from the library.
-
-**Why the obvious escapes do not work.**
-
-- **Register the callback yourself** — `fonsSetErrorCallback` needs the
-  `FONScontext`, which lives in `metal_detail::g_fons_ctx`, a backend-private
-  static with no accessor.
-- **Ask how full the atlas is** — nothing reports it. There is no
-  `atlas_usage()`, no glyph count, and the atlas image id is not exposed
-  either, so a consumer cannot even read its dimensions back.
-- **Detect it from the outside by sanity-checking widths** — this is the only
-  thing available and it is guesswork: a consumer would have to measure a
-  canary string every frame and compare it against a value it recorded earlier,
-  which costs a measure per frame to detect a condition that should be one
-  branch inside the library.
-- **Ask for a bigger atlas** — 2048x2048 is hard-coded two lines above the
-  `sfons_create` call, and #210 is the same complaint about sokol's pools:
-  there is no `graphics::Config` field for any of it.
-
-**The workaround, and its cost.** None taken. hanabi measured its own headroom
-(above) and recorded the result rather than defending against a condition it
-cannot detect. The cost is that if hanabi ever ships a font-size setting or a
-non-Latin script, the first symptom will be labels laying out at zero width and
-nothing in the app or the library will say why.
-
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The original 'none taken' workaround claim is stale. Current source ships atlas_guard and atlas_gate; the residual partial-drop caveat remains.
-
-**Hanabi reference.** `src/util/atlas_guard.h` (`probe() asks the question directly`) — Hanabi detects a full glyph atlas by probing an uncached glyph/size and checking suspicious measurements. `src/util/soak.h::text-faults` — Soak output includes atlas fault counts. Tests: `tests/unit/test_atlas_guard.cpp::test_atlas_zero_for_a_real_string_is_a_fault` — Unit tests cover zero and non-finite measurement faults. Measurement/gate: `scripts/atlas_gate.sh` (`first bad measurement`) — The gate reports the first bad measurement and detector status.
-
-
-**Minimal upstream fix.** Three lines and a field. Call
-`fonsSetErrorCallback` in the backend's init with a handler that `log_error`s
-`FONS_ATLAS_FULL` once — that alone turns silent corruption into a message with
-a name. Then put the atlas dimensions on `graphics::Config` beside the pool
-sizes #210 asks for.
-
-**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): the workaround is no longer
-"none", and the condition has now been REACHED and watched rather than
-reasoned about.** Two corrections to the entry above, both in the direction of
-it being worse than it says.
-
-*The escape it rules out is the one that works, in a narrower form.* The entry
-says detecting this from outside "is guesswork: a consumer would have to
-measure a canary string every frame and compare it against a value it recorded
-earlier". A canary cannot work at all, and for a reason the entry does not
-give: fontstash caches a glyph on `(codepoint, isize, blur)`, so a canary's
-glyphs are already resident and stay CORRECT for the whole life of a full
-atlas. The canary never moves. What does work is the opposite question — ask
-for a glyph the atlas has never held, at a size it has never held, and see
-whether it comes back with an advance. That is one measurement, it is exact
-rather than heuristic, and it answers one step BEFORE the app's own text is
-affected. `hanabi::atlas::probe()` in `src/util/atlas_guard.h`.
-
-*Measured on this machine, driving hanabi's own `theme::text_px` over the
-94-glyph printable-ASCII set at climbing sizes (`hanabi.exe --atlas-stress`):*
-
-```
-  pt          width   detector
-  64         2644.0   ok
-  120        4836.0   FULL   <- the probe says the atlas can take no new rect
-  124         622.0   fault  <- the app's own measurement is now WRONG
-  136         231.0   fault
-  168          40.0   fault
-  172+          0.0   fault  <- terminal: every glyph dropped
-  13pt reference: 538.0 -> 538.0, unchanged throughout
-```
-
-The 622.0 at 124 pt is the shape that matters, and it is worse than a zero: it
-is a plausible number. Nothing about it says "wrong", it is about an eighth of
-the truth, and a wrap computed from it puts eight lines' worth of words on one
-line. The entry's three-row table (5933 / 230 / 0.0) is reproduced exactly in
-character — a decay, not a cliff — and the reference measurement holding at
-538.0 the whole way confirms why: already-resident glyphs are fine, so the
-corruption arrives only for text the app has not drawn before, which is the
-text a user just typed.
-
-*What hanabi does now, and what it still cannot do.* Every measurement seam in
-the app (`theme::text_px`, and the four `measure_text` callers in
-`text_select.h` / `link_detect.h` / `find_highlight.h`) runs its result through
-`hanabi::atlas::check`, which faults on a non-blank string measuring zero or
-non-finite; a soak column probes the atlas once a bucket;
-`HANABI_ATLAS_STRICT=1` aborts on the first fault; and `scripts/atlas_gate.sh`
-fills the atlas on purpose inside `make test`, because a detector for a
-condition nobody has ever reached is a detector nobody has ever seen work. What
-it cannot do is recognise an individual PARTIAL drop inside an ordinary
-measurement — 622.0 is knowably wrong only to somebody who already knows the
-answer is ~5000. The probe bounds how long the condition goes unnoticed; it
-does not make each poisoned number identifiable. That residue is why #350 is
-filed rather than this being closed.
-
 ---
-
-### #231 — the e2e runner's `wait_frames N` is stored as SECONDS, so it is a frame count only while the host ticks at exactly 1/60
-
-**What was wanted.** `wait_frames 4` between a `mouse_move` and a `click`, on
-a machine whose load average has been over 100 — a wait that means four frames
-of app work whatever the box is doing, which is the whole reason a scripted UI
-test counts frames instead of sleeping.
-
-**What happens.** `runner.h` parses it as
-`cmd.wait_seconds = frames * (1.0f / 60.0f)` and `tick(dt)` decrements
-`wait_time_ -= dt`. The command is a *duration*, and it is a frame count only
-because hanabi's e2e loop happens to pass a fixed `kDt = 1.0f / 60.0f`. A host
-that passes a real frame delta — which is what every non-test host does, and
-what `tick()`'s own doc comment calls the preferred form — turns every
-`wait_frames` in every script into "wait 66 ms", and then a busy machine runs
-two frames where the script asked for four.
-
-**Why it matters here.** hanabi's scripted suite is 89 scripts of
-`wait_frames`, and the fixed dt that makes them mean what they say is one
-constant in `src/main.cpp` with nothing pinning it. Change it to a measured
-delta to make the harness more realistic and every timing-sensitive script in
-the suite becomes load-dependent at once, with no error message that says so.
-
-**The workaround.** Keep `kDt` fixed and say why. Done, in main.cpp.
-
-
-**Hanabi reference.** `src/main.cpp` (`constexpr float kDt = 1.0f / 60.0f`) — Hanabi's e2e host passes a fixed timestep, making wait_frames deterministic. Tests: `tests/ui/composer_shift_enter.e2e` (`wait_frames 8`) — Current scripts depend on wait_frames semantics under the fixed-step host.
-
-
-**Minimal upstream fix.** Give `PendingCommand` a frame COUNT alongside
-`wait_seconds` and have `tick` decrement whichever the command set. A frame
-count is what the command is named after and it is exact under any dt.
-
-CLASS: FOOTGUN
 
 ---
 
@@ -8957,170 +7638,37 @@ CLASS: SURPRISING
 
 ---
 
-### #180 — `imm::mk()` builds a stringstream and a 200-character source-location string to hash, for every widget, every frame
-
-**What was wanted.** To find out why hanabi allocates ~3,700 times per frame
-sitting still on the Home view, and ~10,000 with a thread open.
-
-**What happens.** `mk()` is what gives an immediate-mode widget a stable entity
-across frames — it is called once per widget per frame, by construction. Its
-key is derived like this (`entity_management.h:29`):
-
-```cpp
-std::stringstream pre_hash;
-pre_hash << parent.id << otherID << "file: " << location.file_name() << '('
-         << location.line() << ':' << location.column() << ") `"
-         << location.function_name() << "`: " << '\n';
-UI_UUID hash = std::hash<std::string>{}(pre_hash.str());
-```
-
-An absolute source path plus a fully expanded C++ function signature. In this
-app that is routinely 200 to 400 characters — a template-heavy render function
-prints its whole instantiation — pushed through a `stringbuf` a character at a
-time, hashed, and destroyed.
-
-Measured with a global `operator new` counter and a call-site table
-(`HANABI_PROF_SITES=1`, `src/util/prof.h`), 2000-session catalog, Home view:
-**2,589 allocations and 448 KB per frame, 47% of every allocation the process
-makes.** The cost is the string, not the hash: it is `basic_stringbuf::overflow`
-→ `string::push_back` → `string::__grow_by` all the way down.
-
-**Why the obvious escapes do not work.**
-
-- **Pass a shorter `source_location`.** The caller does not choose what
-  `std::source_location::current()` contains, and the default argument is what
-  makes the API pleasant.
-- **Cache the hash at the call site.** A `static` per call site would be wrong
-  the moment the same line runs with a different `parent` or `otherID`, which
-  is the normal case for every list.
-- **Skip `mk()` and reuse an entity id directly.** The map it maintains
-  (`existing_ui_elements`) is what `clear_existing_ui_elements()` and the whole
-  reuse contract are built on; bypassing it means reimplementing the identity
-  layer.
-
-**The workaround, and its cost.** hanabi ships its own `mk()`
-(`src/ui/mk.h`, ~40 lines) that hashes the same five facts — parent id, index,
-file, function, line:column — with no string at all, hashing the file and
-function BY POINTER (`source_location`'s strings are static, so the pointer is
-stable for the process, which is the only property a key that is never
-persisted needs). It stores into afterhours' own `existing_ui_elements` and
-resolves through afterhours' own collection holder, so a widget made by it is
-indistinguishable from one made upstream, and the swap is one `using`
-declaration reaching all 335 call sites.
-
-Cost: 3,731 → 1,426 allocations per frame at 2000 sessions (−62%), 2,721 → 946
-at 20 sessions (−65%), entity counts unchanged. And a permanent fork of a
-function whose semantics every other consumer relies on — if upstream changes
-what goes into the key, hanabi silently keeps the old one.
-
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The initial 2,589/47% number is stale; current source and alloc_gate use 2,164 allocations on Home 2000 and 3,063 on thread480.
-
-**Hanabi reference.** Hanabi-owned performance finding: `src/ui/mk.h` (`widget_key(parent.id, otherID, loc)`) — Hanabi replaces afterhours mk key construction with a field hash that avoids constructing a string. `src/ui/widget_epoch.h` (`hanabi::ui::mk(parent, otherID, location)`) — The epoch wrapper routes app widgets through the fast mk implementation. Tests: `scripts/alloc_gate.sh` (`point the app's mk wrapper back at the library's`) — The allocation gate rehearses the one-line regression back to the vendored mk. Measurement/gate: `scripts/alloc_gate.sh` (`home2000 3361.0 1450`) — Gate comments record the measured allocation delta when the wrapper uses the library's mk.
-
-
-**Minimal upstream fix.** Hash the fields instead of a rendering of them:
-`hash_combine(parent.id, otherID, (uintptr_t)location.file_name(),
-location.line(), location.column())`. No allocation, no `<sstream>`, and the
-same uniqueness — `source_location`'s pointers are static per translation
-unit. Roughly the same number of lines as the version that is there.
-
-CLASS: PERFORMANCE
-
-**POSTSCRIPT, 2026-08-26 (`fix/audit-closeout`): "2,589 allocations, 47% of
-every allocation" is not any arm's figure; the measured cost is 2,164 on the arm
-this entry names.** `scripts/alloc_gate.sh` now rehearses exactly this by
-pointing `src/ui/widget_epoch.h`'s wrapper back at `afterhours::ui::imm::mk` and
-changing nothing else, which makes the delta the hash's own cost:
-
-    arm         with hanabi's mk   with the library's   the hash costs
-    home20                 827.0               2466.0            1,639
-    home2000              1197.0               3361.0            2,164
-    thread480             2740.0               5803.0            3,063
-
-64% of the 2000-session Home frame, 53% of the 480-message thread. 47% is not
-reachable from any pair in the tree, and 2,589 cannot be a Home-view figure at
-all: the paragraph above reports 3,731 -> 1,426 on that arm, a saving of 2,305,
-which cannot contain a 2,589-allocation component. The conclusion is untouched
-and if anything understated.
-
 ---
 
-### #181 — A `ComponentConfig` is copied three times on the way into a widget, so every string it carries is malloc'd three times per widget per frame
+### #181 — a `ComponentConfig`'s strings are still copied per widget per frame, after the by-value parameter was removed
 
-**What was wanted.** After #180, to find what the remaining per-frame
-allocations on an idle Home view are.
+**Scope after `e174872`.** Upstream stopped copying a `ComponentConfig` in and
+out of `overwrite_defaults` (it mutates in place and looks defaults up by
+pointer), and `merge_with_defaults` no longer materialises an
+`optional<ComponentConfig>`. Upstream measured that change flat on its own
+fixtures — 1025 allocations a frame to 1014 — because those screens register no
+per-type defaults, so the copy it removed was of an empty optional.
 
-**What happens.** They are the labels, and they are allocated once each for the
-config the app builds and then again for each copy the library makes of it:
+What is NOT fixed: the config still travels **by value** into
+`init_component`, and it carries three `std::string`s and a vector. A label
+longer than libc++'s 22-character small-string buffer is a malloc per copy per
+widget per frame.
 
-```
-div(ctx, ep, ComponentConfig config = ComponentConfig())     # by value
-  init_component(ctx, ep, config, ...)                       # by reference
-    config = detail::overwrite_defaults(ctx, config, ...)    # BY VALUE -> copy
-      config = styling_defaults.merge_with_defaults(...)     #   ComponentConfig result = config -> copy
-        defaults.value().apply_overrides(result)             #   returns by value -> copy
-```
+**Measurement.** `scripts/alloc_gate.sh` gates the level this produces, and
+`docs/perf/ALLOCATIONS.md` entry 4 is the rule hanabi derived from it: never
+capture a string by value into a widget config. `src/ui/div.h` MOVES its
+config into afterhours rather than handing it an lvalue to copy, and
+`tests/unit/test_div_move.cpp` is the probe that the move still happens.
 
-Measured per widget on a Home digest card whose title is 40 characters: 4.28
-allocations per frame for that one label. `ComponentConfig` carries
-`std::string label`, `std::string debug_name`, `std::string font_name`,
-`std::vector<TextSpan> styled_label` and two `std::function` draw callbacks —
-every one of them re-allocated per copy. At 2000 sessions, Home:
-**472 allocations per frame are label copies alone**, 38% of what the app has
-left after #180.
-
-This is #138 seen from the other end. #138 counted 4.6 allocations per widget
-and named `ComponentConfig` as the shape of it; this is where they go.
-
-**Why the obvious escapes do not work.**
-
-- **Pass a shorter label.** The label is the content. A sidebar row title, a
-  card title and a transcript line are all past libc++'s 22-character
-  small-string buffer because they are sentences.
-- **Set `is_internal`.** `overwrite_defaults` skips the merge for an internal
-  config, which removes one or two of the copies — and with it the default font
-  name, the default font size, and any per-component-type defaults. On a UI
-  whose pixels are diffed against reference screenshots, that is not a
-  performance change, it is a rendering change.
-- **Build the config once and keep it.** #138's suggestion, and it does not
-  help: the copies are made *inside* `init_component`, from whatever it is
-  handed.
-- **Memoize the label string.** hanabi does (`src/util/text_memo.h`), and it
-  removes the DERIVATION, not the copies. A cached `const std::string&` handed
-  to `with_label` is still copied four times.
-
-**The workaround, and its cost.** None available in app code. hanabi removed
-everything around it instead — the derivation of the strings, the identity
-hash (#180), the wrap measurement — and left this. It is now the single
-largest remaining allocation source on the Home view and there is no app-side
-lever on it.
-
-
-**POSTSCRIPT 2026-09-02 (`fix/div-move`).** One of the copies WAS app-side, and
-this entry missed it. The first line of the trace above — `div(ctx, ep,
-ComponentConfig config)` — takes the config by value so a caller can move into
-it, but the fluent builder returns `ComponentConfig&`, so every inline
-`ComponentConfig{}.with_label(...)` chain in hanabi was an lvalue and that
-parameter was copy-constructed. `src/ui/div.h` moves instead and
-`src/ecs/ui_imports.h` binds the ECS call sites to it, worth 89 allocations per
-frame on Home at 20 sessions and 147 at 2000 (`scripts/alloc_gate.sh`,
-`docs/perf/ALLOCATIONS.md`). The remaining three copies are made inside
-`init_component` from whatever it is handed, and those are still upstream's:
-the gap stands, at three per widget rather than four.
-
-
-**Hanabi reference.** Hanabi-owned performance finding: `scripts/alloc_gate.sh` (`home20 2550.0 827.0`) — The allocation gate records the remaining per-frame allocation ceiling after surrounding reductions.
-
-
-**Minimal upstream fix.** Take the config by reference through the whole init
-path, or move it: `overwrite_defaults(ctx, ComponentConfig&& config, ...)` and
-`merge_with_defaults` mutating `result` in place rather than copy-constructing
-it. Two signatures. Alternatively `std::string_view label` with the owning copy
-made once, where it is actually stored on the entity.
+**Hanabi reference.** `src/ui/div.h` (`std::move`) — hanabi's div moves its
+config in rather than letting the by-value parameter copy it. Tests:
+`tests/unit/test_div_move.cpp::a_named_config_is_consumed_by_div`.
+Measurement/gate: `scripts/alloc_gate.sh` (`home20`) — the per-frame allocation
+ceiling this cost lands in.
 
 CLASS: PERFORMANCE
 
+---
 ---
 
 ### #183 — The focusable set is a `std::set` cleared and refilled every frame, so every focusable widget costs a tree node malloc per frame
@@ -9190,66 +7738,6 @@ than the sentence above implies.
 
 ---
 
-### #220 — A scroll view's viewport is zero until the frame after it exists, so a virtualizing consumer must build the WHOLE list once — and under #115 once is forever
-
-**What I wanted.** To window `render_digest`'s card list the way `perf/scroll`
-windowed the sidebar's rows: read `HasScrollView::viewport_size.y`, build the
-cards inside it, spacer out the rest.
-
-**What happened.** On the first frame a scroll view has been created but never
-measured: `viewport_size` is `{0, 0}`, because `MeasureScrollViews` runs after
-the build. There is no way to ask the library what the viewport is ABOUT to be
-— the size is in the `ComponentSize` the consumer just passed in, but the
-library keeps no "pending" or "requested" figure a consumer can read back, and
-`percent(1.0f)` (which is what a pane naturally passes) is not resolvable
-without running the layout.
-
-So the honest fallback is "if the viewport is zero, build everything, and by
-frame two there is a number to read". This is what `row_window` does in
-`sidebar_system.h`, and it is what I wrote first here. It is wrong, and it is
-wrong in a way that no frame time can show you.
-
-**Because of #115, one uncapped frame is a permanent plateau.** Nothing
-retires a widget, so the 2276 entities that one unmeasured frame minted are
-still there at frame ten thousand. Measured at a 2000-session catalog, the
-same binary, the ONLY difference being the fallback:
-
-```
-  fallback = "build everything"    widgets 2473   frame 2.91 ms
-  fallback = the pane's own listH  widgets  501   frame 1.05 ms
-```
-
-The frame time was already right with the fallback in — 2.91 against the 5.58
-it started at — and the widget count had not moved by one. A branch whose
-whole subject is entity counts nearly shipped with the entity count unchanged,
-and the thing that caught it was reading the census rather than the clock.
-
-**The workaround, and its cost.** hanabi passes its own `listH` — the pixel
-height it just asked the scroll view to be — as the viewport when the measured
-one is zero. It is right to within the scroll panel's own 12 px of padding, on
-one frame, which is one card. The cost is that the pane now states the
-viewport height in two places (the `ComponentSize` and the window call) and
-nothing checks they agree; the day someone gives the scroll a `percent()`
-height instead of `pixels(listH)`, the fallback silently becomes a guess.
-
-
-**RESOLVED UPSTREAM 2026-08-29.** Afterhours `2ccc38e` makes `viewport_size` optional, so an unmeasured first frame is distinct from a measured zero-sized viewport. Hanabi consumes that contract through `viewport_or_zero()` and keeps its requested-height fallback only for the explicitly unmeasured case.
-
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`viewport_or_zero().y`) and `src/ecs/sidebar_system.h` use the new optional viewport contract. `tests/ui/digest_is_windowed.e2e` and `sidebar_show_all_is_still_virtualized.e2e` cover first-frame and scrolling behavior.
-
-
-**Minimal upstream fix.** Either would do it:
-- `HasScrollView` keeps the size it was configured with, resolved or not, so a
-  consumer can read `requested_size` on frame one instead of zero; or
-- the build gets to run after a measure pass — which is #170's ask from the
-  other side, and would close both.
-
-Failing those: `viewport_size` could be `std::optional`, so "not measured yet"
-is distinguishable from "measured as zero" and a consumer cannot silently
-treat one as the other. That is a one-line type change and it turns this whole
-entry into a compile error.
-
-CLASS: SHARP EDGE
 
 ### #221 — `with_label` takes `const std::string&`, so every label is a heap allocation per widget per frame even when the text already exists
 
@@ -9336,69 +7824,36 @@ already taken from the translate rather than the flow.
 
 CLASS: SHARP EDGE
 
-### #223 — The e2e runner's retry budget is named in seconds and fed by the host's `dt`, so whether the suite is reproducible is the HOST's decision and nothing says so
+### #223 — the e2e runner's SCRIPT timeout is named in seconds and fed by the host's `dt`
 
-**What I wanted.** To tell whether a UI-suite failure was mine.
+**Scope.** Only `E2ERunner::set_timeout(float seconds)` and the
+`timeout_seconds_` it feeds. The per-command retry budget was already frame
+based (`MAX_FRAMES`), `wait_frames` counts ticks since upstream `f607faa`, and
+`set_timeout_frames` — the setter that converted frames to seconds at an
+assumed 60Hz and lied about it — is deleted (`c45dbd7`). What remains is the
+whole-script deadline.
 
-**What happened, and the first answer was wrong.**
-`tests/ui/select_word_and_line.e2e` failed on my branch. The box's load average
-was 123 at the time — another agent had leaked several dozen runaway processes
-— so I looked at the runner, found that every assertion's retry budget is a
-field called `wait_seconds`, and concluded the suite was failing correct
-scripts under load. That is written up in the first version of this entry and
-it is **wrong**, and the way it was caught is the only reason it is worth an
-entry at all: I built the merge-base in a separate worktree and ran the suite
-on BOTH, on a quiet box (load 6.6).
+**What happens.** `timeout_seconds_` is decremented by whatever `dt` the host
+passes `runner.tick(dt)`. A host that ticks at its own rate, or scales dt, gets
+a different script budget, and nothing in the API says so.
 
-```
-  base   (main @ ef29c1a)   86 passed, 1 failed — select_word_and_line
-  branch                    88 passed, 1 failed — select_word_and_line
-```
+**Live probe.** `grep -n "set_timeout\b" vendor/afterhours/src/plugins/e2e_testing/runner.h`
+shows the seconds-denominated setter and `elapsed_time_ += dt` still in place at
+pin `9ff9079`.
 
-Identical, quiet, reproducible. `select_word_and_line` is simply broken on
-main, the way `tracker_links.e2e` already is. Not mine, and not the load.
+**The workaround.** Hanabi passes a fixed `kDt = 1.0f / 60.0f`, so its own
+script budget is deterministic. That is hanabi holding a property the API
+should hold.
 
-**The gap that is actually there.** `PendingE2ECommand::wait_seconds` is
-decremented by whatever `dt` the host hands `runner.tick(dt)`:
+**Hanabi reference.** `src/main.cpp` (`constexpr float kDt = 1.0f / 60.0f`) —
+the fixed timestep that makes the script deadline deterministic here.
 
-```cpp
-wait_time_ -= dt;          // runner.h
-elapsed_time_ += dt;
-```
-
-hanabi's host passes `constexpr float kDt = 1.0f / 60.0f` — a FIXED step — so
-in this app the budgets are frames wearing a seconds-shaped name, and the suite
-is reproducible on any machine. That is correct, and it is correct by a choice
-made in `src/main.cpp` that the library neither requires nor mentions. A host
-that passes real elapsed time — the obvious thing to write, and exactly what a
-field called `wait_seconds` invites — gets a suite whose assertions expire in
-wall clock while `wait_frames` between them counts frames, and correct scripts
-then fail under load with `Text not found`, which is indistinguishable from a
-genuine regression.
-
-`stress.h` in this same repository argues the general case in its header,
-quoted from Puffin: *"Every scenario terminates on a fixed COUNT, never a
-duration. A count is the same amount of work on a fast machine and a slow
-one."* The e2e runner leaves that decision to the host and does not say it is
-being made.
-
-**The workaround, and its cost.** hanabi already passes a fixed dt, so nothing
-to work around — but the shared-box cost is real anyway: `run_ui_tests.sh`
-kills a script after **60 seconds of WALL clock** (`TIMEOUT=60`, rc 124), which
-is genuinely load-sensitive and is what took out an unrelated script during the
-load spike. And establishing that a failure is not yours costs a worktree, a
-submodule checkout and a full compile, every time.
-
-
-**Hanabi reference.** `src/main.cpp::runner.tick(kDt)` — The e2e host passes the runner a fixed timestep, making retry budgets deterministic in hanabi. `scripts/retire_gate.sh` (`No milliseconds anywhere`) — Gate scripts avoid wall-clock timing where possible because the shared machine is noisy. Measurement/gate: `scripts/scroll_gate.sh` (`Both scenarios terminate on a fixed frame COUNT`) — Scroll-gate comments record the fixed-count strategy used to avoid load-sensitive verdicts.
-
-
-**Minimal upstream fix.** Rename the field to `wait_frames_` and count ticks,
-or document at `tick(dt)` that the runner's determinism is the caller's
-responsibility and that a fixed step is what the harness expects. The rename is
-better: it makes the right thing the only thing.
+**Minimal upstream fix.** Count the script deadline in ticks, the way
+`wait_frames` now does.
 
 CLASS: SHARP EDGE
+
+---
 
 ### #224 — Nothing can tell you how tall a child WOULD be, so windowing a variable-height list means re-implementing the box model in app code
 
@@ -9892,7 +8347,7 @@ line of it is a thing the library knows and an app has to re-derive:
 - `computed[axis] < 0` — never laid out.
 - **`was_rendered_to_screen`** — and this one cost the audit its first
   finding. A widget built on an earlier frame and never rebuilt keeps its
-  parent id, its computed rect and its last position (#115), so it looks
+  parent id, its computed rect and its last position (upstream 2393fe3), so it looks
   exactly like a live overflow. `composer_status` was in the baseline at
   `right=50.0` and is not a defect: probed, its parent's shrink-to-fit width
   was correct to the pixel over a child list that did not contain it, and it
@@ -10437,7 +8892,7 @@ opts out of the UI plugin's own requirements.
 **Why the obvious escapes do not work.** There is nothing to escape from once
 the binding exists; the gap is that it took a screenshot diff to find. No
 warning, no assert, no debug overlay names it: `dump_ui` is not registered
-(#192), and the scripted harness cannot see a ring at all (#61), so a suite of
+(upstream 2caf525), and the scripted harness cannot see a ring at all (#61), so a suite of
 92 passing UI tests said nothing.
 
 **The workaround.** Bind it — `WidgetNext = TAB`, `WidgetMod = SHIFT` — and
@@ -10687,7 +9142,7 @@ correctness across font sizes. One `@see with_styled_label` on
 `with_custom_text_color` retires it.
 
 The neighbouring gaps are real and unaffected: #90 (`ctx.theme` is frame-wide)
-and #17 (some widgets ignore `custom_text_color`) are about which colour a
+and the gap upstream fixed in `817d00e` (some widgets ignore `custom_text_color`) are about which colour a
 widget gets, not about how many a label may have.
 
 CLASS: NOT A GAP
@@ -10701,7 +9156,7 @@ CLASS: NOT A GAP
 ### #241 — NOT A GAP: `imm::mk` hashes the SOURCE LOCATION, so two row kinds cannot collide, and the hand-allocated id bases in hanabi's transcript protect against nothing
 
 The second negative result of this theme, and the one that was one edit away
-from being filed as a gap with a confident wrong mechanism — the #115 failure
+from being filed as a gap with a confident wrong mechanism — the upstream 2393fe3 failure
 mode exactly.
 
 **What was wanted.** The transcript is a heterogeneous virtualized list: a
@@ -10766,7 +9221,7 @@ CLASS: NOT A GAP
 
 
 
-**Hanabi reference.** Negative result: `src/ui/mk.h` (`widget_key(parent.id, otherID, loc)`) — identity includes parent/id/source-location. `src/ecs/main_pane_system.h` (`delivery_key(const api::Message& m, int index)`) — real fold state is message-keyed.
+**Hanabi reference.** Negative result: `vendor/afterhours/src/plugins/ui/entity_management.h` (`hash_call_site`) — identity includes parent/id/source-location. `src/ecs/main_pane_system.h` (`delivery_key(const api::Message& m, int index)`) — real fold state is message-keyed.
 
 ---
 
@@ -10818,7 +9273,7 @@ quietly fixing, because it sent the fix in the wrong direction.
 it never did. `Theme::Usage::Secondary` is resolved at BUILD time, not at
 render time — `component_init.h:381-385` writes a concrete `Color` into
 `HasColor` from `ctx.theme.from_usage(...)` during the imm build — and this
-composer has pointed `ctx.theme.secondary` at the strip colour since gap #17,
+composer has pointed `ctx.theme.secondary` at the strip colour since the gap upstream fixed in `817d00e`,
 two lines above the call. So the forced fill lands on (23,23,35), which is
 exactly the colour the interior is supposed to be. Measured after the switch:
 every sampled interior pixel is (23,23,35), unchanged.
@@ -11101,7 +9556,7 @@ and mixed heights cannot use it. Two details worth having beside the ask:
 
   * on frame one, when `viewport_size` has not been measured yet, it renders a
     fixed initial window of 61 rows (`:189-191`) rather than the whole list —
-    so **#220**'s "build the WHOLE list once" is not true of `virtual_list`
+    so **upstream 2ccc38e**'s "build the WHOLE list once" is not true of `virtual_list`
     itself, only of a consumer windowing by hand;
   * the rows are keyed `mk(entity, i + 1)` — the SLOT, not the item — which is
     **#171** exactly, shipped. A per-row `text_input` in a `virtual_list` today
@@ -11411,66 +9866,44 @@ CLASS: MISSING
 
 ---
 
-### #350 — There is no way to ask the font atlas anything: not how full it is, not whether a measurement was complete, not whether a glyph was dropped
+### #350 — a measurement cannot say whether IT dropped a glyph
 
-**What was wanted.** After #211 established that a full atlas makes
-`measure_text` return a wrong number silently, a way for the consumer to tell a
-correct measurement from a corrupt one — at the moment of the measurement, not
-by inference.
+**Scope after `bdea3b9`.** Upstream reports the CONDITION: the backend
+registers `fonsSetErrorCallback`, logs once on `FONS_ATLAS_FULL`, and
+`AFTERHOURS_FONT_ATLAS_SIZE` (backend.h:67, default 2048) both sets the ceiling
+and names it, so the dimensions are no longer unknowable. Those closures are
+upstream bdea3b9's three closures, all removed (the index's closure table
+names them).
 
-**What happens.** Nothing is exposed. Not the atlas dimensions, not its
-occupancy, not the glyph count, not the atlas image id, and — the one that
-would cost the library a single `bool` — not whether the call that just
-returned dropped a glyph. `fonsTextBounds` already knows: it walks
-`fons__getGlyph` per codepoint and gets back NULL for the ones the atlas
-refused, and then adds nothing to the advance for them and returns as if
-nothing happened. The information exists inside the function and is discarded
-on the way out.
+**What remains.** The callback is GLOBAL and one-shot. It says "the atlas
+filled at some point"; it does not say that the width `measure_text` just
+returned is short. That is the number a layout actually consumes, and hanabi
+memoises it (`src/util/text_cache.h`, `src/util/wrap_count.h`), so a poisoned
+measurement is cached as readily as a good one. Nothing in the API lets a
+caller ask "was the call I just made complete?"
 
-The consequence is that the only detectable case is the terminal one. A width
-of 0.0 for a non-blank string is unambiguous and can be caught. A width of
-622.0 where the truth is ~5000 — measured, `--atlas-stress`, 124 pt — is
-indistinguishable from a correct measurement of a shorter string, and it is the
-case that actually corrupts a layout while looking normal.
+**Why it is exact and cheap.** `fonsTextBounds` already knows: it gets NULL
+back from `fons__getGlyph` for each refused codepoint and discards that fact.
+Returning it — a bool out-param, or a `measure_text_checked` — is a handful of
+lines.
 
-**Why the obvious escapes do not work.**
+**Live probe.** `src/util/atlas_guard.h::probe()` measures a glyph the atlas has
+never held at a size it has never held; a zero advance from THAT is the
+condition, one step before the corruption. `hanabi.exe --atlas-stress` walks it:
 
-- **Sanity-check the width against a per-glyph estimate.** The estimate would
-  have to be looser than the widest real font variation and tighter than a
-  partial drop, and those ranges overlap: dropping two glyphs from a
-  forty-glyph string is a 5% error, and 5% is inside the honest variation
-  between a lowercase run and an uppercase one.
-- **Compare against a recorded measurement of the same string.** Only if the
-  same string was measured before the atlas filled, which is exactly the string
-  that is still correct — see the #211 postscript on why a canary cannot fire.
-- **Count the glyphs and multiply.** `fonsVertMetrics` gives line height; there
-  is no per-glyph advance accessor, so a consumer cannot sum one.
-- **Ask before measuring.** No occupancy query, so a consumer cannot even
-  refuse to measure into a full atlas.
+    pt          width   detector
+    64         2644.0   ok
+    120        4836.0   FULL
+    124         622.0   fault   <- plausible, and wrong
+    136         231.0   fault
 
-**The workaround, and its cost.** `src/util/atlas_guard.h`: catch the terminal
-case exactly (a non-blank string measuring zero, or non-finite) at every
-measurement seam, and detect the CONDITION separately by asking for a glyph the
-atlas has never held at a size it has never held — a fresh `(codepoint, size)`
-pair, whose zero advance means the atlas can take no more rects. That probe is
-run once per soak bucket and by `scripts/atlas_gate.sh`; it cannot be run per
-frame, because each probe consumes a rect of the very resource it is measuring.
+**Hanabi reference.** `src/util/atlas_guard.h` — the app-side stand-in for the
+per-measurement answer upstream does not give. Measurement/gate:
+`scripts/atlas_gate.sh`.
 
-The cost is that the partial-drop window is bounded rather than closed: between
-two probes, a measurement can be short and nothing will say so. That window is
-the residue of a one-`bool` return value the library already has and does not
-give back.
+CLASS: SILENT CORRUPTION
 
-
-**Hanabi reference.** `src/util/atlas_guard.h` (`inline float check(std::string_view text, float px, float w)`) — guard catches impossible widths. `src/util/atlas_guard.h` (`inline bool probe(float px_hint, Measure&& measure)`) — probe detects atlas-full condition. Tests: `tests/unit/test_atlas_guard.cpp::test_zero_for_a_real_string_is_a_fault` — unit test covers zero-width fault. Measurement/gate: `src/main.cpp` (`--atlas-stress: FILL the glyph atlas on purpose`) — stress mode exercises overflow.
-
-
-**Minimal upstream fix.** Either of two, both small. (a) An out-parameter or a
-sibling entry point: `measure_text_checked(..., bool* complete)`, set false
-when any `fons__getGlyph` returned NULL. Three lines inside the existing loop.
-(b) `atlas_usage()` returning used/total, so a consumer can watch a slope and
-act before the ceiling instead of after.
-
+---
 ---
 
 ### #336 — Tab order cannot be scoped to a subtree, so Tab in a split pane walks out of it
@@ -11559,113 +9992,7 @@ CLASS: FOOTGUN
 
 ---
 
-### #351 — `fonsSetErrorCallback` exists, is exactly the hook a consumer needs, and is unreachable
-
-**What was wanted.** To register a handler for `FONS_ATLAS_FULL` — the error
-fontstash already raises, at the exact moment the atlas refuses a glyph.
-
-**What happens.** The API is there and the call site is there:
-
-```c
-// fontstash.h:1131
-added = fons__atlasAddRect(stash->atlas, gw, gh, &gx, &gy);
-if (added == 0 && stash->handleError != NULL) {
-    stash->handleError(stash->errorUptr, FONS_ATLAS_FULL, 0);
-    added = fons__atlasAddRect(stash->atlas, gw, gh, &gx, &gy);
-}
-```
-
-`stash->handleError` is null because nothing calls `fonsSetErrorCallback`, and
-a consumer cannot call it either: it needs the `FONScontext*`, which lives in
-`graphics::metal_detail::g_fons_ctx` — a backend-private static with no
-accessor, no getter and no forwarding call. So the notification a consumer
-wants is generated, checked against a null pointer, and thrown away, twice per
-dropped glyph.
-
-This is a strictly smaller ask than #350 and it is worth filing separately
-because it needs no design at all: the mechanism is written, tested upstream,
-and used by every other fontstash consumer. What is missing is one line in the
-backend's init, or one accessor.
-
-Note that the callback is also the only route to the OTHER half of what
-fontstash offers here. The retry after `handleError` exists so a handler can
-`fonsExpandAtlas` or `fonsResetAtlas` and have the glyph succeed on the second
-attempt — the library is structured to let the consumer GROW the atlas at the
-moment it fills, and afterhours' null handler forecloses that too. A consumer
-that could register a handler would not merely be told; it could fix it.
-
-**Why the obvious escapes do not work.**
-
-- **Include fontstash and reach the context.** `g_fons_ctx` is in an anonymous
-  translation-unit-local sense private to the backend header, and hanabi does
-  not patch vendored code.
-- **Create a second FONScontext.** It would not be the one `measure_text` and
-  `draw_text` use, so its atlas is not the atlas that fills.
-
-**The workaround.** `src/util/atlas_guard.h` — outside-in detection, with the
-partial-drop hole #350 describes. `fonsSetErrorCallback` would close that hole
-completely and cost one line.
-
-
-**Hanabi reference.** `src/util/atlas_guard.h` (`fonsSetErrorCallback is out of reach`) — callback cannot be registered. `scripts/atlas_gate.sh` (`src/util/atlas_guard.h -- and that guard has the failure mode`) — gate proves fallback detector. Tests: `tests/unit/test_atlas_guard.cpp::first_fault()` — unit test covers reporting state. Measurement/gate: `src/main.cpp` (`detector fired:`) — atlas stress reports detector status. Proof patch: `vendor_patches/351-report-font-atlas-exhaustion.patch`; `tests/vendor_probes/source_contract_probe.cpp` verifies callback registration and log-once state, and `tests/vendor_probes/sokol_backend_smoke.mm` compiles the patched backend through `make verify-vendor-patches`.
-
-
-**Minimal upstream fix.**
-
-```cpp
-// backends/sokol/backend.h, beside the sfons_create call
-fonsSetErrorCallback(g_fons_ctx, [](void*, int err, int) {
-    if (err == FONS_ATLAS_FULL) log_error("font atlas full: glyphs and their "
-                                          "advances are being dropped");
-}, nullptr);
-```
-
-Better still, expose `graphics::Config::font_error_callback` so the consumer
-can decide between logging it, growing the atlas and asserting.
-
-CLASS: BLOCKER
-
 ---
-
-### #352 — The atlas is 2048×2048 and there is no configuration for it, so the ceiling is a build-time constant of the library
-
-**What was wanted.** A larger atlas, on a consumer that knows it will need one
-— a font-size slider, a CJK script, a document view.
-
-**What happens.** `backends/sokol/backend.h:104` creates one `sfons` atlas of
-2048×2048 R8 and the two dimensions are literals two lines above the
-`sfons_create` call. `graphics::Config` has no field for them, `graphics::init`
-takes no other route, and `sfons_create` is called before the consumer's first
-line of code runs. It is the same shape as #210's complaint about sokol's
-object pools and it has the same answer: the one place the number could be
-chosen is inside the library.
-
-4 MB is a good default and this entry is not asking for a bigger one. It is
-asking for the number to be reachable. The measured ceiling on this machine is
-about 26 glyphs at 400 pt, or the printable-ASCII set somewhere past 120 pt
-(`--atlas-stress`); a consumer offering a font-size control has no way to know
-that, and no way to move it.
-
-**Why the obvious escapes do not work.**
-
-- **`fonsExpandAtlas` / `fonsResetAtlas`.** Both need the `FONScontext` (#351).
-- **Load fewer faces.** hanabi loads four and could load three; that buys 25%
-  of a limit whose consumption is quadratic in point size.
-- **Cap the font size in the app.** Which is a product decision made by a
-  library constant, and the app cannot even discover what cap would be safe.
-
-**The workaround.** None, and none needed yet: hanabi's four faces at fourteen
-sizes, again at 2×/3×/4×/6×, fit with the reference measurement unchanged. The
-cost is that this remains true only by luck, and the app now needs a gate
-(`scripts/atlas_gate.sh`) to notice when it stops being true.
-
-
-**Hanabi reference.** None — no app-side workaround is implemented.
-
-
-**Minimal upstream fix.** `graphics::Config::font_atlas_width/height`,
-defaulted to 2048, passed to `sfons_create`. Beside the pool sizes #210 asks
-for, since they are the same request about the same struct.
 
 ---
 
@@ -11680,7 +10007,7 @@ looks like it must alias every widget in it: same file, same line, same
 column, same function, same loop indices. It does not.
 `imm::mk` hashes `parent.id` FIRST (`entity_management.h:29`,
 `pre_hash << parent.id << otherID << "file: " ...`), and hanabi's own
-`widget_key` (`src/ui/mk.h`) mixes the same five facts. Each pane's subtree
+`hash_call_site` (`vendor/afterhours/src/plugins/ui/entity_management.h`) mixes the same five facts. Each pane's subtree
 hangs off its own column div, so every descendant's parent chain differs at the
 root and every hash differs all the way down. Two panes need no id offsets, no
 namespacing, and no per-pane integer bases. (#241 established the source-
@@ -11699,7 +10026,7 @@ which memoizes wrapped heights and holds two widths per message -- two panes at
 two widths is four. That is an app bug and was fixed app-side
 (`ecs/transcript_render_cache.h`), not a library one.
 
-**Hanabi reference.** Negative result: `src/ui/mk.h` (`h = mix(h, static_cast<std::uint32_t>(parentID));`) — parent id disambiguates subtrees. `src/ecs/transcript_render_cache.h` (`A SLOT IS A PANE AND A THREAD`) — cache is per pane/thread. Tests: `tests/unit/test_pane_memory.cpp::test_two_panes_at_two_widths_do_not_thrash` — unit test covers two-pane width behavior.
+**Hanabi reference.** Negative result: `vendor/afterhours/src/plugins/ui/entity_management.h` (`mix_int(parent_id);`) — parent id disambiguates subtrees. `src/ecs/transcript_render_cache.h` (`A SLOT IS A PANE AND A THREAD`) — cache is per pane/thread. Tests: `tests/unit/test_pane_memory.cpp::test_two_panes_at_two_widths_do_not_thrash` — unit test covers two-pane width behavior.
 
 
 ### #307 — NOT A GAP: `HasTextAreaState::line_index` does not move the caret, so an outside write that leaves it stale is unobservable
@@ -11858,52 +10185,31 @@ CLASS: MISSING
 
 ---
 
-### #353 — A dropped glyph is not drawn either, so an unmeasurable string is also invisible, and the two failures are reported the same way: not at all
+### #353 — a glyph the atlas refused is not drawn at all
 
-**What was wanted.** Having found #211's measurement corruption, to know what
-the user actually SEES when the atlas is full — the assumption being that the
-text draws and only the layout is wrong.
+**Scope after `bdea3b9`.** The FILL is reported now (see #350). What is not
+reported, and not drawn, is the individual glyph: the renderer skips the quad
+for a codepoint the atlas refused, so the character is simply absent from the
+screen.
 
-**What happens.** It is the other way round. `fonsDrawText` walks the same
-`fons__getGlyph` and skips the quad entirely when it returns NULL
-(`fontstash.h:1346-1360`), so a glyph the atlas refused is not rendered at all.
-A string measured at 0.0 is also drawn as nothing. The two symptoms arrive
-together and neither is reported, which is worth writing down because it
-changes what the failure looks like from the outside: not "text laid out
-wrongly" but "text absent, and the space where it should be laid out wrongly
-too". A blank label reads as a data problem — an empty string, a failed fetch —
-and nobody looks at the font stack.
+**Why that is the worse half.** An absent glyph is indistinguishable from text
+that was never there. Every other typographic system on the machine draws a
+substitute — codepoint 0, the .notdef box — precisely so a font failure is
+VISIBLE rather than silent. Drawing the tofu box instead of skipping turns an
+invisible failure into the oldest recognisable one in typography.
 
-It also removes the one diagnostic a consumer might have hoped for. If the
-glyphs still drew, a capture would show text overlapping its neighbours and
-somebody would file a rendering bug. They do not draw, so the capture shows a
-clean, plausible, empty region.
+**Live probe.** The same `--atlas-stress` walk as #350: past the fill point,
+the drawn string is short of characters that the source string contains.
 
-**Why the obvious escapes do not work.**
+**Hanabi reference.** `src/util/atlas_guard.h` — hanabi cannot draw the
+substitute from outside the library, so it refuses to trust the measurement
+instead. Measurement/gate: `scripts/atlas_gate.sh`.
 
-- **Draw a fallback box for a missing glyph.** That is a decision inside
-  `fonsDrawText`, and the consumer never learns a glyph was missing (#350).
-- **Diff the capture against a reference.** hanabi does exactly this
-  (`scripts/compare.py`) and it would catch this — but only for a screen that
-  already has a frozen reference, and the condition arrives on user-authored
-  text, which no reference covers.
+**Minimal upstream fix.** Draw codepoint 0 rather than skipping the quad.
 
-**The workaround.** Detection only: `src/util/atlas_guard.h` faults on the
-measurement, which at least names the cause on stderr before the labels start
-disappearing. Nothing hanabi can do makes the glyph draw.
+CLASS: SILENT CORRUPTION
 
-
-**Hanabi reference.** `src/util/atlas_guard.h` (`a string that measures short is LAID OUT short and a string that`) — source documents visible impact. `src/util/atlas_guard.h` (`raise(Fault::ZeroWidth, text, px);`) — zero-width text measurements are loud. Tests: `scripts/atlas_gate.sh` (`a normal render raised a glyph-atlas fault`) — gate catches ordinary-run faults. Measurement/gate: `src/main.cpp` (`detector fired:`) — stress reports detector status.
-
-
-**Minimal upstream fix.** Whatever #350 or #351 provides covers this too — one
-notification serves both halves. Failing that, rendering the substitute glyph
-(codepoint 0, which fontstash already caches and which most fonts draw as a
-box) instead of skipping the quad would turn an invisible failure into the
-oldest visible one in typography.
-
-CLASS: FOOTGUN
-
+---
 ---
 
 ### #341 — PERF (ours, not the library's): what a second pane costs, and the two things I did not do about it
@@ -13447,7 +11753,7 @@ alignment and hard-break semantics out of the renderer.
 by text, width, font name/size/spacing, overflow mode and font generation, and
 let `draw_text_in_rect` consume it until one input changes.
 
-CLASS: PERFORMANCE · duplicate family #42/#340
+CLASS: PERFORMANCE · duplicate family upstream 2b207d4/#340
 
 ---
 
@@ -14790,3 +13096,153 @@ This is visible in Hanabi's model and effort pickers: the selection radio occupi
 Copy a non-empty `overrides.text_inset` in `ComponentConfig::apply_overrides()`, pass the supplied inset into the immediate single-line `position_text_ex()` call, and add a button-variant test proving the configured inset survives the merge and changes the rendered origin. The existing plain/wrapped text-inset tests do not cover both paths.
 
 CLASS: FOOTGUN
+
+
+---
+
+### #374 — `set_window_size` destroys the headless render target mid-pass, so a resize aborts the process
+
+**What was wanted.** Resize a headless window from a scripted test, the way
+`tests/ui/sidebar_width_is_responsive.e2e` does, without the process dying.
+
+**What happens.** `backends/sokol/backend.h::set_window_size()` honours a
+headless resize by destroying and recreating the offscreen render target:
+
+```cpp
+::afterhours::unload_render_texture(metal_detail::g_headless_rt);
+metal_detail::g_headless_rt = ::afterhours::load_render_texture(w, h);
+```
+
+It does not end the pass that is drawing into that target first. Both callers
+reach it from inside one — afterhours' own e2e `resize` handler is a `System`,
+and a System runs during `sm.run()`, which a consumer calls between
+`graphics::begin_frame()` and `graphics::end_frame()`. So the target is freed
+with its own pass still open and its draw commands still recorded against it,
+and the next replay walks freed attachments:
+
+```
+[sg][error][id:373] sokol_gfx.h:23413 VALIDATE_APIP_ATTACHMENTS_ALIVE:
+    sg_apply_pipeline: at least one pass attachment view or base image object
+    is no longer alive
+[sg][panic][id:460] VALIDATION_FAILED: validation layer checks failed
+ABORTING because of [panic]
+```
+
+**Why it appeared at `1ad3360` and is not that commit's fault.** Tearing down
+mid-pass was always wrong. Before `1ad3360` every render texture owned an sgl
+context and `unload_render_texture` destroyed it, which discarded the commands
+recorded into it, so the replay had nothing left to draw and never touched the
+freed attachments. `1ad3360` made the context shared and stopped destroying it
+— correctly, it was leaking five render pipelines per resize (upstream 1ad3360) — and the
+commands now outlive the target. Reverting it would restore the leak and hide
+this again.
+
+**Differential.** Seven scripted UI tests, exactly the seven in `tests/ui`
+containing a `resize` command, on boulder-KF74T3NW36: 7/7 pass at pin
+`fc4d625`, 7/7 abort (rc=134) at pin `9ff9079`. Thirty-two other scripts use
+the same small window geometries and pass, and deleting only the `resize` line
+from a failing script makes it pass, so it is the resize and not the geometry.
+
+**The workaround.** `src/util/gfx_resize.h` splits the operation the way a
+windowed backend already behaves — an NSWindow frame change is delivered
+between frames, never inside one. The RESOLUTION moves immediately, so the
+frame that asked for the resize lays out at the new size; the RENDER TARGET
+moves at the next frame boundary, before `begin_frame` opens the pass that will
+draw into it. Hanabi consumes the `resize` command ahead of afterhours'
+builtin to do it.
+
+**Hanabi reference.** `src/util/gfx_resize.h` (`inline void begin_frame`) — the
+frame-boundary applier; `src/ecs/e2e_commands.h`
+(`HandleResizeDeferredCommand`) — consumes `resize` ahead of the builtin;
+`src/util/stress.h` (`set_window_size_now`) — the soak arm routes through the
+same path. Tests:
+`tests/ui/a_resize_moves_the_target_at_a_frame_boundary.e2e`
+(`expect_resizes_applied`) — the planted control, which reads
+`expected 1 resize(s) applied at a frame boundary, saw 0` when the deferral is
+removed. Measurement/gate: `scripts/check_resize_deferral.py` — fails if any
+source outside `gfx_resize.h` calls `window_manager::set_window_size`, or if
+the control stops asserting a non-zero applied count.
+
+**Minimal upstream fix.** End the pass before the teardown, inside
+`set_window_size` itself:
+
+```cpp
+if (metal_detail::g_headless) {
+  ...
+  ::afterhours::end_texture_mode();   // <-- the missing line
+  ::afterhours::unload_render_texture(metal_detail::g_headless_rt);
+  metal_detail::g_headless_rt = ::afterhours::load_render_texture(w, h);
+}
+```
+
+CLASS: BLOCKER
+
+---
+
+### #375 — a focused `text_input`'s border loses its top edge
+
+**What happens.** `text_input` sets `Border::all(ctx.theme.accent, 2px)` on its
+field entity when focused (`text_input/component.h:257`). At pin `9ff9079` that
+border renders with its TOP ROW missing.
+
+**Measured**, 18d_palette_empty_dark, accent pixels per row across the field:
+
+    y=160 (top)        8      <- 506 belong here
+    y=197 (bottom)   506
+    x=294..297         38 rows of 42
+    x=802..805         38 rows of 42
+
+One edge, and only one.
+
+**It is a CLIP, not an overpaint.** Four candidate painters were removed and the
+screen re-rendered each time; the top edge stayed missing for every one:
+
+  * hanabi's own `.with_border()` on the field — top stayed 10
+  * the theme focus ring, `focus_ring_offset` 0 -> 1 — stayed 8 (which also
+    establishes that the visible edge is text_input's border, not the ring)
+  * the field's opaque fill, `with_transparent_bg()` — stayed 8
+  * a foreground stroke on the field via `HasOnDraw::fg`, inset and not —
+    stayed 8
+
+Nothing hanabi draws at the field's own top edge renders at all, which is the
+signature of the field's drawable region excluding that row rather than of
+something painting over it. Consistent with `aad267f`'s own note that a
+container's border draws inside its own rect while layout does not inset
+children.
+
+**The workaround.** A WRAPPER owns its own rect, so its border is outside the
+field's clip. `src/ui/edged_field.h` moves the chrome to an app-owned wrap and
+fills it with a transparent field. This is the shape the composer's text_area
+already used (`field_chrome::apply_focus_edge`), which is why that one field
+never lost its edge.
+
+**Scope, measured, so a future fix aims at the right thing.** This entry is
+about the FOCUSED accent border only. With the wrapper in place a focused field
+carries all four accent edges: the palette and search fields read 100% on every
+edge in dark and light, and a focused ask-card field probed directly
+(`focus_ui ask_text_q3`, accent bbox x 328..1041 y 539..569) also reads
+top/bottom/left/right = 100%.
+
+A DIFFERENT and older condition affects the ask card's ordinary UNFOCUSED
+border, and it is not this gap. Measured on `55_ask_card_dark`, same field,
+same pixels: at origin/main ad2c798 the field had a top edge at y=373 and
+nothing else — no bottom, no verticals. With the wrapper it has top y=373 AND
+bottom y=403; the verticals are still absent. So the verticals never rendered,
+before this bump or after. The obvious non-architectural fix was tried and
+measured: insetting the inner field by the border width so it cannot cover
+them left the verticals at 0. The ask card's parent clips them, and fixing that
+means restructuring the card — separate work, deliberately not done here.
+
+**Hanabi reference.** `src/ui/edged_field.h` — the wrapper that gives a focused
+field a complete edge. Every text_input call site in the app goes through it
+(eight of them; zero direct `imm::text_input` calls remain).
+Measurement/gate: `scripts/focus_edge_gate.py` — samples all four edges of the
+eight palette/search screenshots in dark and light, rejecting a broken edge, a
+second adjacent accent band, and the wrong accent token. It covers those eight
+captures, not every call site: the ask-card and composer fields are unfocused
+in the screenshot suite, so there is no accent edge in those images to sample.
+
+**Minimal upstream fix.** Emit the focus border outside the field's clip, or
+inset the field's children by the border width so the top row is not cut.
+
+CLASS: VISUAL DEFECT

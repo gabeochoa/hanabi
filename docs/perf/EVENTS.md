@@ -372,12 +372,13 @@ when it is.
 
 ### Still uncounted, unchanged from `docs/perf/GATES.md`
 
-Gap **#155** (pipeline compilation in the first frames), **#210** (sokol's
-fixed pools: images 128, samplers 64 — a silent correctness failure, not a
-memory one), **#211** (the 2048² glyph atlas whose overflow corrupts
-measurement). None of them moved and none of them is reachable from anything
-this branch added; they remain as `MEMORY.md` entry 5 and `GATES.md` describe
-them.
+Gap **#155** (pipeline compilation in the first frames) and **#210** (sokol's
+sampler pool, still fixed at 64, and sampler creation still unvalidated — a
+silent correctness failure, not a memory one). The glyph-atlas entries that
+used to sit beside them are closed: upstream `bdea3b9` reports the overflow, and
+what survives is **#350**/**#353** — no per-measurement completeness and no
+substitute glyph. None of them moved and none is reachable from anything this
+branch added.
 
 ---
 

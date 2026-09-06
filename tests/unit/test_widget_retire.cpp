@@ -48,8 +48,8 @@ static afterhours::EntityCollection& ui() {
 
 // Two distinct call sites. They have to be distinct TEXTUALLY, not just
 // logically: the hash is (parent id, index, file, line, column, function).
-static EntityID build_a(Entity& parent) { return hanabi::ui::mk(parent).first.get().id; }
-static EntityID build_b(Entity& parent) { return hanabi::ui::mk(parent).first.get().id; }
+static EntityID build_a(Entity& parent) { return afterhours::ui::imm::mk(parent).first.get().id; }
+static EntityID build_b(Entity& parent) { return afterhours::ui::imm::mk(parent).first.get().id; }
 
 // One frame, in the order the app runs it: the epoch opens and the sweep runs
 // before anything is built (ecs::WidgetRetireSystem), and afterhours merges and

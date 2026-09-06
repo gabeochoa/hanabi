@@ -421,7 +421,7 @@
 - Arrow buttons: left/right at the strip edges, click to scroll by `kTabMinWidth`
 
 **Dependencies:**
-- Afterhours horizontal ScrollView (todo.md #26 lists this as a gap in afterhours)
+- Afterhours horizontal ScrollView (todo.md upstream a1b9a4b lists this as a gap in afterhours)
 - May require custom scroll wrapper until afterhours adds it
 
 **How it is proven:**

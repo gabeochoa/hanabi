@@ -5,7 +5,7 @@
 // collision waiting to happen, and a reviewer reading only those numbers will
 // conclude it is one -- so this pins down what the key is actually made of.
 //
-// `hanabi::ui::widget_key` mixes FIVE facts: the parent id, the caller's
+// `afterhours::ui::imm::hash_call_site` mixes FIVE facts: the parent id, the caller's
 // index, and the file / function / line:column of the CALL SITE. Two different
 // lines therefore never collide however their indices overlap, and one line
 // only needs indices unique among the widgets it makes -- which a loop index
@@ -18,7 +18,12 @@
 #include <source_location>
 #include <vector>
 
-#include "../../src/ui/mk.h"
+// Hanabi's own widget-key wrapper was retired at pin 9ff9079 once upstream
+// 5996464 landed an allocation-free hash of the same five facts
+// (upstream 5996464). The property this test pins -- distinct call
+// sites do not collide -- did not go away with it, so the test now guards the
+// library's implementation, which is what every hanabi widget uses.
+#include "../../vendor/afterhours/src/plugins/ui/entity_management.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                 \
@@ -40,19 +45,19 @@ using Key = afterhours::ui::imm::UI_UUID;
 // test line called the helper -- collapsing all four to one location and
 // making them collide, which is a trap worth naming rather than repeating.
 static Key tab_button(afterhours::EntityID parent, int i) {
-    return hanabi::ui::widget_key(parent, i,
+    return afterhours::ui::imm::hash_call_site(parent, i,
                                   std::source_location::current());
 }
 static Key tab_close(afterhours::EntityID parent, int i) {
-    return hanabi::ui::widget_key(parent, i,
+    return afterhours::ui::imm::hash_call_site(parent, i,
                                   std::source_location::current());
 }
 static Key tab_pin(afterhours::EntityID parent, int i) {
-    return hanabi::ui::widget_key(parent, i,
+    return afterhours::ui::imm::hash_call_site(parent, i,
                                   std::source_location::current());
 }
 static Key tab_status(afterhours::EntityID parent, int i) {
-    return hanabi::ui::widget_key(parent, i,
+    return afterhours::ui::imm::hash_call_site(parent, i,
                                   std::source_location::current());
 }
 
