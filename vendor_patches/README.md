@@ -14,7 +14,8 @@ good upstream contribution and that the PIN STILL LACKS the behaviour — it doe
 not say hanabi has the fix. Where hanabi needs the behaviour it carries its own
 stand-in (`src/util/atlas_guard.h` for #351, `theme::ask_action_disabled_ink()`
 for #266), and the verifier asserts those stand-ins are still present. If a
-here and from `PATCHES`, and retire the stand-in with it.
+patch lands upstream, bump the pin, delete the patch from here and from
+`PATCHES`, and retire the stand-in with it.
 
 ## Applying (from the afterhours repo/submodule root)
 
