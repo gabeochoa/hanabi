@@ -9,7 +9,8 @@ Boxes are DERIVED, not written down. Hand-placed rectangles drifted onto
 neighbouring buttons, and because the ratio is taken from the extreme pixel in
 the box, a spill into a brighter neighbour reads BETTER than the label is --
 the direction that hides a regression. Each label's glyph run is found by
-scanning the action row, so a box cannot name one button and sample another.
+scanning the row or band it lives in, so a box cannot name one control and
+sample another.
 """
 
 import sys
@@ -77,23 +78,48 @@ PAIRED = [
 #
 # They are neither action labels (no button rect to derive a box from) nor
 # note lines (they live inside the scrolling body, beside the question they
-# belong to), so they get their own table. The boxes are the elements' own
-# rects, read off the widget tree at these two baselines' size.
+# belong to), so they get their own table. What is written down is the BAND
+# the label sits in -- the same thing ROWS and NOTE_ROWS write down -- and the
+# glyph box is DERIVED inside it, so a band cannot name one label and measure
+# the control beside it. The hand-written rects this replaces did exactly
+# that: the "Other" rect ran through the free-text input's top border.
+#
+# Every baseline that draws one of these labels is listed. The gate sampled
+# two of them, and the same degradation on 57 passed.
 #
 # They were drawn in text_faint. Measured off these very baselines that was
 # 2.59:1 on the dark card and 4.38:1 on the light one -- and the light figure
 # is the reason this is a pixel row and not only a token assertion: the token
 # pair computes to 4.5024:1, which passes a unit check and still fails on
 # screen once the glyph is anti-aliased onto the card.
-BODY_LABEL_BOXES = [
-    ("Pick one", 978, 1042, 252, 268),
-    ("Pick any", 978, 1042, 410, 426),
-    ("Other", 328, 1042, 356, 374),
-]
-
 BODY_LABELS = [
-    ("55_ask_card_dark.png", BODY_LABEL_BOXES),
-    ("56_ask_card_light.png", BODY_LABEL_BOXES),
+    ("55_ask_card_dark.png", [
+        ("Pick one", 978, 1042, 248, 268),
+        ("Pick any", 978, 1042, 406, 428),
+        ("Other", 328, 520, 355, 372)]),
+    ("56_ask_card_light.png", [
+        ("Pick one", 978, 1042, 248, 268),
+        ("Pick any", 978, 1042, 406, 428),
+        ("Other", 328, 520, 355, 372)]),
+    ("57_ask_card_narrow_dark.png", [
+        ("Pick one", 652, 716, 248, 268),
+        ("Pick any", 652, 716, 406, 428),
+        ("Other", 254, 446, 355, 372)]),
+    ("58_ask_card_split_dark.png", [
+        ("Pick one", 580, 644, 248, 268),
+        ("Pick any", 580, 644, 406, 428),
+        ("Other", 314, 500, 355, 372)]),
+    ("60_ask_full_form_narrow_dark.png", [
+        ("Pick one", 652, 716, 266, 286),
+        ("Other", 254, 446, 417, 434)]),
+    ("62_ask_with_attachment_narrow_dark.png", [
+        ("Pick one", 652, 716, 266, 286)]),
+    ("64_ask_wrapped_options_narrow_dark.png", [
+        ("Pick one", 379, 443, 266, 286)]),
+    ("65_ask_two_questions_narrow_dark.png", [
+        ("Pick one", 379, 443, 266, 286)]),
+    ("66_ask_two_questions_tiny_dark.png", [
+        ("Pick one", 195, 259, 336, 356)]),
 ]
 
 # What those labels actually measured, on these very baselines, when they were
@@ -101,25 +127,58 @@ BODY_LABELS = [
 # a shade off it (the light card read 112,112,123 against a 110,110,122 token),
 # and the difference decides the verdict -- the token pair computes to
 # 4.5024:1 and the pixels came out at 4.38:1. The self-check paints these back
-# to prove the rows would catch a return to that ink.
+# to prove every row would catch a return to that ink.
 FAINT_INK = {
     "55_ask_card_dark.png": (99, 99, 111),
     "56_ask_card_light.png": (112, 112, 123),
+    "57_ask_card_narrow_dark.png": (99, 99, 111),
+    "58_ask_card_split_dark.png": (99, 99, 111),
+    "60_ask_full_form_narrow_dark.png": (99, 99, 111),
+    "62_ask_with_attachment_narrow_dark.png": (99, 99, 111),
+    "64_ask_wrapped_options_narrow_dark.png": (99, 99, 111),
+    "65_ask_two_questions_narrow_dark.png": (99, 99, 111),
+    "66_ask_two_questions_tiny_dark.png": (99, 99, 111),
 }
 
 
-def body_label_measure(image, x0, x1, y0, y1):
+def body_label_box(image, x0, x1, y0, y1):
+    """The label's own glyph run inside the band: everything unlike the fill."""
+    x1 = min(x1, image.size[0])
+    y1 = min(y1, image.size[1])
     pixels = [image.getpixel((x, y))
-              for x in range(x0, min(x1, image.size[0]))
-              for y in range(y0, min(y1, image.size[1]))]
+              for x in range(x0, x1) for y in range(y0, y1)]
     fill = Counter(pixels).most_common(1)[0][0]
+    cols = []
+    rows = []
+    for x in range(x0, x1):
+        for y in range(y0, y1):
+            pixel = image.getpixel((x, y))
+            if sum(abs(pixel[c] - fill[c]) for c in range(3)) > 18:
+                cols.append(x)
+                rows.append(y)
+    if not cols:
+        return fill, None
+    return fill, (min(cols), max(cols) + 1, min(rows), max(rows) + 1)
+
+
+def body_label_measure(image, x0, x1, y0, y1):
+    fill, box = body_label_box(image, x0, x1, y0, y1)
+    if box is None:
+        return fill, None, None, None
+    pixels = [image.getpixel((x, y))
+              for x in range(box[0], box[1]) for y in range(box[2], box[3])]
     ink = max(pixels, key=lambda p: abs(luminance(p) - luminance(fill)))
-    return fill, ink, contrast(ink, fill)
+    return fill, box, ink, contrast(ink, fill)
 
 
 def body_label_failures(name, rows):
     found = []
-    for label, ratio, ink in rows:
+    for label, box, ratio, ink in rows:
+        if box is None:
+            found.append(
+                f"{name} body label {label!r} has no ink in its band — the "
+                "label moved, or the card no longer draws it")
+            continue
         if ratio < MIN_RATIO:
             found.append(
                 f"{name} body label {label!r} ink {ink} is {ratio:.2f}:1, "
@@ -128,26 +187,30 @@ def body_label_failures(name, rows):
 
 
 def body_label_self_check():
-    """Repainting a body label in the old faint ink must be rejected."""
+    """Repainting ANY body label in the old faint ink must be rejected."""
     for name, boxes in BODY_LABELS:
-        image = Image.open(BASELINES / name).convert("RGB").copy()
-        label, x0, x1, y0, y1 = boxes[0]
-        fill, _, clean = body_label_measure(image, x0, x1, y0, y1)
-        if clean < MIN_RATIO:
-            raise SystemExit(
-                f"ask-contrast body-label self-check: {name} {label!r} is "
-                f"already {clean:.2f}:1 before tampering")
         faint = FAINT_INK[name]
-        for x in range(x0, min(x1, image.size[0])):
-            for y in range(y0, min(y1, image.size[1])):
-                if image.getpixel((x, y)) != fill:
-                    image.putpixel((x, y), faint)
-        _, _, dimmed = body_label_measure(image, x0, x1, y0, y1)
-        if dimmed >= MIN_RATIO:
-            raise SystemExit(
-                f"ask-contrast body-label self-check: {name} {label!r} "
-                f"repainted in the old faint ink still measures "
-                f"{dimmed:.2f}:1, so the row would not catch a revert")
+        for label, x0, x1, y0, y1 in boxes:
+            image = Image.open(BASELINES / name).convert("RGB").copy()
+            fill, box, _, clean = body_label_measure(image, x0, x1, y0, y1)
+            if box is None:
+                raise SystemExit(
+                    f"ask-contrast body-label self-check: {name} {label!r} "
+                    "has no ink in its band")
+            if clean < MIN_RATIO:
+                raise SystemExit(
+                    f"ask-contrast body-label self-check: {name} {label!r} is "
+                    f"already {clean:.2f}:1 before tampering")
+            for x in range(box[0], box[1]):
+                for y in range(box[2], box[3]):
+                    if image.getpixel((x, y)) != fill:
+                        image.putpixel((x, y), faint)
+            _, _, _, dimmed = body_label_measure(image, x0, x1, y0, y1)
+            if dimmed >= MIN_RATIO:
+                raise SystemExit(
+                    f"ask-contrast body-label self-check: {name} {label!r} "
+                    f"repainted in the old faint ink still measures "
+                    f"{dimmed:.2f}:1, so the row would not catch a revert")
 
 
 def luminance(color):
@@ -463,12 +526,15 @@ def main():
         image = Image.open(path).convert("RGB")
         rows = []
         for label, x0, x1, y0, y1 in boxes:
-            fill, ink, ratio = body_label_measure(image, x0, x1, y0, y1)
-            rows.append((label, ratio, ink))
+            _, box, ink, ratio = body_label_measure(image, x0, x1, y0, y1)
+            rows.append((label, box, ratio, ink))
         labels += len(rows)
         print(f"  {name.split('_')[0]:>3} body      " +
-              " ".join(f"[{label} {ratio:.2f}:1]"
-                       for label, ratio, _ in rows))
+              " ".join(
+                  f"[{label} x={box[0]}..{box[1]} y={box[2]}..{box[3]} "
+                  f"{ratio:.2f}:1]" if box is not None
+                  else f"[{label} NOT FOUND]"
+                  for label, box, ratio, _ in rows))
         failures.extend(body_label_failures(name, rows))
 
     for disabled_row, enabled_row in PAIRED:
@@ -506,7 +572,7 @@ def main():
           f"line drawn in that same ink to within "
           f"{1.0 - NOTE_LINE_COVERAGE:.0%} coverage; "
           f"{labels} body labels across {len(BODY_LABELS)} cards, each "
-          f">= {MIN_RATIO}:1)")
+          f">= {MIN_RATIO}:1, boxes derived from each label's own glyph run)")
 
 
 if __name__ == "__main__":
