@@ -1109,7 +1109,7 @@ void LiveTurn::upsert_ask(json entry) {
     // .value() throw type_error.302 -- it falls back for an ABSENT key, never
     // for a present null -- and nothing on the turn loop catches, so it is a
     // terminate. int_or is what every other reader in this file uses.
-    const int64_t seq = int_or(entry, "elicitation", 0);
+    const int64_t seq = int_or(entry, "elicitation", -1);
     for (json& held : asks_)
         if (int_or(held, "elicitation", -1) == seq) {
             held = std::move(entry);
