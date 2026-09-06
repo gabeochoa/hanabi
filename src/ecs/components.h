@@ -772,19 +772,18 @@ struct AppComponent : public afterhours::BaseComponent {
         askState.adopt(asks, before, stamp);
         // An empty snapshot retires the asks it replaces -- and nothing else.
         //
-        // It used to also erase the session and stamp it, which had two costs.
-        // The stamp vetoed every in-flight load for the thread, so a snapshot
-        // that was merely EARLY (the server had not listed the new ask yet)
-        // silenced the one that would have carried it. And the erase took the
-        // session out of the periodic sweep, which only visits threads it
-        // already holds asks for -- so nothing ever asked again. One empty
-        // attach permanently blinded the thread.
+        // It used to also erase the session and stamp it, and the stamp was
+        // the cost: it vetoed every in-flight load for the thread, so a
+        // snapshot that was merely EARLY (the server had not listed the new
+        // ask yet) silenced the one that would have carried it. Drop
+        // authority is keyed by ask id now, so a resolved ask speaks only for
+        // itself.
         //
-        // The entry stays, emptied. asks_for() still reports nothing, so the
-        // card still closes; the sweep still has a thread to watch. Only for a
-        // thread that HAS had asks, though -- minting one here for a thread
-        // that never had any would put every thread ever opened on the 20s
-        // poll.
+        // The entry stays, emptied, so attachAsks records that this thread has
+        // had asks. It is NOT what keeps the thread on the periodic sweep --
+        // the sweep visits every open thread whether or not asks_for() has
+        // anything for it -- and asks_for() reads an emptied entry and a
+        // missing one the same way, so the card closes either way.
         if (asks.empty()) {
             for (const auto& a : before) askState.note_drop(a.id());
             if (known != attachAsks.end()) known->second.clear();
