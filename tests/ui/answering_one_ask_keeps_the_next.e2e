@@ -3,12 +3,18 @@
 # Drop authority used to be keyed by SESSION: resolving an ask stamped the
 # whole thread, and every load already in flight for it was thrown away whole.
 # During a live turn the in-flight load is exactly the one carrying the agent's
-# NEXT question, so answering the first discarded the second.
+# NEXT question, so answering the first discarded the second. It is keyed by
+# ask id now, and test_answering_one_ask_keeps_the_next in
+# tests/unit/test_ask_card.cpp is what pins that: at ask::State level a
+# session-keyed stamp makes the sibling stale, and this script cannot see it
+# because the next sweep re-adopts the ask a fifth of a second later.
 #
-# The empty gap between the two made it permanent. An attach snapshot with no
-# asks erased the session from attachAsks and stamped it, and the periodic
-# sweep only visits threads it already holds asks for -- so after the gap
-# nothing was left to ask again, and the second question never arrived at all.
+# What THIS script pins is the sweep. The empty gap between the two questions
+# used to be permanent: the periodic refresh only visited threads it already
+# held asks for, so once the gap emptied the thread nothing asked again and
+# the second question never arrived at all. Put that gate back
+# (`if (asks_for(pane.selectedId) == nullptr) continue;` in drive_ask_refresh)
+# and this fails --- measured, at the click below.
 #
 # The `raised` fixture is that sequence, deterministically: an approval, then
 # two reads with nothing pending, then a second question. It needs no
