@@ -1727,11 +1727,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.streamPhase = AppComponent::StreamPhase::Thinking;
             app.streamStartedAt = static_cast<int64_t>(std::time(nullptr));
             std::shared_ptr<api::Client> c = app.client;
-            const std::uint64_t askStamp = app.next_ask_load_stamp();
             app.streamCollectFuture = std::async(
-                std::launch::async, [c, id, prompt, askStamp]() {
+                std::launch::async, [c, id, prompt]() {
                     AppComponent::StreamCollected out;
-                    out.askStamp = askStamp;
                     api::StreamSink sink;
                     sink.on_delta = [&out](const std::string& d) {
                         out.chunks.push_back(d);
@@ -1775,7 +1773,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 note_outbox_failure(app, id, prompt);
             }
-            adopt_turn_asks(app, id, got.asksJson, got.askStamp);
+            adopt_turn_asks(app, id, got.asksJson, app.next_ask_load_stamp());
             if (!streamPane.openSession || streamPane.openSession->summary.id != id) {
                 app.streamPhase = AppComponent::StreamPhase::Idle;
             } else if (!got.error.empty()) {

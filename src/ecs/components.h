@@ -927,7 +927,6 @@ struct AppComponent : public afterhours::BaseComponent {
         api::Message finalMsg;
         std::string error;
         std::string asksJson;
-        std::uint64_t askStamp = 0;
     };
     std::future<StreamCollected> streamCollectFuture;
     bool streamCollecting = false;      // a worker is gathering the reply.
