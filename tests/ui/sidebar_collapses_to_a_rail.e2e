@@ -2,7 +2,8 @@
 #
 # NOTE: assert on VIEWS (the section header strip), not on the search field's
 # placeholder — the placeholder is painted through on_draw_fg (afterhours has
-# no native placeholder, gap #29) and never reaches the visible-text registry.
+# no native placeholder before upstream 1b568f9) and never reaches the
+# visible-text registry.
 # The toggle lives at the right edge of that strip now, not in a header row:
 # the sidebar's top band is bare window colour where the OS traffic lights sit.
 #

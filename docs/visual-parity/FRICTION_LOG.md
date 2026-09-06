@@ -4441,7 +4441,8 @@ the same call that was already made once.
 
 ### New gaps
 
-- **#113** — every scripted failure but one names the element it was about; the
+- **#113** (fixed upstream by `2caf525`) — every scripted failure but one
+  named the element it was about; the
   timeout, which is the one that means "it is not there", does not. Four
   identical `Command 'assert_ui' timed out after 30 frames` lines for four
   assertions about one element, with the name in scope one line above.

@@ -6929,7 +6929,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // text_input renders a placeholder itself and this used to be its
         // config; text_area does not render one at all -- "placeholder" does
         // not appear anywhere in text_area.h, while component.h has had it
-        // since gap #29 was closed. So moving the composer to multiline took
+        // since upstream 5b15bab closed it. So moving the composer to multiline took
         // the hint away with it, and the overlay below is 982376a's code
         // brought back for the widget that still needs it
         // (afterhours_gaps.md #261).

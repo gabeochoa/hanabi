@@ -65,7 +65,8 @@ grace: the screen you were looking at a second ago, kept deliberately.
 
 ## 1. The seam: hanabi owns `mk`
 
-#115 concluded the app could not fix this, and gave a reason that was wrong:
+#115 (fixed upstream by `2393fe3`) concluded the app could not fix this, and
+gave a reason that was wrong:
 
 > the ids are inside `mk()`'s private map
 

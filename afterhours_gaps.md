@@ -58,9 +58,6 @@ numbers are independent of the main series (both happen to reuse 8–12).
 - #338 NOT A GAP: `mk` hashes `parent.id`, so two subtrees from the same call sites are disjoint; `TextMeasureCache` is width-independent
 - #339 NOT A GAP: `imm::divider` and `hsplit` already exist — the hand-rolled divider had the exact bug the library's doc comment warns about
 
-**Widgets**
-- the gap upstream fixed in `817d00e` imm `text_input` ignores `with_font_size` / `with_custom_background`
-
 **OS integration**
 - #1 / #16 no OS appearance (light/dark) query
 - #5 macOS menu-bar extra (NSStatusItem) — app-side .mm
@@ -811,35 +808,6 @@ move behind the framework seam instead of living in the .mm.
 
 
 
-### #29 — Single hot-entity: a hoverable child steals the parent row's hover fill
-afterhours tracks hover as ONE global `hot_id` (context.h): `HandleClicks`
-(systems.h) sets hot on the deepest element under the mouse, so a child button
-that overlaps its parent's rect takes `hot_id` away from the parent while the
-cursor is over the child. The renderer (rendering.h) paints a widget's hover
-wash only while it is `is_hot`, and there is (a) no way to ask "is the mouse
-anywhere in this subtree?" cheaply at emit time (the tree hit-test helper is
-internal + scroll-offset-aware, not exposed), and (b) no hit-test-exclusion
-flag (`with_skip_tabbing` only affects focus/tab order, not hot). So a row with
-a trailing hover-affordance (the sidebar thread row's star toggle) FLICKERS its
-whole-row hover fill on/off as the pointer crosses from the row body onto the
-star — the row loses `is_hot` for exactly the frames the star owns it.
-
-Worked around entirely in app code (`src/ecs/sidebar_system.h`): the row no
-longer relies on the framework's per-frame `is_hot` wash. It BAKES the hover
-wash into the row's BASE `HasColor` whenever the pointer is in the row body OR
-on its star child, and sets `hover_bg` to the same value, so the row paints the
-identical fill regardless of which of {row, star} currently owns `hot_id` — no
-flash. Detecting star-hover needs the child's id before the child is emitted, so
-the row caches the star's (stable across frames) entity id per session in a
-static map and ORs `is_hot(star)||was_hot(star)` into the row hover signal. The
-star also gets `skip_hover_override=true` so its own (transparent) fill never
-tints. If afterhours grew either a `mouse_in_subtree(id)` query or a
-"child-hover propagates to parent hot" option (or a hit-test-ignore flag), this
-per-row id cache + base-color baking could collapse to a single call.
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The old per-row star id cache described in the entry is gone; current code uses mouse_in_subtree/mouse_was_in_subtree.
-
-**Hanabi reference.** Current code: `src/ecs/sidebar_system.h` (`Subtree, not the row entity alone`) — row hover now reads subtree hover rather than caching the star child id. `src/ecs/sidebar_system.h::ctx.mouse_was_in_subtree(row.ent().id)` — current row-hover test composes with hoverable children.
 
 
 
@@ -893,26 +861,9 @@ per-row id cache + base-color baking could collapse to a single call.
 
 
 
-### #28 — a 2nd column child of a custom-background div doesn't render; on_draw_fg on a bg div doesn't fire (hanabi-observed)
-- **Gap:** In the transcript, the user bubble is a `div` with `.with_custom_background(...)` + FlexDirection::Column. Adding a SECOND child after the first (a text label) — verified with a bright test label — does NOT render the 2nd child. Separately, attaching `.with_on_draw_fg(...)` to the bubble div itself (which has a custom background) never fires the callback (verified with a bright filled-rect probe — nothing drew). Tool-row checks DO draw via on_draw_fg, but they're transparent-bg children inside a Row, not children of a custom-bg Column.
-- **Impact:** Blocked the "WhatsApp-style sync check as a nested badge under the bubble" approach. Worked around by appending a font-safe text suffix to the bubble's single body label ("· sent" etc.). A proper trailing badge/glyph row inside a filled bubble needs either (a) on_draw_fg to fire on bg divs, or (b) multi-child layout to render for custom-bg columns.
-- **Repro:** add a 2nd `div(mk(bub.ent(), 9), ...label...)` after the user_text label; it doesn't appear. Add on_draw_fg to `bub`; it doesn't fire.
-- **Also:** unicode U+2713 (✓) renders BLANK in the bundled font (JetBrainsMono/Roboto) at MICRO size — a check glyph must come from the icon atlas (draw_at "star"-style) or a drawn shape, not a text label.
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** Resolved; source contains old dead/duplicated comments around the interim text suffix, but current code renders sync_check as a nested child.
-
-**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`gap #28 (nested child of a custom-bg bubble`) — current user bubble comments say the upstream bump fixed nested child/on_draw_fg rendering. `src/ecs/main_pane_system.h::draw_sync_check(st` — the real sync glyph is rendered as a nested on_draw_fg child.
 
 
 
-### #29 — text_input has no placeholder support
-- **Gap:** `afterhours::ui::imm::text_input` renders an empty field with no placeholder/ghost-text affordance when the bound string is empty. The hanabi composer + sidebar search both show a blank box with no "Reply…" / "Search…" hint. A `with_placeholder("…")` (rendered as faint text, cleared on first keystroke, not part of the value) would fix it cleanly.
-- **Impact:** minor UX — the composer gives no cue what to type. Worked around by adjacent labels elsewhere; a real placeholder needs input support.
-- **Related:** the gap upstream fixed in `817d00e` (text_input forces its own Secondary bg + derives font size from height, ignoring per-widget colors) — same widget, same "input is hard to style" family.
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The text_input claim is obsolete. The composer still draws its own placeholder only because it moved to text_area, which lacks that feature.
-
-**Hanabi reference.** Current code: `src/ecs/sidebar_system.h` (`.with_placeholder("Search")`) — current sidebar search uses text_input placeholder support. `src/ecs/main_pane_system.h` (`text_input renders a placeholder itself`) — composer comments confirm text_input placeholder exists, while text_area still needs overlay text.
 
 
 
@@ -1029,51 +980,9 @@ draw_sync_check (LocalOnly single gray ✓ / Persisting gray dot / Synced accent
 ✓+dot) INSTEAD of the interim body-text suffix ("· sent"). draw_sync_check was previously dead
 code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ renders, test 9/9.
 
-### #31 — sokol macOS backend pushes CONTROL-CODE chars (backspace U+007F) into the CHAR queue
-- **Gap/bug:** `vendor/afterhours/vendor/sokol/sokol_app.h` `keyDown:` emits a
-  `SAPP_EVENTTYPE_CHAR` for every key whose `NSEvent.characters` is non-empty —
-  including BACKSPACE (characters = U+007F DEL) and other control keys. The
-  afterhours sokol backend (`backends/sokol/backend.h` SAPP_EVENTTYPE_CHAR case)
-  pushes ANY `char_code > 0` into the char queue, and the text_input widget
-  drains it via `insert_char()`, whose only guard is `codepoint < 32` — so 0x7F
-  (127 >= 32) is NOT rejected and gets TYPED into the field as a DEL glyph.
-- **Symptom (Gabe, macOS, 2026-08-03):** "hitting backspace adds a space, hitting
-  space does nothing" — the stray 0x7F is inserted (renders like a space/box) and
-  the control byte corrupts the field so real editing misbehaves.
-- **Proven:** `insert_char(state, 0x7F)` returns true and appends byte 0x7f
-  (tests/unit/test_textinput.cpp; standalone repro confirmed).
-- **App-side workaround (used):** `ecs::ComposerCharFilterSystem` (src/ecs/
-  char_filter_system.h) runs before the UI-creating systems, drains the char
-  queue via `metal_detail::pop_char()`, drops non-typable codepoints
-  (`hanabi::is_typable_char` — rejects C0 controls + 0x7F, keeps tab + space +
-  printable), and re-pushes the survivors in order. The widget then only ever
-  pops real characters. `metal_detail::push_char/pop_char` are public, so no
-  vendored edit is needed.
-- **Minimal upstream fix (vendor, off-limits here):** either don't push control
-  codes in the SAPP_EVENTTYPE_CHAR case (`if (ev->char_code >= 32 &&
-  ev->char_code != 0x7F) push_char(...)`), or tighten `insert_char`'s guard to
-  also reject 0x7F. A one-liner in the backend's CHAR case is cleanest.
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** The entry's ComposerCharFilterSystem workaround is stale; no tracked src/ecs/char_filter_system.h remains in the allowed tree, and the test drives upstream insert_char unfiltered.
-
-**Hanabi reference.** Current code: `tests/unit/test_textinput.cpp` (`FIXED UPSTREAM (afterhours gap #31)`) — current unit test states the app-side char filter was deleted and upstream now rejects controls. Tests: `tests/unit/test_textinput.cpp::test_backspace_char_not_inserted` — unit coverage that 0x7F does not enter text storage.
 
 
 
-### #32 — text_input CURSOR (caret) draws INSIDE the last glyph, not after it
-- **Symptom (Gabe):** "the typing playhead is inside the last typed letter" — the
-  blinking caret overlaps the final character instead of sitting one gap to its right.
-- **Where:** `vendor/afterhours/src/plugins/ui/text_input/component.h` cursor-overlay
-  render (~line 288+): the caret x is derived from measured text-before-cursor width
-  but is missing a small trailing advance / half-gap, so it lands on the glyph's right
-  edge (visually inside it) rather than in the inter-character gap.
-- **Fix direction (vendor):** offset the caret x by +1px (or +half the space advance)
-  past the measured prefix width; clamp to the field's content width. App can't fix it
-  (the caret is drawn entirely inside the vendored widget).
-
-**POSTSCRIPT 2026-08-26 (source-reference audit).** No app workaround is visible in allowed source; the allowed docs say the current vendor pin already carries the correction.
-
-**Hanabi reference.** Current code: `docs/COMMIT_AUDIT.md` (`caret should stop`) — current audit notes the vendor pin already included the caret correction.
 
 
 

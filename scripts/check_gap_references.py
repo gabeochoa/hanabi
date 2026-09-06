@@ -161,6 +161,35 @@ def check_symbol_claims(text: str, root: Path) -> list[str]:
     return problems
 
 
+# A LIST ITEM that carries closure prose. The ledger's summary bullets are a
+# roster of live gaps, so "the gap upstream fixed in `817d00e` ..." sitting in
+# one states a closed defect as current work -- which is exactly what survived
+# the id-repointing pass: the id was gone, the claim was not, and no arm looked
+# for prose in a live list.
+CLOSED_PROSE_ITEM = re.compile(
+    r"(?im)^\s*[-*]\s+.*\b(?:the gap upstream fixed in|fixed upstream by|"
+    r"closed upstream (?:by|in))\b"
+)
+
+
+def check_closed_prose(text: str) -> list[str]:
+    """Closure statements belong in the closure record, not in a live list."""
+    problems = []
+    for line_no, line in enumerate(text.split("\n"), start=1):
+        if not CLOSED_PROSE_ITEM.match(line):
+            continue
+        # A bullet that is explicitly ABOUT the history (a postscript, a
+        # "what came out" note) is fine; a bare roster entry is not.
+        if re.search(r"(?i)\b(postscript|historical|history|closure|removed)\b",
+                     line):
+            continue
+        problems.append(
+            f"afterhours_gaps.md:{line_no}: a live list item states a CLOSED "
+            f"gap — move it to the closure record or delete it"
+        )
+    return problems
+
+
 def check_cross_references(text: str, root: Path) -> list[str]:
     """Every #NNN cited anywhere must resolve to an entry that exists.
 
@@ -218,10 +247,17 @@ def check_cross_references(text: str, root: Path) -> list[str]:
 REMOVED_CONTROLS = ("HANABI_STRESS_RESIZE_BACKEND",)
 # Text that may legitimately name a removed id or control: the index's closure
 # table, and explicitly historical evidence that points at the fixing commit.
+# Text that may legitimately name a removed id: an EXPLICIT closure statement
+# that names the commit which fixed it.
+#
+# The first version of this exempted any line containing "was", "were" or
+# "before". Those are ordinary English -- "#113 ... names the element it was
+# about" is a live claim about a closed gap, and the bare-word rule waved it
+# through. An exemption has to be earned by saying WHAT closed the gap, so it
+# requires a closure verb AND a 7+ hex commit on the same line.
 HISTORICAL = re.compile(
-    r"(?i)(^\|\s*#\d{2,4}\s*\|\s*`[0-9a-f]{7}`|"
-    r"\b(was|were|used to|formerly|historical|at the time|before|"
-    r"fixed (?:by|in)|closed by|landed (?:as|in)|no longer)\b)"
+    r"(?i)\b(fixed|closed|resolved|landed|retired)\b[^\n]{0,60}?"
+    r"\b[0-9a-f]{7,40}\b"
 )
 # Literal fixture text that merely LOOKS like a citation.
 FIXTURE_LITERALS = (
@@ -385,6 +421,46 @@ def triage_identifiers(text: str) -> list[str]:
             continue
         out.append(first)
     return out
+
+
+def check_no_fixed_rows(root: Path) -> list[str]:
+    """No §6 row may carry STATUS `fixed`.
+
+    The closure table is the sole home for entries upstream has fixed. A live
+    triage row marked `fixed` is a closed gap sitting in a work queue -- which
+    is how five of them (28b, 29a, 29b, 31c, 32b) survived every earlier pass:
+    the ledger said fixed and the queue still listed them as work.
+    """
+    index = root / "afterhours_gaps_index.md"
+    if not index.is_file():
+        return []
+    text = index.read_text()
+    start = text.find(SECTION_HEADING)
+    if start == -1:
+        return []
+    end = text.find("\n---", start)
+    section = text[start : end if end != -1 else len(text)]
+    offset = text.count("\n", 0, start)
+    problems = []
+    for n, line in enumerate(section.split("\n"), start=offset + 1):
+        line = line.rstrip()
+        if not line.startswith("|") or SEPARATOR_ROW.match(line):
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        if len(cells) < 3 or HEADER_FIRST_CELL.match(cells[1]):
+            continue
+        line_no = n
+        status = cells[-2].lower() if len(cells) >= 3 else ""
+        # Only UPSTREAM-fixed rows belong in the closure table. A row whose
+        # status says "app (fixed)" records a defect HANABI fixed in its own
+        # code -- a real historical record, not a closed upstream gap, and the
+        # audit brief says explicitly not to remove those.
+        if status == "fixed":
+            problems.append(
+                f"afterhours_gaps_index.md:{line_no}: §6 row {cells[1]} is "
+                f"marked fixed — move it to the closure table"
+            )
+    return problems
 
 
 def check_index_table(root: Path) -> list[str]:
@@ -552,6 +628,16 @@ def selftest_triage_parser() -> int:
     if len(ids) - len(set(ids)) != 1:
         failures.append("a duplicate suffixed id was not visible to the parser")
 
+    # A STATUS `fixed` row must be rejected -- the closure table owns those.
+    fixed_row = "| 29a | subtree hover | — | — | — | fixed |"
+    cells = [c.strip() for c in fixed_row.split("|")]
+    if not any(c.lower() == "fixed" for c in cells[2:]):
+        failures.append("a STATUS fixed row was not recognised as fixed")
+    live_row = "| 374 | plain numeric | BLOCKING | HIGH | XS | live |"
+    cells = [c.strip() for c in live_row.split("|")]
+    if any(c.lower() == "fixed" for c in cells[2:]):
+        failures.append("a live row was misread as fixed")
+
     # Rows outside the section must not be counted.
     outside = table + "\n\n## 7. Something else\n\n| 999 | not §6 | — | — | — | — |\n"
     if triage_identifiers(outside) != want:
@@ -562,8 +648,9 @@ def selftest_triage_parser() -> int:
         for f in failures:
             print(f"  {f}")
         return 1
-    print("check_gap_references triage-parser selftest: 6 id shapes, a "
-          "duplicate, and a section boundary all handled")
+    print("check_gap_references triage-parser selftest: 6 id shapes "
+          "(single digit, numeric, 27a, 31c, AN-9, 550-559), a duplicate, a "
+          "section boundary, and STATUS-fixed rejection all handled")
     return 0
 
 
@@ -580,6 +667,14 @@ def selftest_repo_wide() -> int:
          "missed exactly this and let the perf docs rot"),
         ("fixed upstream by 1ad3360, which used to be #200", False,
          "explicitly historical, points at the fixing commit"),
+        ("gap #113 was about timeout", True,
+         "a bare 'was' is ordinary English, not a closure statement -- the "
+         "first version of HISTORICAL exempted it and waved a live claim "
+         "about a closed gap straight through"),
+        ("gap #113 was fixed by 2caf525", False,
+         "a closure verb AND a commit: that is what earns the exemption"),
+        ("#115 concluded the app could not fix this, and the reason was wrong",
+         True, "'was' plus the word 'fix' but NO commit"),
         ("| #200 | `1ad3360` | render-pipeline leak per resize |", False,
          "the closure table row"),
         ('"#42 is the follow-up ticket."', False,
@@ -591,7 +686,9 @@ def selftest_repo_wide() -> int:
     for line, expect, why in cases:
         hit = False
         if not any(lit in line for lit in FIXTURE_LITERALS):
-            if not HISTORICAL.search(line):
+            # Mirror the real arm: the closure-table row is exempt by shape,
+            # everything else has to earn it with a closure verb + commit.
+            if not CLOSURE_ROSTER.match(line.strip()) and not HISTORICAL.search(line):
                 hit = any(int(r) in REMOVED for r in GAP_REF.findall(line))
                 hit = hit or any(c in line for c in REMOVED_CONTROLS)
         if hit != expect:
@@ -624,6 +721,8 @@ def main() -> int:
         + check_symbol_claims(text, root)
         + check_repo_wide(root)
         + check_index_table(root)
+        + check_no_fixed_rows(root)
+        + check_closed_prose(text)
     )
     if problems:
         print("check_gap_references: FAIL")

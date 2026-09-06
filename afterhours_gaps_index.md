@@ -26,13 +26,13 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **263** |
-| Distinct numeric gap numbers | **254** (several numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **258** |
+| Distinct numeric gap numbers | **253** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **267** rows, **267** unique identifiers — includes index-only ids with no detailed entry |
+| **Rows in the triage table (§6)** | **262** rows, **262** unique identifiers — includes index-only ids with no detailed entry |
 | Standalone live asks | **150** |
 | Live but subsumed into a family canonical | **56** (§3) |
-| Already fixed upstream | **19** (closed at pin 9ff9079 and REMOVED from the ledger — see the closure table) |
+| Already fixed upstream | **24** (closed at pin 9ff9079 and REMOVED from the ledger — see the closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
 | hanabi/platform-owned, not afterhours' | **26** |
 | **Rows explicitly marked wrong** | **5** (§2) |
@@ -43,7 +43,7 @@ correction says so.
 
 ### Closed and removed at pin 9ff9079
 
-Nineteen entries whose defects are fixed in the pinned library are DELETED
+Twenty-four entries whose defects are fixed in the pinned library are DELETED
 rather than annotated: a closed gap left in a work queue is read as work. Each
 was verified against `vendor/afterhours` at 9ff9079 -- the fixing commit is an
 ancestor of the pin, or the fixed behaviour was read in the pinned source --
@@ -51,6 +51,11 @@ not taken from a postscript.
 
 | gap | fixed by | what closed it |
 |---|---|---|
+| #28b | verified in pinned source | a 2nd child of a custom-background div renders; `on_draw_fg` on a bg div fires (69 live uses in hanabi) |
+| #29a | `5b15bab` | hover resolves through the subtree, so a hoverable child no longer steals the parent row's fill |
+| #29b | `1b568f9` | `text_input` placeholder text and colour |
+| #31c | `209f80e` | the sokol macOS backend filters control codes (DEL, U+007F) out of the CHAR queue |
+| #32b | verified in pinned source | the caret is placed by `position_text_ex` measurement rather than inside the last glyph |
 | #17 | `817d00e`, `1b568f9` | `text_input` honours an explicit font size and a caller's background; placeholder text and colour |
 | #22 | `a1b9a4b` | styled `TextSpan` runs word-wrap |
 | #24 | `a1b9a4b` | hard newlines honoured in labels |
@@ -581,16 +586,11 @@ correction narrows them rather than closing them.
 | 27a | Immediate mode rebuilds the tree every admitted frame | — | MED | XL | app fixed→#540; upstream live |
 | 27b | `spawn_status` overflows `spawn_card` | — | — | — | app |
 | 28a | No OS window-focus / frontmost query | — | MED | M | live |
-| 28b | 2nd child of a custom-bg div did not render | — | — | — | fixed |
-| 29a | Single `hot_id` steals the parent's hover fill | — | — | — | fixed |
-| 29b | `text_input` has no placeholder | — | — | — | fixed |
 | 30a | No scroll-anchor / preserve-position-on-prepend | — | HIGH | M | live |
 | 30b | Scroll is a raw wheel-delta add, no smoothing | — | MED | S | live |
 | 31a | Virtualization window built from a STALE offset | — | MED | S | dup→#326 |
 | 31b | No macOS `.app` bundle packaging | — | LOW | M | dup→#33a |
-| 31c | sokol pushes U+007F into the CHAR queue | — | — | — | fixed |
 | 32a | `get_resource_path` resolves from CWD, not the exe | — | HIGH | XS | live |
-| 32b | Caret draws inside the last glyph | — | — | — | fixed |
 | 33a | No menu bar, notifications, hotkey, Spotlight | — | MED | L | live |
 | 33b | No Shift+Enter newline in `text_input` | — | MED | M | dup→#67 |
 | 34a | No URL-scheme / deep-link handling | — | LOW | M | dup→#33a |
