@@ -1,0 +1,30 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+
+require_thread t2
+wait_frames 12
+
+watch_ink press_transparent press composer_model
+mouse_down_ui composer_model
+wait_frames 10
+expect_latency press_transparent 4
+mouse_up 5 5
+wait_frames 12
+key ESCAPE
+wait_frames 8
+
+watch_ink press_opaque press composer_send
+mouse_down_ui composer_send
+wait_frames 10
+expect_latency press_opaque 4
+mouse_up 5 5
+wait_frames 10
+
+right_click 120 400
+wait_frames 10
+watch_ink press_menu_row press row_menu_archive
+mouse_down_ui row_menu_archive
+wait_frames 10
+expect_latency press_menu_row 4
+mouse_up 5 5
+wait_frames 10

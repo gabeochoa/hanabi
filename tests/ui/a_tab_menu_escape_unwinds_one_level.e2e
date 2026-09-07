@@ -1,0 +1,32 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t5"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+
+require_thread t2
+wait_frames 12
+
+right_click_ui tab_active
+wait_frames 10
+expect_text "TAB ACTIONS"
+
+arrow down
+wait_frames 6
+arrow down
+wait_frames 6
+
+key ESCAPE
+wait_frames 8
+expect_no_text "TAB ACTIONS"
+
+right_click_ui tab_active
+wait_frames 10
+expect_text "TAB ACTIONS"
+
+key ENTER
+wait_frames 12
+expect_text "TAB ACTIONS"
+
+arrow down
+wait_frames 6
+key ENTER
+wait_frames 12
+expect_no_text "TAB ACTIONS"

@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "../keys.h"
+#include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
 #include "command_system.h"
 #include "keyboard_focus.h"
@@ -74,7 +75,7 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
             if (app->paletteIndex >= static_cast<int>(rows.size()))
                 app->paletteIndex = static_cast<int>(rows.size()) - 1;
         }
-        if (hanabi::keys::pressed(hanabi::keys::kEnter) && !rows.empty()) {
+        if (app->activate == ActivateIntent::Palette && !rows.empty()) {
             const size_t i = static_cast<size_t>(std::clamp(
                 app->paletteIndex, 0, static_cast<int>(rows.size()) - 1));
             run(rows[i], *app, layout);
@@ -101,11 +102,9 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
             ctx, mk(uiRoot, 8300),
             hanabi::surface::scrim(sw, sh, 10)
                 .with_debug_name("palette_backdrop"));
-        if (backdrop &&
-            !afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos,
-                RectangleType{panelRect.x, panelRect.y, panelRect.width,
-                              panelRect.height})) {
+        if (hanabi::overlay::dismisses(static_cast<bool>(backdrop),
+                                       ctx.mouse.pos.x, ctx.mouse.pos.y,
+                                       panelRect)) {
             close(*app);
             return;
         }

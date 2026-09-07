@@ -5,5 +5,5 @@
 require_thread r9
 wait_frames 12
 assert_ui composer_row x=280 w=820
-assert_ui composer_send x=1043 w=19 h=19
-assert_ui composer_input_wrap w=716
+assert_ui composer_send x=1034 w=28 h=28
+assert_ui composer_input_wrap w=707

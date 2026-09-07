@@ -25,6 +25,9 @@
 #include "ui_imports.h"
 
 #include "../ui/accessibility.h"
+#include "../ui/context_menu.h"
+#include "../ui/control_state.h"
+#include "pointer_state_system.h"
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/status_mark.h"
@@ -666,16 +669,32 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                             RectangleType{closeX, closeY, closeW, closeW});
                     const std::string& closeAccessible =
                         model::tab_close_accessible_label(tab);
+                    const auto closeSlop = hanabi::control::grow_to_target(
+                        closeX, closeY, closeW, closeW);
+                    const float chipDX = closeX - closeSlop.x;
+                    const float chipDY = closeY - closeSlop.y;
+                    const theme::Color chipFill =
+                        closeHovered ? tab_colors::close_hover(bg) : bg;
                     auto closeBtn = button(
                         ctx, mk(uiRoot, 950 + static_cast<int>(i)),
                         ComponentConfig{}
                             .with_label(" ")
-                            .with_size(
-                                ComponentSize{pixels(closeW), pixels(closeW)})
+                            .with_size(ComponentSize{pixels(closeSlop.width),
+                                                     pixels(closeSlop.height)})
                             .with_absolute_position()
-                            .with_translate(closeX, closeY)
-                            .with_custom_background(
-                                closeHovered ? tab_colors::close_hover(bg) : bg)
+                            .with_translate(closeSlop.x, closeSlop.y)
+                            .with_transparent_bg()
+                            .with_custom_hover_bg(
+                                afterhours::Color{0, 0, 0, 0})
+                            .with_on_draw_bg([chipFill, chipDX, chipDY,
+                                              closeW](RectangleType box) {
+                                afterhours::draw_rectangle_rounded(
+                                    RectangleType{box.x + chipDX,
+                                                  box.y + chipDY, closeW,
+                                                  closeW},
+                                    0.2f, 6, chipFill,
+                                    std::bitset<4>().set());
+                            })
                             .with_custom_text_color(
                                 closeHovered ? tab_colors::tab_text_act()
                                              : tab_colors::close_ink())
@@ -711,7 +730,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // + is always in the same place. The glyph is a sprite blit, not a
         // typed '+', for the same reason the pin is drawn.
         {
-            const float plusD = 24.0f;
+            const float plusD = hanabi::control::kMinHitTarget;
             const float plusX = r.x + r.width - 17.0f - plusD * 0.5f;
             const float plusY = tabY + (tabH - plusD) * 0.5f;
             bool plusHovered = afterhours::ui::is_mouse_inside(
@@ -744,10 +763,6 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         // actions. Drawn on a high render layer so it sits above the strip and
         // content. Dismissed on click-away or after an action.
         if (strip.menuOpen) {
-            if (app.escape == EscapeIntent::CloseContextMenu) {
-                strip.close_menu();
-                return;
-            }
             // Resolve the target tab (it may have been closed since opening).
             auto menuOpt = EntityHelper::getEntityForID(strip.menuTabId);
             if (!menuOpt.valid() || !menuOpt->has<Tab>()) {
@@ -764,12 +779,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                          TabStripComponent& strip, AppComponent& app,
                          Entity& tabEntity) {
         const auto& tab = tabEntity.get<Tab>();
-        struct Item {
+        struct Entry {
             const char* label;
             int action;
             const char* debugName;
         };
-        static constexpr std::array<Item, 8> kItems{{
+        static constexpr std::array<Entry, 8> kItems{{
             {"Rename\xe2\x80\xa6", 3, "tab_menu_rename"},
             {"Fork session", 6, "tab_menu_fork"},
             {nullptr, 4, "tab_menu_pin"},
@@ -779,131 +794,77 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             {"Close others", 1, "tab_menu_close_others"},
             {"Close all tabs", 5, "tab_menu_close_all"},
         }};
-        std::vector<const Item*> items;
+        std::vector<int> actions;
+        std::vector<hanabi::surface::MenuItem> items;
+        actions.reserve(kItems.size());
         items.reserve(kItems.size());
-        for (const auto& item : kItems) {
-            if (item.action == 3 &&
-                !(app.client && app.client->supports_rename()))
-                continue;
-            if (item.action == 6 &&
-                !(app.client && app.client->supports_fork()))
-                continue;
-            items.push_back(&item);
+        for (const auto& entry : kItems) {
+            const bool disabled =
+                (entry.action == 3 &&
+                 !(app.client && app.client->supports_rename())) ||
+                (entry.action == 6 &&
+                 !(app.client && app.client->supports_fork()));
+            const char* label =
+                entry.action == 4 ? (tab.pinned ? "Unpin tab" : "Pin tab")
+                                  : entry.label;
+            items.push_back({label, entry.debugName, entry.action == 5,
+                             disabled});
+            actions.push_back(entry.action);
         }
-        const int nItems = static_cast<int>(items.size());
 
-        const float menuW = 184.0f;
-        const float headerH = 28.0f;
-        const float itemH = hanabi::surface::kMenuRowH;
-        const float menuH = headerH + itemH * static_cast<float>(nItems) + 8.0f;
-        float mx = strip.menuX;
-        float my = strip.menuY;
-        if (mx + menuW > ctx.screen_width - 4.0f)
-            mx = ctx.screen_width - menuW - 4.0f;
-        if (my + menuH > ctx.screen_height - 4.0f)
-            my = ctx.screen_height - menuH - 4.0f;
-        if (mx < 4.0f) mx = 4.0f;
-        if (my < 4.0f) my = 4.0f;
-
-        const int kMenuLayer = 30;  // well above tabs (6-10) and content
-
-        auto menuConfig = hanabi::surface::menu(menuW, menuH, kMenuLayer);
-        menuConfig.with_absolute_position()
-            .with_translate(mx, my)
-            .with_debug_name("tab_menu");
-        div(ctx, mk(uiRoot, 970), menuConfig);
-        div(ctx, mk(uiRoot, 969),
-            ComponentConfig{}
-                .with_label("TAB ACTIONS")
-                .with_size(ComponentSize{pixels(menuW - 16.0f), pixels(headerH)})
-                .with_absolute_position()
-                .with_translate(mx + 8.0f, my + 4.0f)
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::MICRO)
-                .with_letter_spacing(0.8f)
-                .with_alignment(TextAlignment::Left)
-                .with_render_layer(kMenuLayer + 1)
-                .with_debug_name("tab_menu_title"));
+        hanabi::surface::MenuMetrics metrics;
+        metrics.width = hanabi::surface::kContextMenuW;
+        const hanabi::surface::MenuKeys keys = take_menu_keys(app);
+        const auto result = hanabi::surface::context_menu(
+            ctx, uiRoot, 966, metrics, strip.menuX, strip.menuY, "TAB ACTIONS",
+            "tab_menu", items, app.menuCursor, keys);
 
         bool clickedItem = false;
-        for (int k = 0; k < nItems; ++k) {
-            const Item& item = *items[static_cast<size_t>(k)];
-            const char* itemLabel = item.action == 4
-                                        ? (tab.pinned ? "Unpin tab" : "Pin tab")
-                                        : item.label;
-            float iy = my + 4.0f + headerH + itemH * static_cast<float>(k);
-            bool itemHovered = afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos,
-                RectangleType{mx + 4.0f, iy, menuW - 8.0f, itemH});
-            const bool destructive = item.action == 5;
-            const theme::Color base = destructive
-                                          ? hanabi::surface::destructive_surface()
-                                          : theme::panel_bg();
-            div(ctx, mk(uiRoot, 971 + k),
-                ComponentConfig{}
-                    .with_label(itemLabel)
-                    .with_size(ComponentSize{pixels(menuW - 8.0f), pixels(itemH)})
-                    .with_absolute_position()
-                    .with_translate(mx + 4.0f, iy)
-                    .with_custom_background(itemHovered
-                                                ? theme::hover_over(base)
-                                                : base)
-                    .with_custom_text_color(destructive ? theme::destructive()
-                                                        : theme::text_primary())
-                    .with_font_size(theme::type::ROW)
-                    .with_alignment(TextAlignment::Left)
-                    .with_padding(Padding{.left = pixels(10)})
-                    .with_corner_radius(hanabi::surface::kControlCorner)
-                    .with_render_layer(kMenuLayer + 1)
-                    .with_debug_name(item.debugName));
-            if (itemHovered && ctx.mouse.just_pressed) {
-                std::string keepId = tab.sessionId;
-                if (item.action == 0) {
-                    hanabi::clipboard::set_text(
-                        model::navi_url_for(app.webBaseUrl, keepId));
-                } else if (item.action == 7) {
-                    hanabi::clipboard::set_text(keepId);
-                } else if (item.action == 2) {
-                    // Open in split (I2): show this thread in the RIGHT pane
-                    // beside the active one. No-op if it's the active thread.
-                    app.requestSplitOpen = keepId;
-                    app.view = SmartView::Chat;
-                } else if (item.action == 4) {
-                    model::set_tab_pinned(tabEntity.get<Tab>(), !tab.pinned);
-                } else if (item.action == 3) {
-                    app.renameOpen = true;
-                    app.renameSessionId = keepId;
-                    const auto* sum = app.find_summary(keepId);
-                    app.renameDraft = sum != nullptr ? sum->title : tab.label;
-                    app.renameError.clear();
-                    app.renameSubmit = false;
-                } else if (item.action == 6) {
-                    if (!app.forkPending && app.requestForkSourceId.empty()) {
-                        app.requestForkSourceId = keepId;
-                        app.requestForkMessage.reset();
-                        app.requestForkTitle.clear();
-                        app.requestForkPane = app.focusedPane;
-                    }
-                } else if (item.action == 5) {
-                    model::close_all(strip, app);
-                } else {
-                    model::close_others(strip, app, keepId);
+        if (result.activated != hanabi::surface::kNoMenuRow) {
+            const int action = actions[result.activated];
+            std::string keepId = tab.sessionId;
+            if (action == 0) {
+                hanabi::clipboard::set_text(
+                    model::navi_url_for(app.webBaseUrl, keepId));
+            } else if (action == 7) {
+                hanabi::clipboard::set_text(keepId);
+            } else if (action == 2) {
+                // Open in split (I2): show this thread in the RIGHT pane
+                // beside the active one. No-op if it's the active thread.
+                app.requestSplitOpen = keepId;
+                app.view = SmartView::Chat;
+            } else if (action == 4) {
+                model::set_tab_pinned(tabEntity.get<Tab>(), !tab.pinned);
+            } else if (action == 3) {
+                app.renameOpen = true;
+                app.renameSessionId = keepId;
+                const auto* sum = app.find_summary(keepId);
+                app.renameDraft = sum != nullptr ? sum->title : tab.label;
+                app.renameError.clear();
+                app.renameSubmit = false;
+            } else if (action == 6) {
+                if (!app.forkPending && app.requestForkSourceId.empty()) {
+                    app.requestForkSourceId = keepId;
+                    app.requestForkMessage.reset();
+                    app.requestForkTitle.clear();
+                    app.requestForkPane = app.focusedPane;
                 }
-                clickedItem = true;
-                ctx.mouse.just_pressed = false;
+            } else if (action == 5) {
+                model::close_all(strip, app);
+            } else {
+                model::close_others(strip, app, keepId);
             }
+            clickedItem = true;
         }
 
-        // Dismiss: an item click, or any left-press outside the menu rect.
         const char* testOverlay = std::getenv("HANABI_TEST_OVERLAY");
         const bool forcedForCapture =
             testOverlay != nullptr && std::string_view(testOverlay) == "tab-menu";
-        bool pressedOutside =
-            !forcedForCapture && ctx.mouse.just_pressed &&
-            !afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos, RectangleType{mx, my, menuW, menuH});
-        if (clickedItem || pressedOutside) strip.close_menu();
+        if (clickedItem || result.cancelled ||
+            (result.dismissed && !forcedForCapture)) {
+            strip.close_menu();
+            app.menuCursor = {};
+        }
     }
 
     // Open `id` in a tab: focus if already open, else create a new tab.

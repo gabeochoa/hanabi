@@ -1,0 +1,19 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_NO_RENAME=1
+
+expect_text "needs a decision before it can go on"
+right_click 120 400
+wait_frames 8
+
+expect_text "Rename…"
+assert_ui row_menu_rename x=124 y=468 w=176 h=36
+assert_ui row_menu h=288
+
+click 212 486
+wait_frames 10
+expect_no_text "Rename session"
+expect_text "CONVERSATION"
+
+click 212 594
+wait_frames 10
+expect_no_text "CONVERSATION"

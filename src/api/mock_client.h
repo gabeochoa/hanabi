@@ -307,7 +307,9 @@ class MockClient : public Client {
         return Result<CreateOutcome>::success(std::move(outcome));
     }
 
-    bool supports_fork() const override { return true; }
+    bool supports_fork() const override {
+        return std::getenv("HANABI_MOCK_NO_FORK") == nullptr;
+    }
 
     Result<std::string> fork_session(const std::string& session_id) override {
         auto source = get_session(session_id);
@@ -716,7 +718,9 @@ class MockClient : public Client {
         return result;
     }
 
-    bool supports_rename() const override { return true; }
+    bool supports_rename() const override {
+        return std::getenv("HANABI_MOCK_NO_RENAME") == nullptr;
+    }
 
     // Rename offline, echo-shaped: the reply carries the title the "server"
     // settled on (trimmed), so the caller applies the echo rather than its own

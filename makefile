@@ -529,6 +529,39 @@ $(TEST_DIR)/test_theme_contrast: tests/unit/test_theme_contrast.cpp src/ui/theme
 	@echo "Compiling test_theme_contrast..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_theme_contrast.cpp -o $@
 
+$(TEST_DIR)/test_a11y_bridge: tests/unit/test_a11y_bridge.mm src/a11y_bridge.mm src/a11y_bridge.h src/shortcuts.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_a11y_bridge..."
+	$(CXX) -ObjC++ -Wno-deprecated-declarations $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_a11y_bridge.mm \
+		src/a11y_bridge.mm -framework AppKit -o $@
+
+$(TEST_DIR)/test_anchored_surface: tests/unit/test_anchored_surface.cpp src/ui/anchored_surface.h src/ui/secondary_surface_geometry.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_anchored_surface..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_anchored_surface.cpp -o $@
+
+$(TEST_DIR)/test_slash_row: tests/unit/test_slash_row.cpp src/ui/slash_row.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_slash_row..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_slash_row.cpp -o $@
+
+$(TEST_DIR)/test_menu_keys: tests/unit/test_menu_keys.cpp src/ui/menu_keys.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_menu_keys..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_menu_keys.cpp -o $@
+
+$(TEST_DIR)/test_activation: tests/unit/test_activation.cpp src/ui/activation.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_activation..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_activation.cpp -o $@
+
+$(TEST_DIR)/test_tooltip: tests/unit/test_tooltip.cpp src/ui/tooltip.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_tooltip..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_tooltip.cpp -o $@
+
+$(TEST_DIR)/test_overlay_lifecycle: tests/unit/test_overlay_lifecycle.cpp src/ui/overlay_lifecycle.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_overlay_lifecycle..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_overlay_lifecycle.cpp -o $@
+
+$(TEST_DIR)/test_control_state: tests/unit/test_control_state.cpp src/ui/control_state.h src/ui/theme.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_control_state..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_control_state.cpp -o $@
+
 # The focus ring's colour. rendering.h derives the ring's two contrast edges
 # from the RING's luminance rather than the backdrop's, so which side of its
 # 0.5 threshold the ring lands on decides whether those edges are invisible or
@@ -714,7 +747,7 @@ $(TEST_DIR)/test_div_move: tests/unit/test_div_move.cpp src/ui/div.h $(TEST_HDRS
 	@echo "Compiling test_div_move..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_div_move.cpp -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_elicitation $(TEST_DIR)/test_ask_card $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_subagent_parent_index $(TEST_DIR)/test_sidebar_buckets $(TEST_DIR)/test_home_buckets $(TEST_DIR)/test_contains_lower $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_md_spans $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_frame_activity $(TEST_DIR)/test_latency $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_new_thread $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo $(TEST_DIR)/test_div_move $(TEST_DIR)/test_widget_key $(TEST_DIR)/test_settings_catalog $(TEST_DIR)/test_global_hotkeys
+UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_elicitation $(TEST_DIR)/test_ask_card $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_subagent_parent_index $(TEST_DIR)/test_sidebar_buckets $(TEST_DIR)/test_home_buckets $(TEST_DIR)/test_contains_lower $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_md_spans $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_frame_activity $(TEST_DIR)/test_latency $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_new_thread $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_a11y_bridge $(TEST_DIR)/test_anchored_surface $(TEST_DIR)/test_activation $(TEST_DIR)/test_menu_keys $(TEST_DIR)/test_slash_row $(TEST_DIR)/test_tooltip $(TEST_DIR)/test_overlay_lifecycle $(TEST_DIR)/test_control_state $(TEST_DIR)/test_find_memo $(TEST_DIR)/test_div_move $(TEST_DIR)/test_widget_key $(TEST_DIR)/test_settings_catalog $(TEST_DIR)/test_global_hotkeys
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
@@ -1003,7 +1036,7 @@ source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	if /usr/bin/python3 scripts/branding.py --config "$(BRANDING_CONFIG)" check \
 	    $(BRANDING_ARGS) --template "$(BRANDING_TEMPLATE)" --output-dir "$(BRANDING_DIR)" --root .; then :; else rc=1; fi; \
 	if /usr/bin/python3 tests/test_branding.py; then :; else rc=1; fi; \
-	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py scripts/check_gap_references.py scripts/check_div_routing.py scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/check_theme_config.py scripts/check_vocabulary.py scripts/check_settings_readers.py scripts/check_resize_deferral.py scripts/focus_edge_gate.py scripts/attachment_route_gate.py; do \
+	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py scripts/check_gap_references.py scripts/check_div_routing.py scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/check_theme_config.py scripts/check_vocabulary.py scripts/check_settings_readers.py scripts/check_resize_deferral.py scripts/check_frame_signal_merge.py scripts/focus_edge_gate.py scripts/attachment_route_gate.py; do \
 	    if /usr/bin/python3 $$chk; then :; else rc=1; fi; \
 	done; \
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \

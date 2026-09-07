@@ -1,0 +1,17 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_TEST_OVERLAY=tab-menu
+
+require_thread t2
+expect_text "TAB ACTIONS"
+
+assert_ui tab_menu w=184 h=324
+assert_ui tab_menu_eater w=1100 h=760
+assert_ui tab_menu_title h=28
+assert_ui tab_menu_rename w=176 h=36
+assert_ui tab_menu_fork w=176 h=36
+assert_ui tab_menu_pin w=176 h=36
+assert_ui tab_menu_copy w=176 h=36
+assert_ui tab_menu_copy_id w=176 h=36
+assert_ui tab_menu_split w=176 h=36
+assert_ui tab_menu_close_others w=176 h=36
+assert_ui tab_menu_close_all w=176 h=36

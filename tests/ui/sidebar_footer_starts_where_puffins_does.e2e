@@ -49,6 +49,6 @@ assert_ui sb_version x=5 y=922
 # three glyphs (x205..215, x230..238, x253..263). Puffin's checkout says
 # `FooterMetrics.buttonWidth = 20`; the frame it shot says 24. The PNG wins —
 # the checkout is v0.5.2 and the reference is v0.5.5.
-assert_ui sb_new x=199 w=22
-assert_ui sb_palette x=223 w=22
-assert_ui sb_settings_footer x=247 w=22
+assert_ui sb_new x=188 w=28
+assert_ui sb_palette x=216 w=28
+assert_ui sb_settings_footer x=244 w=28

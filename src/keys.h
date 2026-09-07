@@ -63,6 +63,8 @@ inline constexpr int kHome = ah::HOME;
 inline constexpr int kEnd = ah::END;
 inline constexpr int kUp = ah::UP;
 inline constexpr int kDown = ah::DOWN;
+inline constexpr int kLeft = ah::LEFT;
+inline constexpr int kRight = ah::RIGHT;
 
 // Text editing chords hanabi has to drive itself (text_edit_chords_system.h).
 inline constexpr int kBackspace = ah::BACKSPACE;

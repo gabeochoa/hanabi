@@ -1,0 +1,19 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_NO_RENAME=1 HANABI_MOCK_NO_FORK=1
+
+expect_text "needs a decision before it can go on"
+wait_frames 12
+right_click 120 410
+wait_frames 10
+expect_text "CONVERSATION"
+
+arrow down
+wait_frames 6
+arrow down
+wait_frames 6
+expect_text "Copy session link"
+
+key ENTER
+wait_frames 20
+expect_no_text "CONVERSATION"
+expect_clipboard "navi://session/t7"

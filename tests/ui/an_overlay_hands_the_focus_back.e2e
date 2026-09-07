@@ -1,0 +1,22 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+
+require_thread t2
+wait_frames 10
+
+click_ui composer_reply_input
+wait_frames 8
+type "hi"
+wait_frames 6
+expect_input_text composer_reply_input "hi"
+
+right_click 120 400
+wait_frames 8
+expect_text "CONVERSATION"
+
+key ESCAPE
+wait_frames 12
+expect_no_text "CONVERSATION"
+type "there"
+wait_frames 8
+expect_input_text composer_reply_input "hithere"

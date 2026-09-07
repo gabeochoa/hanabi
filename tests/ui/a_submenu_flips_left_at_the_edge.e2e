@@ -1,0 +1,27 @@
+# settings: {"window_width":520,"window_height":620,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_WIN_W=520 HANABI_WIN_H=620
+
+wait_frames 20
+
+right_click 200 310
+wait_frames 10
+expect_text "CONVERSATION"
+assert_ui row_menu x=200 y=310 w=184 h=288
+
+arrow down
+wait_frames 6
+arrow right
+wait_frames 10
+expect_text "Open in a tab"
+assert_ui row_menu_open_submenu x=20 y=342 w=184 h=80
+assert_ui row_menu_open_tab x=24 y=346 w=176 h=36
+
+key ESCAPE
+wait_frames 8
+expect_no_text "Open in a tab"
+expect_text "CONVERSATION"
+assert_ui row_menu x=200 y=310 w=184 h=288
+
+key ESCAPE
+wait_frames 8
+expect_no_text "CONVERSATION"

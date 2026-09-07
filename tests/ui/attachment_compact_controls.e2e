@@ -4,9 +4,9 @@
 # env: HANABI_WIN_W=340 HANABI_WIN_H=620 HANABI_ASK_DEMO=two HANABI_UPLOAD_DEMO=1 HANABI_PICK_FILE_TEST=tests/fixtures/attachments/sample.md
 
 require_thread t2
-assert_ui composer_upload_cancel x=238 w=20 h=20 hidden=false
-assert_ui composer_attach x=262 w=20 h=20 hidden=false
-assert_ui composer_send x=297 w=19 h=19 hidden=false
+assert_ui composer_upload_cancel w=28 h=28 hidden=false
+assert_ui composer_attach w=28 h=28 hidden=false
+assert_ui composer_send x=288 w=28 h=28 hidden=false
 click_ui composer_attach
 wait_frames 8
 expect_text "sample.md"

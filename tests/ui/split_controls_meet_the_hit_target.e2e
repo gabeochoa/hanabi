@@ -1,0 +1,8 @@
+# settings: {"window_width":760,"window_height":620,"open_tabs":["r8"],"active_tab":"r8","theme":"dark"}
+# env: HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=r8 HANABI_SPLIT=t2
+
+wait_frames 25
+
+expect_hit_targets
+assert_ui split_close w=28 h=28
+assert_ui minimap_marks w=28

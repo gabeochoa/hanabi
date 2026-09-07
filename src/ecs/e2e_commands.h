@@ -69,6 +69,8 @@
 #include "../util/clipboard.h"
 #include "../util/gfx_resize.h"
 #include "../util/latency.h"
+#include "../ui/control_state.h"
+#include "../a11y_bridge.h"
 #include "components.h"
 #include "pane_state.h"
 
@@ -706,6 +708,22 @@ inline bool latency_target_present(hanabi::latency::Outcome outcome,
     auto* ctx = afterhours::EntityHelper::get_singleton_cmp<
         afterhours::ui::UIContext<InputAction>>();
     if (ctx == nullptr) return false;
+    if (outcome == Outcome::PressHeld || outcome == Outcome::HoverHeld) {
+        afterhours::EntityID want = outcome == Outcome::PressHeld
+                                        ? ctx->active_id
+                                        : ctx->hot_id;
+        const bool pointerHeld =
+            outcome == Outcome::HoverHeld ||
+            (ctx->mouse.left_down && want != ctx->ROOT);
+        if (outcome == Outcome::PressHeld && !pointerHeld)
+            want = hanabi::control::keyboard_pressed_id();
+        if (want == ctx->ROOT || want == -1) return false;
+        auto opt = afterhours::ui::UICollectionHolder::getEntityForID(want);
+        if (!opt.valid()) return false;
+        const afterhours::Entity& held = opt.asE();
+        return held.has<afterhours::ui::UIComponentDebug>() &&
+               held.get<afterhours::ui::UIComponentDebug>().name() == target;
+    }
     for (const auto& handle :
          afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
         if (!handle) continue;
@@ -737,6 +755,8 @@ inline bool latency_input_command(std::string_view name) {
         "focus_ui",       "toggle_checkbox",
         "drag",           "drag_to",
         "mouse_down",     "mouse_up",
+        "mouse_move",     "hover_ui",
+        "mouse_down_ui",  "focus_ui",
         "select_all",     "action",
         "click_link",     "resize",
         "enter",          "tab",
@@ -836,7 +856,7 @@ struct HandleWatchInkCommand
         if (!cmd.has_args(3)) {
             cmd.fail(
                 "watch_ink requires <label> "
-                "<ui|ui_gone|text|text_gone|focus|blur> <target>");
+                "<ui|ui_gone|text|text_gone|focus|blur|press|hover> <target>");
             return;
         }
         const std::string label = cmd.arg(0);
@@ -863,6 +883,10 @@ struct HandleWatchInkCommand
             outcome = Outcome::FocusGained;
         else if (kind == "blur")
             outcome = Outcome::FocusLost;
+        else if (kind == "press")
+            outcome = Outcome::PressHeld;
+        else if (kind == "hover")
+            outcome = Outcome::HoverHeld;
         if (!outcome.has_value()) {
             cmd.fail(std::format("watch_ink: unknown outcome '{}'", kind));
             return;
@@ -928,6 +952,389 @@ struct HandleExpectLatencyCommand
     }
 };
 
+struct HandleHoverUICommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("hover_ui")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("hover_ui requires <name>");
+            return;
+        }
+        const std::string name = cmd.arg(0);
+        auto center =
+            afterhours::testing::ui_commands::find_component_center<InputAction>(
+                name);
+        if (!center.has_value()) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("hover_ui: no widget named '{}'", name));
+            return;
+        }
+        afterhours::testing::platform_input::set_mouse_position(center->x,
+                                                                center->y);
+        cmd.consume();
+    }
+};
+
+inline bool text_entry(const afterhours::Entity& e) {
+    return e.has<afterhours::text_input::HasTextInputState>() ||
+           e.has<afterhours::text_input::HasTextAreaState>();
+}
+
+inline bool text_entry_parent(const afterhours::ui::UIComponent& uic) {
+    auto opt = afterhours::ui::UICollectionHolder::getEntityForID(uic.parent);
+    return opt.valid() && text_entry(opt.asE());
+}
+
+inline std::vector<std::string> rejoin_quoted(
+    const std::vector<std::string>& raw) {
+    std::vector<std::string> out;
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+        std::string piece = raw[i];
+        const std::size_t quote = piece.find('"');
+        if (quote != std::string::npos &&
+            piece.find('"', quote + 1) == std::string::npos) {
+            while (++i < raw.size()) {
+                piece += " " + raw[i];
+                if (raw[i].find('"') != std::string::npos) break;
+            }
+        }
+        std::string cleaned;
+        for (char c : piece)
+            if (c != '"') cleaned += c;
+        out.push_back(cleaned);
+    }
+    return out;
+}
+
+struct HandleA11yPressCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("a11y_press")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("a11y_press requires <name>");
+            return;
+        }
+        const std::string name = rejoin_quoted(cmd.args)[0];
+        if (native_a11y_perform_press(name.c_str()) == 0) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format(
+                "a11y_press: '{}' refused the platform press action "
+                "({} elements published)",
+                name, native_a11y_published_count()));
+            return;
+        }
+        std::printf("[a11y] pressed %s through the platform action\n",
+                    name.c_str());
+        cmd.consume();
+    }
+};
+
+struct HandleExpectA11yPressRefusedCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_a11y_press_refused")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_a11y_press_refused requires <name>");
+            return;
+        }
+        const std::string name = rejoin_quoted(cmd.args)[0];
+        char spoken[512] = {};
+        native_a11y_describe(name.c_str(), spoken, sizeof(spoken));
+        if (spoken[0] == '\0') {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format(
+                "expect_a11y_press_refused: '{}' is not published", name));
+            return;
+        }
+        if (native_a11y_perform_press(name.c_str()) != 0) {
+            cmd.fail(std::format(
+                "expect_a11y_press_refused: '{}' ACCEPTED the platform press "
+                "action; a disabled control must advertise none",
+                name));
+            return;
+        }
+        std::printf("[a11y] %s refused the platform press\n", name.c_str());
+        cmd.consume();
+    }
+};
+
+struct HandleExpectA11yCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_a11y")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_a11y requires <name> <prop>=<value> [...]");
+            return;
+        }
+        std::vector<std::string> args = rejoin_quoted(cmd.args);
+        const std::string name = args[0];
+        char spoken[512] = {};
+        native_a11y_describe(name.c_str(), spoken, sizeof(spoken));
+        if (spoken[0] == '\0') {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format(
+                "expect_a11y: '{}' is not published to the platform "
+                "accessibility tree ({} elements are)",
+                name, native_a11y_published_count()));
+            return;
+        }
+        for (std::size_t i = 1; i < args.size(); ++i) {
+            const std::string& arg = args[i];
+            const auto eq = arg.find('=');
+            if (eq == std::string::npos) {
+                cmd.fail(std::format("expect_a11y: '{}' is not prop=value",
+                                     arg));
+                return;
+            }
+            const std::string prop = arg.substr(0, eq);
+            const std::string want = arg.substr(eq + 1);
+            char got[512] = {};
+            if (prop == "role") {
+                native_a11y_role_of(name.c_str(), got, sizeof(got));
+            } else if (prop == "parent") {
+                native_a11y_parent_of(name.c_str(), got, sizeof(got));
+            } else if (prop == "children") {
+                std::snprintf(got, sizeof(got), "%zu",
+                              native_a11y_child_count(name.c_str()));
+            } else if (prop == "says") {
+                std::snprintf(got, sizeof(got), "%s", spoken);
+            } else {
+                cmd.fail(std::format("expect_a11y: unknown property '{}'",
+                                     prop));
+                return;
+            }
+            if (want != got) {
+                cmd.fail(std::format(
+                    "expect_a11y '{}': {}='{}' but the platform says '{}'",
+                    name, prop, want, got));
+                return;
+            }
+        }
+        std::printf("[a11y] %s: %s\n", name.c_str(), spoken);
+        cmd.consume();
+    }
+};
+
+struct HandleExpectChildrenInsideCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_children_inside")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_children_inside requires <name>");
+            return;
+        }
+        const std::string name = cmd.arg(0);
+
+        const afterhours::ui::UIComponent* root = nullptr;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!e || !e->has<afterhours::ui::UIComponentDebug>()) continue;
+            if (e->get<afterhours::ui::UIComponentDebug>().name() != name)
+                continue;
+            if (!e->has<afterhours::ui::UIComponent>()) continue;
+            const auto& uic = e->get<afterhours::ui::UIComponent>();
+            if (!uic.was_rendered_to_screen) continue;
+            root = &uic;
+            break;
+        }
+        if (root == nullptr) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format(
+                "expect_children_inside: no rendered widget named '{}'", name));
+            return;
+        }
+
+        const auto box = root->rect();
+        std::vector<std::string> escaped;
+        int checked = 0;
+        walk(*root, box, escaped, checked);
+        if (checked == 0) {
+            cmd.fail(std::format(
+                "expect_children_inside: '{}' has no rendered children", name));
+            return;
+        }
+        if (!escaped.empty()) {
+            std::string joined;
+            for (const std::string& one : escaped) {
+                if (!joined.empty()) joined += ", ";
+                joined += one;
+            }
+            cmd.fail(std::format(
+                "expect_children_inside: {} of {} descendants of '{}' paint "
+                "outside it: {}",
+                escaped.size(), checked, name, joined));
+            return;
+        }
+        std::printf("[children-inside] %d descendants of %s all within\n",
+                    checked, name.c_str());
+        cmd.consume();
+    }
+
+   private:
+    static void walk(const afterhours::ui::UIComponent& parent,
+                     const RectangleType& box,
+                     std::vector<std::string>& escaped, int& checked) {
+        for (afterhours::EntityID childId : parent.children) {
+            auto opt = afterhours::ui::UICollectionHolder::getEntityForID(childId);
+            if (!opt.valid()) continue;
+            const auto& child = opt.asE();
+            if (!child.has<afterhours::ui::UIComponent>()) continue;
+            const auto& uic = child.get<afterhours::ui::UIComponent>();
+            if (!uic.was_rendered_to_screen || uic.should_hide) continue;
+            const auto r = uic.rect();
+            if (r.width > 0.0f && r.height > 0.0f) {
+                ++checked;
+                const bool inside = r.x >= box.x - 0.5f && r.y >= box.y - 0.5f &&
+                                    r.x + r.width <= box.x + box.width + 0.5f &&
+                                    r.y + r.height <= box.y + box.height + 0.5f;
+                if (!inside) {
+                    const std::string cname =
+                        child.has<afterhours::ui::UIComponentDebug>()
+                            ? child.get<afterhours::ui::UIComponentDebug>().name()
+                            : std::string("<unnamed>");
+                    escaped.push_back(std::format("{} [{},{} {}x{}]", cname,
+                                                  r.x, r.y, r.width, r.height));
+                }
+            }
+            walk(uic, box, escaped, checked);
+        }
+    }
+};
+
+struct HandleMouseDownUICommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("mouse_down_ui")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("mouse_down_ui requires <name>");
+            return;
+        }
+        const std::string name = cmd.arg(0);
+        auto center =
+            afterhours::testing::ui_commands::find_component_center<InputAction>(
+                name);
+        if (!center.has_value()) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("mouse_down_ui: no widget named '{}'", name));
+            return;
+        }
+        afterhours::testing::platform_input::set_mouse_position(center->x,
+                                                                center->y);
+        auto& m = afterhours::testing::input_injector::detail::mouse;
+        m.left_down = true;
+        m.just_pressed = true;
+        m.press_frames = 0;
+        m.auto_release = false;
+        m.active = true;
+        cmd.consume();
+    }
+};
+
+struct HandleExpectHitTargetsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_hit_targets")) return;
+        std::vector<std::string> allowed;
+        bool requireText = false;
+        for (const auto& a : cmd.args) {
+            if (a == "with_text") {
+                requireText = true;
+                continue;
+            }
+            allowed.push_back(a);
+        }
+
+        std::vector<std::string> undersized;
+        int checked = 0;
+        int textSurfaces = 0;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!e) continue;
+            if (!e->has<afterhours::ui::HasClickListener>()) continue;
+            if (!e->has<afterhours::ui::UIComponent>()) continue;
+            const auto& uic = e->get<afterhours::ui::UIComponent>();
+            if (!uic.was_rendered_to_screen) continue;
+            const auto r = uic.rect();
+            if (r.width <= 0.0f || r.height <= 0.0f) continue;
+            if (hanabi::control::is_text_surface(*e) ||
+                text_entry(*e) || text_entry_parent(uic)) {
+                ++textSurfaces;
+                continue;
+            }
+            const std::string name =
+                e->has<afterhours::ui::UIComponentDebug>()
+                    ? e->get<afterhours::ui::UIComponentDebug>().name()
+                    : std::string("<unnamed>");
+            if (std::find(allowed.begin(), allowed.end(), name) !=
+                allowed.end())
+                continue;
+            ++checked;
+            if (hanabi::control::meets_hit_target(r.width, r.height)) continue;
+            undersized.push_back(std::format("{} {}x{}", name, r.width,
+                                             r.height));
+        }
+        if (checked == 0) {
+            cmd.fail("expect_hit_targets found no clickable widget to measure");
+            return;
+        }
+        if (requireText && textSurfaces == 0) {
+            cmd.fail(
+                "expect_hit_targets with_text classified no text surface; the "
+                "split between controls and selectable text is not live");
+            return;
+        }
+        if (!undersized.empty()) {
+            std::string joined;
+            for (const auto& u : undersized) {
+                if (!joined.empty()) joined += ", ";
+                joined += u;
+            }
+            cmd.fail(std::format(
+                "expect_hit_targets: {} of {} clickable widgets are under {}pt: {}",
+                undersized.size(), checked, hanabi::control::kMinHitTarget,
+                joined));
+            return;
+        }
+        std::printf(
+            "[hit-targets] %d controls all >= %.0fpt, %d text surfaces "
+            "classified out\n",
+            checked, hanabi::control::kMinHitTarget, textSurfaces);
+        cmd.consume();
+    }
+};
+
 // Registered BEFORE afterhours' builtins, so the resize handler above sees
 // `resize` first. Everything else hanabi owns goes in the function below.
 inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
@@ -957,6 +1364,15 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleKickoffThenFocusCommand>());
     sm.register_update_system(std::make_unique<HandleExpectBackendMessageCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUploadCancelledCommand>());
+    sm.register_update_system(std::make_unique<HandleHoverUICommand>());
+    sm.register_update_system(std::make_unique<HandleMouseDownUICommand>());
+    sm.register_update_system(
+        std::make_unique<HandleExpectChildrenInsideCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectA11yCommand>());
+    sm.register_update_system(std::make_unique<HandleA11yPressCommand>());
+    sm.register_update_system(
+        std::make_unique<HandleExpectA11yPressRefusedCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectHitTargetsCommand>());
 }
 
 }  // namespace hanabi::e2e

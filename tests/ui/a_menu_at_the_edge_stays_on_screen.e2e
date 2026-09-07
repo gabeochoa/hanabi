@@ -1,0 +1,25 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "needs a decision before it can go on"
+
+right_click 120 700
+wait_frames 8
+expect_text "CONVERSATION"
+assert_ui row_menu x=120 y=468 w=184 h=288
+assert_ui row_menu_mute y=716 h=36
+key ESCAPE
+wait_frames 6
+
+right_click 260 400
+wait_frames 8
+expect_text "CONVERSATION"
+assert_ui row_menu x=260 y=400 w=184 h=288
+mouse_move 352 450
+wait_frames 8
+assert_ui row_menu_open_submenu x=440 y=432 w=184 h=80
+key ESCAPE
+wait_frames 6
+
+right_click 120 40
+wait_frames 8
+expect_no_text "CONVERSATION"

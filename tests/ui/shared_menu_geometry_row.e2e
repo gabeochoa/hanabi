@@ -1,0 +1,27 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "needs a decision before it can go on"
+right_click 120 400
+wait_frames 8
+
+expect_text "CONVERSATION"
+assert_ui row_menu x=120 y=400 w=184 h=288
+assert_ui row_menu_eater w=1100 h=760
+assert_ui row_menu_title h=28
+assert_ui row_menu_open x=124 y=432 w=176 h=36
+assert_ui row_menu_rename y=468 w=176 h=36
+assert_ui row_menu_fork y=504 w=176 h=36
+assert_ui row_menu_copy_link y=540 w=176 h=36
+assert_ui row_menu_copy_id y=576 w=176 h=36
+assert_ui row_menu_archive y=612 w=176 h=36
+assert_ui row_menu_mute y=648 w=176 h=36
+
+mouse_move 212 450
+wait_frames 8
+assert_ui row_menu_open_submenu x=300 y=432 w=184 h=80
+assert_ui row_menu_open_tab x=304 y=436 w=176 h=36
+assert_ui row_menu_open_split x=304 y=472 w=176 h=36
+
+key ESCAPE
+wait_frames 6
+expect_no_text "CONVERSATION"

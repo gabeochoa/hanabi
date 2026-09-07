@@ -17,18 +17,18 @@ wait_frames 16
 # honest discriminator here.
 #
 # ABOVE the threshold: the labelled 52x18 pill in the right meta cluster.
-assert_ui composer_attach w=52 h=18
+assert_ui composer_attach w=52 h=28
 
 # BELOW it: a 20x20 + inside the input, and the tool-fold pill is gone.
 resize 520 620
 wait_frames 24
-assert_ui composer_attach w=20 h=20
+assert_ui composer_attach w=28 h=28
 expect_no_text "Tools: Folded"
 
 # And back up again. A threshold that only ever falls is half a rule.
 resize 900 620
 wait_frames 24
-assert_ui composer_attach w=52 h=18
+assert_ui composer_attach w=52 h=28
 
 # THE OUTBOX SAYS SO. The first send of the process is refused and the prompt
 # is held; the composer now has a slot for saying that rather than retrying in

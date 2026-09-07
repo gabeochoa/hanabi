@@ -7,9 +7,11 @@
 #include <string_view>
 
 #include "../keys.h"
+#include "../ui/control_state.h"
 #include "../menubar.h"
 #include "../settings.h"
 #include "../ui/icons.h"
+#include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
 #include "ui_imports.h"
 
@@ -84,11 +86,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::surface::scrim(hanabi::viewport::width(),
                                    hanabi::viewport::height(), 10)
                 .with_debug_name("shortcuts_backdrop"));
-        if (backdrop &&
-            !afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos,
-                RectangleType{panelRect.x, panelRect.y, panelRect.width,
-                              panelRect.height})) {
+        if (hanabi::overlay::dismisses(static_cast<bool>(backdrop),
+                                       ctx.mouse.pos.x, ctx.mouse.pos.y,
+                                       panelRect)) {
             close(*app);
             return;
         }
@@ -205,7 +205,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                             ComponentConfig{}
                                 .with_size(ComponentSize{
                                     pixels(contentW),
-                                    pixels(hanabi::surface::kTitleH)})
+                                    pixels(std::max(
+                                        hanabi::surface::kTitleH,
+                                        hanabi::control::kMinHitTarget))})
                                 .with_flex_direction(FlexDirection::Row)
                                 .with_flex_wrap(FlexWrap::NoWrap)
                                 .with_align_items(AlignItems::Center)
@@ -239,7 +241,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
             ctx, mk(titleRow.ent(), 3),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(26), pixels(26)})
+                .with_size(ComponentSize{
+                    pixels(hanabi::control::kMinHitTarget),
+                    pixels(hanabi::control::kMinHitTarget)})
                 .with_margin(Margin{.left = pixels(8)})
                 .with_custom_background(theme::panel_bg())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
@@ -321,7 +325,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
             ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(label)
-                .with_size(ComponentSize{pixels(kKeyColW), pixels(26)})
+                .with_size(ComponentSize{
+                    pixels(kKeyColW),
+                    pixels(hanabi::control::kMinHitTarget)})
                 .with_custom_background(active ? theme::selected_bg()
                                                : theme::panel_bg_2())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))

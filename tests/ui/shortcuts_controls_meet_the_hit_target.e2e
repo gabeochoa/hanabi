@@ -1,0 +1,8 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_TEST_OVERLAY=shortcuts
+
+require_thread t2
+wait_frames 20
+
+expect_hit_targets
+assert_ui shortcuts_close w=28 h=28

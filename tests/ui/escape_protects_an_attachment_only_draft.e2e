@@ -83,9 +83,9 @@ expect_input_text composer_reply_input ""
 # All three files are still staged, IN THE ORDER THEY WERE STAGED. The chips
 # lay out left to right, so each name's own x pins its position: a reordered
 # or dropped file moves the others and every one of these fails.
-assert_ui_text "sample.pdf" x=350 y=639
-assert_ui_text "sample.md" x=598 y=639
-assert_ui_text "sample.png" x=846 y=639
+assert_ui_text "sample.pdf" x=350 y=644
+assert_ui_text "sample.md" x=598 y=644
+assert_ui_text "sample.png" x=846 y=644
 assert_ui attach_chip_0 x=318 hidden=false
 assert_ui attach_chip_1 x=566 hidden=false
 assert_ui attach_chip_2 x=814 hidden=false

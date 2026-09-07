@@ -1,0 +1,11 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_TEST_TIP=composer_attach HANABI_TIP_FIXED_CLOCK=1
+
+require_thread t2
+wait_frames 12
+
+hover_ui composer_attach
+wait_frames 45
+
+expect_text "Attach a file"
+expect_a11y "Attach a file" role=AXStaticText says="Attach a file, tooltip"

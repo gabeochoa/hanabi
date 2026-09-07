@@ -20,7 +20,7 @@ assert_ui transcript_bottom_pad y=646
 key HOME
 wait_frames 10
 expect_text "Follow-up question #0:"
-assert_ui transcript_bottom_pad y=12611
+assert_ui transcript_bottom_pad y=12615
 
 key END
 wait_frames 10

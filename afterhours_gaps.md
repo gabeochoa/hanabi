@@ -3290,7 +3290,7 @@ assertable. Change a title's length and a passing test quietly starts measuring
 a card.
 
 
-**Hanabi reference.** `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text takes whichever entity the query reaches first`) — the current sidebar-order test is written around the duplicate-label ambiguity and documents why only initial-viewport rows are safe. Tests: `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text "SKU backfill — my name for it" y=306`) — the workaround pins row order by positional text assertions on rows whose sidebar entities win over main-pane cards.
+**Hanabi reference.** `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text takes whichever entity the query reaches first`) — the current sidebar-order test is written around the duplicate-label ambiguity and documents why only initial-viewport rows are safe. Tests: `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text "SKU backfill — my name for it" y=316`) — the workaround pins row order by positional text assertions on rows whose sidebar entities win over main-pane cards.
 
 
 **Minimal upstream fix.** A scope argument on both commands —

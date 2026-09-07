@@ -66,6 +66,7 @@
 #include "../ui/minimap_marks.h"
 #include "../util/scroll_prefs.h"
 #include "../ui/accessibility.h"
+#include "../ui/control_state.h"
 #include "../ui/edged_field.h"
 #include "keyboard_focus.h"
 
@@ -360,7 +361,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_header"));
         auto titleRow = div(ctx, mk(header.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kTitleH)})
+                .with_size(ComponentSize{
+                    percent(1.0f),
+                    pixels(std::max(kTitleH,
+                                    hanabi::control::kMinHitTarget))})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -382,7 +386,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto closeBtn = button(ctx, mk(titleRow.ent(), 2),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(26), pixels(26)})
+                .with_size(ComponentSize{
+                    pixels(hanabi::control::kMinHitTarget),
+                    pixels(hanabi::control::kMinHitTarget)})
                 .with_margin(Margin{.left = pixels(8)})
                 .with_custom_background(theme::panel_bg())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
@@ -569,7 +575,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        const bool enter = hanabi::keys::pressed(hanabi::keys::kEnter);
+        const bool enter = app.activate == ActivateIntent::Settings;
         const bool space = f.zone != cat::Zone::Search &&
                            hanabi::keys::pressed(hanabi::keys::kSpace);
         if (!enter && !space) return;
@@ -2691,7 +2697,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto readout = div(ctx, mk(parent, 153),
             ComponentConfig{}
                 .with_label(answer)
-                .with_size(ComponentSize{pixels(content_w()), pixels(20)})
+                .with_size(ComponentSize{
+                    pixels(content_w()),
+                    pixels(hanabi::control::kMinHitTarget)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
@@ -2995,7 +3003,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto readout = div(ctx, mk(parent, 171),
             ComponentConfig{}
                 .with_label(line)
-                .with_size(ComponentSize{pixels(content_w()), pixels(20)})
+                .with_size(ComponentSize{
+                    pixels(content_w()),
+                    pixels(hanabi::control::kMinHitTarget)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)

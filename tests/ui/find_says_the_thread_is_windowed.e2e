@@ -1,0 +1,7 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig HANABI_FIND_DEMO=the HANABI_NO_OLDER_PREFETCH=1
+
+require_thread rbig
+wait_frames 25
+
+expect_text "Older messages not loaded"

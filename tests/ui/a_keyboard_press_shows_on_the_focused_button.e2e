@@ -1,0 +1,13 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+
+require_thread t2
+wait_frames 12
+
+focus_ui sb_new
+wait_frames 8
+watch_ink press_keyboard press sb_new
+key ENTER
+wait_frames 12
+expect_latency press_keyboard 8
+wait_frames 12

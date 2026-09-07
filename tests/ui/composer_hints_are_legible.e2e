@@ -23,8 +23,8 @@
 
 require_thread t2
 
-assert_ui composer_send w=19
-assert_ui composer_send h=19
+assert_ui composer_send w=28
+assert_ui composer_send h=28
 assert_ui composer_send hidden=false
 
 # Focus the composer BY NAME. This was `click 646 674` — a literal point four
@@ -42,4 +42,4 @@ expect_text "Enter to send"
 
 # Still a circle once there is something to send: the enabled state changes the
 # fill, not the shape.
-assert_ui composer_send w=19
+assert_ui composer_send w=28

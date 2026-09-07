@@ -1,0 +1,23 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_TIP_FIXED_CLOCK=1
+
+require_thread t2
+wait_frames 12
+
+hover_ui composer_attach
+wait_frames 20
+expect_no_text "Attach a file"
+
+wait_frames 25
+expect_text "Attach a file"
+assert_ui tooltip h=24
+assert_ui_text "Attach a file" h=24
+
+key ESCAPE
+wait_frames 10
+expect_no_text "Attach a file"
+
+hover_ui composer_send
+wait_frames 50
+expect_text "Send this message"
+expect_no_text "Attach a file"

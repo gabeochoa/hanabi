@@ -36,7 +36,7 @@ assert_ui composer_divider w=820
 
 # The content: inset inside that rule, on Puffin's 768 + 12.
 assert_ui composer_input_wrap x=318
-assert_ui composer_input_wrap w=716
+assert_ui composer_input_wrap w=707
 
 # 46, not 45: a 1px border draws ON the box edge, so 46 paints the 47 rows the
 # reference's box paints (y=884 through y=930).

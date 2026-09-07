@@ -28,6 +28,13 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* app = find_singleton<AppComponent>();
         if (!app) return;
+        if (app->requestAuthCancel) {
+            app->requestAuthCancel = false;
+            app->showAuth = false;
+            app->authFlow.reset();
+            app->requestListRefresh = true;
+            return;
+        }
         if (!app->showAuth) return;
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
@@ -107,6 +114,13 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("auth_subtitle"));
     }
 
+    void render_requesting(UIContext<InputAction>& ctx, Entity& parent) {
+        label_row(ctx, parent, 2, "Requesting a code\xe2\x80\xa6",
+                  theme::text_primary(), FontSize::Large, 40);
+        label_row(ctx, parent, 3, "Contacting the sign-in server\xe2\x80\xa6",
+                  theme::text_secondary(), FontSize::Medium, 24);
+    }
+
     void render_body(UIContext<InputAction>& ctx, Entity& parent,
                      AppComponent& app) {
         // Launch-perf: while the deferred begin() runs on a worker thread the
@@ -115,10 +129,7 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
         // resolves LoaderSystem clears authBeginPending and the normal
         // state-driven body below renders the real code/URL.
         if (app.authBeginPending) {
-            label_row(ctx, parent, 2, "Requesting a code\xe2\x80\xa6",
-                      theme::text_primary(), FontSize::Large, 40);
-            label_row(ctx, parent, 3, "Contacting the sign-in server\xe2\x80\xa6",
-                      theme::text_secondary(), FontSize::Medium, 24);
+            render_requesting(ctx, parent);
             return;
         }
         State st = flow_state(app);
@@ -152,6 +163,11 @@ struct AuthSystem : afterhours::System<UIContext<InputAction>> {
             label_row(ctx, parent, 3,
                       "Restart hanabi to request a fresh code.",
                       theme::text_secondary(), FontSize::Small, 24);
+            return;
+        }
+
+        if (st == State::RequestingCode) {
+            render_requesting(ctx, parent);
             return;
         }
 

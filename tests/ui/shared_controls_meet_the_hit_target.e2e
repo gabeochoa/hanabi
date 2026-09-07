@@ -1,0 +1,55 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+
+require_thread t2
+wait_frames 12
+
+expect_hit_targets with_text
+
+right_click 120 410
+wait_frames 8
+expect_text "CONVERSATION"
+expect_hit_targets
+
+arrow down
+wait_frames 6
+arrow right
+wait_frames 8
+expect_text "Open in a tab"
+expect_hit_targets
+
+key ESCAPE
+wait_frames 6
+key ESCAPE
+wait_frames 8
+
+click_ui composer_model
+wait_frames 10
+expect_hit_targets
+key ESCAPE
+wait_frames 6
+
+click_ui composer_effort
+wait_frames 10
+expect_hit_targets
+key ESCAPE
+wait_frames 6
+
+click_ui composer_fold
+wait_frames 10
+expect_hit_targets
+key ESCAPE
+wait_frames 6
+
+click_ui sb_settings_footer
+wait_frames 20
+expect_text "Settings"
+expect_hit_targets
+key ESCAPE
+wait_frames 12
+
+click_ui sb_palette
+wait_frames 12
+expect_hit_targets
+key ESCAPE
+wait_frames 8

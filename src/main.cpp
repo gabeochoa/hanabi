@@ -67,6 +67,11 @@
 #include "ecs/arrow_system.h"
 #include "ecs/attachment_intake_system.h"
 #include "ecs/escape_system.h"
+#include "ecs/activate_system.h"
+#include "ecs/pointer_state_system.h"
+#include "ecs/scrollbar_occlusion_system.h"
+#include "ecs/publish_accessibility_system.h"
+#include "ecs/tooltip_system.h"
 #include "ecs/focus_visible_system.h"
 #include "ecs/text_edit_chords_system.h"
 #include "ecs/rename_modal_system.h"
@@ -245,6 +250,15 @@ static void setup_app_state() {
             app.authFlow->set_demo_failed("The approval server rejected this request.");
         else if (demo == "expired")
             app.authFlow->set_demo_expired();
+        else if (demo == "requesting")
+            app.authFlow->set_demo_requesting();
+        else if (demo == "begin-pending") {
+            app.authFlow->set_demo_awaiting(
+                "FLOWREAD", "https://example.invalid/flow-was-read");
+            app.authBeginPending = true;
+        }
+        else if (demo == "success")
+            app.authFlow->set_demo_success();
         else
             app.authFlow->set_demo_awaiting(
                 "ZKRFZQ", "https://example.invalid/cli/auth?code=ZKRFZQ");
@@ -394,10 +408,13 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::commands::System>());
 
     // Resolve Esc before anything reads it, so one keystroke means one thing.
+    sm.register_update_system(
+        std::make_unique<ecs::ScrollbarOcclusionResetSystem>());
     sm.register_update_system(std::make_unique<ecs::EscapeSystem>());
     // Same for Up/Down, which the composer, the transcript and the lists all
     // want.
     sm.register_update_system(std::make_unique<ecs::ArrowSystem>());
+    sm.register_update_system(std::make_unique<ecs::ActivateSystem>());
     // And for the focus ring: decided once, ahead of every widget, so nothing
     // renders a ring the keyboard has not earned (ui/focus_visible.h).
     sm.register_update_system(std::make_unique<ecs::FocusVisibleSystem>());
@@ -424,9 +441,17 @@ static void build_systems(afterhours::SystemManager& sm) {
     // unless AppComponent::showAuth is true, so it costs nothing when auth is
     // not configured.
     sm.register_update_system(std::make_unique<ecs::AuthSystem>());
+    sm.register_update_system(std::make_unique<ecs::TooltipSystem>());
 
     // Post-layout (autolayout, interactions).
     ui_imm::registerUIPostLayoutSystems(sm);
+    sm.register_update_system(std::make_unique<ecs::PointerStateSystem>());
+    sm.register_update_system(
+        std::make_unique<ecs::ScrollbarOcclusionSystem>());
+    sm.register_update_system(
+        std::make_unique<ecs::PublishAccessibilitySystem>());
+    sm.register_update_system(
+        std::make_unique<ecs::AccessibilityActionSystem>());
 
     // Render systems.
     sm.register_render_system(std::make_unique<MainRenderSystem>());
@@ -705,23 +730,7 @@ static void app_frame() {
                         .gen();
     if (!appQuery.empty()) {
         auto& app = appQuery[0].get().get<ecs::AppComponent>();
-        hanabi::FrameSignals appSignals = hanabi::collect_app_frame_signals(app);
-        frameSignals.pointer_input = frameSignals.pointer_input ||
-                                     appSignals.pointer_input;
-        frameSignals.key_input = frameSignals.key_input || appSignals.key_input;
-        frameSignals.native_notification = frameSignals.native_notification ||
-                                           appSignals.native_notification;
-        frameSignals.async_ready = appSignals.async_ready;
-        frameSignals.state_request = appSignals.state_request;
-        frameSignals.split_change = appSignals.split_change;
-        frameSignals.animation = appSignals.animation;
-        frameSignals.streaming = appSignals.streaming;
-        frameSignals.thinking = appSignals.thinking;
-        frameSignals.scrolling = appSignals.scrolling;
-        frameSignals.dragging = appSignals.dragging;
-        frameSignals.caret = appSignals.caret;
-        frameSignals.timer = appSignals.timer;
-        frameSignals.pending_future = appSignals.pending_future;
+        frameSignals.merge_from(hanabi::collect_app_frame_signals(app));
         static long long lastEventMs = 0;
         const long long eventMs = app.lastEventMs.load();
         frameSignals.sse_event = eventMs != 0 && eventMs != lastEventMs;
@@ -880,14 +889,6 @@ static void app_frame() {
                     app.showAuth = false;
                     app.requestListRefresh = true;
                 }
-            }
-            if (app.requestAuthCancel) {
-                // "Use offline (mock)": dismiss the overlay, keep the current
-                // (mock) client, and load its sample data.
-                app.requestAuthCancel = false;
-                app.showAuth = false;
-                app.authFlow.reset();
-                app.requestListRefresh = true;
             }
 
             int blocked = 0;

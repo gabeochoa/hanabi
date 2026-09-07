@@ -100,6 +100,8 @@ class DeviceCodeFlow {
         state_ = State::Failed;
     }
     void set_demo_expired() { state_ = State::Expired; }
+    void set_demo_requesting() { state_ = State::RequestingCode; }
+    void set_demo_success() { state_ = State::Success; }
 
     // Generate a RFC-4122 version-4 UUID string (std::random_device based, no
     // external dependency). Exposed for the real-run proof/logging in main.cpp.

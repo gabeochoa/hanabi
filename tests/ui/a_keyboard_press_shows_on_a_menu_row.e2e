@@ -1,0 +1,15 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "needs a decision before it can go on"
+wait_frames 12
+right_click 120 410
+wait_frames 10
+expect_text "CONVERSATION"
+
+arrow down
+wait_frames 6
+watch_ink press_menu_keyboard press row_menu_open
+key ENTER
+wait_frames 12
+expect_latency press_menu_keyboard 8
+expect_text "Open in a tab"

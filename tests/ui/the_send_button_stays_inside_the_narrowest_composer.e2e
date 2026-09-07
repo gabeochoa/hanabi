@@ -5,9 +5,14 @@
 # 120, and the button's right two columns went off the canvas entirely --
 # visible in shipped baseline 66, whose rounded fill runs to the final column.
 #
+# The button is now the shared 28pt hit target rather than 19pt, so its left
+# edge moved; what this test exists for is the RIGHT edge, which must still
+# land inside the 340px canvas with the row's own gutter to spare.
+#
 # settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_WIN_W=340 HANABI_WIN_H=620
 
 require_thread t2
-assert_ui composer_send x=297
-assert_ui composer_send w=19
+assert_ui composer_send x=288
+assert_ui composer_send w=28
+assert_ui composer_send h=28

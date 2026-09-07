@@ -75,9 +75,13 @@ static void test_every_outcome_uses_its_direction() {
     using latency::InkDirection;
     using latency::Outcome;
     const std::array gained = {Outcome::UiAppears, Outcome::TextAppears,
-                               Outcome::FocusGained};
+                               Outcome::FocusGained, Outcome::PressHeld,
+                               Outcome::HoverHeld};
     const std::array lost = {Outcome::UiDisappears, Outcome::TextDisappears,
                              Outcome::FocusLost};
+    static_assert(gained.size() + lost.size() ==
+                      static_cast<std::size_t>(Outcome::HoverHeld) + 1,
+                  "every Outcome must be in exactly one direction array");
     const latency::Difference values{200, 71, 83};
 
     for (const Outcome outcome : gained) {
@@ -98,7 +102,11 @@ static void test_wrong_direction_never_settles_any_outcome() {
     const std::array outcomes = {
         Outcome::UiAppears,      Outcome::UiDisappears, Outcome::TextAppears,
         Outcome::TextDisappears, Outcome::FocusGained,  Outcome::FocusLost,
+        Outcome::PressHeld,      Outcome::HoverHeld,
     };
+    static_assert(outcomes.size() ==
+                      static_cast<std::size_t>(Outcome::HoverHeld) + 1,
+                  "every Outcome must be exercised here");
 
     for (const Outcome outcome : outcomes) {
         const bool gained =
@@ -138,7 +146,11 @@ static void test_real_caret_never_satisfies_the_opposite_direction() {
     const std::array outcomes = {
         Outcome::UiAppears,      Outcome::UiDisappears, Outcome::TextAppears,
         Outcome::TextDisappears, Outcome::FocusGained,  Outcome::FocusLost,
+        Outcome::PressHeld,      Outcome::HoverHeld,
     };
+    static_assert(outcomes.size() ==
+                      static_cast<std::size_t>(Outcome::HoverHeld) + 1,
+                  "every Outcome must be exercised here");
 
     for (const Outcome outcome : outcomes) {
         const bool gained =

@@ -32,6 +32,9 @@
 #include "../util/wrap_count.h"
 #include "transcript_render_cache.h"
 #include "../ui/accessibility.h"
+#include "../ui/control_state.h"
+#include "../ui/overlay_lifecycle.h"
+#include "../ui/slash_row.h"
 #include "../ui/edged_field.h"
 #include "../ui/field_chrome.h"
 #include "../ui/find_highlight.h"
@@ -206,8 +209,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // only fires while the field has focus, which is exactly when the
         // arrows were never ours either.
         if (!app->listCursorId.empty() && app->view != SmartView::Chat &&
-            !any_text_field_focused() && !overlay_up(*app) &&
-            hanabi::keys::pressed(hanabi::keys::kEnter))
+            !any_text_field_focused() &&
+            app->activate == ActivateIntent::ListCursor)
             app->requestOpenTab = app->listCursorId;
 
         switch (app->view) {
@@ -528,7 +531,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(24), pixels(24)})
+                .with_size(ComponentSize{
+                    pixels(hanabi::control::kMinHitTarget),
+                    pixels(hanabi::control::kMinHitTarget)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_on_draw_fg([](RectangleType r) {
@@ -1792,11 +1797,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               const std::string& shelfKey) {
         const bool collapsed = app.collapsedShelves.count(shelfKey) != 0;
         list_extent((first ? theme::chrome::SPACE_2 : theme::chrome::SPACE_6) +
-                    20.0f + theme::chrome::SPACE_2);
+                    hanabi::control::kMinHitTarget + theme::chrome::SPACE_2);
 
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_size(ComponentSize{
+                    percent(1.0f), pixels(hanabi::control::kMinHitTarget)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -1935,7 +1941,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // panel). Returns the total height it occupied (for virtualization math).
     // Only shown when the session carries REAL sub-agents — tool activity now
     // has its own dense rows, so we no longer duplicate it here.
-    static constexpr float kSubAgentRowH = 24.0f;
+    static constexpr float kSubAgentRowH = hanabi::control::kMinHitTarget;
     static constexpr float kSubRollupHeadChrome = 34.0f;
     static constexpr float kSubAgentMargin = 8.0f;
     static constexpr float kSubAgentChipH = 26.0f;
@@ -2300,19 +2306,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::prof::gauge("minimap.items", items.size());
         hanabi::prof::gauge("minimap.marks", slots->size());
 
+        const float markSlop =
+            std::max(0.0f, hanabi::control::kMinHitTarget -
+                               hanabi::minimap::kRailW) *
+            0.5f;
         auto marks = button(ctx, mk(rail.ent(), 901),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{percent(1.0f), pixels(railH)})
+                .with_size(ComponentSize{
+                    pixels(std::max(hanabi::minimap::kRailW,
+                                    hanabi::control::kMinHitTarget)),
+                    pixels(railH)})
                 .with_absolute_position()
-                .with_translate(0.0f, 0.0f)
+                .with_translate(-markSlop, 0.0f)
                 .with_transparent_bg()
                 .with_custom_hover_bg(afterhours::Color{0, 0, 0, 0})
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.0f)
                 .with_skip_tabbing(true)
-                .with_on_draw_fg([slots, totalH, hot](RectangleType r) {
+                .with_on_draw_fg([slots, totalH, hot,
+                                  markSlop](RectangleType r) {
                     for (const auto& slot : *slots) {
                         const float h = hanabi::minimap::slot_h(
                             slot.height, totalH, r.height);
@@ -2320,7 +2334,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         const float y = r.y + hanabi::minimap::slot_h(
                                                   slot.topY, totalH, r.height);
                         hanabi::minimap::draw_mark(
-                            RectangleType{r.x, y, r.width, h}, slot.mark, hot);
+                            RectangleType{r.x + markSlop, y,
+                                          hanabi::minimap::kRailW, h},
+                            slot.mark, hot);
                     }
                 })
                 .with_debug_name("minimap_marks"));
@@ -2515,7 +2531,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto closeBtn = div(ctx, mk(parent, 4150),
             ComponentConfig{}
                 .with_label("\xc3\x97")
-                .with_size(ComponentSize{pixels(24), pixels(24)})
+                .with_size(ComponentSize{
+                    pixels(hanabi::control::kMinHitTarget),
+                    pixels(hanabi::control::kMinHitTarget)})
                 .with_absolute_position()
                 .with_translate(paneW - 30.0f, 8.0f)
                 .with_custom_background(theme::panel_bg_2())
@@ -3874,6 +3892,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //     the top faster (fast scroll-up) just triggers sooner. Guarded by
         //     loadingOlder (loader clears it) so it fires once per page.
         if (pane.hasMoreOlder && !pane.loadingOlder && !pane.requestLoadOlder &&
+            !hanabi::test_hooks::no_older_prefetch() &&
             pane.anchorPending.empty() && scrollY <= viewH * 2.0f) {
             pane.requestLoadOlder = true;
         }
@@ -4224,6 +4243,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // spinner for, because there is no per-session model verb in this client
     // to wait on. The settings sheet's Model row reads and writes the same
     // value, so the two can never disagree.
+    static void publish_popover_occluder(Entity& popEnt) {
+        if (!popEnt.has<afterhours::ui::UIComponent>()) return;
+        const auto r = popEnt.get<afterhours::ui::UIComponent>().rect();
+        if (r.width <= 0.0f || r.height <= 0.0f) return;
+        hanabi::overlay::publish_occluder(
+            hanabi::surface::Rect{r.x, r.y, r.width, r.height});
+    }
+
     void render_model_popover(UIContext<InputAction>& ctx, Entity& parent,
                               AppComponent& app, Entity& anchorEnt,
                               const std::string& currentModel) {
@@ -4259,6 +4286,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("model_popover"));
         ctx.theme.surface = previousSurface;
         if (!pop) return;
+        publish_popover_occluder(pop.ent());
         div(ctx, mk(pop.ent(), 900),
             ComponentConfig{}
                 .with_label("Model")
@@ -4358,6 +4386,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("effort_popover"));
         ctx.theme.surface = previousSurface;
         if (!pop) return;
+        publish_popover_occluder(pop.ent());
         div(ctx, mk(pop.ent(), 900),
             ComponentConfig{}
                 .with_label("Thinking effort")
@@ -5082,7 +5111,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (hanabi::keys::pressed(hanabi::keys::kSpace))
                 hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
         }
-        if (hanabi::keys::pressed(hanabi::keys::kEnter) && !widgetOwnsEnter) {
+        if (app.activate == ActivateIntent::Ask && !widgetOwnsEnter) {
             askEnterRow_ = ask_row_id(cursor.question, cursor.option);
             switch (hanabi::ask::return_intent(
                 ask, answer, editing ? hanabi::ask::Cursor{} : cursor)) {
@@ -5775,7 +5804,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto x = button(ctx, mk(chip.ent(), 3),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(20), pixels(20)})
+                    .with_size(ComponentSize{
+                        pixels(hanabi::control::kMinHitTarget),
+                        pixels(hanabi::control::kMinHitTarget)})
                     .with_custom_background(theme::panel_bg_2())
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                     .with_custom_text_color(theme::text_secondary())
@@ -5949,6 +5980,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("plan_popover"));
         ctx.theme.surface = previousSurface;
         if (!pop) return;
+        publish_popover_occluder(pop.ent());
 
         const std::string title = hasGoal && hasPlan
                                       ? "Goal and plan"
@@ -6089,6 +6121,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_render_layer(7)
                 .with_debug_name("fold_popover"));
         if (!pop) return;
+        publish_popover_occluder(pop.ent());
         for (size_t i = 0; i < choices.size(); ++i) {
             const auto& c = choices[i];
             const bool selected = c.mode == current;
@@ -6452,8 +6485,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         auto meta = div(ctx, mk(bar.ent(), 3),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(18)})
-                .with_margin(Margin{.top = pixels(9)})
+                .with_size(ComponentSize{
+                    percent(1.0f), pixels(hanabi::control::kMinHitTarget)})
+                .with_margin(Margin{.top = pixels(4)})
                 .with_padding(Padding{.right = pixels(composerGutter + 2.0f),
                                       .left = pixels(composerGutter + 2.0f)})
                 .with_flex_direction(FlexDirection::Row)
@@ -6468,7 +6502,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the compaction budget, which three tests assert by text.
         auto leftMeta = div(ctx, mk(meta.ent(), 1),
             ComponentConfig{}
-                .with_size(ComponentSize{children(), pixels(18)})
+                .with_size(ComponentSize{
+                    children(), pixels(hanabi::control::kMinHitTarget)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -6483,7 +6518,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // do (see the report).
         auto rightMeta = div(ctx, mk(meta.ent(), 2),
             ComponentConfig{}
-                .with_size(ComponentSize{children(), pixels(18)})
+                .with_size(ComponentSize{
+                    children(), pixels(hanabi::control::kMinHitTarget)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -6530,7 +6566,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label(modelText)
                     .with_size(ComponentSize{pixels(run_box(modelText, 0.0f)),
-                                             pixels(18)})
+                                             pixels(hanabi::control::kMinHitTarget)})
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                     .with_custom_text_color(theme::text_primary())
@@ -6561,7 +6597,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ComponentConfig{}
                     .with_label(effortText)
                     .with_size(ComponentSize{
-                        pixels(run_box(effortText, kLabelInset)), pixels(18)})
+                        pixels(run_box(effortText, kLabelInset)),
+                        pixels(hanabi::control::kMinHitTarget)})
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                     .with_custom_text_color(theme::text_secondary())
@@ -6586,7 +6623,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto attachButton = button(ctx, mk(rightMeta.ent(), 1),
                 ComponentConfig{}
                     .with_label("Attach")
-                    .with_size(ComponentSize{pixels(52), pixels(18)})
+                    .with_size(ComponentSize{
+                        pixels(52), pixels(hanabi::control::kMinHitTarget)})
                     .with_transparent_bg()
                     .with_border(theme::border(), pixels(1.0f))
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
@@ -6602,7 +6640,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 auto cancel = button(ctx, mk(rightMeta.ent(), 4),
                     ComponentConfig{}
                         .with_label("Cancel upload")
-                        .with_size(ComponentSize{pixels(92), pixels(18)})
+                        .with_size(ComponentSize{
+                            pixels(92),
+                            pixels(hanabi::control::kMinHitTarget)})
                         .with_margin(Margin{.left = pixels(4)})
                         .with_transparent_bg()
                         .with_border(theme::border(), pixels(1.0f))
@@ -6705,7 +6745,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         pixels(kPillTextX +
                                theme::text_px(foldText, theme::type::SM) +
                                kPillPad),
-                        pixels(18)})
+                        pixels(hanabi::control::kMinHitTarget)})
                     .with_margin(Margin{.left = pixels(4)})
                     .with_transparent_bg()
                     .with_border(theme::border(), pixels(1.0f))
@@ -7012,7 +7052,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // override at all — at 45px that is a 15.75px left inset the caller
         // cannot change. So the field is given an explicit font size, and the
         // padding is what the widget decides.
-        constexpr float kSendDia = 19.0f;
+        constexpr float kSendDia = hanabi::control::kMinHitTarget;
         constexpr float kSendGap = 9.0f;
         const float sendW = kSendDia;
         const float sendH = kSendDia;
@@ -7179,7 +7219,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto compactAttach = button(ctx, mk(inputWrap.ent(), 4),
                 ComponentConfig{}
                     .with_label("+")
-                    .with_size(ComponentSize{pixels(20), pixels(20)})
+                    .with_size(ComponentSize{
+                        pixels(hanabi::control::kMinHitTarget),
+                        pixels(hanabi::control::kMinHitTarget)})
                     .with_absolute_position(inputW - 26.0f, compactY)
                     .with_custom_background(theme::panel_bg())
                     .with_border(theme::border_soft(), pixels(1.0f))
@@ -7196,7 +7238,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 auto compactCancel = button(ctx, mk(inputWrap.ent(), 5),
                     ComponentConfig{}
                         .with_label("×")
-                        .with_size(ComponentSize{pixels(20), pixels(20)})
+                        .with_size(ComponentSize{
+                        pixels(hanabi::control::kMinHitTarget),
+                        pixels(hanabi::control::kMinHitTarget)})
                         .with_absolute_position(inputW - 50.0f, compactY)
                         .with_custom_background(theme::panel_bg())
                         .with_border(theme::border_soft(), pixels(1.0f))
@@ -7939,40 +7983,47 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_flex_wrap(FlexWrap::NoWrap)
                         .with_align_items(AlignItems::Center)
                         .with_debug_name("slash_item_" + std::to_string(i)));
+                const auto slot = hanabi::slash_row::budget(
+                    inputW - 8.0f, c.runnable);
                 div(ctx, mk(row.ent(), 1),
                     ComponentConfig{}
                         .with_label(command)
-                        .with_size(ComponentSize{pixels(106), pixels(20)})
-                        .with_margin(Margin{.left = pixels(10)})
+                        .with_size(ComponentSize{pixels(slot.command),
+                                                 pixels(20)})
+                        .with_margin(Margin{.left = pixels(
+                                         hanabi::slash_row::kPad)})
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_primary())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
                         .with_debug_name("slash_command_" +
                                          std::to_string(i)));
-                const float statusW = c.runnable ? 0.0f : 78.0f;
-                div(ctx, mk(row.ent(), 2),
-                    ComponentConfig{}
-                        .with_label(std::string(c.blurb))
-                        .with_size(ComponentSize{pixels(
-                            std::max(40.0f, inputW - 132.0f - statusW)),
-                                                 pixels(20)})
-                        .with_transparent_bg()
-                        .with_custom_text_color(theme::text_secondary())
-                        .with_font_size(theme::type::SM)
-                        .with_alignment(TextAlignment::Left)
-                        .with_text_overflow(TextOverflow::Ellipsis)
-                        .with_debug_name("slash_blurb_" +
-                                         std::to_string(i)));
-                if (!c.runnable)
+                if (slot.blurb > 0.0f)
+                    div(ctx, mk(row.ent(), 2),
+                        ComponentConfig{}
+                            .with_label(std::string(c.blurb))
+                            .with_size(ComponentSize{pixels(slot.blurb),
+                                                     pixels(20)})
+                            .with_transparent_bg()
+                            .with_custom_text_color(theme::text_secondary())
+                            .with_font_size(theme::type::SM)
+                            .with_alignment(TextAlignment::Left)
+                            .with_text_overflow(TextOverflow::Ellipsis)
+                            .with_debug_name("slash_blurb_" +
+                                             std::to_string(i)));
+                if (slot.status > 0.0f)
                     div(ctx, mk(row.ent(), 3),
                         ComponentConfig{}
-                            .with_label("Unavailable")
-                            .with_size(ComponentSize{pixels(statusW), pixels(20)})
+                            .with_label(hanabi::slash_row::status_label(
+                                slot.status))
+                            .with_size(ComponentSize{pixels(slot.status),
+                                                     pixels(20)})
                             .with_transparent_bg()
                             .with_custom_text_color(theme::text_faint())
                             .with_font_size(theme::type::MICRO)
                             .with_alignment(TextAlignment::Right)
+                            .with_text_overflow(TextOverflow::Ellipsis)
                             .with_debug_name("slash_unavailable_" +
                                              std::to_string(i)));
                 if (row) choose_slash(static_cast<int>(i));
@@ -9706,6 +9757,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // reuses their capacity, so a steady frame allocates none.
                 const auto ep = mk(parent, 100 + seg);
                 Entity& lineEnt = ep.first.get();
+                hanabi::control::mark_text_surface(lineEnt);
                 auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
                 ld.text = ip.visible;
                 ld.query = findQuery;
@@ -10106,6 +10158,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ucfg = ucfg.with_font(face, theme::type::BODY);
             const auto uep = mk(bub.ent(), 2);
             Entity& userEnt = uep.first.get();
+            hanabi::control::mark_text_surface(userEnt);
             auto& uld = userEnt.addComponentIfMissing<ecs::LineDrawState>();
             uld.text = userBody;
             uld.query = uq;

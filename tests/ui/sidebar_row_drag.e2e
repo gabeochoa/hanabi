@@ -29,8 +29,8 @@
 # to move sitting six rows down.
 mouse_move 650 400
 wait_frames 10
-assert_ui_text "profiling the disk" y=306
-assert_ui_text "SKU backfill — my name for it" y=466
+assert_ui_text "profiling the disk" y=316
+assert_ui_text "SKU backfill — my name for it" y=476
 
 # Nothing has been arranged yet, so there is no order to reset.
 right_click 120 310
@@ -42,11 +42,11 @@ wait_frames 4
 
 # Press the sixth row and carry it to the top. The drop line is what says the
 # app has understood this as a drag rather than a click.
-mouse_down 140 475
+mouse_down 140 485
 wait_frames 2
-mouse_move 140 430
+mouse_move 140 440
 wait_frames 2
-mouse_move 140 370
+mouse_move 140 380
 wait_frames 2
 mouse_move 140 310
 wait_frames 3
@@ -60,8 +60,8 @@ wait_frames 8
 # first line of the dragged thread's transcript and of no other.
 mouse_move 650 400
 wait_frames 8
-assert_ui_text "SKU backfill — my name for it" y=306
-assert_ui_text "profiling the disk" y=338
+assert_ui_text "SKU backfill — my name for it" y=316
+assert_ui_text "profiling the disk" y=348
 expect_no_text "Backfill in progress"
 
 # The list now reads as hand-arranged, and saying so undoes it.
@@ -72,5 +72,5 @@ click_ui row_menu_reset_order
 wait_frames 8
 mouse_move 650 400
 wait_frames 6
-assert_ui_text "profiling the disk" y=306
-assert_ui_text "SKU backfill — my name for it" y=466
+assert_ui_text "profiling the disk" y=316
+assert_ui_text "SKU backfill — my name for it" y=476

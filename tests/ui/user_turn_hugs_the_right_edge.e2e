@@ -45,5 +45,5 @@ assert_ui user_bubble x=598 w=460 h=35
 # Puffin's own `EdgeInsets(top: 12, ...)`) on feat/vis-fixture; the 6px
 # relationship between them is what this pair is actually asserting and it is
 # unchanged.
-assert_ui user_avatar x=572 y=141 w=20 h=20
-assert_ui user_bubble y=135
+assert_ui user_avatar x=572 y=145 w=20 h=20
+assert_ui user_bubble y=139

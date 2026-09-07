@@ -49,10 +49,10 @@ type "hold on"
 wait_frames 8
 
 # An icon: the same 19px circle Send uses, not a 78px word.
-assert_ui composer_send x=1043 w=19 h=19
+assert_ui composer_send x=1034 w=28 h=28
 
 # And the 59px the pill was taking go back to the input.
-assert_ui composer_input_wrap w=716
+assert_ui composer_input_wrap w=707
 
 # The name the glyph cannot carry, in the strip six pixels above it.
 expect_text "Enter to steer"

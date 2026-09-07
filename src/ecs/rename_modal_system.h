@@ -12,6 +12,7 @@
 #include <string>
 
 #include "../keys.h"
+#include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
 #include "keyboard_focus.h"
 #include "../ui/edged_field.h"
@@ -40,17 +41,21 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
         const float sh =
             hanabi::viewport::height();
 
+        const auto panelRect =
+            hanabi::surface::centered(sw, sh, 440.0f, 230.0f);
+
         auto backdrop = button(
             ctx, mk(uiRoot, 8200),
             hanabi::surface::scrim(sw, sh, 12)
                 .with_debug_name("rename_backdrop"));
-        if (backdrop && !app->renamePending) {
+        if (!app->renamePending &&
+            hanabi::overlay::dismisses(static_cast<bool>(backdrop),
+                                       ctx.mouse.pos.x, ctx.mouse.pos.y,
+                                       panelRect)) {
             close(*app);
             return;
         }
 
-        const auto panelRect =
-            hanabi::surface::centered(sw, sh, 440.0f, 230.0f);
         auto panel = div(
             ctx, mk(uiRoot, 8210),
             hanabi::surface::sheet(panelRect, 13)

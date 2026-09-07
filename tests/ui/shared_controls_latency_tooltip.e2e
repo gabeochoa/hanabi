@@ -1,0 +1,23 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_TIP_FIXED_CLOCK=1
+
+require_thread t2
+wait_frames 12
+
+watch_ink tooltip_reveal ui tooltip
+hover_ui composer_attach
+wait_frames 45
+expect_latency tooltip_reveal 40
+
+watch_ink tooltip_dismiss ui_gone tooltip
+key ESCAPE
+wait_frames 12
+expect_latency tooltip_dismiss 4
+
+click_ui sb_settings
+wait_frames 14
+expect_focused settings_search
+watch_ink focus_restored focus sb_settings
+click_ui settings_close
+wait_frames 16
+expect_latency focus_restored 12

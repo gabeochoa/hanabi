@@ -1,7 +1,7 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 expect_text "stickers broke — concluded, D113637134 on you"
-assert_ui_text "profiling the disk" y=306
+assert_ui_text "profiling the disk" y=316
 mouse_move 140 600
 scroll_wheel 0 -6
 wait_frames 6

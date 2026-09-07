@@ -8,9 +8,10 @@ cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT INT TERM
 
 N="${HANABI_LATENCY_SWEEP_DELAY:-7}"
-SCRIPTS=(interaction_latency_budgets interaction_latency_budgets_two interaction_latency_scroll)
-EXPECTED_ARMS="attachment_stage click_feedback focus_gain focus_loss popup_close popup_open scroll_away scroll_back session_switch_back session_switch_forward sheet_close sheet_open submit typing_search"
-EXPECTED_COUNT=14
+SCRIPTS=(interaction_latency_budgets interaction_latency_budgets_two interaction_latency_scroll shared_controls_latency shared_controls_latency_tooltip a_press_shows_on_every_control_family)
+EXPECTED_ARMS="attachment_stage click_feedback focus_gain focus_loss popup_close popup_open scroll_away scroll_back session_switch_back session_switch_forward sheet_close sheet_open submit typing_search keyboard_activation menu_open menu_close submenu_open submenu_close menu_press tooltip_reveal tooltip_dismiss focus_restored press_transparent press_opaque press_menu_row"
+EXPECTED_COUNT=26
+SAMPLE_RUNS="${HANABI_LATENCY_SAMPLES:-10}"
 
 measure() {
     local delay=$1 dir rc=0 s
@@ -186,4 +187,31 @@ else
 fi
 
 [ "$plants_fail" -eq 0 ] || exit 1
-echo "  PASS - exact 14-arm set, real app-delay shift, failure exits, and shipping elimination"
+
+echo
+echo "  distribution over $SAMPLE_RUNS runs (frames; budgets are frame counts)"
+samples="$SCRATCH/samples.txt"
+: > "$samples"
+for _ in $(seq 1 "$SAMPLE_RUNS"); do
+    measure 0 >> "$samples" || { echo "  FAIL - sample run exited nonzero" >&2; fail=1; }
+done
+printf '  %-24s %6s %6s %6s %6s\n' arm n p50 p95 max
+dist_fail=0
+for arm in $EXPECTED_ARMS; do
+    read -r n p50 p95 mx <<EOF
+$(awk -v a="$arm" '$1==a{print $3}' "$samples" | sort -n | awk '
+    {v[NR]=$1}
+    END{
+        if (NR==0) { print 0, "-", "-", "-"; exit }
+        p50i=int((NR+1)/2); if (p50i<1) p50i=1
+        p95i=int(NR*0.95+0.999); if (p95i<1) p95i=1; if (p95i>NR) p95i=NR
+        print NR, v[p50i], v[p95i], v[NR]
+    }')
+EOF
+    verdict=ok
+    if [ "$n" -lt "$SAMPLE_RUNS" ]; then verdict="FAIL(n<$SAMPLE_RUNS)"; dist_fail=1; fi
+    printf '  %-24s %6s %6s %6s %6s  %s\n' "$arm" "$n" "$p50" "$p95" "$mx" "$verdict"
+done
+[ "$dist_fail" -eq 0 ] || { echo "  FAIL - an arm did not produce $SAMPLE_RUNS samples" >&2; exit 1; }
+
+echo "  PASS - exact ${EXPECTED_COUNT}-arm set, real app-delay shift, ${SAMPLE_RUNS}-sample distribution, failure exits, and shipping elimination"

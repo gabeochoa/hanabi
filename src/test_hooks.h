@@ -44,6 +44,39 @@ inline bool force_hover(std::string_view name) {
     return !forced.empty() && forced == name;
 }
 
+inline std::string_view forced_press_name() {
+    static const std::string value = [] {
+        const char* v = std::getenv("HANABI_TEST_PRESS");
+        return v ? std::string(v) : std::string();
+    }();
+    return value;
+}
+
+
+inline bool no_older_prefetch() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_NO_OLDER_PREFETCH");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
+inline bool tip_fixed_clock() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_TIP_FIXED_CLOCK");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
+    }();
+    return on;
+}
+
+inline std::string_view forced_tip_name() {
+    static const std::string value = [] {
+        const char* v = std::getenv("HANABI_TEST_TIP");
+        return v ? std::string(v) : std::string();
+    }();
+    return value;
+}
+
 // HANABI_FIND_AUDIT=1 makes the find bar show the number of highlight bands
 // the previous frame actually painted, next to its "N of M" tally. The two
 // must agree — that is find's counting rule — and a scripted test can read a

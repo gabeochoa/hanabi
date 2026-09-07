@@ -2,6 +2,9 @@
 
 #include "../ui_context.h"
 #include "secondary_surface_geometry.h"
+#include <algorithm>
+
+#include "control_state.h"
 #include "theme.h"
 
 namespace hanabi::surface {
@@ -82,35 +85,47 @@ inline ComponentConfig field(float width, int layer, float height = kFieldH) {
     return out;
 }
 
-inline ComponentConfig option_row(float width, float height, bool selected,
-                                  int layer,
+inline ComponentConfig option_row(float width, float height,
+                                  control::State state, int layer,
                                   theme::Color base = theme::panel_bg()) {
     ComponentConfig out;
     out.with_size(ComponentSize{pixels(width), pixels(height)})
-        .with_custom_background(selected ? theme::selected_bg() : base)
-        .with_custom_hover_bg(theme::hover_over(base))
-        .with_custom_text_color(selected ? theme::text_primary()
-                                         : theme::text_secondary())
+        .with_custom_background(control::fill(state, base))
+        .with_custom_hover_bg(control::hover_fill(state, base))
+        .with_custom_text_color(control::ink(state))
         .with_click_activation(ClickActivationMode::Press)
         .with_corner_radius(kControlCorner)
         .with_render_layer(layer);
+    out.disabled = state.disabled;
     return out;
 }
 
-inline ComponentConfig action_button(float width, bool primary, int layer) {
-    const theme::Color fill =
+inline ComponentConfig option_row(float width, float height, bool selected,
+                                  int layer,
+                                  theme::Color base = theme::panel_bg()) {
+    control::State state;
+    state.selected = selected;
+    return option_row(width, height, state, layer, base);
+}
+
+inline ComponentConfig action_button(float width, bool primary, int layer,
+                                     control::State state = {}) {
+    const theme::Color base =
         primary ? theme::button_primary() : theme::button_secondary();
     ComponentConfig out;
     out.with_size(ComponentSize{pixels(width), pixels(kButtonH)})
-        .with_custom_background(fill)
-        .with_custom_hover_bg(theme::hover_over(fill))
-        .with_custom_text_color(primary ? theme::window_bg()
-                                        : theme::text_primary())
+        .with_custom_background(control::fill(state, base))
+        .with_custom_hover_bg(control::hover_fill(state, base))
+        .with_custom_text_color(state.disabled ? theme::disabled_text()
+                                               : (primary
+                                                      ? theme::window_bg()
+                                                      : theme::text_primary()))
         .with_alignment(TextAlignment::Center)
         .with_align_items(AlignItems::Center)
         .with_click_activation(ClickActivationMode::Press)
         .with_corner_radius(kControlCorner)
         .with_render_layer(layer);
+    out.disabled = state.disabled;
     return out;
 }
 

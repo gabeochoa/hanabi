@@ -66,6 +66,30 @@ struct FrameSignals {
     bool caret = false;
     bool timer = false;
     bool pending_future = false;
+    bool tooltip_dwell = false;
+
+    void merge_from(const FrameSignals& o) {
+        static_assert(sizeof(FrameSignals) == 18,
+                      "a new FrameSignals field must be merged here too");
+        pointer_input = pointer_input || o.pointer_input;
+        key_input = key_input || o.key_input;
+        window_resize = window_resize || o.window_resize;
+        window_exposure = window_exposure || o.window_exposure;
+        native_notification = native_notification || o.native_notification;
+        async_ready = async_ready || o.async_ready;
+        sse_event = sse_event || o.sse_event;
+        state_request = state_request || o.state_request;
+        split_change = split_change || o.split_change;
+        animation = animation || o.animation;
+        streaming = streaming || o.streaming;
+        thinking = thinking || o.thinking;
+        scrolling = scrolling || o.scrolling;
+        dragging = dragging || o.dragging;
+        caret = caret || o.caret;
+        timer = timer || o.timer;
+        pending_future = pending_future || o.pending_future;
+        tooltip_dwell = tooltip_dwell || o.tooltip_dwell;
+    }
 };
 
 struct LifecycleFrameState {
@@ -180,6 +204,7 @@ class FrameActivityPolicy {
         if (s.animation || s.streaming || s.thinking || s.scrolling ||
             s.dragging)
             return FrameCadence::Active;
+        if (s.tooltip_dwell) return FrameCadence::Active;
         if (s.caret || s.timer || s.pending_future)
             return FrameCadence::Periodic;
         return FrameCadence::Idle;

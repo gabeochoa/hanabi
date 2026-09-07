@@ -39,6 +39,9 @@
 #include "../util/text_cache.h"
 #include "../util/text_epoch.h"
 #include "../ui/accessibility.h"
+#include "../ui/context_menu.h"
+#include "../ui/control_state.h"
+#include "pointer_state_system.h"
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/snippet_highlight.h"
@@ -687,10 +690,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_row_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
                          AppComponent& app) {
         if (!app.rowMenuOpen) return;
-        if (app.escape == EscapeIntent::CloseContextMenu) {
-            app.close_row_menu();
-            return;
-        }
         const api::SessionSummary* target = app.find_summary(app.rowMenuSessionId);
         if (target == nullptr) {
             app.close_row_menu();
@@ -698,6 +697,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         enum class Action {
+            Open,
             Rename,
             Fork,
             CopyLink,
@@ -706,108 +706,58 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             Mute,
             ResetOrder,
         };
-        struct Item {
-            const char* label;
-            const char* name;
-            Action action;
+        std::vector<Action> actions;
+        std::vector<hanabi::surface::MenuItem> items;
+        const auto add = [&](const char* label, const char* name, Action a,
+                             bool disabled = false, bool destructive = false) {
+            items.push_back({label, name, destructive, disabled});
+            actions.push_back(a);
         };
-        std::vector<Item> items;
-        if (app.client && app.client->supports_rename())
-            items.push_back({"Rename\xe2\x80\xa6", "row_menu_rename",
-                             Action::Rename});
-        if (app.client && app.client->supports_fork())
-            items.push_back({"Fork session", "row_menu_fork", Action::Fork});
-        items.push_back({"Copy session link", "row_menu_copy_link",
-                         Action::CopyLink});
-        items.push_back({"Copy session ID", "row_menu_copy_id",
-                         Action::CopyId});
-        items.push_back({model::is_archived(*target) ? "Unarchive" : "Archive",
-                         "row_menu_archive", Action::Archive});
-        items.push_back({target->muted ? "Unmute" : "Mute", "row_menu_mute",
-                         Action::Mute});
+        items.push_back({"Open\xe2\x80\xa6",
+                         "row_menu_open",
+                         false,
+                         false,
+                         {{"Open in a tab", "row_menu_open_tab", false, false},
+                          {"Open in split", "row_menu_open_split", false,
+                           false}}});
+        actions.push_back(Action::Open);
+        add("Rename\xe2\x80\xa6", "row_menu_rename", Action::Rename,
+            !(app.client && app.client->supports_rename()));
+        add("Fork session", "row_menu_fork", Action::Fork,
+            !(app.client && app.client->supports_fork()));
+        add("Copy session link", "row_menu_copy_link", Action::CopyLink);
+        add("Copy session ID", "row_menu_copy_id", Action::CopyId);
+        add(model::is_archived(*target) ? "Unarchive" : "Archive",
+            "row_menu_archive", Action::Archive, false,
+            !model::is_archived(*target));
+        add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute);
         // Only for a folder that has actually been hand-arranged: on every
         // other row this would be an item that undoes nothing.
         const std::string orderKey = group_key_for(*target);
         if (app.rowOrder.count(orderKey) != 0)
-            items.push_back({"Reset order", "row_menu_reset_order",
-                             Action::ResetOrder});
+            add("Reset order", "row_menu_reset_order", Action::ResetOrder);
 
-        const float menuW = 176.0f;
-        const float headerH = 28.0f;
-        const float itemH = hanabi::surface::kMenuRowH;
-        const float menuH =
-            headerH + itemH * static_cast<float>(items.size()) + 8.0f;
-        float mx = app.rowMenuX;
-        float my = app.rowMenuY;
-        if (mx + menuW > ctx.screen_width - 4.0f)
-            mx = ctx.screen_width - menuW - 4.0f;
-        if (my + menuH > ctx.screen_height - 4.0f)
-            my = ctx.screen_height - menuH - 4.0f;
-        if (mx < 4.0f) mx = 4.0f;
-        if (my < 4.0f) my = 4.0f;
-
-        constexpr int kMenuLayer = 30;
-
-        // An invisible full-window eater under the menu. Without it a click
-        // meant to dismiss the menu lands on whatever row is beneath it and
-        // opens that thread on the way out.
-        auto eater = button(ctx, mk(uiRoot, 8899),
-            ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(ctx.screen_width),
-                                         pixels(ctx.screen_height)})
-                .with_absolute_position()
-                .with_translate(0.0f, 0.0f)
-                .with_transparent_bg()
-                .with_custom_hover_bg(afterhours::Color{0, 0, 0, 0})
-                .with_click_activation(ClickActivationMode::Press)
-                .with_roundness(0.0f)
-                .with_render_layer(kMenuLayer - 1)
-                .with_debug_name("row_menu_eater"));
-
-        auto menuConfig = hanabi::surface::menu(menuW, menuH, kMenuLayer);
-        menuConfig.with_absolute_position()
-            .with_translate(mx, my)
-            .with_debug_name("row_menu");
-        div(ctx, mk(uiRoot, 8900), menuConfig);
-        div(ctx, mk(uiRoot, 8998),
-            ComponentConfig{}
-                .with_label("CONVERSATION")
-                .with_size(ComponentSize{pixels(menuW - 16.0f), pixels(headerH)})
-                .with_absolute_position()
-                .with_translate(mx + 8.0f, my + 4.0f)
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::MICRO)
-                .with_letter_spacing(0.8f)
-                .with_alignment(TextAlignment::Left)
-                .with_render_layer(kMenuLayer + 1)
-                .with_debug_name("row_menu_title"));
-
+        hanabi::surface::MenuMetrics metrics;
+        metrics.width = hanabi::surface::kContextMenuW;
         const std::string targetId = target->id;
-        for (size_t k = 0; k < items.size(); ++k) {
-            const bool destructive =
-                items[k].action == Action::Archive &&
-                !model::is_archived(*target);
-            auto rowConfig = hanabi::surface::option_row(
-                menuW - 8.0f, itemH, false, kMenuLayer + 1,
-                destructive ? hanabi::surface::destructive_surface()
-                            : theme::panel_bg());
-            rowConfig.with_label(items[k].label)
-                .with_absolute_position()
-                .with_translate(mx + 4.0f,
-                                my + 4.0f + headerH +
-                                    itemH * static_cast<float>(k))
-                .with_custom_text_color(destructive ? theme::destructive()
-                                                    : theme::text_primary())
-                .with_font_size(theme::type::ROW)
-                .with_alignment(TextAlignment::Left)
-                .with_padding(Padding{.left = pixels(10)})
-                .with_debug_name(items[k].name);
-            auto hit = button(ctx, mk(uiRoot, 8901 + static_cast<int>(k)),
-                              rowConfig);
-            if (!hit) continue;
-            switch (items[k].action) {
+        const char* subOverlay = std::getenv("HANABI_TEST_SUBMENU");
+        const auto result = hanabi::surface::context_menu(
+            ctx, uiRoot, 8890, metrics, app.rowMenuX, app.rowMenuY,
+            "CONVERSATION", "row_menu", items, app.menuCursor,
+            menu_keys_for(app), hanabi::surface::kContextMenuLayer,
+            subOverlay != nullptr ? std::string_view(subOverlay)
+                                  : std::string_view());
+
+        if (result.activated != hanabi::surface::kNoMenuRow) {
+            switch (actions[result.activated]) {
+                case Action::Open:
+                    if (result.activated_child == 0)
+                        app.requestOpenTab = targetId;
+                    else if (result.activated_child == 1)
+                        app.requestSplitOpen = targetId;
+                    else
+                        return;
+                    break;
                 case Action::Rename:
                     app.renameOpen = true;
                     app.renameSessionId = targetId;
@@ -843,7 +793,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.close_row_menu();
             return;
         }
-        if (eater) app.close_row_menu();
+        if (result.dismissed || result.cancelled) app.close_row_menu();
+    }
+
+    static hanabi::surface::MenuKeys menu_keys_for(AppComponent& app) {
+        return take_menu_keys(app);
     }
 
     // ---- MEASURED Puffin sidebar geometry (PUFFIN_SPEC.md + ref/01_home.png)
@@ -876,8 +830,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kSbViewFillRadius = 5.0f;
     static constexpr int kSbViewRows = 6;
     static constexpr float kSbRuleH = theme::chrome::SPACE_1;
-    static constexpr float kSbSearchH = 32.0f;
-    static constexpr float kSbFieldH = 26.0f;
+    static constexpr float kSbSearchH = hanabi::control::kMinHitTarget + 14.0f;
+    static constexpr float kSbFieldH = hanabi::control::kMinHitTarget + 6.0f;
     static constexpr float kSbListGap = theme::chrome::SPACE_1;
     static constexpr float kSbFooterH = theme::chrome::HIT;
     static constexpr float kSbInset = 9.0f;
@@ -1424,7 +1378,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_views_chevron"));
         // Fixed pixel width (gap #18: no flex-grow) so the toggle that follows
         // lands on the measured right edge instead of packing mid-strip.
-        float labelW = panelW - 7.0f - 5.0f - 10.0f - 48.0f;
+        float labelW = panelW - 7.0f - 5.0f - 10.0f -
+                       hanabi::control::kMinHitTarget * 2.0f;
         if (labelW < 20.0f) labelW = 20.0f;
         div(ctx, mk(strip.ent(), 2),
             ComponentConfig{}
@@ -1441,7 +1396,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             button(ctx, mk(strip.ent(), 3),
                    ComponentConfig{}
                        .with_label(" ")
-                       .with_size(ComponentSize{pixels(24), pixels(20)})
+                       .with_size(ComponentSize{pixels(28), pixels(28)})
                        .with_custom_background(app.subagentSidebarOpen
                                                    ? theme::selected_bg()
                                                    : theme::chrome::sidebar())
@@ -1465,7 +1420,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             ctx, mk(strip.ent(), 4),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(24), pixels(20)})
+                .with_size(ComponentSize{pixels(28), pixels(28)})
                 .with_transparent_bg()
                 .with_custom_hover_bg(
                     theme::hover_over(theme::chrome::sidebar()))
@@ -1689,13 +1644,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
              14.0f},
         };
         for (int k = 0; k < 3; ++k) {
-            const float cx = r.width - 70.0f + 24.0f * static_cast<float>(k);
+            const float cx = r.width - 78.0f + 28.0f * static_cast<float>(k);
             auto hit = button(ctx, mk(parent, btns[k].id),
                 ComponentConfig{}
                     .with_label(" ")
-                    .with_size(ComponentSize{pixels(22), pixels(22)})
+                    .with_size(ComponentSize{
+                        pixels(hanabi::control::kMinHitTarget),
+                        pixels(hanabi::control::kMinHitTarget)})
                     .with_absolute_position()
-                    .with_translate(cx - 11.0f, top + 3.0f)
+                    .with_translate(cx - 14.0f, top)
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                     .with_cursor(afterhours::ui::CursorType::Pointer)
@@ -1917,7 +1874,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         bool hasQuery = !app.searchQuery.empty();
         const float kSearchSlot = 20.0f;  // per fixed sibling (icon / clear-×)
         float searchInner = fieldW - 8.0f;
-        float searchTextW = searchInner - kSearchSlot - 24.0f;
+        float searchTextW =
+            searchInner - kSearchSlot - hanabi::control::kMinHitTarget;
         if (hasQuery) searchTextW -= kSearchSlot;
         // Clamp so the text field never exceeds the pill's inner box (else the
         // NoWrap search row overflows + churns solve_violations). Prefer 40px,
@@ -1929,7 +1887,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto searchRes = afterhours::text_input::text_input(
             ctx, mk(field.ent(), 2), app.searchQuery,
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(searchTextW), pixels(20)})
+                .with_size(ComponentSize{
+                    pixels(searchTextW),
+                    pixels(hanabi::control::kMinHitTarget)})
                 .with_transparent_bg()
                 .with_custom_text_color(hasQuery ? theme::text_primary()
                                                  : theme::text_secondary())
@@ -1977,7 +1937,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto filt = button(ctx, mk(field.ent(), 5),
             ComponentConfig{}
                 .with_label(" ")
-                .with_size(ComponentSize{pixels(24), pixels(20)})
+                .with_size(ComponentSize{pixels(28), pixels(28)})
                 .with_transparent_bg()
                 .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
@@ -2926,7 +2886,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             auto more = div(ctx, mk(parent, base + kMoreRowIdOffset),
                 ComponentConfig{}
                     .with_label("Show " + std::to_string(hidden) + " more\xe2\x80\xa6")
-                    .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                    .with_size(ComponentSize{
+                        percent(1.0f),
+                        pixels(hanabi::control::kMinHitTarget)})
                     // V7: align the "Show N more…" label with the thread-row
                     // TITLE text above it, not the row's left edge. A thread
                     // row's title begins after the row left inset (22px) PLUS

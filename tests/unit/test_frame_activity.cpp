@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <cstdio>
 
 #include "../../src/frame_activity.h"
@@ -231,6 +232,135 @@ static void legacy_mode_rebuilds_every_callback() {
     CHECK(frames >= 120);
 }
 
+static void a_tooltip_dwell_gets_frames_to_finish_counting() {
+    FrameSignals idle;
+    FrameActivityPolicy idlePolicy;
+    float idleHeld = 0.0f;
+    std::uint64_t idleLast = 0;
+    bool idleRevealed = false;
+    std::uint64_t idleRevealUs = 0;
+    for (std::uint64_t now = 0; now < 5000000 && !idleRevealed; now += 8333) {
+        auto d = idlePolicy.decide(now, idle);
+        if (!d.render) continue;
+        const float dt =
+            idleLast == 0 ? 0.0f
+                          : static_cast<float>(now - idleLast) / 1000000.0f;
+        idleLast = now;
+        idleHeld += dt > 0.1f ? 0.1f : dt;
+        idlePolicy.rendered(now);
+        if (idleHeld >= 0.5f) {
+            idleRevealed = true;
+            idleRevealUs = now;
+        }
+    }
+    CHECK(idleRevealed);
+    CHECK(idleRevealUs > 1500000);
+
+    FrameSignals dwell;
+    dwell.tooltip_dwell = true;
+    FrameActivityPolicy dwellPolicy;
+    float held = 0.0f;
+    std::uint64_t last = 0;
+    bool revealed = false;
+    std::uint64_t revealUs = 0;
+    for (std::uint64_t now = 0; now < 5000000 && !revealed; now += 8333) {
+        auto d = dwellPolicy.decide(now, dwell);
+        if (!d.render) continue;
+        const float dt =
+            last == 0 ? 0.0f : static_cast<float>(now - last) / 1000000.0f;
+        last = now;
+        held += dt > 0.1f ? 0.1f : dt;
+        dwellPolicy.rendered(now);
+        if (held >= 0.5f) {
+            revealed = true;
+            revealUs = now;
+        }
+    }
+    CHECK(revealed);
+    CHECK(revealUs >= 500000);
+    CHECK(revealUs <= 560000);
+
+    FrameSignals settled;
+    CHECK(run_for_one_second(settled) <= 4);
+}
+
+static void the_windowed_merge_carries_every_signal() {
+    FrameSignals collected;
+    collected.tooltip_dwell = true;
+
+    FrameSignals frame;
+    frame.merge_from(collected);
+    CHECK(frame.tooltip_dwell);
+
+    // What app_frame() actually does: a fresh frame's own input signals, then
+    // the app's collected ones merged in. Every field the collector can set
+    // must survive that, which is what the field-by-field copy failed at.
+    const auto every_field = [](bool value) {
+        FrameSignals s;
+        s.pointer_input = value; s.key_input = value; s.window_resize = value;
+        s.window_exposure = value; s.native_notification = value;
+        s.async_ready = value; s.sse_event = value; s.state_request = value;
+        s.split_change = value; s.animation = value; s.streaming = value;
+        s.thinking = value; s.scrolling = value; s.dragging = value;
+        s.caret = value; s.timer = value; s.pending_future = value;
+        s.tooltip_dwell = value;
+        return s;
+    };
+    FrameSignals empty;
+    FrameSignals merged;
+    merged.merge_from(every_field(true));
+    const auto* on = reinterpret_cast<const unsigned char*>(&merged);
+    const auto* off = reinterpret_cast<const unsigned char*>(&empty);
+    for (std::size_t i = 0; i < sizeof(FrameSignals); ++i) {
+        CHECK(on[i] != 0);
+        CHECK(off[i] == 0);
+    }
+
+    FrameSignals pointerOnly;
+    pointerOnly.pointer_input = true;
+    pointerOnly.merge_from(FrameSignals{});
+    CHECK(pointerOnly.pointer_input);
+}
+
+static void a_hovered_tooltip_reveals_on_the_windowed_cadence() {
+    // The windowed loop's own arithmetic: a real steady clock, a callback that
+    // only runs when the policy says render, and main.cpp's 0.1s dt clamp.
+    const auto reveal_ms = [](bool dwell_reaches_the_frame_loop) {
+        FrameActivityPolicy policy;
+        float held = 0.0f;
+        std::uint64_t last = 0;
+        for (std::uint64_t now = 0; now < 5000000; now += 8333) {
+            FrameSignals frame;
+            FrameSignals collected;
+            collected.tooltip_dwell = held < 0.5f;
+            if (dwell_reaches_the_frame_loop) {
+                frame.merge_from(collected);
+            } else {
+                frame.caret = collected.caret;
+                frame.timer = collected.timer;
+                frame.pending_future = collected.pending_future;
+            }
+            const auto d = policy.decide(now, frame);
+            if (!d.render) continue;
+            const float dt =
+                last == 0 ? 0.0f
+                          : static_cast<float>(now - last) / 1000000.0f;
+            last = now;
+            held += dt > 0.1f ? 0.1f : dt;
+            policy.rendered(now);
+            if (held >= 0.5f) return static_cast<int>(now / 1000);
+        }
+        return -1;
+    };
+
+    const int wired = reveal_ms(true);
+    CHECK(wired >= 500);
+    CHECK(wired <= 560);
+
+    const int dropped = reveal_ms(false);
+    CHECK(dropped > 1500);
+}
+
 int main() {
     startup_draws_immediately();
     fully_idle_draws_two_safety_frames_per_second();
@@ -245,6 +375,9 @@ int main() {
     lazy_cache_and_search_transitions_wake();
     lifecycle_transitions_wake_without_idle_delay();
     legacy_mode_rebuilds_every_callback();
+    a_tooltip_dwell_gets_frames_to_finish_counting();
+    the_windowed_merge_carries_every_signal();
+    a_hovered_tooltip_reveals_on_the_windowed_cadence();
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

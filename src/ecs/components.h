@@ -20,6 +20,7 @@
 #include "../api/outbox.h"
 #include "../settings.h"
 #include "../search/find_memo.h"
+#include "../ui/menu_keys.h"
 #include "ask_card.h"
 #include "composer_escape.h"
 #include "transcript_cache.h"
@@ -71,6 +72,16 @@ enum class EscapeIntent {
     ClearTranscript,
 };
 
+enum class ActivateIntent {
+    None,
+    Palette,
+    SessionSearch,
+    Settings,
+    Ask,
+    ListCursor,
+    ContextMenu,
+};
+
 // What Up/Down mean on THIS frame. Read once by ArrowSystem (arrow_system.h)
 // and resolved by what owns the keyboard, so one keystroke moves one thing:
 // the caret/history in a focused field, the transcript's scroll, or a list's
@@ -83,6 +94,7 @@ enum class ArrowIntent {
     Transcript,
     List,
     Ask,
+    ContextMenu,
 };
 
 // The `collapsedFolders` sentinel under which a group's "Show N more" opt-in
@@ -626,6 +638,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // Resolved by EscapeSystem at the top of the frame; read by whichever site
     // owns that intent. Reset to None every frame.
     EscapeIntent escape = EscapeIntent::None;
+    ActivateIntent activate = ActivateIntent::None;
+    hanabi::menu::Cursor menuCursor;
+    int menuLateral = 0;
     // This frame's arrow intent + its direction (-1 up, +1 down, 0 none).
     ArrowIntent arrow = ArrowIntent::None;
     int arrowDelta = 0;
@@ -1135,6 +1150,7 @@ struct AppComponent : public afterhours::BaseComponent {
     void close_row_menu() {
         rowMenuOpen = false;
         rowMenuSessionId.clear();
+        menuCursor = {};
     }
 
     // ==== Toast (a transient bar with one action) ==========================

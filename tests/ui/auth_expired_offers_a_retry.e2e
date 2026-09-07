@@ -1,0 +1,7 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_AUTH_DEMO=expired
+
+expect_text "Code expired."
+expect_text "Continue offline"
+assert_ui auth_retry h=34
+assert_ui auth_use_offline h=34

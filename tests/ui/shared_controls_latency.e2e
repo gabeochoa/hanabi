@@ -1,0 +1,40 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "needs a decision before it can go on"
+wait_frames 12
+
+arrow down
+wait_frames 6
+watch_ink keyboard_activation ui tab_active
+key ENTER
+wait_frames 30
+expect_latency keyboard_activation 8
+
+watch_ink menu_open ui row_menu
+right_click 120 400
+wait_frames 10
+expect_latency menu_open 4
+
+watch_ink submenu_open ui row_menu_open_submenu
+mouse_move 212 450
+wait_frames 10
+expect_latency submenu_open 4
+
+watch_ink submenu_close ui_gone row_menu_open_submenu
+mouse_move 212 630
+wait_frames 10
+expect_latency submenu_close 4
+
+watch_ink menu_close ui_gone row_menu
+key ESCAPE
+wait_frames 10
+expect_latency menu_close 4
+
+right_click 120 400
+wait_frames 10
+watch_ink menu_press press row_menu_archive
+mouse_down 212 612
+wait_frames 10
+expect_latency menu_press 4
+mouse_up 212 612
+wait_frames 8

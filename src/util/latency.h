@@ -21,6 +21,8 @@ enum class Outcome {
     TextDisappears,
     FocusGained,
     FocusLost,
+    PressHeld,
+    HoverHeld,
 };
 
 enum class Phase {
@@ -161,6 +163,8 @@ inline InkDirection ink_direction(Outcome outcome) {
         case Outcome::UiAppears:
         case Outcome::TextAppears:
         case Outcome::FocusGained:
+        case Outcome::PressHeld:
+        case Outcome::HoverHeld:
             return InkDirection::Gained;
         case Outcome::UiDisappears:
         case Outcome::TextDisappears:
@@ -182,7 +186,8 @@ inline int directional_ink(Outcome outcome, const Difference& difference) {
 
 inline bool expects_present(Outcome outcome) {
     return outcome == Outcome::UiAppears || outcome == Outcome::TextAppears ||
-           outcome == Outcome::FocusGained;
+           outcome == Outcome::FocusGained || outcome == Outcome::PressHeld ||
+           outcome == Outcome::HoverHeld;
 }
 
 inline std::vector<Watch>& watches() {

@@ -1,0 +1,13 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_AUTH_DEMO=begin-pending
+
+expect_text "Requesting a code"
+expect_text "Contacting the sign-in server"
+
+expect_no_text "FLOWREAD"
+expect_no_text "flow-was-read"
+expect_no_text "2. Enter this code"
+expect_no_text "1. Open this URL"
+
+expect_text "Continue offline"
+assert_ui auth_use_offline h=34

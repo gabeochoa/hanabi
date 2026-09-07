@@ -35,6 +35,23 @@ inline constexpr std::uint8_t ShiftModifier = 1 << 1;
 inline constexpr std::uint8_t OptionModifier = 1 << 2;
 inline constexpr std::uint8_t ControlModifier = 1 << 3;
 
+inline constexpr unsigned long long PlatformShift = 1ULL << 17;
+inline constexpr unsigned long long PlatformControl = 1ULL << 18;
+inline constexpr unsigned long long PlatformOption = 1ULL << 19;
+inline constexpr unsigned long long PlatformCommand = 1ULL << 20;
+inline constexpr unsigned long long PlatformNumericPad = 1ULL << 21;
+inline constexpr unsigned long long PlatformFunction = 1ULL << 23;
+
+inline constexpr std::uint8_t modifiers_from_platform_flags(
+    unsigned long long flags) {
+    std::uint8_t out = 0;
+    if (flags & PlatformCommand) out |= CommandModifier;
+    if (flags & PlatformShift) out |= ShiftModifier;
+    if (flags & PlatformOption) out |= OptionModifier;
+    if (flags & PlatformControl) out |= ControlModifier;
+    return out;
+}
+
 struct Shortcut {
     int key = 0;
     std::uint8_t modifiers = 0;

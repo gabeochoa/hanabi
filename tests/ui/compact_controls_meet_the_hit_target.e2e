@@ -1,0 +1,8 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_PICK_FILE_TEST='tests/fixtures/attachments/sample.pdf' HANABI_WIN_W=520 HANABI_WIN_H=620
+
+require_thread t2
+wait_frames 20
+
+expect_hit_targets
+assert_ui composer_attach w=28 h=28

@@ -278,6 +278,7 @@ SET_NARROW_STORAGE='{"window_width":600,"window_height":500,"open_tabs":[],"acti
 SET_SPLIT_DARK='{"window_width":600,"window_height":500,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark","settings_pane":"chat","show_timestamps":false,"show_reasoning":false}'
 SET_SPLIT_AFTER_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark","show_timestamps":false,"show_reasoning":false}'
 NARROW_SPLIT='{"window_width":760,"window_height":620,"open_tabs":["r8","t2"],"active_tab":"r8","split_open":true,"split_ratio":0.2,"split_panes":["r8","t2"],"theme":"dark","sidebar_collapsed":true}'
+SUBMENU_FLIP='{"window_width":520,"window_height":620,"open_tabs":[],"active_tab":"","theme":"dark"}'
 FOLDED='{"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}'
 SUBAGENTS_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","subagent_sidebar_open":true}'
 # The brake fixtures (HANABI_BRAKES_DEMO): bz1 frozen, bz2 replies-paused,
@@ -400,6 +401,27 @@ capture 18p_context_menu_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu
 capture 18q_context_menu_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=row-menu
 capture 18p2_tab_menu_dark "$TABS_DARK" HANABI_TEST_OVERLAY=tab-menu
 capture 18q2_tab_menu_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=tab-menu
+capture 18x_tooltip_dark "$TABS_DARK" HANABI_TEST_TIP=composer_attach
+capture 18y_tooltip_light "$TABS_LIGHT" HANABI_TEST_TIP=composer_attach
+capture 18z_tooltip_tab_close_dark "$TABS_DARK" HANABI_TEST_TIP=tab_close
+capture 18aa_menu_pressed_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu HANABI_TEST_PRESS=row_menu_archive
+capture 18ab_menu_pressed_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=row-menu HANABI_TEST_PRESS=row_menu_archive
+capture 18ac_menu_disabled_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu HANABI_MOCK_NO_RENAME=1 HANABI_MOCK_NO_FORK=1
+capture 18ad_menu_disabled_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=row-menu HANABI_MOCK_NO_RENAME=1 HANABI_MOCK_NO_FORK=1
+capture_sized 18ak_model_picker_narrow_dark "760 x 620" "$NARROW_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=model
+capture_sized 18al_effort_picker_narrow_dark "760 x 620" "$NARROW_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=effort
+capture_sized 18am_slash_menu_narrow_dark "760 x 620" "$NARROW_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=slash
+capture_sized 18an_model_picker_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=r8 HANABI_SPLIT=t2 HANABI_TEST_OVERLAY=model
+capture_sized 18ao_slash_menu_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=r8 HANABI_SPLIT=t2 HANABI_TEST_OVERLAY=slash
+capture_sized 18ap_submenu_flipped_dark "520 x 620" "$SUBMENU_FLIP" HANABI_WIN_W=520 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=row-menu HANABI_TEST_SUBMENU=row_menu_open
+capture 18aq_turn_pressed_dark "$TABS_DARK" HANABI_TEST_PRESS=asst_turn HANABI_OPEN=t2
+capture 18ar_sidebar_icon_pressed_dark "$NOTABS_DARK" HANABI_TEST_PRESS=sb_new
+capture 18ag_submenu_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu HANABI_TEST_SUBMENU=row_menu_open
+capture 18ah_submenu_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=row-menu HANABI_TEST_SUBMENU=row_menu_open
+capture_sized 18ai_menu_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=r8 HANABI_SPLIT=t2 HANABI_TEST_OVERLAY=row-menu
+capture_sized 18aj_pressed_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=r8 HANABI_SPLIT=t2 HANABI_TEST_OVERLAY=row-menu HANABI_TEST_PRESS=row_menu_archive
+capture_sized 18ae_menu_narrow_dark "760 x 620" "$NARROW_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=row-menu
+capture_sized 18af_tooltip_narrow_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=r8 HANABI_SPLIT=t2 HANABI_TEST_TIP=composer_attach
 capture 18r_toast_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=toast
 capture 18s_toast_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=toast
 capture 18t_auth_failed_dark "$NOTABS_DARK" HANABI_AUTH_DEMO=failed

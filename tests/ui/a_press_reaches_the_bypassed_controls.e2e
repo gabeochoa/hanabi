@@ -1,0 +1,14 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+
+require_thread t2
+wait_frames 12
+
+hover_ui chat_row
+wait_frames 8
+watch_ink press_skip_hover press row_star
+mouse_down_ui row_star
+wait_frames 10
+expect_latency press_skip_hover 4
+mouse_up 5 5
+wait_frames 12

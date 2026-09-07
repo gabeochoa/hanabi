@@ -41,7 +41,7 @@ assert_ui tab_active x=285
 # the kept tab instead.
 click_ui tab_label
 wait_frames 8
-click 140 434
+click 140 444
 wait_frames 8
 assert_ui tab_preview x=512
 assert_ui tab_active x=509

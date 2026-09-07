@@ -1,0 +1,21 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "needs a decision before it can go on"
+wait_frames 30
+arrow down
+wait_frames 10
+
+right_click 120 400
+wait_frames 10
+expect_text "CONVERSATION"
+key ENTER
+wait_frames 20
+expect_text "CONVERSATION"
+assert_ui home_section h=28
+
+key ESCAPE
+wait_frames 10
+expect_no_text "CONVERSATION"
+key ENTER
+wait_frames 30
+assert_ui tab_active h=33
