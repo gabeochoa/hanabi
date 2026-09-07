@@ -1,134 +1,70 @@
 # Interaction latency
 
-Nine interaction paths, measured in frames from the frame an input is consumed
-to the frame the ink it produced first appears.
+`GATE-0` measures 14 interaction directions from the input event's queue-entry timestamp to the first GPU-rendered ink caused by that interaction.
 
-## Why frames, not milliseconds
+## Contract
 
-This box is shared. `scripts/alloc_gate.sh` records frame time swinging
-1.6–6.5 ms under load 10–34 while the allocation counts beside it stay stable,
-and `scripts/retire_gate.sh` says it outright: no milliseconds anywhere. A
-frame count is the same number on an idle laptop and a loaded one; a
-millisecond budget on this hardware is a coin flip. Every number below is
-frames.
+`t0` is captured immediately after the E2E runner queues the synthetic input event and before any input handler runs. It is a monotonic `steady_clock` timestamp. The old mark taken after a command was consumed is gone.
 
-## The measurements
+`first ink` is confirmed after `graphics::end_frame()` by reading the headless Metal render target through `metal_capture_render_texture_to_memory`. The probe converts RGBA to luma and compares the committed frame with a baseline captured before the event. Each frame estimates its own background from modal luma, then classifies changed pixels as newly gained ink or removed ink. Appearance, text-appearance, and focus-gain outcomes require at least 40 gained pixels; disappearance, text-disappearance, and focus-loss outcomes require at least 40 lost pixels. The 40-pixel floor is above the composer's source-derived 2x16.8 caret (about 34 pixels): `main_pane_system.h:701,7003` supplies the 21-pixel line height and Afterhours `text_area.h:323,340,350` applies 80% height and 2-pixel width. A caret therefore cannot qualify by itself. A flat frame, failed readback, mismatched shape, missing event timestamp, wrong-direction-only change, missing ink, or missing semantic outcome is a failure rather than a number.
 
-Measured on the committed bytes. Budget is measured + headroom, and the
-headroom is deliberately small — a budget nothing can trip is decoration.
+The first qualifying pixel frame is retained while the harness waits for the declared outcome. This makes submit measure its immediate visible feedback while still rejecting a send that never produces its acknowledgement. Key commands account for Afterhours' one-frame synthetic key-delivery boundary without moving `t0`.
 
-| arm | from → to | frames | budget |
-|---|---|---:|---:|
-| `focus` | click → the composer is the focused element | 1 | 5 |
-| `popup_open` | `/` → the slash menu over a live thread | 1 | 5 |
-| `typing_search` | typing in the sidebar → the clear affordance appears | 2 | 8 |
-| `sheet_open` | menu item → the rename modal is built | 2 | 6 |
-| `scroll` | wheel → `jump_to_bottom` appears | 4 | 8 |
-| `attachment` | picker choice → the first attachment chip is drawn | 5 | 9 |
-| `submit` | Enter → the assistant's acknowledgement reaches the transcript | 6 | 12 |
-| `click_feedback` | sidebar row click → a line only that thread contains | 7 | 11 |
-| `session_switch` | click a second tab → content only that thread has | 7 | 11 |
+Each row reports:
 
-Scripts: `tests/ui/interaction_latency_budgets.e2e` (typing/search, focus,
-submit, click feedback), `..._budgets_two.e2e` (session switch, popup,
-attachment, sheet), `..._scroll.e2e` (scroll). Three scripts because each
-needs its own fixture and the nine together exceed the runner's per-script
-budget.
+- `event_to_ink_us`: queue entry to GPU-readback confirmation, including the current probe cost.
+- `frames`: presented frames from queue entry to the first qualifying ink.
+- `changed`, `ink_gained`, and `ink_lost`: full-resolution changed-pixel classifications.
+- `required_direction` and `required_ink`: the direction selected by the declared outcome and its qualifying count.
+- `ink_before` and `ink_after`: absolute full-frame ink, retained to expose net-removal traps.
+- `probe_us`: the readback cost, kept visible instead of hidden in the headline.
+- `budget_frames`: the enforced budget.
 
-## How an arm is built
+Only `frames` is budgeted. The microsecond reading is report-only because this shared machine's load moves wall time by multiples; the audit requires deterministic frame/count gates rather than absolute-millisecond gates.
 
-Two commands, and the first one is the load-bearing half:
+## Measurements
 
-```
-watch_ink <label> <ui|text|focus> <target>   # arm; the target must be ABSENT
-<the input>
-wait_frames N
-expect_latency <label> <max_frames>
-```
+Boulder `KF74T3NW36`, 1100x760, mock backend, pinned clock and UTC fixtures:
 
-`watch_ink` **refuses to arm on a target that is already on screen**, and that
-refusal is the point. The first version of this instrument watched components
-that already existed — `transcript_scroll`, `tab_strip`, the composer input —
-so it was reporting the runner's own pacing between two commands and calling it
-interaction latency. Finding a component that was already there cannot say the
-interaction produced it. Now such an arm cannot be written: the script fails
-with `'<name>' is ALREADY present — this arm would measure the runner's pacing,
-not the interaction`.
+| arm | direction / outcome | event-to-ink | gained / lost | required | frames / budget | result |
+|---|---|---:|---:|---:|---:|---|
+| `click_feedback` | sidebar click → opened transcript | 17,573 us | 1,506 / 0 px | gained 1,506 px | 2 / 4 | pass |
+| `focus_gain` | unfocused composer → focused | 16,178 us | 1,542 / 479 px | gained 1,542 px | 2 / 3 | pass |
+| `focus_loss` | focused composer → unfocused | 35,040 us | 8,117 / 11,438 px | lost 11,438 px | 2 / 3 | pass |
+| `popup_open` | slash input → popup present | 11,804 us | 29,760 / 394 px | gained 29,760 px | 1 / 3 | pass |
+| `popup_close` | Escape → popup absent | 23,298 us | 0 / 29,760 px | lost 29,760 px | 2 / 3 | pass |
+| `sheet_open` | Rename action → sheet present | 30,725 us | 10,440 / 43,863 px | gained 10,440 px | 2 / 4 | pass |
+| `sheet_close` | Escape → sheet absent | 8,537 us | 45,705 / 14,474 px | lost 14,474 px | 2 / 4 | pass |
+| `typing_search` | first search key → clear affordance present | 5,009 us | 11,756 / 9,176 px | gained 11,756 px | 1 / 4 | pass |
+| `scroll_away` | wheel away from end → jump affordance present | 17,187 us | 26,685 / 26,753 px | gained 26,685 px | 2 / 5 | pass |
+| `scroll_back` | reverse wheel → jump affordance absent | 28,537 us | 29,962 / 35,251 px | lost 35,251 px | 2 / 5 | pass |
+| `submit` | Enter → first gained ink; acknowledgement required | 32,609 us | 415 / 877 px | gained 415 px | 3 / 4 | pass |
+| `attachment_stage` | picker acceptance → chip present | 115,432 us | 4,773 / 2,042 px | gained 4,773 px | 5 / 7 | pass |
+| `session_switch_forward` | t2 → t9 | 3,757 us | 6,537 / 0 px | gained 6,537 px | 1 / 4 | pass |
+| `session_switch_back` | t9 → t2 | 4,412 us | 6,273 / 6,448 px | gained 6,273 px | 1 / 4 | pass |
 
-Three kinds of target, because interactions produce three kinds of evidence:
+The corrected directional gate moves `submit` from the false frame-2 caret removal to frame 3 with 415 gained pixels, and moves `focus_gain` from the false frame-1 30-pixel removal to frame 2 with 1,542 gained pixels.
 
-- `text` — a string drawn this frame, read from afterhours'
-  `VisibleTextRegistry`, the same oracle its own `expect_text` uses.
-- `ui` — a laid-out component that did not exist before the input.
-- `focus` — an exact state transition, for focus, which produces no new ink of
-  its own.
+The fixtures live in `tests/ui/interaction_latency_budgets.e2e`, `interaction_latency_budgets_two.e2e`, and `interaction_latency_scroll.e2e`.
 
-The clock starts when an input is **consumed**, not dispatched.
-`LatencyInputStampSystem` runs after the builtin handlers and stamps every
-pending watcher on the frame the input took effect, so the gap between arming
-and acting is not counted. An early version stamped at dispatch and reported
-`typing 53` for a 49-character line — it was measuring the type command's own
-duration.
+## Controls
 
-Settling is a **system**, not a command. `LatencyObserverSystem` runs after
-`build_systems` and checks every armed watcher once per frame, so the frame it
-records is the frame the ink actually appeared on. It cannot be a command: the
-runner fails a command that does not consume on its first dispatch
-(`HandleUnknownCommand`), so a script-side assertion looks exactly once and
-cannot wait for ink that has not arrived yet.
+`scripts/latency_delay_sweep.sh` owns the exact 14-label vocabulary and cardinality. It runs all arms normally and with `HANABI_LATENCY_APP_DELAY_FRAMES=7`. The delay holds the queued input before the production input handlers; it does not delay observation. Every arm must move by exactly seven presented frames.
 
-## The controls
+The same gate proves these failure paths return nonzero and carry the expected diagnostic:
 
-Four, each proven by running it.
+1. A real submit arm with budget zero fails over budget.
+2. Changed pixels without the declared outcome fail as no outcome.
+3. A no-op input with neither ink nor outcome fails as no first ink.
+4. A positive arm aimed at an already-present target is refused.
+5. Reusing a label is refused as a duplicate arm.
+6. Missing, duplicate, and extra measurement rows are each rejected by the exact-set check.
+7. The normal shipping binary contains none of the latency command, delay, report strings, or `hanabi::latency` symbols.
 
-All four are durable and all four run in `scripts/latency_delay_sweep.sh`,
-which is wired into `make test`. Each asserts the harness's EXIT STATUS as well
-as its diagnostic, because a harness that prints an error and exits 0 has to
-make the control fail rather than pass.
+`tests/unit/test_latency.cpp` covers luma conversion, per-frame background estimates, a source-derived 2x17 caret, the 40-pixel floor, gained/lost classification, all six outcome-to-direction mappings, wrong-direction rejection for every outcome, shape mismatch, queue timestamp arithmetic, delivery ordering, duplicate labels, preexisting targets, no ink, no outcome, and unreadable frames. Its paired protocol proves caret removal cannot settle any appearance/focus-gain arm and caret appearance cannot settle any disappearance/focus-loss arm.
 
-| control | what it plants | what it must say |
-|---|---|---|
-| over budget | `submit` at its real budget of 12, +10 frames | `expect_latency submit: 16 frames from input to first ink, budget 12`, nonzero exit |
-| no outcome | watch ink the input never produces | `'zzz-this-ink-never-appears' never appeared`, nonzero exit |
-| preexisting target | arm on a target already on screen | `is ALREADY present — this arm would measure the runner's pacing`, nonzero exit |
-| observer calibration | +7 frames, every arm | every arm moves by exactly +7 |
+## Threading and shipping
 
-**Be precise about what the calibration proves.** `HANABI_LATENCY_DELAY` holds
-the OBSERVATION back N frames after the ink appears; it does not slow the app
-down. So it proves the instrument's arithmetic — each arm reports
-`settle - input` from its own watched target, and no arm is reading a constant
-or another arm's number. It is not evidence that the app is slow, and the
-over-budget control is what proves a ceiling can actually fail.
+The event stamp, delay, ECS/input handling, layout, rendering, pixel readback, outcome check, and result adoption all run on the frame thread. No worker reads or writes Afterhours state; the pinned Afterhours contract only guarantees that Sokol callbacks share one thread and provides no shared-ECS safety contract. The suite's process timeout is the out-of-process watchdog for a wedged frame thread.
 
-## Attachment is the production path
-
-`mark`/`settled` calls in app code were tried and removed. The arm watches
-`attach_chip_0`: the input is a real picker choice, the file goes through the
-real retain path in `attachment_intake_system.h`, and the chip is drawn through
-the same decode cache the transcript's inline images use.
-`HANABI_PICK_FILE_TEST` only replaces the native dialog — the same seam
-`tests/ui/composer_file_picker.e2e` drives — and everything after it is
-production code.
-
-## Popup and sheet are measured apart
-
-A popup is drawn over the pane it belongs to. A modal takes the window, scrims
-what is behind it, and takes the keyboard. Different amounts of work, so
-different arms and different budgets: `popup_open` is the slash menu,
-`sheet_open` is the rename modal reached by right-click → menu item.
-
-## Scroll needs its own fixture
-
-Every hand-written thread in the mock fits on screen at 1100x760, so a scroll
-arm on one of them settles never — a fixture that proves nothing rather than a
-fast app. The 120-turn perf fixture is the one place there is something to
-scroll, which is why scroll is a third script.
-
-## Not covered, and why
-
-- **Cmd-chord overlays.** The harness cannot send a chord, so the slash menu is
-  measured instead: a real popup on a real user path, exercising the same
-  build-an-overlay-over-a-live-thread work.
-- **Threading.** No experiment was run or retained. Every arm is 1–7 frames, so
-  there is no stall for a worker to relieve, and ECS, UI, layout, input and
-  render all stay on the main thread.
+The implementation is included only below `AFTER_HOURS_ENABLE_E2E_TESTING`. The shipping build has no watcher, event hook, pixel readback, delay branch, environment lookup, or reporting path.

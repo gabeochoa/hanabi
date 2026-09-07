@@ -2414,6 +2414,42 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
 }
 
 #ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+extern "C" int metal_capture_render_texture_to_memory(
+    std::uint32_t color_img_id, int width, int height, std::uint8_t** out_data,
+    int* out_size);
+
+static std::optional<hanabi::latency::Frame> capture_latency_frame(
+    std::uint64_t& probe_us) {
+    auto& target = afterhours::graphics::get_render_texture();
+    std::uint8_t* rgba = nullptr;
+    int bytes = 0;
+    const std::uint64_t started = hanabi::latency::now_us();
+    const int ok = metal_capture_render_texture_to_memory(
+        target.color_img_id, target.width, target.height, &rgba, &bytes);
+    probe_us = hanabi::latency::now_us() - started;
+    if (!ok || rgba == nullptr || bytes < 0) {
+        std::free(rgba);
+        return std::nullopt;
+    }
+    auto frame = hanabi::latency::Frame::from_rgba(
+        target.width, target.height, rgba, static_cast<std::size_t>(bytes));
+    std::free(rgba);
+    if (!frame.valid()) return std::nullopt;
+    return frame;
+}
+
+static void observe_latency_frame() {
+    std::optional<hanabi::latency::Frame> frame;
+    std::uint64_t probe_us = 0;
+    if (hanabi::latency::needs_probe()) frame = capture_latency_frame(probe_us);
+    const std::uint64_t confirmed_at_us = hanabi::latency::now_us();
+    hanabi::latency::presented(
+        std::move(frame), confirmed_at_us, probe_us,
+        [](const hanabi::latency::Watch& watch) {
+            return hanabi::e2e::latency_outcome_reached(watch);
+        });
+}
+
 // Drive the real UI from a script: a headless render loop with synthetic mouse
 // and keyboard, so an interaction — hover this, click that, assert the text
 // that appeared — can be checked in CI. Only compiled into the dedicated e2e
@@ -2424,6 +2460,9 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
 static int run_e2e(const std::string& path, int w, int h) {
     using namespace afterhours;
     namespace t = afterhours::testing;
+
+    hanabi::latency::reset();
+    hanabi::e2e::delayed_latency_inputs().clear();
 
     // Same reason as the capture path: a scripted click on a tracker id must
     // stay inside this process.
@@ -2459,10 +2498,6 @@ static int run_e2e(const std::string& path, int w, int h) {
     t::register_unknown_handler(sm);
     t::register_cleanup(sm);
     build_systems(sm);
-    // Last: it reads the UI the frame's systems just built, so an armed
-    // latency watcher settles on the frame its ink actually appeared.
-    sm.register_update_system(
-        std::make_unique<hanabi::e2e::LatencyObserverSystem>());
 
     t::platform_input::set_test_mode(true);
     int g_settle_frames = 0;
@@ -2600,6 +2635,7 @@ static int run_e2e(const std::string& path, int w, int h) {
                 apply_stream_demo(&q[0].get().get<ecs::AppComponent>());
         }
         runner.tick(kDt);
+        hanabi::e2e::stamp_queued_latency_event();
         // The scripted-UI suite runs 85 scripts through this loop and nothing
         // else drains what Metal autoreleases here.
         const hanabi::AutoreleaseFrame framePool;
@@ -2607,6 +2643,7 @@ static int run_e2e(const std::string& path, int w, int h) {
         graphics::clear_background(theme::window_bg());
         sm.run(kDt);
         graphics::end_frame();
+        observe_latency_frame();
     }
 
     const bool ranOut = !runner.is_finished();

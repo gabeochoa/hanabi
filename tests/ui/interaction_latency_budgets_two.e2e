@@ -1,51 +1,32 @@
-# Interaction latency, part 2 of 3: session switch, popup, attachment, sheet. Split from part 1 because these need their own fixture and the
-# nine together exceed the runner's per-script budget.
-#
-# Same rules: arm on ink that is not on screen, do the input, read the wait.
-# docs/perf/LATENCY.md has the budgets and the measurements.
-#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_PICK_FILE_TEST='tests/fixtures/attachments/sample.pdf;tests/fixtures/attachments/sample.md'
 
 require_thread t2
 wait_frames 20
 
-# 5. SESSION SWITCH -- a second open tab, measured to content only that thread
-#    has, so the number is the switch and not the tab strip repainting.
-watch_ink session_switch text "Kicked 41"
-click_text "kicker-tick"
-wait_frames 14
-expect_latency session_switch 11
+watch_ink session_switch_forward text "Kicked 41"
+click_ui tab_t9
+wait_frames 20
+expect_latency session_switch_forward 4
+watch_ink session_switch_back text "Reconciled 4,812"
+click_ui tab_t2
+wait_frames 20
+expect_latency session_switch_back 4
 
-# 6. POPUP -- the model picker over a live thread. A popup draws over the pane
-#    it belongs to; the sheet below takes the window, which is why they are
-#    measured and budgeted apart.
-click_ui composer_reply_input
-wait_frames 4
-watch_ink popup_open ui slash_menu
-type "/"
-wait_frames 10
-expect_latency popup_open 5
-key ESCAPE
-wait_frames 8
-
-# 8. ATTACHMENT -- the production picker seam: the control runs the picker, the
-#    file is retained, and the composer draws a chip through the same decode
-#    cache the transcript's inline images use. Measured to the first chip.
-#    HANABI_PICK_FILE_TEST only stands in for the native dialog; everything
-#    after it is the real retain-and-render path.
 focus_ui composer_attach
 expect_focused composer_attach
-watch_ink attachment ui attach_chip_0
+watch_ink attachment_stage ui attach_chip_0
 enter
-wait_frames 20
-expect_latency attachment 9
+wait_frames 24
+expect_latency attachment_stage 7
 
-# 9. SHEET / MODAL -- hanabi's rename modal, reached the way a person reaches
-#    it. It takes the window, scrims what is behind it and takes the keyboard.
-right_click_text "kicker-tick"
-wait_frames 6
+right_click_text "needs a decision before it can go on"
+wait_frames 8
 watch_ink sheet_open ui rename_panel
 click_ui row_menu_rename
 wait_frames 12
-expect_latency sheet_open 6
+expect_latency sheet_open 4
+watch_ink sheet_close ui_gone rename_panel
+key ESCAPE
+wait_frames 12
+expect_latency sheet_close 4

@@ -52,9 +52,13 @@
 // ordering the unknown handler's own error message asks for.
 // ---------------------------------------------------------------------------
 
+#include <algorithm>
+#include <cstdlib>
 #include <format>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
@@ -689,105 +693,140 @@ struct HandleExpectResizesAppliedCommand
     }
 };
 
-// True when a watcher's target is on screen (or focused) right now.
-inline bool latency_target_present(hanabi::latency::Kind kind,
+inline bool latency_target_present(hanabi::latency::Outcome outcome,
                                    const std::string& target) {
-    using hanabi::latency::Kind;
-    if (kind == Kind::Ui)
-        return afterhours::testing::ui_commands::
-            find_component_center<InputAction>(target)
-                .has_value();
-    if (kind == Kind::Text)
-        // The registry of text actually DRAWN this frame, which is what
-        // afterhours' own expect_text reads.
+    using hanabi::latency::Outcome;
+    if (outcome == Outcome::UiAppears || outcome == Outcome::UiDisappears)
+        return afterhours::testing::ui_commands::find_component_center<
+                   InputAction>(target)
+            .has_value();
+    if (outcome == Outcome::TextAppears || outcome == Outcome::TextDisappears)
         return afterhours::testing::VisibleTextRegistry::instance().contains(
             target);
     auto* ctx = afterhours::EntityHelper::get_singleton_cmp<
         afterhours::ui::UIContext<InputAction>>();
     if (ctx == nullptr) return false;
-    for (const auto& handle : afterhours::ui::UICollectionHolder::get()
-                                  .collection.get_entities()) {
+    for (const auto& handle :
+         afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
         if (!handle) continue;
-        const afterhours::Entity& e = *handle;
-        if (!e.has<afterhours::ui::UIComponentDebug>()) continue;
-        if (e.get<afterhours::ui::UIComponentDebug>().name() != target) continue;
-        const auto id = e.get<afterhours::ui::UIComponent>().id;
-        // Subtree too: a field's focusable element is a child of the named
-        // one, which is how afterhours' own expect_focused resolves it.
+        const afterhours::Entity& entity = *handle;
+        if (!entity.has<afterhours::ui::UIComponentDebug>()) continue;
+        if (entity.get<afterhours::ui::UIComponentDebug>().name() != target)
+            continue;
+        const auto id = entity.get<afterhours::ui::UIComponent>().id;
         if (ctx->has_focus(id) || ctx->contains_in_subtree(id, ctx->focus_id))
             return true;
     }
     return false;
 }
 
-// Stamps the frame an armed target first appears. A SYSTEM, not a command:
-// the runner fails a command that does not consume on its first dispatch
-// (HandleUnknownCommand), so a script-side assertion cannot wait for ink that
-// has not arrived — it looks once and is gone. This looks every frame, so the
-// frame it records is the frame the ink actually appeared on.
-struct LatencyObserverSystem
-    : afterhours::System<afterhours::ui::UIContext<InputAction>> {
-    // HANABI_LATENCY_DELAY=N holds every arm's OBSERVATION back by N frames
-    // after its target really appears. It is the falsification control: an arm
-    // whose number does not move by N was not measuring the app, and one whose
-    // number moves by N is measuring the frame its ink arrived. Unset is a
-    // hard no-op. scripts/latency_delay_sweep.sh drives it.
-    static long injected_delay() {
-        static const long n = [] {
-            const char* v = std::getenv("HANABI_LATENCY_DELAY");
-            return v != nullptr && *v != '\0' ? std::atol(v) : 0L;
-        }();
-        return n;
-    }
-    void once(float) override {
-        const long delay = injected_delay();
-        for (auto& w : hanabi::latency::watches()) {
-            if (w.pending || w.armed < 0 || w.settled >= 0) continue;
-            if (!latency_target_present(w.kind, w.target)) continue;
-            if (w.first_seen < 0) w.first_seen = hanabi::latency::now_frame();
-            if (hanabi::latency::now_frame() - w.first_seen >= delay)
-                w.settled = hanabi::latency::now_frame();
+inline bool latency_outcome_reached(const hanabi::latency::Watch& watch) {
+    return latency_target_present(watch.outcome, watch.target) ==
+           hanabi::latency::expects_present(watch.outcome);
+}
+
+inline bool latency_input_command(std::string_view name) {
+    static constexpr std::string_view inputs[] = {
+        "click",          "click_ui",
+        "click_text",     "click_button",
+        "double_click",   "double_click_ui",
+        "triple_click",   "right_click",
+        "right_click_ui", "right_click_text",
+        "middle_click",   "key",
+        "type",           "scroll_wheel",
+        "focus_ui",       "toggle_checkbox",
+        "drag",           "drag_to",
+        "mouse_down",     "mouse_up",
+        "select_all",     "action",
+        "click_link",     "resize",
+        "enter",          "tab",
+        "escape",
+    };
+    return std::find(std::begin(inputs), std::end(inputs), name) !=
+           std::end(inputs);
+}
+
+inline int latency_input_effect_lag(std::string_view name) {
+    return name == "key" || name == "enter" || name == "escape" || name == "tab"
+               ? 1
+               : 0;
+}
+
+inline void stamp_queued_latency_event() {
+    if (hanabi::latency::active() == nullptr ||
+        hanabi::latency::active()->phase !=
+            hanabi::latency::Phase::AwaitingEvent)
+        return;
+    for (const auto& handle : afterhours::EntityHelper::get_temp()) {
+        if (!handle || !handle->has<afterhours::testing::PendingE2ECommand>())
+            continue;
+        const auto& cmd = handle->get<afterhours::testing::PendingE2ECommand>();
+        if (!cmd.is_consumed() && latency_input_command(cmd.name)) {
+            (void) hanabi::latency::event_queued();
+            return;
         }
     }
+}
+
+struct DelayedLatencyInput {
+    std::string command;
+    int frames_left = 0;
 };
 
-// Starts every pending watcher's clock on the frame an input is consumed.
-// Registered after the builtins, so `is_consumed` means the input took effect
-// on this frame rather than merely having been dispatched.
-struct LatencyInputStampSystem
+inline std::unordered_map<afterhours::EntityID, DelayedLatencyInput>&
+delayed_latency_inputs() {
+    static std::unordered_map<afterhours::EntityID, DelayedLatencyInput> value;
+    return value;
+}
+
+inline int latency_app_delay_frames() {
+    static const int value = [] {
+        const char* raw = std::getenv("HANABI_LATENCY_APP_DELAY_FRAMES");
+        if (raw == nullptr || *raw == '\0') return 0;
+        return std::clamp(std::atoi(raw), 0, 20);
+    }();
+    return value;
+}
+
+struct LatencyInputEventSystem
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
-    void once(float) override { afterhours::EntityHelper::merge_entity_arrays(); }
-    void for_each_with(afterhours::Entity&,
+    void once(float) override {
+        afterhours::EntityHelper::merge_entity_arrays();
+    }
+
+    void for_each_with(afterhours::Entity& entity,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
-        if (!cmd.is_consumed()) return;
-        static const char* kInputs[] = {
-            "click", "click_ui", "click_text", "click_button", "double_click",
-            "double_click_ui", "triple_click", "right_click", "right_click_ui",
-            "right_click_text", "middle_click", "key", "type", "scroll_wheel",
-            "focus_ui", "toggle_checkbox", "drag", "drag_to", "mouse_down",
-            "mouse_up", "select_all", "action", "click_link", "resize",
-            "enter", "tab", "escape"};
-        for (const char* name : kInputs)
-            if (cmd.is(name)) {
-                hanabi::latency::input_landed();
+        if (cmd.is_consumed()) return;
+        auto delayed = delayed_latency_inputs().find(entity.id);
+        if (delayed != delayed_latency_inputs().end()) {
+            if (delayed->second.frames_left > 0) {
+                --delayed->second.frames_left;
+                cmd.retry();
                 return;
             }
+            const std::string command = delayed->second.command;
+            cmd.name = command;
+            cmd.reset_retry();
+            delayed_latency_inputs().erase(delayed);
+            hanabi::latency::input_delivered(latency_input_effect_lag(command));
+            return;
+        }
+        if (!latency_input_command(cmd.name) ||
+            !hanabi::latency::awaiting_delivery())
+            return;
+        const int delay = latency_app_delay_frames();
+        if (delay == 0) {
+            hanabi::latency::input_delivered(
+                latency_input_effect_lag(cmd.name));
+            return;
+        }
+        delayed_latency_inputs()[entity.id] = {cmd.name, delay - 1};
+        cmd.name = "__hanabi_latency_delayed_input";
+        cmd.retry();
     }
 };
 
-// `watch_ink <label> <ui|text|focus> <target>` — arm a latency watcher.
-//
-// The target MUST be absent right now; arming on something already on screen
-// fails the script. That is the whole point: an assertion that merely FINDS a
-// component cannot say the interaction produced it, and an always-present
-// container (a scroll view, the tab strip, a text field) makes every arm read
-// as the runner's own pacing between two commands. This instrument had that
-// bug in all five of its first arms.
-//
-// Arm BEFORE the input. The clock starts when the next input is CONSUMED by
-// its builtin handler, so the runner's own gap between the two commands is not
-// counted and the number is the app's response alone.
 struct HandleWatchInkCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -795,42 +834,50 @@ struct HandleWatchInkCommand
                        float) override {
         if (cmd.is_consumed() || !cmd.is("watch_ink")) return;
         if (!cmd.has_args(3)) {
-            cmd.fail("watch_ink requires <label> <ui|text|focus> <target>");
+            cmd.fail(
+                "watch_ink requires <label> "
+                "<ui|ui_gone|text|text_gone|focus|blur> <target>");
             return;
         }
         const std::string label = cmd.arg(0);
-        const std::string kindArg = cmd.arg(1);
-        // The runner's generic parser splits on whitespace and keeps quotes,
-        // so a quoted multi-word target arrives as several args with the
-        // quotes still on. Rejoin and unquote.
+        const std::string kind = cmd.arg(1);
         std::string target;
-        for (size_t i = 2; i < cmd.args.size(); ++i) {
+        for (std::size_t i = 2; i < cmd.args.size(); ++i) {
             if (!target.empty()) target += ' ';
             target += cmd.args[i];
         }
         if (target.size() >= 2 && target.front() == '"' && target.back() == '"')
             target = target.substr(1, target.size() - 2);
-        hanabi::latency::Kind kind;
-        if (kindArg == "ui") kind = hanabi::latency::Kind::Ui;
-        else if (kindArg == "text") kind = hanabi::latency::Kind::Text;
-        else if (kindArg == "focus") kind = hanabi::latency::Kind::Focus;
-        else {
-            cmd.fail(std::format("watch_ink: unknown kind '{}'", kindArg));
+
+        using hanabi::latency::Outcome;
+        std::optional<Outcome> outcome;
+        if (kind == "ui")
+            outcome = Outcome::UiAppears;
+        else if (kind == "ui_gone")
+            outcome = Outcome::UiDisappears;
+        else if (kind == "text")
+            outcome = Outcome::TextAppears;
+        else if (kind == "text_gone")
+            outcome = Outcome::TextDisappears;
+        else if (kind == "focus")
+            outcome = Outcome::FocusGained;
+        else if (kind == "blur")
+            outcome = Outcome::FocusLost;
+        if (!outcome.has_value()) {
+            cmd.fail(std::format("watch_ink: unknown outcome '{}'", kind));
             return;
         }
-        if (latency_target_present(kind, target)) {
-            cmd.fail(std::format(
-                "watch_ink {}: '{}' is ALREADY present — this arm would "
-                "measure the runner's pacing, not the interaction",
-                label, target));
+
+        const bool present = latency_target_present(*outcome, target);
+        if (auto error =
+                hanabi::latency::arm(label, *outcome, target, present)) {
+            cmd.fail(std::format("watch_ink {}: {}", label, *error));
             return;
         }
-        hanabi::latency::arm(label, kind, target);
         cmd.consume();
     }
 };
 
-// `expect_latency <label> <max_frames>` — read a settled watcher.
 struct HandleExpectLatencyCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -843,26 +890,38 @@ struct HandleExpectLatencyCommand
         }
         const std::string label = cmd.arg(0);
         const int budget = cmd.arg_as<int>(1);
-        const long frames = hanabi::latency::latency(label);
-        if (frames < 0) {
-            // Name what WAS drawn. A text watcher matches one drawn string at
-            // a time, so a needle that spans a wrap never matches and the
-            // reason is invisible without this.
-            const hanabi::latency::Watch* w = hanabi::latency::find(label);
-            std::string seen =
-                afterhours::testing::VisibleTextRegistry::instance().get_all();
-            if (seen.size() > 400) seen = seen.substr(0, 400) + " ...";
-            cmd.fail(std::format(
-                "expect_latency {}: '{}' never appeared. Visible text was: {}",
-                label, w != nullptr ? w->target : std::string("?"), seen));
+        hanabi::latency::Watch* watch = hanabi::latency::find(label);
+        if (watch == nullptr) {
+            cmd.fail(std::format("expect_latency {}: no such arm", label));
             return;
         }
-        std::fprintf(stderr, "[latency] %s %ld\n", label.c_str(), frames);
-        if (frames > budget) {
-            cmd.fail(std::format(
-                "expect_latency {}: {} frames from input to first ink, "
-                "budget {}",
-                label, frames, budget));
+        if (watch->phase != hanabi::latency::Phase::Settled ||
+            !watch->reading.has_value()) {
+            cmd.fail(std::format("expect_latency {}: {} ('{}')", label,
+                                 hanabi::latency::unresolved_reason(*watch),
+                                 watch->target));
+            return;
+        }
+        const auto reading = *watch->reading;
+        std::fprintf(stderr,
+                     "[latency] %s event_to_ink_us=%llu frames=%ld changed=%d "
+                     "ink_gained=%d ink_lost=%d required_direction=%s "
+                     "required_ink=%d ink_before=%d ink_after=%d probe_us=%llu "
+                     "budget_frames=%d\n",
+                     label.c_str(),
+                     static_cast<unsigned long long>(reading.event_to_ink_us),
+                     reading.frames, reading.changed, reading.ink_gained,
+                     reading.ink_lost,
+                     hanabi::latency::ink_direction_name(watch->outcome),
+                     reading.required_ink, reading.ink_before,
+                     reading.ink_after,
+                     static_cast<unsigned long long>(reading.probe_us), budget);
+        hanabi::latency::mark_reported(*watch);
+        if (reading.frames > budget) {
+            cmd.fail(
+                std::format("expect_latency {}: {} frames from event timestamp "
+                            "to first ink, budget {}",
+                            label, reading.frames, budget));
             return;
         }
         cmd.consume();
@@ -875,16 +934,15 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleResizeDeferredCommand>());
     sm.register_update_system(
         std::make_unique<HandleExpectResizesAppliedCommand>());
+    sm.register_update_system(std::make_unique<LatencyInputEventSystem>());
 }
 
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
-    // After the builtins on purpose: watch_ink records the frame the PREVIOUS
-    // input was consumed, which is the frame it landed.
-    sm.register_update_system(std::make_unique<LatencyInputStampSystem>());
     sm.register_update_system(std::make_unique<HandleWatchInkCommand>());
     sm.register_update_system(std::make_unique<HandleExpectLatencyCommand>());
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
-    sm.register_update_system(std::make_unique<HandleExpectNotFocusedCommand>());
+    sm.register_update_system(
+        std::make_unique<HandleExpectNotFocusedCommand>());
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());
     sm.register_update_system(std::make_unique<HandleExpectPanesCommand>());
     sm.register_update_system(std::make_unique<HandleResetClipboardCommand>());
