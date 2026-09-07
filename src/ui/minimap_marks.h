@@ -1,4 +1,7 @@
 #pragma once
+#include <string_view>
+#include <string>
+#include <array>
 
 // ---------------------------------------------------------------------------
 // The rail's MARKS, as arithmetic: what kinds there are, how tall a slot is,
@@ -28,6 +31,64 @@ enum class Mark {
     Notice,     // a sub-agent spawn: a notable event in the thread
     Note,       // reasoning, dividers — present, but quiet
 };
+
+// Which mark kinds a reader has switched off, as a persisted key string.
+// A key rather than a bitmask so a kind added later cannot silently inherit
+// some other kind's bit and hide the wrong marks.
+inline constexpr std::string_view mark_key(Mark mark) {
+    switch (mark) {
+        case Mark::Machinery: return "machinery";
+        case Mark::Reply: return "reply";
+        case Mark::Ask: return "ask";
+        case Mark::Notice: return "notice";
+        case Mark::Note: return "note";
+    }
+    return "note";
+}
+
+inline constexpr std::array<Mark, 5> kAllMarks{
+    {Mark::Machinery, Mark::Reply, Mark::Ask, Mark::Notice, Mark::Note}};
+
+// `hidden` is a comma-separated list of mark keys. Empty means show
+// everything, which is the behaviour that shipped before there was a filter.
+inline bool mark_hidden(std::string_view hidden, Mark mark) {
+    if (hidden.empty()) return false;
+    const std::string_view key = mark_key(mark);
+    size_t at = 0;
+    while (at <= hidden.size()) {
+        const size_t end = hidden.find(',', at);
+        const size_t stop = end == std::string_view::npos ? hidden.size() : end;
+        if (hidden.substr(at, stop - at) == key) return true;
+        if (end == std::string_view::npos) break;
+        at = end + 1;
+    }
+    return false;
+}
+
+inline std::string toggle_mark(std::string_view hidden, Mark mark) {
+    const std::string key(mark_key(mark));
+    std::vector<std::string> kept;
+    size_t at = 0;
+    bool removed = false;
+    while (at <= hidden.size() && !hidden.empty()) {
+        const size_t end = hidden.find(',', at);
+        const size_t stop = end == std::string_view::npos ? hidden.size() : end;
+        const std::string piece(hidden.substr(at, stop - at));
+        if (!piece.empty()) {
+            if (piece == key) removed = true;
+            else kept.push_back(piece);
+        }
+        if (end == std::string_view::npos) break;
+        at = end + 1;
+    }
+    if (!removed) kept.push_back(key);
+    std::string out;
+    for (const auto& piece : kept) {
+        if (!out.empty()) out.push_back(',');
+        out += piece;
+    }
+    return out;
+}
 
 // Rail geometry.
 inline constexpr float kRailW = 10.0f;      // the strip itself

@@ -488,9 +488,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             sv.scroll_offset.y = 1e9f;
             hanabi::set_scroll_target_y(sv, 1e9f);  // sync (smooth-scroll patch)
             sv.clamp_scroll();
-            model::FollowMemory& latch = model::pane_states().touch(
-                model::pane_key(pane_index(app, pane), pane.openSession->summary.id))
-                                             .latch;
+            model::FollowMemory& latch = seeded_latch(model::pane_states().touch(
+                model::pane_key(pane_index(app, pane), pane.openSession->summary.id)));
             model::note_follow_pinned(latch, sv.scroll_offset.y,
                                       sv.scroll_target.y);
             app.focusedPane = pane_index(app, pane);
@@ -1147,6 +1146,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return md_to_spans(line).visible;
     }
     // Line-by-line: bullet markers -> "•", ordered "1." kept, hr -> dashes.
+    // The face a side's message text draws in. Empty preference, or a face
+    // that is not loaded, means the app font -- so a reader who never opened
+    // the setting sees exactly what they saw before it existed.
+    static std::string side_face(bool user) {
+        const std::string& key = user ? Settings::get().get_user_font()
+                                      : Settings::get().get_assistant_font();
+        if (key.empty()) return {};
+        return hanabi::fonts::face_name(key,
+                                        Settings::get().get_font_weight());
+    }
+
     static std::string normalize_md_lines(const std::string& in) {
         std::string out;
         out.reserve(in.size());
@@ -2125,6 +2135,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     using Item = model::TranscriptItem;
 
     // ---- Minimap rail -----------------------------------------------------
+    static model::FollowMemory& seeded_latch(model::PaneState& state) {
+        if (!state.latchSeeded) {
+            state.latchSeeded = true;
+            state.latch.follow = Settings::get().get_jump_to_latest();
+        }
+        return state.latch;
+    }
+
     void minimap_rail(UIContext<InputAction>& ctx, Entity& parent,
                       Entity& scrollEnt, const std::vector<Item>& items,
                       const std::vector<api::Message>& msgs, float subH,
@@ -2137,7 +2155,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // below worth_showing, the reader switched tabs, the pane got narrow —
         // the state has to go with it, or the next press inherits a drag
         // nobody started.
-        if (items.empty() ||
+        if (items.empty() || !Settings::get().get_show_minimap() ||
             !hanabi::minimap::worth_showing(totalH, viewH) ||
             !scrollEnt.has<afterhours::ui::HasScrollView>()) {
             drag = {};
@@ -2251,6 +2269,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         break;
                     default: break;
                 }
+                if (hanabi::minimap::mark_hidden(
+                        Settings::get().get_minimap_hidden_marks(), mark))
+                    continue;
                 heights.push_back(it.height);
                 kinds.push_back(mark);
             }
@@ -3916,7 +3937,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // each other. Each pane's curId indexes its own latch.
         model::PaneState& mem =
             model::pane_states().touch(model::pane_key(pane_index(app, pane), curId));
-        model::FollowMemory& latch = mem.latch;
+        model::FollowMemory& latch = seeded_latch(mem);
         // A reference, because the minimap rail below is handed the latch and
         // breaks it when a drag scrubs backwards.
         bool& s_follow = latch.follow;
@@ -9428,6 +9449,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_roundness(0.0f)
                         .with_debug_name("asst_line");
+                if (const std::string face = side_face(false); !face.empty())
+                    cfg = cfg.with_font(face, theme::type::BODY);
                 // Both bands go BEHIND the glyphs: on_draw_bg runs before the
                 // widget's own fill, and this element's fill is transparent.
                 // The element's id is not known until it exists, so the draw
@@ -9838,6 +9861,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("user_text");
+            if (const std::string face = side_face(true); !face.empty())
+                ucfg = ucfg.with_font(face, theme::type::BODY);
             const auto uep = mk(bub.ent(), 2);
             Entity& userEnt = uep.first.get();
             auto& uld = userEnt.addComponentIfMissing<ecs::LineDrawState>();

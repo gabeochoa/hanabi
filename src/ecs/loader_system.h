@@ -91,8 +91,6 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         app.apply_attach_brakes(s.summary.id, brakes);
     }
 
-
-
     static void request_ask_refresh(AppComponent& app, const std::string& id) {
         if (id.empty() || !app.client) return;
         if (app.askRefreshes.count(id) != 0) return;
@@ -1601,6 +1599,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // If the backend can't write, we're done: local-only, no error. The
         // dirty flag is already cleared so we don't spin every frame.
         if (!app.client->supports_settings_write()) return;
+        if (!s.get_send_usage_data()) return;
 
         // Build the snapshot payload from the local Settings. Carried in
         // UserSettings.raw_json so the http adapter can PUT it verbatim and the

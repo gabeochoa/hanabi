@@ -1,0 +1,16 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+
+click_ui settings_close
+wait_frames 10
+expect_focused sb_settings
+
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+key ESCAPE
+wait_frames 10
+expect_focused sb_settings

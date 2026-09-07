@@ -1,0 +1,69 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 20
+
+watch_ink settings_open ui settings_panel
+click_ui sb_settings
+wait_frames 12
+expect_latency settings_open 4
+
+watch_ink settings_pane_switch ui settings_palette_row
+click_ui sb_settings_nav_appearance
+wait_frames 12
+expect_latency settings_pane_switch 4
+
+click_ui sb_settings_nav_storage
+wait_frames 8
+watch_ink settings_activate text "reclaimed"
+click_ui settings_cache_clear
+wait_frames 12
+expect_latency settings_activate 4
+
+click_ui sb_settings_nav_general
+wait_frames 8
+click_ui settings_search
+wait_frames 8
+watch_ink settings_focus_move focus sb_settings_nav_general
+key TAB
+wait_frames 12
+expect_latency settings_focus_move 4
+
+click_ui settings_search
+wait_frames 8
+watch_ink settings_typing ui settings_result_0
+type "them"
+wait_frames 14
+expect_latency settings_typing 4
+
+watch_ink settings_search_cleared ui_gone settings_result_0
+key ESCAPE
+wait_frames 12
+expect_latency settings_search_cleared 4
+
+watch_ink settings_zero_state text "No settings match"
+type "zzqq"
+wait_frames 14
+expect_latency settings_zero_state 4
+
+key ESCAPE
+wait_frames 10
+
+click_ui sb_settings_nav_shortcuts
+wait_frames 8
+mouse_move 700 500
+scroll_wheel 0 -40
+wait_frames 10
+watch_ink settings_sheet_open ui shortcuts_panel
+click_ui settings_open_shortcuts
+wait_frames 14
+expect_latency settings_sheet_open 5
+
+key ESCAPE
+wait_frames 10
+click_ui sb_settings
+wait_frames 10
+
+watch_ink settings_close ui_gone settings_panel
+click_ui settings_close
+wait_frames 12
+expect_latency settings_close 4

@@ -35,6 +35,9 @@
 
 #include <cmath>
 #include <cstdio>
+#include <set>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "../../src/ui/minimap_marks.h"
@@ -186,6 +189,47 @@ static void test_nothing_to_map() {
     CHECK(mm::group_marks(h, m, 0.0f, 600.0f, 0.0f).empty());
 }
 
+static void test_the_mark_filter_hides_exactly_what_it_names() {
+    using hanabi::minimap::Mark;
+    // No filter is the shipped behaviour: everything shows.
+    for (const auto mark : hanabi::minimap::kAllMarks)
+        CHECK(!hanabi::minimap::mark_hidden("", mark));
+
+    const std::string one = hanabi::minimap::toggle_mark("", Mark::Reply);
+    CHECK(hanabi::minimap::mark_hidden(one, Mark::Reply));
+    CHECK(!hanabi::minimap::mark_hidden(one, Mark::Ask));
+    CHECK(!hanabi::minimap::mark_hidden(one, Mark::Machinery));
+
+    // Toggling the same kind restores it, and leaves the others alone.
+    const std::string two = hanabi::minimap::toggle_mark(one, Mark::Ask);
+    CHECK(hanabi::minimap::mark_hidden(two, Mark::Reply));
+    CHECK(hanabi::minimap::mark_hidden(two, Mark::Ask));
+    const std::string back = hanabi::minimap::toggle_mark(two, Mark::Reply);
+    CHECK(!hanabi::minimap::mark_hidden(back, Mark::Reply));
+    CHECK(hanabi::minimap::mark_hidden(back, Mark::Ask));
+
+    // Every kind can be hidden and restored, one at a time.
+    for (const auto mark : hanabi::minimap::kAllMarks) {
+        const std::string hidden = hanabi::minimap::toggle_mark("", mark);
+        CHECK(hanabi::minimap::mark_hidden(hidden, mark));
+        for (const auto other : hanabi::minimap::kAllMarks)
+            if (other != mark) CHECK(!hanabi::minimap::mark_hidden(hidden, other));
+        CHECK(hanabi::minimap::toggle_mark(hidden, mark).empty());
+    }
+
+    // A key that is a prefix of another must not match it.
+    CHECK(!hanabi::minimap::mark_hidden("notice", Mark::Note));
+    CHECK(hanabi::minimap::mark_hidden("notice", Mark::Notice));
+    CHECK(hanabi::minimap::mark_hidden("note", Mark::Note));
+    CHECK(!hanabi::minimap::mark_hidden("note", Mark::Notice));
+
+    // Every kind has its own key.
+    std::set<std::string_view> keys;
+    for (const auto mark : hanabi::minimap::kAllMarks)
+        CHECK(keys.insert(hanabi::minimap::mark_key(mark)).second);
+    CHECK(keys.size() == hanabi::minimap::kAllMarks.size());
+}
+
 int main() {
     std::printf("=== minimap mark grouping ===\n");
     test_a_rail_with_room_keeps_one_mark_per_item();
@@ -195,6 +239,7 @@ int main() {
     test_a_group_keeps_the_most_worth_seeing_kind();
     test_the_tail_is_not_dropped();
     test_nothing_to_map();
+    test_the_mark_filter_hides_exactly_what_it_names();
     if (g_failures == 0) {
         std::printf("all passed\n");
         return 0;

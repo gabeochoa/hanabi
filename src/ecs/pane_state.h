@@ -89,6 +89,8 @@ struct PaneState {
     // (follow_latch.h; the arithmetic is tested in test_follow_latch.cpp.)
     FollowMemory latch;
 
+    bool latchSeeded = false;
+
     // ---- Virtualiser scroll velocity --------------------------------------
     bool haveLastScrollY = false;  // a first sight has velocity 0, not -scrollY
     float lastScrollY = 0.0f;

@@ -163,6 +163,65 @@ static void test_native_delivery_is_suppressed_for_muted_threads() {
     }
 }
 
+static void test_a_subagent_is_silent_until_the_reader_asks() {
+    hanabi::notify::Snapshot prev{{"parent", hanabi::notify::Activity::Other},
+                                  {"child", hanabi::notify::Activity::Other}};
+    const std::vector<std::pair<std::string, hanabi::notify::Activity>> now{
+        {"parent", hanabi::notify::Activity::Other},
+        {"child", hanabi::notify::Activity::Blocked}};
+    const std::map<std::string, std::string> titles{{"child", "a child"}};
+    hanabi::notify::Children children{"child"};
+
+    hanabi::notify::Wants off;
+    off.subagents = false;
+    CHECK(hanabi::notify::transitions(prev, now, titles, {}, children, off)
+              .empty());
+    CHECK(!hanabi::notify::native_event(prev, now, titles, {}, children, off)
+               .has_value());
+
+    hanabi::notify::Wants on;
+    on.subagents = true;
+    const auto reported =
+        hanabi::notify::transitions(prev, now, titles, {}, children, on);
+    CHECK(reported.size() == 1);
+    if (!reported.empty()) CHECK(reported[0].id == "child");
+
+    // A thread that is nobody's child is unaffected either way.
+    const std::vector<std::pair<std::string, hanabi::notify::Activity>> top{
+        {"parent", hanabi::notify::Activity::Blocked}};
+    CHECK(hanabi::notify::transitions(prev, top, titles, {}, children, off)
+              .size() == 1);
+}
+
+static void test_a_muted_subagent_stays_muted_when_asked_for() {
+    hanabi::notify::Snapshot prev{{"child", hanabi::notify::Activity::Other}};
+    const std::vector<std::pair<std::string, hanabi::notify::Activity>> now{
+        {"child", hanabi::notify::Activity::Blocked}};
+    hanabi::notify::Wants on;
+    on.subagents = true;
+    CHECK(hanabi::notify::transitions(prev, now, {}, {"child"},
+                                      {"child"}, on)
+              .empty());
+}
+
+static void test_the_chime_answers_to_both_switches() {
+    const hanabi::notify::Event finished{
+        hanabi::notify::Event::Kind::Finished, "t", "t"};
+    const hanabi::notify::Event blocked{hanabi::notify::Event::Kind::Blocked,
+                                        "t", "t"};
+
+    CHECK(hanabi::notify::cue_for(finished, true, true).chime);
+    // Either switch off silences it, including the master: a chime from an app
+    // that promised to stay quiet is the same interruption by another route.
+    CHECK(!hanabi::notify::cue_for(finished, false, true).chime);
+    CHECK(!hanabi::notify::cue_for(finished, true, false).chime);
+    CHECK(!hanabi::notify::cue_for(finished, false, false).chime);
+    // Blocked is not a finished run, so it is not this cue.
+    CHECK(!hanabi::notify::cue_for(blocked, true, true).chime);
+    // No event, no cue.
+    CHECK(!hanabi::notify::cue_for(std::nullopt, true, true).chime);
+}
+
 int main() {
     std::printf("=== test_notify_events ===\n");
     test_first_sight_is_never_news();
@@ -176,6 +235,9 @@ int main() {
     test_unmuting_does_not_replay_what_was_missed();
     test_muting_an_unknown_thread_is_harmless();
     test_native_delivery_is_suppressed_for_muted_threads();
+    test_a_subagent_is_silent_until_the_reader_asks();
+    test_a_muted_subagent_stays_muted_when_asked_for();
+    test_the_chime_answers_to_both_switches();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

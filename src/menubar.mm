@@ -237,6 +237,10 @@ void menubar_refresh_shortcuts(void) {
             menuItem.keyEquivalent = @"";
             continue;
         }
+        if (!Settings::get().get_shortcut_enabled(def.command)) {
+            menuItem.keyEquivalent = @"";
+            continue;
+        }
         const auto shortcut = Settings::get().get_shortcut(def.command);
         const std::string equivalent =
             hanabi::shortcuts::native_key_equivalent(shortcut);

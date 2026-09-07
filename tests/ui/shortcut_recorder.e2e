@@ -21,8 +21,8 @@ click_ui shortcut_record_open_palette
 wait_frames 3
 key CMD+SHIFT+P
 wait_frames 8
-expect_text "Saved Command palette as Cmd Shift P."
-expect_text "Cmd Shift P"
+expect_text "Saved Command palette as Shift Cmd P."
+expect_text "Shift Cmd P"
 
 click_ui shortcuts_restore_defaults
 wait_frames 6

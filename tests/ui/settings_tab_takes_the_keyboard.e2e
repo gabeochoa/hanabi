@@ -1,0 +1,22 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+click_ui sb_settings
+wait_frames 8
+
+type "them"
+wait_frames 10
+expect_text "Rotate theme"
+
+key ESCAPE
+wait_frames 8
+
+key TAB
+wait_frames 6
+type "them"
+wait_frames 10
+expect_no_text "Rotate theme"
+expect_text "Send message with"
+
+key DOWN
+wait_frames 6
+expect_text "Rotate theme"

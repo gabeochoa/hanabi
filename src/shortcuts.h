@@ -256,10 +256,10 @@ inline std::string display(Shortcut shortcut) {
         if (!out.empty()) out += " ";
         out += value;
     };
-    if (shortcut.modifiers & CommandModifier) add("Cmd");
     if (shortcut.modifiers & ControlModifier) add("Ctrl");
     if (shortcut.modifiers & OptionModifier) add("Opt");
     if (shortcut.modifiers & ShiftModifier) add("Shift");
+    if (shortcut.modifiers & CommandModifier) add("Cmd");
     add(key_name(shortcut.key));
     return out;
 }

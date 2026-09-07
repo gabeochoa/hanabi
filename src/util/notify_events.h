@@ -53,17 +53,31 @@ using Snapshot = std::map<std::string, Activity>;
 // next snapshot, so a thread that blocks while muted is already accounted for
 // and unmuting it later cannot fire a banner about something that happened
 // hours ago.
+// Which threads are somebody else's child. Membership comes from the session
+// model's own parent link, never from a title: a thread called "sub-agent" is
+// not one, and a real child whose title says nothing still is.
+using Children = std::set<std::string>;
+
+// What the reader asked to be told about. Defaults are the behaviour that
+// shipped before there were switches, so an absent preference changes nothing.
+struct Wants {
+    bool subagents = false;  // sub-agent transitions raise a banner
+};
+
 inline std::vector<Event> transitions(
     const Snapshot& previous,
     const std::vector<std::pair<std::string, Activity>>& current,
     const std::map<std::string, std::string>& titles,
-    const std::set<std::string>& muted = {}) {
+    const std::set<std::string>& muted = {},
+    const Children& children = {},
+    const Wants& wants = Wants{}) {
     std::vector<Event> out;
     for (const auto& [id, now] : current) {
         auto prev = previous.find(id);
         if (prev == previous.end()) continue;
         if (prev->second == now) continue;
         if (muted.count(id) != 0) continue;
+        if (!wants.subagents && children.count(id) != 0) continue;
 
         auto title = titles.find(id);
         const std::string label = title == titles.end() ? std::string{}
@@ -80,12 +94,30 @@ inline std::optional<Event> native_event(
     const Snapshot& previous,
     const std::vector<std::pair<std::string, Activity>>& current,
     const std::map<std::string, std::string>& titles,
-    const std::set<std::string>& muted = {}) {
-    const auto events = transitions(previous, current, titles, muted);
+    const std::set<std::string>& muted = {},
+    const Children& children = {},
+    const Wants& wants = Wants{}) {
+    const auto events =
+        transitions(previous, current, titles, muted, children, wants);
     if (events.empty()) return std::nullopt;
     for (const auto& event : events)
         if (event.kind == Event::Kind::Blocked) return event;
     return events.front();
+}
+
+// The chime is a cue, not a notification: a reader who switched banners off may
+// still want to hear a run land. It answers to BOTH switches because a chime
+// from an app that promised to stay quiet is the same interruption by another
+// route -- and only to a run that FINISHED, which is what the cue means.
+struct Cue {
+    bool chime = false;
+};
+
+inline Cue cue_for(const std::optional<Event>& event, bool notifications_on,
+                   bool chime_on) {
+    if (!event.has_value()) return Cue{};
+    if (!notifications_on || !chime_on) return Cue{};
+    return Cue{event->kind == Event::Kind::Finished};
 }
 
 inline Snapshot snapshot(

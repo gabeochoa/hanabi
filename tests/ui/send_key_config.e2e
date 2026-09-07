@@ -45,7 +45,7 @@ expect_input_text composer_reply_input ""
 # ---- Switch the setting to Cmd+Return ------------------------------------
 click_ui sb_settings
 wait_frames 8
-expect_text "Send with"
+expect_text "Send message with"
 click_ui settings_send_key_1
 wait_frames 6
 click_ui settings_close

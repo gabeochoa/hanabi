@@ -3,6 +3,7 @@
 #include <afterhours/src/singleton.h>
 
 #include "shortcuts.h"
+#include "global_hotkeys.h"
 
 #include <array>
 #include <cstddef>
@@ -136,6 +137,12 @@ struct Settings {
     void set_font_choice(const std::string& font);  // auto-persists
     const std::string& get_font_weight() const;
     void set_font_weight(const std::string& weight);
+    // Per-side message typeface. Empty means "follow the app font", which is
+    // what every reader has today, so an unset value renders exactly as before.
+    const std::string& get_user_font() const;
+    void set_user_font(const std::string& key);        // auto-persists
+    const std::string& get_assistant_font() const;
+    void set_assistant_font(const std::string& key);   // auto-persists
 
     // Custom colours: which NAMED swatch the accent family and the find
     // highlight use ("default" = the palette's own colour). A key, not a hex
@@ -146,6 +153,24 @@ struct Settings {
     void set_accent_choice(const std::string& key);  // auto-persists
     const std::string& get_highlight_choice() const;
     void set_highlight_choice(const std::string& key);  // auto-persists
+    const std::string& get_settings_pane() const;
+    void set_settings_pane(const std::string& slug);  // auto-persists
+    bool get_restore_tabs() const;
+    void set_restore_tabs(bool on);  // auto-persists
+    bool get_jump_to_latest() const;
+    void set_jump_to_latest(bool on);  // auto-persists
+    bool get_show_minimap() const;
+    void set_show_minimap(bool on);  // auto-persists
+    const std::string& get_minimap_hidden_marks() const;
+    void set_minimap_hidden_marks(const std::string& keys);  // auto-persists
+    bool get_notifications_enabled() const;
+    void set_notifications_enabled(bool on);  // auto-persists
+    bool get_run_chime() const;
+    void set_run_chime(bool on);  // auto-persists
+    bool get_notify_subagents() const;
+    void set_notify_subagents(bool on);  // auto-persists
+    bool get_send_usage_data() const;
+    void set_send_usage_data(bool on);  // auto-persists
     // ── Export destination (Settings -> Data -> Export) ─────────────────
     // Where "Export all" writes the owned Markdown copies. Empty means the
     // built-in default (api::disk_cache::export_dir(), ~/hanabi/threads);
@@ -364,6 +389,16 @@ struct Settings {
         hanabi::shortcuts::Command command,
         hanabi::shortcuts::Shortcut shortcut);
     void reset_shortcuts();
+    bool get_shortcut_enabled(hanabi::shortcuts::Command command) const;
+    void set_shortcut_enabled(hanabi::shortcuts::Command command, bool on);
+    bool shortcuts_are_default() const;
+    hanabi::shortcuts::Shortcut get_global_shortcut(
+        hanabi::globals::Slot slot) const;
+    void set_global_shortcut(hanabi::globals::Slot slot,
+                             hanabi::shortcuts::Shortcut shortcut);
+    bool get_global_enabled(hanabi::globals::Slot slot) const;
+    void set_global_enabled(hanabi::globals::Slot slot, bool on);
+    hanabi::globals::Requests get_global_requests() const;
     std::uint64_t shortcut_revision() const;
     std::uint64_t font_revision() const;
 
@@ -393,8 +428,19 @@ struct Settings {
     std::string split_panes_[2];
     std::string font_choice_ = "default";
     std::string font_weight_ = "regular";
+    std::string user_font_;
+    std::string assistant_font_;
     std::string accent_choice_ = "default";
     std::string highlight_choice_ = "default";
+    std::string settings_pane_ = "general";
+    bool restore_tabs_ = true;
+    bool jump_to_latest_ = true;
+    bool show_minimap_ = true;
+    std::string minimap_hidden_marks_;
+    bool notifications_enabled_ = true;
+    bool run_chime_ = false;
+    bool notify_subagents_ = false;
+    bool send_usage_data_ = true;
     std::string export_dir_;  // empty = the built-in default
     bool sidebar_collapsed_ = false;
     // 0 == unlimited; default 1 GiB. See get/set_cache_cap_bytes.
@@ -438,6 +484,12 @@ struct Settings {
     std::array<std::optional<hanabi::shortcuts::Shortcut>,
                hanabi::shortcuts::kDefinitions.size()>
         custom_shortcuts_{};
+    std::array<bool, hanabi::shortcuts::kDefinitions.size()>
+        shortcut_off_{};
+    std::array<std::optional<hanabi::shortcuts::Shortcut>,
+               hanabi::globals::kSlotCount>
+        custom_globals_{};
+    std::array<bool, hanabi::globals::kSlotCount> global_off_{};
     std::uint64_t shortcut_revision_ = 0;
     std::uint64_t font_revision_ = 0;
     // In-memory only: set on any preference change, cleared by the loader

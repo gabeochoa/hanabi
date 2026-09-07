@@ -86,6 +86,7 @@ struct System : afterhours::System<> {
 
         if (app->shortcutRecording >= 0) return;
         for (const auto& item : hanabi::shortcuts::kDefinitions) {
+            if (!Settings::get().get_shortcut_enabled(item.command)) continue;
             if (hanabi::keys::shortcut_pressed(
                     Settings::get().get_shortcut(item.command))) {
                 dispatch(item.command, *app, layout);

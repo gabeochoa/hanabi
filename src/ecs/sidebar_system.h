@@ -49,6 +49,7 @@
 #include "thread_model.h"
 #include "tab_model.h"
 #include "sidebar_footer_status.h"
+#include "settings_system.h"
 #include "../keys.h"
 #include "ui_imports.h"
 
@@ -184,7 +185,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_roundness(0.0f)
-                .with_render_layer(1)
+                .with_render_layer(app->showSettings && hosts_settings(r.width)
+                                       ? 12
+                                       : 1)
                 .with_debug_name("sidebar"));
 
         render_header(ctx, panel.ent(), *layout, folded);
@@ -199,7 +202,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        // Unfolded: the measured Puffin order — traffic-light gap, VIEWS strip,
+        // Settings navigation, hosted here rather than only behind a modal
+        // toggle. While the sheet is open the sidebar draws the PANE LIST and
+        // nothing else: the reader's place in the app is the pane they are
+        // editing, and two competing lists in one column is two places.
+        if (app->showSettings && hosts_settings(r.width)) {
+            settings_header(ctx, panel.ent(), r.width);
+            render_settings_pane_list(ctx, panel.ent(), *app, r.width, false);
+            render_footer(ctx, panel.ent(), *app, r);
+            render_row_menu(ctx, uiRoot, *app);
+            return;
+        }
+
+        // Unfolded: the measured order — traffic-light gap, VIEWS strip,
         // view rows, rule, search, list, footer.
         views_header(ctx, panel.ent(), *app, *layout, r.width);
         const bool viewsOpen = app->collapsedFolders.count(kViewsKey) == 0;
@@ -1328,6 +1343,33 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // collapsedFolders under a sentinel key rather than a new AppComponent
     // field: several systems share that component and adding to it is a
     // cross-owner change for what is one boolean.
+    // Whether this sidebar is wide enough to leave the sheet a readable
+    // column beside it. Mirrors the sheet's own rule; below it the sheet draws
+    // its own pane list and owns the window.
+    static bool hosts_settings(float sidebarW) {
+        const float beside = hanabi::viewport::width() - sidebarW;
+        return beside >= SettingsSystem::kMinSheetW +
+                             hanabi::surface::kWindowMargin * 2.0f;
+    }
+
+    void settings_header(UIContext<InputAction>& ctx, Entity& parent,
+                         float width) {
+        div(ctx, mk(parent, 2),
+            ComponentConfig{}
+                .with_label("SETTINGS")
+                .with_size(ComponentSize{pixels(width - kSbInset),
+                                         pixels(kSbStripH)})
+                .with_margin(Margin{.left = pixels(kSbInset)})
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_letter_spacing(0.8f)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("sb_settings_header"));
+    }
+
     void views_header(UIContext<InputAction>& ctx, Entity& parent,
                       AppComponent& app, LayoutComponent& layout,
                       float panelW) {

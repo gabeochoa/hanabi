@@ -1,0 +1,41 @@
+# settings: {"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=settings
+
+# Narrow: there is no room for the sheet to sit BESIDE the sidebar, so the
+# sidebar stops hosting and the sheet carries its own pane list and owns the
+# window. One list either way -- never two, never one on top of the other.
+#
+# "SETTINGS" is the host's own heading, so its presence is what says which of
+# the two is drawing the list. The nav widths differ too (96 rail vs the
+# sidebar's 280), which is the second, independent half of the same claim.
+resize 600 500
+wait_frames 8
+assert_ui settings_panel x=24 y=24 w=552 h=452
+assert_ui settings_nav w=96
+expect_no_text "SETTINGS"
+expect_text "General"
+expect_text "Storage"
+expect_text "Send message with"
+
+click_ui settings_nav_appearance
+wait_frames 8
+expect_text "Rotate theme"
+expect_no_text "Send message with"
+
+# Wide: the sidebar hosts the list, and the sheet drops its own copy.
+resize 1100 760
+wait_frames 10
+assert_ui sb_settings_nav w=280
+expect_text "SETTINGS"
+expect_text "Rotate theme"
+
+click_ui sb_settings_nav_general
+wait_frames 8
+expect_text "Send message with"
+
+# ...and back, so the handoff is proven in both directions.
+resize 600 500
+wait_frames 10
+assert_ui settings_nav w=96
+expect_no_text "SETTINGS"
+expect_text "Send message with"

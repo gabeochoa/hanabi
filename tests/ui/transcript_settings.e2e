@@ -17,9 +17,10 @@
 
 require_thread rthink
 
-expect_text "Transcript"
+click_ui sb_settings_nav_chat
+wait_frames 8
+expect_text "Reasoning blocks"
 expect_text "Date dividers"
-expect_text "Reasoning"
 expect_text "Long messages"
 
 # The thread behind the sheet has its reasoning row, folded as always.

@@ -33,17 +33,23 @@
 
 wait_frames 8
 
+click_ui sb_settings_nav_appearance
+wait_frames 8
+
 # theme_choice: the row is 30 tall and so is its button, top edge included --
 # a 32px button in this row started 1px above it.
-assert_ui settings_theme_row h=30
-assert_ui settings_theme_dark h=30
-assert_ui settings_theme_light h=30
+assert_ui settings_palette_row h=30
+assert_ui settings_palette_dark h=30
+assert_ui settings_palette_light h=30
+
+# font_choice_btn: a third builder, same literal, same row constant.
+assert_ui settings_font_row h=30
+assert_ui settings_font_default h=30
+
+click_ui sb_settings_nav_chat
+wait_frames 8
 
 # real_segmented: the builder behind every wired Behavior/Notifications row,
 # and the one that carried this thirty-odd times over.
 assert_ui settings_yap_row h=30
 assert_ui settings_yap_0 h=30
-
-# font_choice_btn: a third builder, same literal, same row constant.
-assert_ui settings_font_row h=30
-assert_ui settings_font_default h=30

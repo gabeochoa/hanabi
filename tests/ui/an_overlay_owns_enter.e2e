@@ -29,7 +29,7 @@ expect_text "The agent needs approval"
 expect_text "./scripts/release_batch.sh --force"
 # The sheet really is up -- otherwise the arms below would be testing an
 # unobstructed card and passing for the wrong reason.
-expect_text "Appearance, behavior, notifications, and local data"
+expect_text "How the app looks, what it keeps, and where it points"
 
 # Deny is asked for focus and takes a real Enter. Two things stop it, and
 # `focus_ui` failing to stick is the first: while the sheet is up the card's
@@ -51,7 +51,7 @@ expect_text "./scripts/release_batch.sh --force"
 
 key ESCAPE
 wait_frames 20
-expect_no_text "Appearance, behavior, notifications, and local data"
+expect_no_text "How the app looks, what it keeps, and where it points"
 
 # Control arm. With the sheet gone the button takes the same key it just
 # refused, and a successful resolve retires the ask -- so the card goes. If

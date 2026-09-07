@@ -22,7 +22,7 @@
 require_thread t2
 expect_text "The agent is asking"
 expect_text "Answer any one of these to submit"
-expect_text "Appearance, behavior, notifications, and local data"
+expect_text "How the app looks, what it keeps, and where it points"
 
 focus_ui ask_option_q1_0
 # The row is out of the focus ring while the sheet is up -- the same treatment
@@ -48,7 +48,7 @@ expect_text "Answer any one of these to submit"
 
 click_ui settings_close
 wait_frames 20
-expect_no_text "Appearance, behavior, notifications, and local data"
+expect_no_text "How the app looks, what it keeps, and where it points"
 
 # Control arm. With the settings sheet gone the card has its keys back: SPACE picks...
 focus_ui ask_option_q1_0

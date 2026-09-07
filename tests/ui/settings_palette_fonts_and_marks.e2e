@@ -1,0 +1,52 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"appearance"}
+# env: HANABI_TEST_OVERLAY=settings
+
+wait_frames 10
+expect_text "Palette   ·   Dark"
+expect_text "Your messages"
+expect_text "Replies"
+
+click_ui settings_palette_light
+wait_frames 10
+expect_text "Palette   ·   Light"
+
+click_ui settings_palette_dark
+wait_frames 10
+expect_text "Palette   ·   Dark"
+
+click_ui settings_user_font_1
+wait_frames 10
+click_ui settings_assistant_font_1
+wait_frames 10
+
+click_ui sb_settings_nav_chat
+wait_frames 10
+mouse_move 700 500
+scroll_wheel 0 -40
+wait_frames 12
+expect_text "Marks on the minimap   ·   5 of 5"
+click_ui settings_mark_machinery
+wait_frames 10
+expect_text "Marks on the minimap   ·   4 of 5"
+click_ui settings_mark_reply
+wait_frames 10
+expect_text "Marks on the minimap   ·   3 of 5"
+click_ui settings_mark_machinery
+wait_frames 10
+expect_text "Marks on the minimap   ·   4 of 5"
+
+click_ui settings_minimap_0
+wait_frames 10
+expect_text "Marks on the minimap   ·   the minimap is off"
+click_ui settings_mark_ask
+wait_frames 10
+expect_text "Marks on the minimap   ·   the minimap is off"
+click_ui settings_minimap_1
+wait_frames 10
+expect_text "Marks on the minimap   ·   4 of 5"
+
+click_ui settings_search
+wait_frames 6
+type "minimap"
+wait_frames 10
+expect_text "Marks on the minimap"

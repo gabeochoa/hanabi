@@ -3,7 +3,9 @@
 seed_cache wipe-proof a transcript payload large enough to produce visible cache usage
 click_ui sb_settings
 wait_frames 8
-expect_text "On-disk cache"
+click_ui sb_settings_nav_storage
+wait_frames 8
+expect_text "On disk"
 expect_text "on disk"
 click_ui settings_cache_clear
 wait_frames 8

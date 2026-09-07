@@ -1,0 +1,39 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"shortcuts"}
+# env: HANABI_TEST_OVERLAY=settings
+
+wait_frames 10
+expect_text "Start a task from anywhere"
+expect_text "Search from anywhere"
+expect_text "Brings the app forward and opens a new task, whatever you were in."
+
+click_ui settings_global_switch_global_new_task
+wait_frames 10
+expect_text "Off — these keys go back to every other app."
+
+click_ui settings_global_switch_global_new_task
+wait_frames 10
+expect_text "Brings the app forward and opens a new task, whatever you were in."
+
+click_ui settings_chord_switch_open_palette
+wait_frames 10
+
+mouse_move 700 500
+scroll_wheel 0 -40
+wait_frames 12
+expect_text "Reset all to defaults"
+
+click_ui settings_chord_reset
+wait_frames 8
+expect_text "There is no undo."
+expect_text "Reset shortcuts"
+expect_text "Cancel"
+
+click_ui settings_chord_reset_cancel
+wait_frames 8
+expect_no_text "There is no undo."
+
+click_ui settings_chord_reset
+wait_frames 8
+click_ui settings_chord_reset_go
+wait_frames 10
+expect_no_text "There is no undo."

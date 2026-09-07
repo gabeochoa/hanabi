@@ -14,8 +14,7 @@
 # env: HANABI_TEST_OVERLAY=settings
 
 expect_text "Notifications"
-expect_text "Quiet hours"
-mouse_move 400 680
-scroll_wheel 0 -4
+click_ui sb_settings_nav_notifications
 wait_frames 8
+expect_text "Quiet hours"
 expect_text "10pm-8am"

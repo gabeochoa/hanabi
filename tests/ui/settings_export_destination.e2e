@@ -19,6 +19,9 @@
 # env: HANABI_TEST_OVERLAY=settings HANABI_PICK_DIR_TEST=/tmp/hanabi-export-choice
 
 # The default destination, before anyone chooses anything.
+wait_frames 8
+click_ui sb_settings_nav_storage
+wait_frames 8
 expect_text "Export threads to ~/hanabi/threads"
 
 click_ui settings_export_choose

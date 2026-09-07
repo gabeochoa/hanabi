@@ -10,7 +10,8 @@
 // it only touches a std::atomic flag — no ECS mutation from the callback.
 
 #import <AppKit/AppKit.h>
-#import <Carbon/Carbon.h>   // RegisterEventHotKey, kVK_ANSI_N, event handler
+#import <Carbon/Carbon.h>
+#include "global_hotkeys.h"   // RegisterEventHotKey, kVK_ANSI_N, event handler
 #import <CoreText/CoreText.h>
 #import <CoreSpotlight/CoreSpotlight.h>          // CSSearchableIndex/Item (bundled Spotlight)
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>  // UTTypeText
@@ -106,57 +107,73 @@ static OSStatus hotkey_handler(EventHandlerCallRef nextHandler,
     return noErr;
 }
 
+static_assert(hanabi::globals::kVkN == kVK_ANSI_N, "N keycode drifted");
+static_assert(hanabi::globals::kVkK == kVK_ANSI_K, "K keycode drifted");
+static_assert(hanabi::globals::kVkA == kVK_ANSI_A, "A keycode drifted");
+static_assert(hanabi::globals::kVkZ == kVK_ANSI_Z, "Z keycode drifted");
+static_assert(hanabi::globals::kVkSpace == kVK_Space, "Space keycode drifted");
+static_assert(hanabi::globals::kCarbonCmd == cmdKey, "cmdKey drifted");
+static_assert(hanabi::globals::kCarbonShift == shiftKey, "shiftKey drifted");
+static_assert(hanabi::globals::kCarbonOption == optionKey, "optionKey drifted");
+static_assert(hanabi::globals::kCarbonControl == controlKey,
+              "controlKey drifted");
+
+static std::mutex g_globals_mu;
+static hanabi::globals::Requests g_globals = hanabi::globals::defaults();
+
+static hanabi::globals::Requests globals_snapshot(void) {
+    std::lock_guard<std::mutex> lk(g_globals_mu);
+    return g_globals;
+}
+
 // Register the Carbon hotkey iff not already registered. Called when hanabi
 // becomes active. Runs on the main thread (notification + first-frame path).
 static void hotkey_register(void) {
-    if (g_hotkey_ref != nullptr) return;   // already registered
+    if (g_hotkey_ref != nullptr || g_palette_ref != nullptr) return;
 
-    EventHotKeyID hkId;
-    hkId.signature = kHotkeySig;
-    hkId.id = kHotkeyId;
+    const hanabi::globals::Requests wanted = globals_snapshot();
 
-    // Cmd+Shift+N. kVK_ANSI_N is the physical N key; cmdKey|shiftKey are the
-    // Carbon modifier masks.
-    OSStatus st = RegisterEventHotKey(kVK_ANSI_N, cmdKey | shiftKey, hkId,
-                                      GetApplicationEventTarget(), 0,
-                                      &g_hotkey_ref);
-    if (st != noErr) {
-        // A collision with another app's global hotkey lands here. Log and
-        // carry on — the app is fully usable without the chord.
-        NSLog(@"native_extras: RegisterEventHotKey(Cmd+Shift+N) failed (%d) — "
-              @"another app may own this chord",
-              (int)st);
-        g_hotkey_ref = nullptr;
-        return;
-    }
-    HLOG(@"native_extras: global hotkey Cmd+Shift+N registered (%s active)",
+    const auto reg = [](const hanabi::globals::Request& req, UInt32 slotId,
+                        EventHotKeyRef* out) {
+        *out = nullptr;
+        if (!req.enabled) return;
+        const auto key = hanabi::globals::carbon_key(req.shortcut.key);
+        if (!key.has_value()) return;
+        EventHotKeyID hkId;
+        hkId.signature = kHotkeySig;
+        hkId.id = slotId;
+        const OSStatus st = RegisterEventHotKey(
+            static_cast<UInt32>(*key),
+            hanabi::globals::carbon_modifiers(req.shortcut.modifiers), hkId,
+            GetApplicationEventTarget(), 0, out);
+        if (st != noErr) {
+            // A collision with another app's global hotkey lands here. Log and
+            // carry on — the app is fully usable without the chord.
+            NSLog(@"native_extras: RegisterEventHotKey failed (%d) — another "
+                  @"app may own this chord",
+                  (int)st);
+            *out = nullptr;
+        }
+    };
+
+    reg(wanted[hanabi::globals::index(hanabi::globals::Slot::NewTask)],
+        kHotkeyId, &g_hotkey_ref);
+    reg(wanted[hanabi::globals::index(hanabi::globals::Slot::Palette)],
+        kPaletteHotkeyId, &g_palette_ref);
+    HLOG(@"native_extras: global hotkeys applied (%s active)",
          product_branding::kAppName);
-
-    // Cmd+Shift+K opens the command palette. Same focus-gated lifetime as the
-    // chord above, for the same reason: an unfocused app must not swallow a
-    // chord another app owns. A failure here is not fatal — Cmd+K still works
-    // inside the app; only the summon-from-elsewhere version is lost.
-    EventHotKeyID palId;
-    palId.signature = kHotkeySig;
-    palId.id = kPaletteHotkeyId;
-    OSStatus pst = RegisterEventHotKey(kVK_ANSI_K, cmdKey | shiftKey, palId,
-                                       GetApplicationEventTarget(), 0,
-                                       &g_palette_ref);
-    if (pst != noErr) {
-        NSLog(@"native_extras: RegisterEventHotKey(Cmd+Shift+K) failed (%d) — "
-              @"another app may own this chord",
-              (int)pst);
-        g_palette_ref = nullptr;
-    }
 }
 
 // Unregister the Carbon hotkey iff registered. Called when hanabi resigns
 // active, so the chord flows through to whatever app is now frontmost.
 static void hotkey_unregister(void) {
-    if (g_hotkey_ref == nullptr) return;   // nothing registered
-    OSStatus st = UnregisterEventHotKey(g_hotkey_ref);
-    if (st != noErr) {
-        NSLog(@"native_extras: UnregisterEventHotKey failed (%d)", (int)st);
+    if (g_hotkey_ref == nullptr && g_palette_ref == nullptr) return;
+    if (g_hotkey_ref != nullptr) {
+        OSStatus st = UnregisterEventHotKey(g_hotkey_ref);
+        if (st != noErr) {
+            NSLog(@"native_extras: UnregisterEventHotKey failed (%d)",
+                  (int)st);
+        }
     }
     g_hotkey_ref = nullptr;
     if (g_palette_ref != nullptr) {
@@ -170,6 +187,38 @@ static void hotkey_unregister(void) {
     HLOG(@"native_extras: global hotkey Cmd+Shift+N unregistered (%s "
          @"resigned active) — passes through to other apps",
          product_branding::kAppName);
+}
+
+bool native_set_global_hotkeys(GlobalHotkeyRequest new_task,
+                               GlobalHotkeyRequest palette) {
+    hanabi::globals::Requests wanted;
+    wanted[hanabi::globals::index(hanabi::globals::Slot::NewTask)] =
+        hanabi::globals::Request{
+            hanabi::shortcuts::Shortcut{new_task.key, new_task.modifiers},
+            new_task.enabled};
+    wanted[hanabi::globals::index(hanabi::globals::Slot::Palette)] =
+        hanabi::globals::Request{
+            hanabi::shortcuts::Shortcut{palette.key, palette.modifiers},
+            palette.enabled};
+    {
+        std::lock_guard<std::mutex> lk(g_globals_mu);
+        g_globals = wanted;
+    }
+    const bool wasRegistered =
+        g_hotkey_ref != nullptr || g_palette_ref != nullptr;
+    if (!wasRegistered) return true;
+
+    hotkey_unregister();
+    hotkey_register();
+    const bool newTaskOk =
+        !wanted[hanabi::globals::index(hanabi::globals::Slot::NewTask)]
+             .enabled ||
+        g_hotkey_ref != nullptr;
+    const bool paletteOk =
+        !wanted[hanabi::globals::index(hanabi::globals::Slot::Palette)]
+             .enabled ||
+        g_palette_ref != nullptr;
+    return newTaskOk && paletteOk;
 }
 
 // Observer that toggles the Carbon hotkey registration with hanabi's active
@@ -427,6 +476,19 @@ void native_notifications_start(void) {
     }];
 }
 
+void native_play_chime(void) {
+    if (const char* log = std::getenv("HANABI_CHIME_LOG");
+        log != nullptr && *log != 0) {
+        if (FILE* f = std::fopen(log, "a")) {
+            std::fputs("chime\n", f);
+            std::fclose(f);
+        }
+        return;
+    }
+    NSSound* sound = [NSSound soundNamed:@"Glass"];
+    if (sound != nil) [sound play];
+}
+
 void native_notify(const char* title, const char* body, const char* thread_id,
                    bool sound) {
     if (title == nullptr || title[0] == '\0') return;
@@ -648,13 +710,13 @@ static void set_pending_open_thread(const std::string& id) {
 
 // Parse the thread id from hanabi://thread/<id> (also tolerates
 // hanabi:thread/<id> and a trailing slash/query). Returns "" if not a match.
-static std::string parse_thread_url(NSString* url) {
+static std::string parse_scheme_url(NSString* url, const char* host) {
     if (url == nil) return std::string();
     std::string s([url UTF8String] ? [url UTF8String] : "");
     const std::string pfx1 =
-        std::string(product_branding::kUrlScheme) + "://thread/";
+        std::string(product_branding::kUrlScheme) + "://" + host + "/";
     const std::string pfx2 =
-        std::string(product_branding::kUrlScheme) + ":thread/";
+        std::string(product_branding::kUrlScheme) + ":" + host + "/";
     std::string id;
     if (s.rfind(pfx1, 0) == 0)
         id = s.substr(pfx1.size());
@@ -672,6 +734,28 @@ static std::string parse_thread_url(NSString* url) {
     return value == nullptr ? std::string() : std::string(value);
 }
 
+static std::mutex g_open_settings_mu;
+static std::string g_pending_open_settings;
+
+static void set_pending_open_settings(const std::string& pane) {
+    if (pane.empty()) return;
+    std::lock_guard<std::mutex> lk(g_open_settings_mu);
+    g_pending_open_settings = pane;
+}
+
+bool native_take_open_settings(char* out, int cap) {
+    if (out == nullptr || cap <= 0) return false;
+    std::string pane;
+    {
+        std::lock_guard<std::mutex> lk(g_open_settings_mu);
+        if (g_pending_open_settings.empty()) return false;
+        pane.swap(g_pending_open_settings);
+    }
+    std::strncpy(out, pane.c_str(), static_cast<size_t>(cap - 1));
+    out[cap - 1] = '\0';
+    return true;
+}
+
 @interface HanabiURLHandler : NSObject
 - (void)handleGetURLEvent:(NSAppleEventDescriptor*)event
            withReplyEvent:(NSAppleEventDescriptor*)reply;
@@ -683,7 +767,15 @@ static std::string parse_thread_url(NSString* url) {
     (void)reply;
     NSString* urlStr =
         [[event paramDescriptorForKeyword:keyDirectObject] stringValue];
-    std::string id = parse_thread_url(urlStr);
+    if (std::string pane = parse_scheme_url(urlStr, "settings");
+        !pane.empty()) {
+        set_pending_open_settings(pane);
+        NSLog(@"native_extras: %s://settings open -> pane=%s",
+              product_branding::kUrlScheme, pane.c_str());
+        [NSApp activateIgnoringOtherApps:YES];
+        return;
+    }
+    std::string id = parse_scheme_url(urlStr, "thread");
     if (id.empty()) return;
     set_pending_open_thread(id);
     NSLog(@"native_extras: %s://thread open -> id=%s",
@@ -698,7 +790,8 @@ static HanabiURLHandler* g_url_handler = nil;
 void native_simulate_open_url(const char* url) {
     if (url == nullptr) return;
     NSString* value = [NSString stringWithUTF8String:url];
-    set_pending_open_thread(parse_thread_url(value));
+    set_pending_open_settings(parse_scheme_url(value, "settings"));
+    set_pending_open_thread(parse_scheme_url(value, "thread"));
 }
 
 void native_openurl_install(void) {

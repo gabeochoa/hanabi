@@ -3,11 +3,9 @@
 // Settings overlay (Phase K). Renders a centered settings sheet over a dimmed
 // full-window backdrop when AppComponent::showSettings is true. Closes on
 // Cmd+, (toggle), Esc, the ✕ close button, or clicking the backdrop.
-//
 // LAYOUT — a wide two-column sheet at normal desktop widths, collapsing to a
 // single scrollable column before either column becomes cramped. Control widths
 // derive from the current panel width, so both modes retain the same gutters.
-//
 // ─── PERSISTENCE + SYNC ─────────────────────────────────────────────────────
 // Every WIRED control persists LOCALLY first: it writes through the Settings
 // singleton, which auto-saves to the on-disk settings JSON immediately
@@ -18,11 +16,9 @@
 // real backend only activates when the user sets settings_update_path in their
 // LOCAL config (never committed). If no write path is configured, local-only
 // persistence still works and no error is surfaced.
-//
 // The web PUT-preferences schema fields we map onto: defaultModelId, yapLevel,
 // memoryBackend, notificationSound, autoArchiveDays (+ theme/font which stay
 // CLIENT-LOCAL — the web schema has no theme/font field).
-//
 // WIRED (persist locally + sync):
 //   Appearance · Theme  (Light/Dark/System)   — client-local (theme::set_mode).
 //   Appearance · Rotate theme (Off/15m/30m/1h) — client-local; the interval
@@ -36,13 +32,10 @@
 //   Notifications · Sound (Off/Ping).
 //   Data · cache usage + clear / cache limit / export — client-local.
 //   Account · identity + counts — read-only /whoami.
-//
 // Model and effort are selected from the composer's live picker, not duplicated
 // here. Controls without a working action are omitted.
-//
 // "System" theme tracks the real macOS appearance via hanabi::os_is_dark_mode()
 // (afterhours exposes no OS-appearance query — see afterhours_gaps.md #16).
-//
 // Owns this file only. The gear button that would toggle showSettings lives in
 // sidebar_system.h (owned by another agent); Cmd+, opens/closes this overlay.
 
@@ -60,14 +53,39 @@
 #include "../version.h"
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
 #include "../keys.h"
+#include "../shortcuts.h"
+#include "../global_hotkeys.h"
+#include "../native_extras.h"
 #include "../ui/font_system.h"
 #include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
+#include "../ui/settings_catalog.h"
+#include "../ui/minimap_marks.h"
+#include "../util/scroll_prefs.h"
+#include "../ui/accessibility.h"
+#include "../ui/edged_field.h"
+#include "keyboard_focus.h"
 
 namespace ecs {
+
+namespace cat = hanabi::settings_catalog;
+
+// The pane list, drawn into whatever host asks for it. The sheet calls this
+// with its own column; the sidebar calls it with the sidebar's, at the width
+// the sidebar reserves and over the sidebar's own fill -- the host owns both,
+// so the list never paints a background or carries a width of its own.
+// The anchor the hosted list wants focused this frame, handed to the sheet's
+// own focus pass because the host draws first and the sheet is the one owner.
+inline afterhours::EntityID& hosted_focus_anchor() {
+    static afterhours::EntityID id = 0;
+    return id;
+}
+
+void render_settings_pane_list(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app, float width, bool rail);
 
 struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
@@ -81,7 +99,15 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // load_font to frame-top makes the swap atomic w.r.t. rendering.
         apply_pending_font();
 
-        if (!app->showSettings) return;
+        if (!app->showSettings) {
+            if (wasOpen_) release_focus(ctx, *app);
+            wasOpen_ = false;
+            if (restoreFrames_ > 0) {
+                --restoreFrames_;
+                ctx.set_focus(restoreId_);
+            }
+            return;
+        }
 
         ctx.theme.background = theme::panel_bg();
         ctx.theme.font_muted = theme::text_secondary();
@@ -101,43 +127,57 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 (theme::mode() == theme::Mode::Light) ? "light" : "dark";
         }
 
-        // Esc closes (escape_system.h decides which overlay it belongs to).
+        if (!wasOpen_) adopt_open_state(ctx, *app);
+        else if (!app->settingsRoute.empty()) follow_route(*app);
+        wasOpen_ = true;
+
         if (app->escape == EscapeIntent::CloseSettings) {
+            if (!app->settingsQuery.empty()) {
+                clear_query(*app);
+                return;
+            }
             app->showSettings = false;
+            release_focus(ctx, *app);
+            wasOpen_ = false;
             return;
         }
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
-        const float sw =
-            hanabi::viewport::width();
-        const float sh =
-            hanabi::viewport::height();
+        const float sw = hanabi::viewport::width();
+        const float sh = hanabi::viewport::height();
 
-        const float wantedPw = kPanelW;
-        const bool twoColumns = sw >= kTwoColumnMinWindowW;
-        const float ctrlRow = kRowNameFoot + kThemeRowH;
-        const bool showFontWeight = available_font_weight_count() > 1;
-        const float leftH =
-            (kGroupH + ctrlRow * (showFontWeight ? 4.0f : 3.0f)) +
-            (kGroupH + ctrlRow * 5.0f) +
-            (kGroupH + ctrlRow * 2.0f);
-        const float rightH =
-            (kGroupH + ctrlRow * 2.0f) +
-            (kGroupH + ctrlRow * 4.0f) +
-            (kGroupH + (kRowNameFoot + kCacheRowH) +
-             (kRowNameFoot + kLimitRowH) +
-             (kRowNameFoot + kExportRowH)) +
-            (kGroupH + kAccountRowH + ctrlRow);
-        const float contentH =
-            (twoColumns ? std::max(leftH, rightH) : leftH + rightH) +
-            (kFootnoteGap + kFootnoteH) + 8.0f;
-        const float idealPh = kPadV * 2.0f + kHeaderH + contentH;
-        const hanabi::surface::Rect panelRect =
-            hanabi::surface::centered(sw, sh, wantedPw, idealPh);
+        cat::Pane pane = current_pane(*app);
+        const std::vector<const cat::Row*> paneRows = visible_rows(pane);
+        const std::vector<cat::Hit> hits = cat::search(app->settingsQuery);
+        const bool searching = !cat::normalize_query(app->settingsQuery).empty();
+
+        cat::Stops stops;
+        stops.content = static_cast<int>(paneRows.size());
+        stops.searching = searching;
+        stops.results = static_cast<int>(hits.size());
+        apply_keyboard(ctx, *app, stops, hits, paneRows);
+
+        const cat::Focus focus = read_focus(*app, stops);
+
+        const bool rail = sw < kRailBelowWindowW;
+        const float navW = rail ? kNavRailW : kNavW;
+        const float wantedPh = kPadV * 2.0f + kHeaderH + kSearchRowH + kBodyH;
+        const RectangleType host = layout_sidebar_rect();
+        // Beside the host column, not on top of it -- but never at the cost of
+        // the sheet's own margin: on a narrow window the host takes most of the
+        // width, and a sheet squeezed into what is left is narrower than the
+        // window can afford. Below that point the host gives the space back.
+        const float beside = sw - host.width;
+        const bool besideFits =
+            beside >= kMinSheetW + hanabi::surface::kWindowMargin * 2.0f;
+        const float hostW = besideFits ? host.width : 0.0f;
+        hanabi::surface::Rect panelRect = hanabi::surface::centered(
+            sw - hostW, sh, kPanelW, wantedPh);
+        panelRect.x += hostW;
         active_panel_w_ = panelRect.width;
         const float ph = panelRect.height;
-        const float bodyViewH =
-            std::max(40.0f, ph - kPadV * 2.0f - kHeaderH);
+        const float bodyViewH = std::max(
+            40.0f, ph - kPadV * 2.0f - kHeaderH - kSearchRowH);
         const float px = panelRect.x;
         const float py = panelRect.y;
 
@@ -145,7 +185,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // disabled (afterhours gap #13), so pre-blend a translucent black over
         // the window background via theme::over to get a real "dim" instead of
         // an opaque black slab.
-        //
         // Click-outside-to-close: the backdrop spans the whole window and sits
         // UNDER the panel, but the immediate-mode button reports a click for
         // ANY press while the cursor is over its (full-window) rect — including
@@ -161,8 +200,19 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (backdrop) {
             const bool insidePanel = afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{px, py, panelRect.width, ph});
-            if (!insidePanel) {
+            // The sidebar HOSTS the pane list while this sheet is open, so a
+            // press there is navigation, not a reach past the sheet. Treat the
+            // host's column as part of the surface: dismissing on a click that
+            // was choosing a pane is the same bug the panel-rect check above
+            // was added for, one column further left.
+            const bool insideHost =
+                layout_sidebar_rect().width > 0.0f &&
+                afterhours::ui::is_mouse_inside(ctx.mouse.pos,
+                                                layout_sidebar_rect());
+            if (!insidePanel && !insideHost) {
                 app->showSettings = false;
+                release_focus(ctx, *app);
+                wasOpen_ = false;
                 return;
             }
         }
@@ -173,113 +223,69 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_panel"));
 
         render_header(ctx, panel.ent(), *app);
+        const float bodyW = std::max(120.0f, panelRect.width - kPadH * 2.0f);
+        render_search_field(ctx, panel.ent(), *app, focus, navW, bodyW);
 
-        // Scrollable body: fixed visible height (bodyViewH), vertical overflow
-        // scrolls. afterhours attaches a HasScrollView + clips children when a
-        // child config sets Overflow::Scroll, and the UI plugin drives the
-        // wheel. This lets the centered sheet stay a fixed size while holding
-        // the full navi-web section set (which is taller than any sheet).
         auto body = div(ctx, mk(panel.ent(), 500),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(bodyViewH)})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_overflow(Overflow::Scroll, Axis::Y)
-                .with_transparent_bg()
-                // Top pad so the FIRST group label's ascenders aren't clipped
-                // by the scroll viewport's top edge.
-                .with_padding(Padding{.top = pixels(8.0f)})
-                .with_roundness(0.0f)
-                .with_debug_name("settings_body_scroll"));
-        Entity& b = body.ent();
-
-        // Responsive columns: side by side while each control has enough room,
-        // stacked inside the same scroll view on narrower windows.
-        auto cols = div(ctx, mk(b, 490),
-            ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), children()})
-                .with_flex_direction(twoColumns ? FlexDirection::Row
-                                                : FlexDirection::Column)
+                .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("settings_cols"));
+                .with_debug_name("settings_body"));
 
-        auto leftCol = div(ctx, mk(cols.ent(), 1),
-            ComponentConfig{}
-                .with_size(ComponentSize{
-                    pixels(twoColumns ? col_w() : full_content_w()), children()})
-                .with_margin(Margin{.right = pixels(twoColumns ? kColGap : 0.0f)})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("settings_col_left"));
-        auto rightCol = div(ctx, mk(cols.ent(), 2),
-            ComponentConfig{}
-                .with_size(ComponentSize{
-                    pixels(twoColumns ? col_w() : full_content_w()), children()})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_debug_name("settings_col_right"));
+        const bool hostedElsewhere = hostW > 0.0f;
+        (void)besideFits;
+        if (searching)
+            render_results(ctx, body.ent(), *app, hits, navW, bodyViewH, focus);
+        else if (!hostedElsewhere)
+            render_nav(ctx, body.ent(), *app, pane, navW, bodyViewH, rail,
+                       focus);
 
-        // LEFT column: Appearance / Behavior / Notifications / Model.
-        active_col_w_ = twoColumns ? col_w() : full_content_w();
-        {
-            Entity& L = leftCol.ent();
-            group_label(ctx, L, 2, "Appearance", "settings_grp_appearance");
-            render_theme_row(ctx, L, *app);
-            render_theme_rotate_row(ctx, L, *app);
-            render_font_row(ctx, L, *app);
-            if (showFontWeight) render_font_weight_row(ctx, L, *app);
-            group_label(ctx, L, 3, "Behavior", "settings_grp_behavior");
-            render_yap_row(ctx, L, *app);
-            render_autoarchive_row(ctx, L, *app);
-            render_memory_backend_row(ctx, L, *app);
-            render_send_key_row(ctx, L, *app);
-            render_subagents_row(ctx, L, *app);
+        const float listW = (searching || !hostedElsewhere) ? navW : 0.0f;
+        render_pane_column(ctx, body.ent(), *app, pane, paneRows,
+                           bodyW - listW, bodyViewH, focus, searching);
 
-            group_label(ctx, L, 4, "Notifications", "settings_grp_notif");
-            render_notification_row(ctx, L, *app);
-            render_quiet_hours_row(ctx, L, *app);
+        if (focusAnchor_ == 0 && hosted_focus_anchor() != 0)
+            focusAnchor_ = hosted_focus_anchor();
+        hosted_focus_anchor() = 0;
+        if (!ctx.mouse.just_pressed) {
+            if (focus.zone == cat::Zone::Search) {
+                if (searchFocusFrames_ > 0) --searchFocusFrames_;
+                ctx.set_focus(searchFieldId_);
+            } else if (focusAnchor_ != 0) {
+                ctx.set_focus(focusAnchor_);
+            }
         }
-        // RIGHT column: Data / Advanced / Account.
-        {
-            Entity& R = rightCol.ent();
-            group_label(ctx, R, 9, "Custom colours", "settings_grp_colours");
-            render_accent_row(ctx, R, *app);
-            render_highlight_row(ctx, R, *app);
-            group_label(ctx, R, 10, "Transcript", "settings_grp_transcript");
-            render_timestamps_row(ctx, R, *app);
-            render_date_dividers_row(ctx, R, *app);
-            render_reasoning_row(ctx, R, *app);
-            render_foldlong_row(ctx, R, *app);
-            group_label(ctx, R, 5, "Data", "settings_grp_data");
-            render_cache_row(ctx, R, *app);
-            render_cache_limit_row(ctx, R, *app);
-            render_export_row(ctx, R, *app);
-            group_label(ctx, R, 8, "Account", "settings_grp_account");
-            render_account_row(ctx, R, *app);
-            render_shortcut_editor_row(ctx, R, *app);
-        }
-        active_col_w_ = 0.0f;  // reset to full-width for the spanning footnote
+        focusAnchor_ = 0;
 
-        render_footnote(ctx, b, *app);
+        if (app->settingsRevealFrames > 0) --app->settingsRevealFrames;
+        if (app->settingsRevealFrames == 0) app->settingsRevealRow.clear();
     }
 
     // ---- layout constants (single source of truth for panel WIDTH + height +
     // the consistent vertical rhythm; Task B). A section = a small gap, a
     // header label, then its control. Between-section gap == kSectionGap;
     // label-> control gap is baked into the label's own bottom via kLabelH.
-    //
     // PANEL WIDTH is ONE constant (kPanelW). Every content-width computation
     // (segmented-control gutters etc.) derives from content_w() so they can't
     // drift. Widened from 360 → 600 so the whole section set fits WITHOUT
     // vertical scrolling on a normal window (Task 1).
     static constexpr float kPanelW = 720.0f;    // maximum panel width
     static constexpr float kTwoColumnMinWindowW = 720.0f;
+    static constexpr float kNavW = 186.0f;
+    static constexpr float kNavRailW = 96.0f;
+    static constexpr float kRailBelowWindowW = 720.0f;
+    static constexpr float kNavRowH = 28.0f;
+    static constexpr float kNavGroupH = 26.0f;
+    static constexpr float kNavGutter = 12.0f;
+    static constexpr float kSearchRowH = hanabi::surface::kFieldH + 10.0f;
+    static constexpr float kBodyH = 470.0f;
+    static constexpr float kResultRowH = 40.0f;
+    // Below this the sheet cannot sit beside the host and still be read.
+    static constexpr float kMinSheetW = 520.0f;
+    static constexpr float kPaneFoot = 12.0f;
     static constexpr float kPadH = hanabi::surface::kSheetPadH;
     // Usable content width inside the panel (both horizontal pads removed).
     // Usable content width for controls in the CURRENTLY-rendering column.
@@ -341,7 +347,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kFootnoteGap = 14.0f;
     static constexpr float kFootnoteH = 18.0f;   // footnote line
 
-  private:
+  public:
     void render_header(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app) {
         auto header = div(ctx, mk(parent, 1),
@@ -387,7 +393,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("settings_close"));
         div(ctx, mk(header.ent(), 2),
             ComponentConfig{}
-                .with_label("Appearance, behavior, notifications, and local data")
+                .with_label("How the app looks, what it keeps, and where it points")
                 .with_size(ComponentSize{percent(1.0f), pixels(kSubtitleH)})
                 .with_margin(Margin{.top = pixels(4)})
                 .with_transparent_bg()
@@ -397,6 +403,1029 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_subtitle"));
         if (closeBtn) app.showSettings = false;
+    }
+
+    static RectangleType layout_sidebar_rect() {
+        auto* layout = find_singleton<LayoutComponent>();
+        if (layout == nullptr || layout->sidebarCollapsed)
+            return RectangleType{0.0f, 0.0f, 0.0f, 0.0f};
+        const auto& r = layout->sidebar;
+        return RectangleType{r.x, r.y, r.width, r.height};
+    }
+
+    void adopt_open_state(UIContext<InputAction>& ctx, AppComponent& app) {
+        app.settingsReturnFocus = static_cast<int>(ctx.focus_id);
+        invalidate_disk_usage();
+        if (!app.settingsRoute.empty()) {
+            const std::string slug = app.settingsRoute;
+            app.settingsRoute.clear();
+            if (cat::is_known_slug(slug))
+                app.settingsPane = cat::pane_info(cat::pane_from_slug(slug)).slug;
+            else if (app.settingsPane.empty())
+                app.settingsPane =
+                    cat::pane_info(cat::pane_from_slug(
+                                       Settings::get().get_settings_pane()))
+                        .slug;
+        } else if (app.settingsPane.empty() ||
+                   !cat::is_known_slug(app.settingsPane)) {
+            app.settingsPane =
+                cat::pane_info(
+                    cat::pane_from_slug(Settings::get().get_settings_pane()))
+                    .slug;
+        }
+        app.settingsQuery.clear();
+        app.settingsRevealRow.clear();
+        app.settingsRevealFrames = 0;
+        app.settingsFocusZone = static_cast<int>(cat::Zone::Search);
+        app.settingsFocusIndex = 0;
+        searchFocusFrames_ = 3;
+    }
+
+    void release_focus(UIContext<InputAction>& ctx, AppComponent& app) {
+        if (app.settingsReturnFocus != 0) {
+            const afterhours::EntityID id = restored_focus_id(app);
+            if (id != 0) {
+                ctx.set_focus(id);
+                restoreId_ = id;
+                restoreFrames_ = 3;
+            }
+            app.settingsReturnFocus = 0;
+        }
+        app.settingsQuery.clear();
+        app.settingsRevealRow.clear();
+        app.settingsRevealFrames = 0;
+        searchFocusFrames_ = 0;
+    }
+
+    // The id captured on open, unless the widget that owned it is gone -- the
+    // sidebar rebuilds its whole column while it hosts the pane list, so the
+    // opener is a NEW entity by the time the sheet closes. Falling back to the
+    // gear by name puts the keyboard where the reader left it rather than on
+    // whatever the framework grabs first.
+    static afterhours::EntityID restored_focus_id(const AppComponent& app) {
+        const auto captured =
+            static_cast<afterhours::EntityID>(app.settingsReturnFocus);
+        auto opt = afterhours::ui::UICollectionHolder::getEntityForID(captured);
+        if (opt.valid() && opt->has<afterhours::ui::UIComponent>() &&
+            opt->get<afterhours::ui::UIComponent>().was_rendered_to_screen)
+            return captured;
+        for (const auto& handle :
+             afterhours::ui::UICollectionHolder::get().collection
+                 .get_entities()) {
+            if (!handle) continue;
+            Entity& e = *handle;
+            if (!e.has<afterhours::ui::UIComponentDebug>()) continue;
+            if (e.get<afterhours::ui::UIComponentDebug>().name() ==
+                "sb_settings")
+                return e.id;
+        }
+        return captured;
+    }
+
+    void clear_query(AppComponent& app) {
+        app.settingsQuery.clear();
+        app.settingsFocusZone = static_cast<int>(cat::Zone::Search);
+        app.settingsFocusIndex = 0;
+        searchFocusFrames_ = 2;
+    }
+
+    void follow_route(AppComponent& app) {
+        const std::string slug = app.settingsRoute;
+        app.settingsRoute.clear();
+        if (!cat::is_known_slug(slug)) return;
+        select_pane(app, cat::pane_from_slug(slug));
+        app.settingsQuery.clear();
+    }
+
+    static cat::Pane current_pane(const AppComponent& app) {
+        return cat::pane_from_slug(app.settingsPane);
+    }
+
+    static bool row_is_extra(std::string_view id) {
+        return id == "global_chords" || id == "command_chords" ||
+               id == "version";
+    }
+
+    static bool row_available(std::string_view id) {
+        if (row_is_extra(id)) return false;
+        if (id == "font_weight") return available_font_weight_count() > 1;
+        return true;
+    }
+
+    void select_pane(AppComponent& app, cat::Pane pane) {
+        const char* slug = cat::pane_info(pane).slug;
+        if (app.settingsPane == slug) return;
+        if (pane == cat::Pane::Storage) invalidate_disk_usage();
+        app.settingsPane = slug;
+        Settings::get().set_settings_pane(app.settingsPane);
+        app.settingsFocusZone = static_cast<int>(cat::Zone::Nav);
+        app.settingsFocusIndex = cat::pane_index(pane);
+    }
+
+    static cat::Focus read_focus(const AppComponent& app,
+                                 const cat::Stops& stops) {
+        cat::Focus f;
+        f.zone = static_cast<cat::Zone>(app.settingsFocusZone);
+        f.index = app.settingsFocusIndex;
+        return cat::clamp_focus(f, stops);
+    }
+
+    static void write_focus(AppComponent& app, const cat::Focus& f) {
+        app.settingsFocusZone = static_cast<int>(f.zone);
+        app.settingsFocusIndex = f.index;
+    }
+
+    void apply_keyboard(UIContext<InputAction>& ctx, AppComponent& app,
+                        const cat::Stops& stops,
+                        const std::vector<cat::Hit>& hits,
+                        const std::vector<const cat::Row*>& paneRows) {
+        cat::Focus f = read_focus(app, stops);
+
+        const bool shift = ctx.is_held_down(InputAction::WidgetMod);
+        if (ctx.pressed(InputAction::WidgetNext)) {
+            f = shift ? cat::focus_prev(f, stops) : cat::focus_next(f, stops);
+            write_focus(app, f);
+            if (f.zone == cat::Zone::Search) searchFocusFrames_ = 2;
+            return;
+        }
+
+        if (f.zone != cat::Zone::Search) {
+            int delta = 0;
+            if (hanabi::keys::pressed(hanabi::keys::kDown)) delta = +1;
+            if (hanabi::keys::pressed(hanabi::keys::kUp)) delta = -1;
+            if (delta != 0) {
+                f = cat::focus_step_in_zone(f, stops, delta);
+                write_focus(app, f);
+                if (f.zone == cat::Zone::Nav && !stops.searching)
+                    select_pane_from_nav(app, f.index);
+                return;
+            }
+        }
+
+        if (f.zone == cat::Zone::Search &&
+            hanabi::keys::pressed(hanabi::keys::kDown) &&
+            stops.nav_stops() > 0) {
+            write_focus(app, cat::Focus{cat::Zone::Nav, 0});
+            return;
+        }
+
+        const bool enter = hanabi::keys::pressed(hanabi::keys::kEnter);
+        const bool space = f.zone != cat::Zone::Search &&
+                           hanabi::keys::pressed(hanabi::keys::kSpace);
+        if (!enter && !space) return;
+
+        if (f.zone == cat::Zone::Nav) {
+            if (stops.searching) {
+                if (f.index < static_cast<int>(hits.size()))
+                    reveal(app, *hits[static_cast<size_t>(f.index)].row);
+            } else {
+                select_pane_from_nav(app, f.index);
+            }
+            return;
+        }
+        if (f.zone == cat::Zone::Content &&
+            f.index < static_cast<int>(paneRows.size())) {
+            pendingActivate_ = paneRows[static_cast<size_t>(f.index)]->id;
+        }
+    }
+
+    void select_pane_from_nav(AppComponent& app, int index) {
+        select_pane(app, cat::pane_at(index));
+        app.settingsFocusZone = static_cast<int>(cat::Zone::Nav);
+        app.settingsFocusIndex = index;
+    }
+
+    void reveal(AppComponent& app, const cat::Row& row) {
+        select_pane(app, row.pane);
+        app.settingsQuery.clear();
+        app.settingsRevealRow = row.id;
+        app.settingsRevealFrames = kRevealFrames;
+        const std::vector<const cat::Row*> rows = visible_rows(row.pane);
+        for (size_t i = 0; i < rows.size(); ++i)
+            if (std::string_view(rows[i]->id) == row.id) {
+                app.settingsFocusZone = static_cast<int>(cat::Zone::Content);
+                app.settingsFocusIndex = static_cast<int>(i);
+            }
+    }
+
+    static std::vector<const cat::Row*> visible_rows(cat::Pane pane) {
+        std::vector<const cat::Row*> out;
+        for (const cat::Row* r : cat::rows_in(pane))
+            if (row_available(r->id)) out.push_back(r);
+        return out;
+    }
+
+    void render_search_field(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app, const cat::Focus& focus,
+                             float navW, float bodyW) {
+        const float labelW = navW;
+        auto row = div(ctx, mk(parent, 400),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSearchRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_search_row"));
+
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label("Search settings")
+                .with_size(ComponentSize{pixels(labelW - kNavGutter),
+                                         pixels(kRowNameH)})
+                .with_margin(Margin{.left = pixels(4)})
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_search_label"));
+
+        (void)bodyW;
+        const float fieldW =
+            std::max(80.0f, full_content_w() - (labelW > 0.0f ? labelW : 0.0f));
+        auto chrome = hanabi::surface::field(fieldW, 11);
+        auto input = hanabi::ui::edged_text_input(
+            ctx, mk(row.ent(), 2), app.settingsQuery, chrome,
+            "settings_search",
+            hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio);
+        hanabi::a11y::set_name(input.ent(), "Search settings");
+        searchFieldId_ = focusable_field(input.ent());
+        const bool pressedInField =
+            ctx.mouse.just_pressed &&
+            input.ent().has<afterhours::ui::UIComponent>() &&
+            afterhours::ui::is_mouse_inside(
+                ctx.mouse.pos, input.ent()
+                                   .get<afterhours::ui::UIComponent>()
+                                   .rect());
+        if (pressedInField &&
+            app.settingsFocusZone != static_cast<int>(cat::Zone::Search)) {
+            app.settingsFocusZone = static_cast<int>(cat::Zone::Search);
+            app.settingsFocusIndex = 0;
+            searchFocusFrames_ = 2;
+        }
+    }
+
+    void render_nav(UIContext<InputAction>& ctx, Entity& parent,
+                    AppComponent& app, cat::Pane selected, float navW,
+                    float bodyH, bool rail, const cat::Focus& focus,
+                    bool hosted = false) {
+        auto columnCfg =
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(navW),
+                                         hosted ? children() : pixels(bodyH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(hosted ? "sb_settings_nav" : "settings_nav");
+        if (!hosted) columnCfg.with_overflow(Overflow::Scroll, Axis::Y);
+        auto col = div(ctx, mk(parent, hosted ? 61 : 1), columnCfg);
+
+        int id = 1;
+        cat::Group heading = cat::Group::App;
+        bool first = true;
+        for (size_t i = 0; i < cat::kPanes.size(); ++i) {
+            const cat::PaneInfo& info = cat::kPanes[i];
+            if (!rail && (first || info.group != heading)) {
+                heading = info.group;
+                first = false;
+                div(ctx, mk(col.ent(), id++),
+                    ComponentConfig{}
+                        .with_label(cat::group_heading(info.group))
+                        .with_size(ComponentSize{pixels(navW - kNavGutter),
+                                                 pixels(kNavGroupH)})
+                        .with_margin(Margin{.top = pixels(i == 0 ? 2 : 10),
+                                            .left = pixels(4)})
+                        .with_align_items(AlignItems::Center)
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_faint())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_roundness(0.0f)
+                        .with_debug_name(std::string("settings_navgrp_") +
+                                         cat::group_heading(info.group)));
+            }
+
+            const bool isSelected = info.pane == selected;
+            const bool isFocused = focus.zone == cat::Zone::Nav &&
+                                   focus.index == static_cast<int>(i);
+            auto cfg =
+                ComponentConfig{}
+                    .with_label(info.label)
+                    .with_size(ComponentSize{pixels(navW - kNavGutter),
+                                             pixels(kNavRowH)})
+                    .with_margin(Margin{.bottom = pixels(2), .left = pixels(4)})
+                    .with_custom_background(
+                        isSelected ? theme::button_primary()
+                                   : (isFocused ? theme::hover_bg()
+                                                : theme::panel_bg()))
+                    .with_custom_hover_bg(isSelected
+                                              ? theme::button_primary()
+                                              : theme::hover_bg())
+                    .with_custom_text_color(isSelected ? theme::window_bg()
+                                                       : theme::text_primary())
+                    .with_font_size(theme::type::MD)
+                    .with_alignment(TextAlignment::Left)
+                    .with_align_items(AlignItems::Center)
+                    .with_padding(Padding{.left = pixels(10)})
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
+                    .with_debug_name((hosted ? std::string("sb_settings_nav_")
+                                             : std::string("settings_nav_")) +
+                                     info.slug);
+            auto btn = button(ctx, mk(col.ent(), id++), cfg);
+            if (isFocused) focusAnchor_ = btn.ent().id;
+            hanabi::a11y::set_name(
+                btn.ent(),
+                std::string(info.label) + (isSelected ? ", selected" : ""));
+            if (btn) {
+                select_pane(app, info.pane);
+                if (hosted) app.showSettings = true;
+            }
+        }
+    }
+
+    void render_results(UIContext<InputAction>& ctx, Entity& parent,
+                        AppComponent& app, const std::vector<cat::Hit>& hits,
+                        float navW, float bodyH, const cat::Focus& focus) {
+        auto col = div(ctx, mk(parent, 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(navW), pixels(bodyH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_overflow(Overflow::Scroll, Axis::Y)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_results"));
+
+        if (hits.empty()) {
+            div(ctx, mk(col.ent(), 1),
+                ComponentConfig{}
+                    .with_label("No settings match")
+                    .with_size(ComponentSize{pixels(navW - kNavGutter),
+                                             pixels(kNavRowH)})
+                    .with_margin(Margin{.top = pixels(6), .left = pixels(4)})
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_results_empty"));
+            div(ctx, mk(col.ent(), 2),
+                ComponentConfig{}
+                    .with_label("\xe2\x80\x9c" + app.settingsQuery + "\xe2\x80\x9d")
+                    .with_size(ComponentSize{pixels(navW - kNavGutter),
+                                             pixels(18)})
+                    .with_margin(Margin{.left = pixels(4)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_results_echo"));
+            return;
+        }
+
+        for (size_t i = 0; i < hits.size(); ++i) {
+            const cat::Row& row = *hits[i].row;
+            const bool isFocused = focus.zone == cat::Zone::Nav &&
+                                   focus.index == static_cast<int>(i);
+            auto cfg =
+                hanabi::surface::option_row(navW - kNavGutter, kResultRowH,
+                                            isFocused, 11)
+                    .with_margin(Margin{.top = pixels(i == 0 ? 6 : 2),
+                                        .left = pixels(4)})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_padding(Padding{.top = pixels(3), .left = pixels(8),
+                                          .bottom = pixels(3),
+                                          .right = pixels(6)})
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_debug_name("settings_result_" + std::to_string(i));
+            auto res = div(ctx, mk(col.ent(), 100 + static_cast<int>(i)), cfg);
+            res.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            const bool clicked =
+                res.ent().get<afterhours::ui::HasClickListener>().down;
+            hanabi::a11y::set_name(res.ent(),
+                                   std::string(row.title) + ", in " +
+                                       cat::pane_info(row.pane).label);
+
+            div(ctx, mk(res.ent(), 1),
+                ComponentConfig{}
+                    .with_label(row.title)
+                    .with_size(ComponentSize{pixels(navW - kNavGutter - 16.0f),
+                                             pixels(17)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_render_layer(11)
+                    .with_debug_name("settings_result_title_" +
+                                     std::to_string(i)));
+            div(ctx, mk(res.ent(), 2),
+                ComponentConfig{}
+                    .with_label(cat::pane_info(row.pane).label)
+                    .with_size(ComponentSize{pixels(navW - kNavGutter - 16.0f),
+                                             pixels(15)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_render_layer(11)
+                    .with_debug_name("settings_result_pane_" +
+                                     std::to_string(i)));
+            if (clicked) {
+                reveal(app, row);
+                return;
+            }
+        }
+    }
+
+    void render_pane_column(UIContext<InputAction>& ctx, Entity& parent,
+                            AppComponent& app, cat::Pane pane,
+                            const std::vector<const cat::Row*>& rows,
+                            float colW, float bodyH, const cat::Focus& focus,
+                            bool searching) {
+        const float inner = std::max(120.0f, colW - kPadH - kScrollbarW);
+        auto col = div(ctx, mk(parent, 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW), pixels(bodyH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_overflow(Overflow::Scroll, Axis::Y)
+                .with_padding(Padding{.top = pixels(2),
+                                      .left = pixels(kPadH),
+                                      .bottom = pixels(kPaneFoot)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_pane_scroll"));
+        Entity& p = col.ent();
+
+        const cat::PaneInfo& info = cat::pane_info(pane);
+        div(ctx, mk(p, 1),
+            ComponentConfig{}
+                .with_label(info.label)
+                .with_size(ComponentSize{pixels(inner), pixels(22)})
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::BODY)
+                .with_font_weight(theme::type::EMPHASIS)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_pane_title"));
+        div(ctx, mk(p, 2),
+            ComponentConfig{}
+                .with_label(info.summary)
+                .with_size(ComponentSize{pixels(inner), pixels(16)})
+                .with_margin(Margin{.bottom = pixels(6)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_pane_summary"));
+
+        render_origin_legend(ctx, p, rows, inner);
+
+        active_col_w_ = inner;
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const cat::Row& row = *rows[i];
+            const bool isFocused = !searching &&
+                                   focus.zone == cat::Zone::Content &&
+                                   focus.index == static_cast<int>(i);
+            const bool activate = pendingActivate_ == row.id;
+            render_row(ctx, p, app, row, isFocused, activate);
+        }
+        pendingActivate_.clear();
+        render_pane_extras(ctx, p, app, pane);
+        active_col_w_ = 0.0f;
+        if (app.settingsRevealFrames > 0)
+            scroll_reveal_into_view(col.ent(), bodyH);
+    }
+
+    void scroll_reveal_into_view(Entity& scrollEnt, float viewH) {
+        if (focusAnchor_ == 0) return;
+        if (!scrollEnt.has<afterhours::ui::HasScrollView>()) return;
+        auto opt = afterhours::ui::UICollectionHolder::getEntityForID(
+            focusAnchor_);
+        if (!opt.valid() || !opt->has<afterhours::ui::UIComponent>()) return;
+        if (!scrollEnt.has<afterhours::ui::UIComponent>()) return;
+        auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
+        const float rowY = opt->get<afterhours::ui::UIComponent>().rect().y;
+        const float viewY =
+            scrollEnt.get<afterhours::ui::UIComponent>().rect().y;
+        const float rowH = opt->get<afterhours::ui::UIComponent>().rect().height;
+        const float want = cat::reveal_offset(rowY, viewY, rowH, viewH,
+                                              sv.scroll_offset.y);
+        sv.scroll_offset.y = want;
+        hanabi::set_scroll_target_y(sv, want);
+        sv.clamp_scroll();
+    }
+
+    void render_origin_legend(UIContext<InputAction>& ctx, Entity& parent,
+                              const std::vector<const cat::Row*>& rows,
+                              float inner) {
+        bool present[3] = {false, false, false};
+        for (const cat::Row* r : rows)
+            present[static_cast<int>(r->origin)] = true;
+        std::string line;
+        for (int i = 0; i < 3; ++i) {
+            if (!present[i]) continue;
+            const auto origin = static_cast<cat::Origin>(i);
+            if (!line.empty()) line += "   \xc2\xb7   ";
+            line += cat::origin_mark(origin);
+            line += ": ";
+            line += cat::origin_help(origin);
+        }
+        if (line.empty()) return;
+        div(ctx, mk(parent, 3),
+            ComponentConfig{}
+                .with_label(line)
+                .with_size(ComponentSize{pixels(inner), pixels(15)})
+                .with_margin(Margin{.bottom = pixels(4)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_origin_legend"));
+    }
+
+    void render_row(UIContext<InputAction>& ctx, Entity& parent,
+                    AppComponent& app, const cat::Row& row, bool focused,
+                    bool activate) {
+        rowFocused_ = focused;
+        rowOrigin_ = row.origin;
+        rowActivate_ = activate;
+        revealRow_ = app.settingsRevealRow == row.id;
+        rowTitle_ = row.title;
+        const std::string_view id = row.id;
+
+        if (id == "send_key") render_send_key_row(ctx, parent, app);
+        else if (id == "new_line") render_new_line_row(ctx, parent, app);
+        else if (id == "restore_tabs") render_restore_tabs_row(ctx, parent, app);
+        else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
+        else if (id == "theme_rotate") render_theme_rotate_row(ctx, parent, app);
+        else if (id == "font") render_font_row(ctx, parent, app);
+        else if (id == "font_weight") render_font_weight_row(ctx, parent, app);
+        else if (id == "palette") render_palette_row(ctx, parent, app);
+        else if (id == "user_font") render_user_font_row(ctx, parent, app);
+        else if (id == "assistant_font")
+            render_assistant_font_row(ctx, parent, app);
+        else if (id == "minimap_marks")
+            render_minimap_marks_row(ctx, parent, app);
+        else if (id == "accent") render_accent_row(ctx, parent, app);
+        else if (id == "highlight") render_highlight_row(ctx, parent, app);
+        else if (id == "reasoning") render_reasoning_row(ctx, parent, app);
+        else if (id == "fold_long") render_foldlong_row(ctx, parent, app);
+        else if (id == "date_dividers") render_date_dividers_row(ctx, parent, app);
+        else if (id == "subagents") render_subagents_row(ctx, parent, app);
+        else if (id == "yap") render_yap_row(ctx, parent, app);
+        else if (id == "jump_latest") render_jump_latest_row(ctx, parent, app);
+        else if (id == "minimap") render_minimap_row(ctx, parent, app);
+        else if (id == "notify_show") render_notify_show_row(ctx, parent, app);
+        else if (id == "notify_sound") render_notification_row(ctx, parent, app);
+        else if (id == "quiet_hours") render_quiet_hours_row(ctx, parent, app);
+        else if (id == "run_chime") render_run_chime_row(ctx, parent, app);
+        else if (id == "notify_subagents")
+            render_notify_subagents_row(ctx, parent, app);
+        else if (id == "usage_data") render_usage_data_row(ctx, parent, app);
+        else if (id == "disk_usage") render_cache_row(ctx, parent, app);
+        else if (id == "disk_cap") render_cache_limit_row(ctx, parent, app);
+        else if (id == "export") render_export_row(ctx, parent, app);
+        else if (id == "endpoint") render_endpoint_row(ctx, parent, app);
+        else if (id == "identity") render_account_row(ctx, parent, app);
+        else if (id == "memory_backend") render_memory_backend_row(ctx, parent, app);
+        else if (id == "auto_archive") render_autoarchive_row(ctx, parent, app);
+
+        rowFocused_ = false;
+        rowActivate_ = false;
+        revealRow_ = false;
+        rowTitle_.clear();
+        rowOrigin_ = cat::Origin::Device;
+    }
+
+    void render_global_rows(UIContext<InputAction>& ctx, Entity& parent,
+                            AppComponent& app) {
+        int id = 860;
+        for (const auto& item : hanabi::globals::kDefinitions) {
+            const bool on = Settings::get().get_global_enabled(item.slot);
+            const bool armed =
+                app.globalRecording == static_cast<int>(item.slot);
+            auto row = div(ctx, mk(parent, id++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(content_w()), pixels(30)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name(std::string("settings_global_row_") +
+                                     std::string(item.key)));
+            div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_label(std::string(item.title))
+                    .with_size(ComponentSize{pixels(content_w() - 190.0f),
+                                             pixels(22)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(on ? theme::text_primary()
+                                               : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name(std::string("settings_global_label_") +
+                                     std::string(item.key)));
+
+            const std::string chord =
+                armed ? "Press shortcut..."
+                      : hanabi::shortcuts::display(
+                            Settings::get().get_global_shortcut(item.slot));
+            auto recorder = button(ctx, mk(row.ent(), 2),
+                ComponentConfig{}
+                    .with_label(on ? chord : "Off")
+                    .with_size(ComponentSize{pixels(110), pixels(26)})
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_custom_background(armed ? theme::selected_bg()
+                                                  : theme::panel_bg_2())
+                    .with_custom_hover_bg(
+                        theme::hover_over(theme::panel_bg_2()))
+                    .with_border(armed ? theme::accent() : theme::border(),
+                                 pixels(1.0f))
+                    .with_custom_text_color(on ? theme::text_secondary()
+                                               : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
+                    .with_debug_name(std::string("settings_global_record_") +
+                                     std::string(item.key)));
+            if (recorder && on) {
+                app.globalRecording = static_cast<int>(item.slot);
+                app.shortcutRecording = -1;
+                app.globalMessage.clear();
+                ctx.set_focus(recorder.ent().id);
+            }
+
+            auto toggle = button(ctx, mk(row.ent(), 3),
+                ComponentConfig{}
+                    .with_label(on ? "On" : "Off")
+                    .with_size(ComponentSize{pixels(58), pixels(26)})
+                    .with_custom_background(on ? theme::button_primary()
+                                               : theme::button_secondary())
+                    .with_custom_hover_bg(on ? theme::button_primary()
+                                             : theme::hover_bg())
+                    .with_custom_text_color(on ? theme::window_bg()
+                                               : theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
+                    .with_debug_name(std::string("settings_global_switch_") +
+                                     std::string(item.key)));
+            hanabi::a11y::set_name(toggle.ent(),
+                                   std::string(item.title) + " shortcut " +
+                                       (on ? "on" : "off"));
+            if (toggle) {
+                Settings::get().set_global_enabled(item.slot, !on);
+                if (armed) app.globalRecording = -1;
+                apply_globals_or_revert(app, item.slot);
+            }
+
+            const std::string note =
+                (!app.globalMessage.empty() && armed)
+                    ? app.globalMessage
+                    : (on ? std::string(item.help)
+                          : std::string("Off — these keys go back to every "
+                                        "other app."));
+            div(ctx, mk(parent, id++),
+                ComponentConfig{}
+                    .with_label(note)
+                    .with_size(ComponentSize{pixels(content_w()), pixels(16)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(
+                        (!app.globalMessage.empty() && armed)
+                            ? theme::tag_blocked_fg()
+                            : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name(std::string("settings_global_note_") +
+                                     std::string(item.key)));
+        }
+        if (app.globalRecording >= 0) capture_global(app);
+    }
+
+    void capture_global(AppComponent& app) {
+        const auto slot = static_cast<hanabi::globals::Slot>(
+            app.globalRecording);
+        std::optional<hanabi::shortcuts::Shortcut> candidate;
+        int key = 0;
+        unsigned char modifiers = 0;
+        if (menubar_take_recorded_shortcut(&key, &modifiers))
+            candidate = hanabi::shortcuts::Shortcut{key, modifiers};
+        else
+            candidate = hanabi::keys::capture_shortcut();
+        if (!candidate.has_value()) return;
+
+        const auto other = slot == hanabi::globals::Slot::NewTask
+                               ? hanabi::globals::Slot::Palette
+                               : hanabi::globals::Slot::NewTask;
+        const auto check = hanabi::globals::validate(
+            slot, *candidate, Settings::get().get_global_shortcut(other));
+        if (!check.ok) {
+            app.globalMessage = check.explanation;
+            return;
+        }
+        const auto previous = Settings::get().get_global_shortcut(slot);
+        Settings::get().set_global_shortcut(slot, *candidate);
+        app.globalRecording = -1;
+        if (!apply_globals(app)) {
+            Settings::get().set_global_shortcut(slot, previous);
+            apply_globals(app);
+            app.globalRecording = static_cast<int>(slot);
+            app.globalMessage =
+                "Another app already owns that chord. Kept " +
+                hanabi::shortcuts::display(previous) + ".";
+            return;
+        }
+        app.globalMessage.clear();
+    }
+
+    static bool apply_globals(AppComponent&) {
+        const auto reqs = Settings::get().get_global_requests();
+        const auto& nt = reqs[hanabi::globals::index(
+            hanabi::globals::Slot::NewTask)];
+        const auto& pl = reqs[hanabi::globals::index(
+            hanabi::globals::Slot::Palette)];
+        return native_set_global_hotkeys(
+            GlobalHotkeyRequest{nt.shortcut.key, nt.shortcut.modifiers,
+                                nt.enabled},
+            GlobalHotkeyRequest{pl.shortcut.key, pl.shortcut.modifiers,
+                                pl.enabled});
+    }
+
+    void apply_globals_or_revert(AppComponent& app,
+                                 hanabi::globals::Slot slot) {
+        if (apply_globals(app)) {
+            app.globalMessage.clear();
+            return;
+        }
+        Settings::get().set_global_enabled(
+            slot, !Settings::get().get_global_enabled(slot));
+        apply_globals(app);
+        app.globalMessage =
+            "Another app already owns that chord, so it stays as it was.";
+    }
+
+    void render_shortcut_rows(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app) {
+        int id = 900;
+        for (const auto& item : hanabi::shortcuts::kDefinitions) {
+            auto row = div(ctx, mk(parent, id++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(content_w()), pixels(30)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name(std::string("settings_chord_row_") +
+                                     std::string(item.key)));
+            const bool on = Settings::get().get_shortcut_enabled(item.command);
+            const bool armed =
+                app.shortcutRecording == static_cast<int>(item.command);
+
+            div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_label(std::string(item.title))
+                    .with_size(ComponentSize{pixels(content_w() - 190.0f),
+                                             pixels(22)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(on ? theme::text_primary()
+                                               : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name(std::string("settings_chord_label_") +
+                                     std::string(item.key)));
+
+            const std::string chord =
+                armed ? "Press shortcut..."
+                      : hanabi::shortcuts::display(
+                            Settings::get().get_shortcut(item.command));
+            auto recorder = button(ctx, mk(row.ent(), 2),
+                ComponentConfig{}
+                    .with_label(on ? chord : "Off")
+                    .with_size(ComponentSize{pixels(110), pixels(26)})
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_custom_background(armed ? theme::selected_bg()
+                                                  : theme::panel_bg_2())
+                    .with_custom_hover_bg(
+                        theme::hover_over(theme::panel_bg_2()))
+                    .with_border(armed ? theme::accent() : theme::border(),
+                                 pixels(1.0f))
+                    .with_custom_text_color(on ? theme::text_secondary()
+                                               : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
+                    .with_debug_name(std::string("settings_chord_record_") +
+                                     std::string(item.key)));
+            if (recorder && on) {
+                app.shortcutRecording = static_cast<int>(item.command);
+                app.shortcutMessage.clear();
+                ctx.set_focus(recorder.ent().id);
+            }
+
+            auto toggle = button(ctx, mk(row.ent(), 3),
+                ComponentConfig{}
+                    .with_label(on ? "On" : "Off")
+                    .with_size(ComponentSize{pixels(58), pixels(26)})
+                    .with_custom_background(on ? theme::button_primary()
+                                               : theme::button_secondary())
+                    .with_custom_hover_bg(on ? theme::button_primary()
+                                             : theme::hover_bg())
+                    .with_custom_text_color(on ? theme::window_bg()
+                                               : theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
+                    .with_debug_name(std::string("settings_chord_switch_") +
+                                     std::string(item.key)));
+            hanabi::a11y::set_name(toggle.ent(),
+                                   std::string(item.title) + " shortcut " +
+                                       (on ? "on" : "off"));
+            if (toggle) {
+                Settings::get().set_shortcut_enabled(item.command, !on);
+                if (armed) app.shortcutRecording = -1;
+            }
+
+            if (!app.shortcutMessage.empty() && armed) {
+                div(ctx, mk(parent, id++),
+                    ComponentConfig{}
+                        .with_label(app.shortcutMessage)
+                        .with_size(ComponentSize{pixels(content_w()),
+                                                 pixels(16)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::tag_blocked_fg())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_roundness(0.0f)
+                        .with_debug_name(
+                            std::string("settings_chord_refusal_") +
+                            std::string(item.key)));
+            } else if (Settings::get().get_shortcut(item.command) !=
+                       item.shortcut) {
+                div(ctx, mk(parent, id++),
+                    ComponentConfig{}
+                        .with_label("was " +
+                                    hanabi::shortcuts::display(item.shortcut))
+                        .with_size(ComponentSize{pixels(content_w()),
+                                                 pixels(14)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_faint())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_roundness(0.0f)
+                        .with_debug_name(std::string("settings_chord_was_") +
+                                         std::string(item.key)));
+            }
+        }
+    }
+
+    void render_shortcut_reset(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app) {
+        const bool clean = Settings::get().shortcuts_are_default();
+        if (app.shortcutResetArmed && !clean) {
+            div(ctx, mk(parent, 980),
+                ComponentConfig{}
+                    .with_label("Reset all keyboard shortcuts? Every command "
+                                "goes back to the keys it ships with, and any "
+                                "you switched off come back on. There is no "
+                                "undo.")
+                    .with_size(ComponentSize{pixels(content_w()), pixels(32)})
+                    .with_margin(Margin{.top = pixels(8)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_chord_reset_confirm"));
+            auto buttons = div(ctx, mk(parent, 981),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(content_w()), pixels(28)})
+                    .with_margin(Margin{.top = pixels(6)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_chord_reset_buttons"));
+            auto go = button(ctx, mk(buttons.ent(), 1),
+                ComponentConfig{}
+                    .with_label("Reset shortcuts")
+                    .with_size(ComponentSize{pixels(140), pixels(26)})
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_custom_background(
+                        hanabi::surface::destructive_surface())
+                    .with_custom_hover_bg(theme::hover_over(
+                        hanabi::surface::destructive_surface()))
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
+                    .with_debug_name("settings_chord_reset_go"));
+            auto cancel = button(ctx, mk(buttons.ent(), 2),
+                ComponentConfig{}
+                    .with_label("Cancel")
+                    .with_size(ComponentSize{pixels(90), pixels(26)})
+                    .with_custom_background(theme::button_secondary())
+                    .with_custom_hover_bg(theme::hover_bg())
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(hanabi::surface::kControlCorner)
+                    .with_debug_name("settings_chord_reset_cancel"));
+            if (go) {
+                Settings::get().reset_shortcuts();
+                app.shortcutResetArmed = false;
+            }
+            if (cancel) app.shortcutResetArmed = false;
+            return;
+        }
+        app.shortcutResetArmed = false;
+        auto reset = button(ctx, mk(parent, 982),
+            ComponentConfig{}
+                .with_label("Reset all to defaults")
+                .with_size(ComponentSize{pixels(content_w()), pixels(26)})
+                .with_margin(Margin{.top = pixels(10)})
+                .with_disabled(clean)
+                .with_custom_background(theme::panel_bg_2())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_text_color(clean ? theme::text_faint()
+                                              : theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("settings_chord_reset"));
+        if (reset && !clean) app.shortcutResetArmed = true;
+    }
+
+    void render_pane_extras(UIContext<InputAction>& ctx, Entity& parent,
+                            AppComponent& app, cat::Pane pane) {
+        if (pane == cat::Pane::Shortcuts) {
+            render_global_rows(ctx, parent, app);
+            render_shortcut_rows(ctx, parent, app);
+            render_shortcut_reset(ctx, parent, app);
+            render_shortcut_editor_row(ctx, parent, app);
+            div(ctx, mk(parent, 940),
+                ComponentConfig{}
+                    .with_label("Standard editing and navigation chords are "
+                                "the system's and cannot be rebound here.")
+                    .with_size(ComponentSize{pixels(content_w()), pixels(34)})
+                    .with_margin(Margin{.top = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_shortcuts_note"));
+            return;
+        }
+        if (pane == cat::Pane::About) render_footnote(ctx, parent, app);
     }
 
     // Group header: a slightly-prominent label with a fixed gap above it
@@ -425,24 +1454,71 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name(dbg));
     }
 
-    // Compact inline row name above a control (e.g. "Yap level", "Sound").
-    // Small + secondary so the group header stays the visual anchor; kRowNameGap
-    // under it separates it from the control.
     void row_name(UIContext<InputAction>& ctx, Entity& parent, int id,
                   const std::string& text, const std::string& dbg) {
-        div(ctx, mk(parent, id),
+        row_name_with(ctx, parent, id, text, std::string(), dbg);
+    }
+
+    void row_name_with(UIContext<InputAction>& ctx, Entity& parent, int id,
+                       const std::string& text, const std::string& suffix,
+                       const std::string& dbg) {
+        auto line = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_label(text)
-                .with_size(ComponentSize{percent(1.0f), pixels(kRowNameH)})
+                .with_size(ComponentSize{pixels(content_w()),
+                                         pixels(kRowNameH)})
                 .with_margin(Margin{.top = pixels(kControlToNameGap),
                                     .bottom = pixels(kRowNameGap)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::SpaceBetween)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_line"));
+
+        const bool revealed = revealRow_ && !text.empty();
+        std::string shown = rowTitle_.empty() ? text : rowTitle_;
+        shown += suffix;
+        if (revealed) shown = "\xe2\x80\xba " + shown;  // > , the reveal marker
+        div(ctx, mk(line.ent(), 1),
+            ComponentConfig{}
+                .with_label(shown)
+                .with_size(ComponentSize{
+                    pixels(std::max(60.0f,
+                                    content_w() - kOriginMarkW - kOriginGap)),
+                    pixels(kRowNameH)})
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
+                .with_custom_text_color(revealed ? theme::text_primary()
+                                                 : theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
                 .with_roundness(0.0f)
                 .with_debug_name(dbg + "_name"));
+        div(ctx, mk(line.ent(), 2),
+            ComponentConfig{}
+                .with_label(cat::origin_mark(rowOrigin_))
+                .with_size(ComponentSize{pixels(kOriginMarkW),
+                                         pixels(kRowNameH)})
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Right)
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_origin"));
+    }
+
+    void anchor_control(Entity& control) {
+        control.addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (rowFocused_) focusAnchor_ = control.id;
+    }
+
+    int activated_index(int selectedIdx, int n) const {
+        if (!rowActivate_ || n <= 0) return -1;
+        return (std::max(0, selectedIdx) + 1) % n;
     }
 
     void render_theme_row(UIContext<InputAction>& ctx, Entity& parent,
@@ -453,13 +1529,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         auto row = div(ctx, mk(parent, 3),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("settings_theme_row"));
+        anchor_control(row.ent());
 
         // Full-width segmented control (V8: hug both edges, don't float centered).
         // afterhours has no flex-grow (gap #18) so size each segment from the
@@ -472,12 +1549,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         theme_choice(ctx, row.ent(), 1, "Light", "light", app, segW, true);
         theme_choice(ctx, row.ent(), 2, "Dark", "dark", app, segW, true);
         theme_choice(ctx, row.ent(), 3, "System", "system", app, segW, false);
+
+        static const char* kThemeValues[3] = {"light", "dark", "system"};
+        int cur = 0;
+        for (int i = 0; i < 3; ++i)
+            if (app.themeChoice == kThemeValues[i]) cur = i;
+        if (const int stepped = activated_index(cur, 3); stepped >= 0)
+            apply_theme(app, kThemeValues[stepped]);
     }
 
     // Appearance group -> Rotate theme. Off / 15m / 30m / 1h, sharing the theme
     // row's gutter math. Rotation is what the picker above could not do: leave
     // the sheet and the palette keeps moving on its own.
-    //
     // The row NAME carries which palette is up right now. Rotation moves the
     // theme while the sheet is open, and the picker above says which one only
     // in colour — which is not something a person glancing at the sheet can
@@ -487,21 +1570,24 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         (void)app;
         const int secs = Settings::get().get_theme_rotate_secs();
         std::string name = "Rotate theme";
+        std::string suffix;
         if (secs > 0) {
-            name += "   \xc2\xb7   showing ";
-            name += (theme::mode() == theme::Mode::Light) ? "Light" : "Dark";
+            suffix += "   \xc2\xb7   showing ";
+            suffix += (theme::mode() == theme::Mode::Light) ? "Light" : "Dark";
         }
-        row_name(ctx, parent, 150, name, "settings_theme_rotate_label");
+        row_name_with(ctx, parent, 150, name, suffix,
+                      "settings_theme_rotate_label");
 
         auto row = div(ctx, mk(parent, 151),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("settings_theme_rotate_row"));
+        anchor_control(row.ent());
 
         constexpr float kSegGap = 6.0f;
         const float segW = (content_w() - kSegGap * 3.0f) / 4.0f;
@@ -509,6 +1595,15 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         rotate_choice(ctx, row.ent(), 2, "15m", "15m", 15 * 60, segW, true);
         rotate_choice(ctx, row.ent(), 3, "30m", "30m", 30 * 60, segW, true);
         rotate_choice(ctx, row.ent(), 4, "1h", "1h", 60 * 60, segW, false);
+
+        static const int kRotateSecs[4] = {0, 15 * 60, 30 * 60, 60 * 60};
+        int curIdx = 0;
+        for (int i = 0; i < 4; ++i)
+            if (kRotateSecs[i] == secs) curIdx = i;
+        if (const int stepped = activated_index(curIdx, 4); stepped >= 0) {
+            Settings::get().set_theme_rotate_secs(kRotateSecs[stepped]);
+            theme_rotation::restart();
+        }
     }
 
     // One segmented rotation-interval button. "Off" is the 0 case, so an
@@ -557,13 +1652,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         auto row = div(ctx, mk(parent, 7),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("settings_font_row"));
+        anchor_control(row.ent());
 
         const auto& options = hanabi::fonts::families();
         constexpr float kSegGap = 6.0f;
@@ -576,6 +1672,16 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                             option.label, option.key, segW,
                             i + 1 < options.size());
         }
+
+        const std::string activeFamily = hanabi::fonts::effective_family(
+            Settings::get().get_font_choice());
+        int curFont = 0;
+        for (std::size_t i = 0; i < options.size(); ++i)
+            if (options[i].key == activeFamily) curFont = static_cast<int>(i);
+        if (const int stepped =
+                activated_index(curFont, static_cast<int>(options.size()));
+            stepped >= 0)
+            pick_font(options[static_cast<std::size_t>(stepped)].key);
     }
 
     static std::size_t available_font_weight_count() {
@@ -594,13 +1700,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         auto row = div(ctx, mk(parent, 9),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("settings_font_weight_row"));
+        anchor_control(row.ent());
 
         const std::string family = hanabi::fonts::effective_family(
             Settings::get().get_font_choice());
@@ -617,6 +1724,32 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                             option.label, option.key, segW,
                             index + 1 < availableCount);
         }
+
+        std::vector<std::string> weightKeys;
+        for (const auto& option : hanabi::fonts::weights())
+            if (hanabi::fonts::weight_available(family, option.key))
+                weightKeys.push_back(option.key);
+        const std::string activeWeight =
+            hanabi::fonts::effective_weight(family,
+                                            Settings::get().get_font_weight());
+        int curWeight = 0;
+        for (std::size_t i = 0; i < weightKeys.size(); ++i)
+            if (weightKeys[i] == activeWeight) curWeight = static_cast<int>(i);
+        if (const int stepped =
+                activated_index(curWeight, static_cast<int>(weightKeys.size()));
+            stepped >= 0) {
+            Settings::get().set_font_weight(
+                weightKeys[static_cast<std::size_t>(stepped)]);
+            queue_font_apply();
+        }
+    }
+
+    static void pick_font(const std::string& value) {
+        auto& settings = Settings::get();
+        settings.set_font_choice(value);
+        if (!hanabi::fonts::weight_available(value, settings.get_font_weight()))
+            settings.set_font_weight("regular");
+        queue_font_apply();
     }
 
     void font_choice_btn(UIContext<InputAction>& ctx, Entity& parent, int id,
@@ -645,11 +1778,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.35f)
                 .with_debug_name("settings_font_" + value));
         if (!btn) return;
-        auto& settings = Settings::get();
-        settings.set_font_choice(value);
-        if (!hanabi::fonts::weight_available(value, settings.get_font_weight()))
-            settings.set_font_weight("regular");
-        queue_font_apply();
+        pick_font(value);
     }
 
     void font_weight_btn(UIContext<InputAction>& ctx, Entity& parent, int id,
@@ -701,6 +1830,23 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                              Settings::get().get_font_weight());
     }
 
+    static std::uint64_t& disk_usage_cache() {
+        static std::uint64_t bytes = 0;
+        return bytes;
+    }
+    static bool& disk_usage_valid() {
+        static bool valid = false;
+        return valid;
+    }
+    static void invalidate_disk_usage() { disk_usage_valid() = false; }
+    static std::uint64_t disk_usage_bytes() {
+        if (!disk_usage_valid()) {
+            disk_usage_cache() = api::disk_cache::total_bytes();
+            disk_usage_valid() = true;
+        }
+        return disk_usage_cache();
+    }
+
     // Human-readable byte size: B / KB / MB.
     static std::string human_bytes(std::uint64_t b) {
         char buf[32];
@@ -722,7 +1868,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         auto row = div(ctx, mk(parent, 21),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kCacheRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kCacheRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -730,8 +1876,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("settings_cache_row"));
+        anchor_control(row.ent());
 
-        const std::uint64_t bytes = api::disk_cache::total_bytes();
+        const std::uint64_t bytes = disk_usage_bytes();
         std::string usage = human_bytes(bytes) + " on disk";
         if (app.cacheWipeReported)
             usage += " · " + human_bytes(app.cacheWipeReclaimedBytes) +
@@ -749,7 +1896,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         auto clear = button(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label("Clear cache")
+                .with_label("Clear")
                 .with_size(ComponentSize{pixels(104), pixels(28)})
                 .with_custom_background(theme::button_secondary())
                 .with_custom_hover_bg(theme::hover_over(theme::button_secondary()))
@@ -762,21 +1909,20 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.35f)
                 .with_debug_name("settings_cache_clear"));
-        if (clear) {
+        if (clear || rowActivate_) {
             app.clear_transcript_cache();
             const auto result = api::disk_cache::wipe_all_report();
             app.cacheWipeReclaimedBytes = result.bytes_reclaimed;
             app.cacheWipeReported = true;
+            invalidate_disk_usage();
         }
     }
 
     // Data / export row (local-first idea #4): a "Data" section with the export
     // destination on the left and, hugging the right edge, the two things you
     // can do with it — choose where it goes, and send it there.
-    //
     // Writes every cached transcript to <destination>/*.md — user-owned,
     // survives a backend sunset. A transient "· exported N" note confirms.
-    //
     // The destination used to be ~/hanabi/threads and nothing else, which is a
     // fine default and a poor only-option: the whole point of the export is
     // that the copies are YOURS, and yours generally means "in the folder I
@@ -788,12 +1934,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         row_name(ctx, parent, 60, "Export", "settings_data_label");
         auto row = div(ctx, mk(parent, 61),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kExportRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kExportRowH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("settings_export_row"));
+        anchor_control(row.ent());
 
         static int s_exported = -1;  // -1 = not yet; >=0 = last export count
         const std::string dest = export_destination();
@@ -864,7 +2011,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_roundness(0.35f)
                 .with_debug_name("settings_export_btn"));
-        if (exp) s_exported = api::disk_cache::export_all_markdown(dest);
+        if (exp || rowActivate_)
+            s_exported = api::disk_cache::export_all_markdown(dest);
     }
 
     // Where the export writes: the folder the user chose, or the built-in
@@ -927,14 +2075,28 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         auto row = div(ctx, mk(parent, 41),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kLimitRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kLimitRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("settings_cache_limit_row"));
+        anchor_control(row.ent());
 
+        div(ctx, mk(parent, 42),
+            ComponentConfig{}
+                .with_label("The cap covers cached conversations. Your "
+                            "settings, exports and logs are not counted and "
+                            "are never trimmed.")
+                .with_size(ComponentSize{pixels(content_w()), pixels(15)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_cache_scope"));
         const std::uint64_t current = Settings::get().get_cache_cap_bytes();
         // Full-width 4-segment control (V8: hug both edges). Size from the real
         // content width (content_w()) minus 3 inter-segment gaps; no trailing
@@ -966,16 +2128,19 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.35f)
                     .with_debug_name(std::string("settings_cache_limit_") +
                                      std::to_string(i)));
-            if (btn) {
-                auto& s = Settings::get();
-                s.set_cache_cap_bytes(opt.bytes);  // auto-persists
-                // Apply immediately: trim the on-disk cache to the new cap so
-                // the usage line above reflects the change on the next frame.
-                // (Ongoing "trim after each save" belongs in the loader — see
-                // REPORT; disk_cache::trim_to_cap is exposed for that wiring.)
-                api::disk_cache::trim_to_cap(opt.bytes);
-            }
+            if (btn) apply_cache_cap(opt.bytes);
         }
+        int curCap = 1;
+        for (int i = 0; i < 4; ++i)
+            if (kCapOptions[i].bytes == current) curCap = i;
+        if (const int stepped = activated_index(curCap, 4); stepped >= 0)
+            apply_cache_cap(kCapOptions[stepped].bytes);
+    }
+
+    static void apply_cache_cap(std::uint64_t bytes) {
+        Settings::get().set_cache_cap_bytes(bytes);
+        api::disk_cache::trim_to_cap(bytes);
+        invalidate_disk_usage();
     }
 
     // ── Shared control helpers ─────────────────────────────────────────────
@@ -987,15 +2152,17 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void real_segmented(UIContext<InputAction>& ctx, Entity& parent,
                         int baseId, const std::vector<std::string>& labels,
                         int selectedIdx, const std::string& dbg, Fn onPick) {
-        auto row = div(ctx, mk(parent, baseId),
+        auto rowCfg =
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name(dbg + "_row"));
+                .with_debug_name(dbg + "_row");
+        auto row = div(ctx, mk(parent, baseId), rowCfg);
+        anchor_control(row.ent());
         constexpr float kSegGap = 6.0f;
         const int n = static_cast<int>(labels.size());
         const float segW =
@@ -1024,6 +2191,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name(dbg + "_" + std::to_string(i)));
             if (btn) onPick(i);
         }
+        const int stepped = activated_index(selectedIdx, n);
+        if (stepped >= 0) onPick(stepped);
     }
 
     // ── Behavior group ─────────────────────────────────────────────────────
@@ -1199,11 +2368,16 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void render_notification_row(UIContext<InputAction>& ctx, Entity& parent,
                                  AppComponent& app) {
         (void)app;
-        row_name(ctx, parent, 130, "Sound", "settings_notif_label");
+        const bool master = Settings::get().get_notifications_enabled();
+        row_name_with(ctx, parent, 130, "Play a sound",
+                      master ? std::string()
+                             : std::string("   \xc2\xb7   notifications are off"),
+                      "settings_notif_label");
         const bool on = Settings::get().get_notification_sound();
         real_segmented(ctx, parent, 131, {"Off", "Ping"}, on ? 1 : 0,
                        "settings_notif",
-                       [](int i) {
+                       [master](int i) {
+                           if (!master) return;
                            Settings::get().set_notification_sound(i == 1);
                        });
     }
@@ -1246,6 +2420,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     void render_account_row(UIContext<InputAction>& ctx, Entity& parent,
                             AppComponent& app) {
+        row_name(ctx, parent, 30, "Signed in as", "settings_identity");
         std::string line;
         theme::Color col = theme::text_secondary();
         if (app.settingsState == ecs::LoadState::Loading) {
@@ -1269,7 +2444,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             // Idle with no data — the backend doesn't expose settings, or mock.
             line = "not available on this backend";
         }
-        div(ctx, mk(parent, 31),
+        auto readout = div(ctx, mk(parent, 31),
             ComponentConfig{}
                 .with_label(line)
                 .with_size(ComponentSize{percent(1.0f), pixels(20)})
@@ -1280,6 +2455,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("settings_account_value"));
+        anchor_control(readout.ent());
 
     }
 
@@ -1337,19 +2513,20 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // no way to raise the macOS one, and a hex field would let one RGB apply to
     // both palettes, which is how the light theme shipped muddy the first time.
     // Each swatch instead carries its own dark and light colour (theme.h).
-    //
     // The row name carries the chosen swatch, because the swatch row itself
     // says which one is live only in colour — unreadable at a glance next to a
     // full sheet of blue segments, and invisible to a test.
     void render_accent_row(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app) {
         (void)app;
-        row_name(ctx, parent, 160,
-                 "Accent   \xc2\xb7   " + swatch_label(theme::accent_choice(),
-                                                      theme::kAccentSwatches,
-                                                      std::size(theme::kAccentSwatches)),
-                 "settings_accent_label");
+        row_name_with(ctx, parent, 160, "Accent",
+                      "   \xc2\xb7   " +
+                          swatch_label(theme::accent_choice(),
+                                       theme::kAccentSwatches,
+                                       std::size(theme::kAccentSwatches)),
+                      "settings_accent_label");
         auto row = swatch_row(ctx, parent, 161, "settings_accent_row");
+        anchor_control(row.ent());
         const float segW = swatch_seg_w(std::size(theme::kAccentSwatches) + 1);
         swatch_btn(ctx, row.ent(), 1, "Default", theme::kDefaultChoice, segW,
                    true, "settings_accent_", theme::accent_choice(),
@@ -1361,18 +2538,24 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        "settings_accent_", theme::accent_choice(),
                        [](const std::string& k) { apply_accent(k); });
         }
+        if (const std::string next = stepped_swatch(
+                theme::accent_choice(), theme::kAccentSwatches,
+                std::size(theme::kAccentSwatches));
+            !next.empty())
+            apply_accent(next);
     }
 
     void render_highlight_row(UIContext<InputAction>& ctx, Entity& parent,
                               AppComponent& app) {
         (void)app;
-        row_name(ctx, parent, 162,
-                 "Find highlight   \xc2\xb7   " +
-                     swatch_label(theme::highlight_choice(),
-                                  theme::kHighlightSwatches,
-                                  std::size(theme::kHighlightSwatches)),
-                 "settings_highlight_label");
+        row_name_with(ctx, parent, 162, "Find highlight",
+                      "   \xc2\xb7   " +
+                          swatch_label(theme::highlight_choice(),
+                                       theme::kHighlightSwatches,
+                                       std::size(theme::kHighlightSwatches)),
+                      "settings_highlight_label");
         auto row = swatch_row(ctx, parent, 163, "settings_highlight_row");
+        anchor_control(row.ent());
         const float segW = swatch_seg_w(std::size(theme::kHighlightSwatches) + 1);
         swatch_btn(ctx, row.ent(), 1, "Default", theme::kDefaultChoice, segW,
                    true, "settings_highlight_", theme::highlight_choice(),
@@ -1384,6 +2567,23 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                        "settings_highlight_", theme::highlight_choice(),
                        [](const std::string& k) { apply_highlight(k); });
         }
+        if (const std::string next = stepped_swatch(
+                theme::highlight_choice(), theme::kHighlightSwatches,
+                std::size(theme::kHighlightSwatches));
+            !next.empty())
+            apply_highlight(next);
+    }
+
+    std::string stepped_swatch(const std::string& current,
+                               const theme::Swatch* list, size_t n) const {
+        const int count = static_cast<int>(n) + 1;
+        int cur = 0;
+        for (size_t i = 0; i < n; ++i)
+            if (list[i].key == current) cur = static_cast<int>(i) + 1;
+        const int stepped = activated_index(cur, count);
+        if (stepped < 0) return {};
+        return stepped == 0 ? std::string(theme::kDefaultChoice)
+                            : list[static_cast<size_t>(stepped - 1)].key;
     }
 
     static std::string swatch_label(const std::string& key,
@@ -1397,7 +2597,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const std::string& dbg) {
         return div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(kThemeRowH)})
+                .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -1479,9 +2679,388 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     static float pw_title() { return 300.0f; }
 
+    void render_new_line_row(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 152, "New line with", "settings_new_line");
+        const bool cmdReturn =
+            Settings::get().get_send_key() == hanabi::kSendKeyCmdReturn;
+        const std::string answer =
+            cmdReturn ? "Return  \xc2\xb7  Cmd+Return sends"
+                      : "Shift+Return  \xc2\xb7  Cmd+Return also sends";
+        auto readout = div(ctx, mk(parent, 153),
+            ComponentConfig{}
+                .with_label(answer)
+                .with_size(ComponentSize{pixels(content_w()), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_new_line_value"));
+        anchor_control(readout.ent());
+    }
+
+    void render_restore_tabs_row(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 154, "Restore open tabs on restart",
+                 "settings_restore_tabs");
+        const bool on = Settings::get().get_restore_tabs();
+        real_segmented(ctx, parent, 155, {"Off", "On"}, on ? 1 : 0,
+                       "settings_restore_tabs",
+                       [](int i) { Settings::get().set_restore_tabs(i == 1); });
+    }
+
+    void render_jump_latest_row(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 156, "Jump to the latest message when you return",
+                 "settings_jump_latest");
+        const bool on = Settings::get().get_jump_to_latest();
+        real_segmented(ctx, parent, 157, {"Stay put", "Jump"}, on ? 1 : 0,
+                       "settings_jump_latest",
+                       [](int i) { Settings::get().set_jump_to_latest(i == 1); });
+    }
+
+    void render_minimap_row(UIContext<InputAction>& ctx, Entity& parent,
+                            AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 158, "Chat minimap", "settings_minimap");
+        const bool on = Settings::get().get_show_minimap();
+        real_segmented(ctx, parent, 159, {"Hidden", "Shown"}, on ? 1 : 0,
+                       "settings_minimap",
+                       [](int i) { Settings::get().set_show_minimap(i == 1); });
+    }
+
+    void render_notify_show_row(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 134, "Show notifications",
+                 "settings_notify_show");
+        const bool on = Settings::get().get_notifications_enabled();
+        real_segmented(ctx, parent, 135, {"Off", "On"}, on ? 1 : 0,
+                       "settings_notify_show", [](int i) {
+                           Settings::get().set_notifications_enabled(i == 1);
+                       });
+    }
+
+    void render_run_chime_row(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 174, "Chime when a run finishes",
+                 "settings_run_chime");
+        const bool on = Settings::get().get_run_chime();
+        real_segmented(ctx, parent, 175, {"Off", "On"}, on ? 1 : 0,
+                       "settings_run_chime",
+                       [](int i) { Settings::get().set_run_chime(i == 1); });
+    }
+
+    void render_notify_subagents_row(UIContext<InputAction>& ctx,
+                                     Entity& parent, AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 176, "Notify me about sub-agents",
+                 "settings_notify_subagents");
+        const bool on = Settings::get().get_notify_subagents();
+        real_segmented(ctx, parent, 177, {"Off", "On"}, on ? 1 : 0,
+                       "settings_notify_subagents", [](int i) {
+                           Settings::get().set_notify_subagents(i == 1);
+                       });
+    }
+
+    void render_usage_data_row(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 178, "Send settings to your account",
+                 "settings_usage_data");
+        const bool on = Settings::get().get_send_usage_data();
+        real_segmented(ctx, parent, 179, {"Off", "On"}, on ? 1 : 0,
+                       "settings_usage_data", [](int i) {
+                           Settings::get().set_send_usage_data(i == 1);
+                       });
+    }
+
+    // The named palettes, each drawing its own colour beside its name. A row
+    // of words all in the same ink is a row a reader has to try one at a time;
+    // the point of naming a palette is that it can be recognised.
+    void render_palette_row(UIContext<InputAction>& ctx, Entity& parent,
+                            AppComponent& app) {
+        const std::string current = current_palette(app);
+        row_name_with(ctx, parent, 190, "Palette", "   \xc2\xb7   " + current,
+                      "settings_palette");
+        auto row = div(ctx, mk(parent, 191),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(content_w()),
+                                         pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_palette_row"));
+        anchor_control(row.ent());
+
+        constexpr float kGap = 6.0f;
+        const int n = static_cast<int>(kPaletteCount);
+        const float segW = (content_w() - kGap * (n - 1)) / static_cast<float>(n);
+        for (int i = 0; i < n; ++i) {
+            const auto& entry = kPalettes[static_cast<size_t>(i)];
+            const bool sel = current == entry.label;
+            const theme::Color preview =
+                entry.light ? theme::Color{236, 236, 240, 255}
+                            : theme::Color{32, 32, 44, 255};
+            auto btn = button(ctx, mk(row.ent(), i + 1),
+                ComponentConfig{}
+                    .with_label(entry.label)
+                    .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
+                    .with_margin(Margin{.right =
+                                            pixels(i == n - 1 ? 0.0f : kGap)})
+                    .with_custom_background(sel ? theme::button_primary()
+                                                : preview)
+                    .with_custom_hover_bg(sel ? theme::button_primary()
+                                              : theme::hover_over(preview))
+                    .with_custom_text_color(sel ? theme::window_bg()
+                                                : (entry.light
+                                                       ? theme::Color{28, 28,
+                                                                      34, 255}
+                                                       : theme::Color{
+                                                             226, 226, 232,
+                                                             255}))
+                    .with_font_size(theme::type::MD)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.35f)
+                    .with_debug_name(std::string("settings_palette_") +
+                                     entry.key));
+            if (btn) apply_theme(app, entry.key);
+        }
+        int cur = 0;
+        for (int i = 0; i < n; ++i)
+            if (current == kPalettes[static_cast<size_t>(i)].label) cur = i;
+        if (const int stepped = activated_index(cur, n); stepped >= 0)
+            apply_theme(app, kPalettes[static_cast<size_t>(stepped)].key);
+    }
+
+    struct PaletteEntry {
+        const char* key;
+        const char* label;
+        bool light;
+    };
+    static constexpr size_t kPaletteCount = 3;
+    static constexpr std::array<PaletteEntry, kPaletteCount> kPalettes{{
+        {"light", "Light", true},
+        {"dark", "Dark", false},
+        {"system", "System", false},
+    }};
+
+    static std::string current_palette(const AppComponent& app) {
+        for (const auto& entry : kPalettes)
+            if (app.themeChoice == entry.key) return entry.label;
+        return theme::mode() == theme::Mode::Light ? "Light" : "Dark";
+    }
+
+    void render_user_font_row(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app) {
+        (void)app;
+        render_side_font_row(ctx, parent, 192, "Your messages",
+                             "settings_user_font",
+                             Settings::get().get_user_font(),
+                             [](const std::string& k) {
+                                 Settings::get().set_user_font(k);
+                             });
+    }
+
+    void render_assistant_font_row(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent& app) {
+        (void)app;
+        render_side_font_row(ctx, parent, 194, "Replies",
+                             "settings_assistant_font",
+                             Settings::get().get_assistant_font(),
+                             [](const std::string& k) {
+                                 Settings::get().set_assistant_font(k);
+                             });
+    }
+
+    // One side's message typeface. "App font" is the absence of a choice, not
+    // a family of its own, so a reader who never touches this keeps whatever
+    // the app font becomes.
+    template <typename Apply>
+    void render_side_font_row(UIContext<InputAction>& ctx, Entity& parent,
+                              int id, const std::string& title,
+                              const std::string& dbg,
+                              const std::string& current, Apply apply) {
+        row_name(ctx, parent, id, title, dbg);
+        const auto& families = hanabi::fonts::families();
+        std::vector<std::string> labels{"App font"};
+        std::vector<std::string> keys{std::string{}};
+        for (const auto& choice : families) {
+            labels.push_back(choice.label);
+            keys.push_back(choice.key);
+        }
+        int sel = 0;
+        for (size_t i = 0; i < keys.size(); ++i)
+            if (keys[i] == current) sel = static_cast<int>(i);
+        real_segmented(ctx, parent, id + 1, labels, sel, dbg,
+                       [keys, apply](int i) {
+                           apply(keys[static_cast<size_t>(i)]);
+                       });
+    }
+
+    // Which mark kinds the rail draws. Each is its own switch because hiding
+    // "everything except asks" is the request; a single on/off is the setting
+    // one row above this one.
+    void render_minimap_marks_row(UIContext<InputAction>& ctx, Entity& parent,
+                                  AppComponent& app) {
+        (void)app;
+        const std::string hidden = Settings::get().get_minimap_hidden_marks();
+        const bool railOn = Settings::get().get_show_minimap();
+        int shown = 0;
+        for (const auto mark : hanabi::minimap::kAllMarks)
+            if (!hanabi::minimap::mark_hidden(hidden, mark)) ++shown;
+        row_name_with(ctx, parent, 196, "Marks on the minimap",
+                      railOn ? "   \xc2\xb7   " + std::to_string(shown) +
+                                   " of " +
+                                   std::to_string(
+                                       hanabi::minimap::kAllMarks.size())
+                             : std::string("   \xc2\xb7   the minimap is off"),
+                      "settings_minimap_marks");
+        auto row = div(ctx, mk(parent, 197),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(content_w()),
+                                         pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_minimap_marks_row"));
+        anchor_control(row.ent());
+
+        constexpr float kGap = 6.0f;
+        const int n = static_cast<int>(hanabi::minimap::kAllMarks.size());
+        const float segW = (content_w() - kGap * (n - 1)) / static_cast<float>(n);
+        static const char* kLabels[5] = {"Tools", "Replies", "Asks", "Events",
+                                         "Quiet"};
+        for (int i = 0; i < n; ++i) {
+            const auto mark = hanabi::minimap::kAllMarks[static_cast<size_t>(i)];
+            const bool on = !hanabi::minimap::mark_hidden(hidden, mark);
+            auto btn = button(ctx, mk(row.ent(), i + 1),
+                ComponentConfig{}
+                    .with_label(kLabels[i])
+                    .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
+                    .with_margin(Margin{.right =
+                                            pixels(i == n - 1 ? 0.0f : kGap)})
+                    .with_custom_background(on && railOn
+                                                ? theme::button_primary()
+                                                : theme::button_secondary())
+                    .with_custom_hover_bg(on && railOn
+                                              ? theme::button_primary()
+                                              : theme::hover_bg())
+                    .with_custom_text_color(on && railOn ? theme::window_bg()
+                                            : railOn ? theme::text_primary()
+                                                     : theme::text_faint())
+                    .with_font_size(theme::type::MD)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.35f)
+                    .with_debug_name(std::string("settings_mark_") +
+                                     std::string(hanabi::minimap::mark_key(
+                                         mark))));
+            hanabi::a11y::set_name(btn.ent(),
+                                   std::string(kLabels[i]) + " marks " +
+                                       (on ? "shown" : "hidden"));
+            if (btn && railOn)
+                Settings::get().set_minimap_hidden_marks(
+                    hanabi::minimap::toggle_mark(hidden, mark));
+        }
+        if (rowActivate_)
+            Settings::get().set_minimap_hidden_marks(
+                hanabi::minimap::toggle_mark(hidden,
+                                             hanabi::minimap::kAllMarks[0]));
+    }
+
+    void render_endpoint_row(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app) {
+        row_name(ctx, parent, 170, "Endpoint", "settings_endpoint");
+        std::string line = app.backend_label.empty() ? "mock (offline sample "
+                                                       "data)"
+                                                     : app.backend_label;
+        auto readout = div(ctx, mk(parent, 171),
+            ComponentConfig{}
+                .with_label(line)
+                .with_size(ComponentSize{pixels(content_w()), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_endpoint_value"));
+        anchor_control(readout.ent());
+        div(ctx, mk(parent, 172),
+            ComponentConfig{}
+                .with_label("Set in your config file or environment; a change "
+                            "takes effect at the next launch.")
+                .with_size(ComponentSize{pixels(content_w()), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_endpoint_note"));
+    }
+
     // Widths resolved from this frame's actual panel and active column.
     float active_panel_w_ = kPanelW;
     float active_col_w_ = 0.0f;
+
+    bool rowFocused_ = false;
+    bool rowActivate_ = false;
+    bool revealRow_ = false;
+    std::string rowTitle_;
+    cat::Origin rowOrigin_ = cat::Origin::Device;
+
+    bool wasOpen_ = false;
+    int searchFocusFrames_ = 0;
+    afterhours::EntityID focusAnchor_ = 0;
+    afterhours::EntityID searchFieldId_ = 0;
+    afterhours::EntityID restoreId_ = 0;
+    int restoreFrames_ = 0;
+    std::string pendingActivate_;
+
+    static constexpr float kOriginMarkW = 84.0f;
+    static constexpr float kOriginGap = 10.0f;
+    static constexpr int kRevealFrames = 30;
 };
+
+// The sidebar's host call. It reuses the sheet's own row builder, so a pane
+// row looks and behaves the same in both places and there is one selection.
+inline void render_settings_pane_list(UIContext<InputAction>& ctx,
+                                      Entity& parent, AppComponent& app,
+                                      float width, bool rail) {
+    SettingsSystem host;
+    if (app.settingsPane.empty())
+        app.settingsPane =
+            cat::pane_info(
+                cat::pane_from_slug(Settings::get().get_settings_pane()))
+                .slug;
+    cat::Focus none;
+    none.zone = cat::Zone::Search;
+    cat::Focus live;
+    live.zone = static_cast<cat::Zone>(app.settingsFocusZone);
+    live.index = app.settingsFocusIndex;
+    host.render_nav(ctx, parent, app, cat::pane_from_slug(app.settingsPane),
+                    width, 0.0f, rail, live, /*hosted=*/true);
+    hosted_focus_anchor() = host.focusAnchor_;
+    (void)none;
+}
 
 }  // namespace ecs

@@ -1,0 +1,48 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+click_ui sb_settings
+wait_frames 8
+
+type "them"
+wait_frames 8
+assert_ui settings_result_0 w=174
+expect_text "Theme"
+expect_text "Rotate theme"
+expect_text "Theme"
+
+click_ui settings_result_0
+wait_frames 8
+expect_text "Theme, typeface, and the two colours you can name"
+expect_text "Rotate theme"
+expect_no_text "Send message with"
+
+click_ui settings_search
+wait_frames 6
+type "dnd"
+wait_frames 8
+expect_text "Quiet hours"
+expect_text "Notifications"
+
+key DOWN
+wait_frames 4
+key ENTER
+wait_frames 8
+expect_text "When this Mac may interrupt you, and when it may not"
+expect_text "Quiet hours"
+expect_no_text "Rotate theme"
+
+click_ui settings_search
+wait_frames 6
+type "zzzqq"
+wait_frames 8
+expect_text "No settings match"
+expect_text "zzzqq"
+
+key ESCAPE
+wait_frames 8
+expect_no_text "No settings match"
+expect_text "When this Mac may interrupt you, and when it may not"
+
+key ESCAPE
+wait_frames 8
+expect_no_text "When this Mac may interrupt you, and when it may not"

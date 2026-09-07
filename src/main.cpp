@@ -298,11 +298,12 @@ static void setup_app_state() {
         app.requestListRefresh = false;
     }
 
-
     // Restore persisted tab set (opened once the list loads).
-    app.restoreTabIds = Settings::get().get_open_tabs();
-    app.restorePinnedIds = Settings::get().get_pinned_tabs();
-    app.restoreActiveId = Settings::get().get_active_tab();
+    if (Settings::get().get_restore_tabs()) {
+        app.restoreTabIds = Settings::get().get_open_tabs();
+        app.restorePinnedIds = Settings::get().get_pinned_tabs();
+        app.restoreActiveId = Settings::get().get_active_tab();
+    }
     // The split is restored here, but the PANES' threads are restored by the
     // same pass that restores the tabs (tab_bar_system.h): a pane's thread has
     // to exist in the session list before it can be opened, exactly like a
@@ -559,6 +560,18 @@ static void app_frame() {
         // Phase G extras: register the global hotkey (Cmd+Shift+N) on the same
         // windowed-only, install-once path. Idempotent; headless never reaches
         // here so no global listener lingers after a --screenshot capture.
+        {
+            const auto reqs = Settings::get().get_global_requests();
+            const auto& nt =
+                reqs[hanabi::globals::index(hanabi::globals::Slot::NewTask)];
+            const auto& pl =
+                reqs[hanabi::globals::index(hanabi::globals::Slot::Palette)];
+            native_set_global_hotkeys(
+                GlobalHotkeyRequest{nt.shortcut.key, nt.shortcut.modifiers,
+                                    nt.enabled},
+                GlobalHotkeyRequest{pl.shortcut.key, pl.shortcut.modifiers,
+                                    pl.enabled});
+        }
         native_hotkey_install();
         native_notifications_start();
         // Phase G extra: install the hanabi:// URL / Apple-event handler so a
@@ -576,7 +589,8 @@ static void app_frame() {
         // posts a single native notification carrying that id, so the
         // notification banner + click->open-thread path can be exercised
         // manually. Ignored when unset; never runs on the headless path.
-        if (const char* nt = std::getenv("HANABI_NOTIFY_TEST"); nt && *nt) {
+        if (const char* nt = std::getenv("HANABI_NOTIFY_TEST");
+            nt && *nt && Settings::get().get_notifications_enabled()) {
             const std::string title =
                 std::string(product_branding::kAppName) + ": thread needs you";
             native_notify(title.c_str(), "Click to open this thread", nt,
@@ -630,6 +644,19 @@ static void app_frame() {
         // opens + navigates to that thread — same seam a sidebar row click
         // uses (requestOpenTab), so the tab loader fetches + focuses it.
         char openId[256];
+        char settingsPane[128] = {};
+        if (native_take_open_settings(settingsPane, sizeof(settingsPane))) {
+            nativeWake = true;
+            auto qs = afterhours::EntityQuery({.force_merge = true})
+                          .whereHasComponent<ecs::AppComponent>()
+                          .gen();
+            if (!qs.empty()) {
+                auto& a = qs[0].get().get<ecs::AppComponent>();
+                a.settingsRoute = settingsPane;
+                a.showSettings = true;
+                metal_activate_app();
+            }
+        }
         if (native_take_open_thread(openId, sizeof(openId))) {
             nativeWake = true;
             auto q = afterhours::EntityQuery({.force_merge = true})
@@ -913,6 +940,7 @@ static void app_frame() {
             // they are dropped inside transitions(), so silence now cannot
             // become a stale banner the moment the thread is unmuted.
             std::set<std::string> muted;
+            hanabi::notify::Children children;
             now.reserve(app.sessions.size());
             for (const auto& s : app.sessions) {
                 if (s.id.empty()) continue;
@@ -925,11 +953,21 @@ static void app_frame() {
                 now.emplace_back(s.id, activity);
                 titles[s.id] = s.title;
                 if (s.muted) muted.insert(s.id);
+                if (!s.parent_id.empty()) children.insert(s.id);
             }
 
-            const auto event =
-                hanabi::notify::native_event(lastSeen, now, titles, muted);
-            if (event.has_value() && !in_quiet_hours_now()) {
+            hanabi::notify::Wants wants;
+            wants.subagents = Settings::get().get_notify_subagents();
+            const auto event = hanabi::notify::native_event(
+                lastSeen, now, titles, muted, children, wants);
+            const bool quiet = in_quiet_hours_now();
+            const auto cue = hanabi::notify::cue_for(
+                quiet ? std::nullopt : event,
+                Settings::get().get_notifications_enabled(),
+                Settings::get().get_run_chime());
+            if (cue.chime) native_play_chime();
+            if (event.has_value() && !quiet &&
+                Settings::get().get_notifications_enabled()) {
                 const double nowSec =
                     static_cast<double>(now_epoch_seconds());
                 if (lastNotifyAt < 0.0 ||
@@ -1798,7 +1836,6 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     };
     int settleFrames = 0;
 
-
     // One clock reading for the whole capture, so a duration that is set up in
     // one frame and rendered in a later one cannot straddle a second boundary
     // and photograph a different number (see util/capture_clock.h).
@@ -2014,7 +2051,6 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         }
 
         apply_test_knobs(appForWait);
-
 
     }
 
@@ -2679,7 +2715,9 @@ int main(int argc, char* argv[]) {
     // as a bare flag plus a positional arg, cmdl.params() comes back empty,
     // and we silently fall through to the windowed run() path — which opens a
     // real Metal window and never exits in a headless/one-shot context.
-    cmdl.add_params({"--screenshot", "--e2e", "--parse-thread-url"});
+    cmdl.add_params({"--screenshot", "--e2e", "--parse-thread-url",
+                     "--parse-settings-url", "--chime-probe",
+                     "--notify-probe"});
     cmdl.parse(argc, argv);
 
     // --version prints and exits.
@@ -2691,6 +2729,61 @@ int main(int argc, char* argv[]) {
         char status[512];
         native_integration_status(status, sizeof(status));
         printf("%s\n", status);
+        return 0;
+    }
+    // Headless probe for the run-finished cue: drives the SAME decision the
+    // windowed frame makes, with the switches read from the same Settings, and
+    // prints what it decided. HANABI_CHIME_LOG makes the native boundary
+    // append instead of play, so a test can assert cue/no-cue with no speaker.
+    // Headless probe for the sub-agent filter: same native_event call the
+    // windowed frame makes, same Settings, over a two-thread world where one
+    // thread is the other's child. Prints which thread would raise a banner.
+    if (std::string spec = cmdl("notify-probe").str(); !spec.empty()) {
+        Settings::get().auto_save_enabled = false;
+        Settings::get().load_save_file();
+        const bool childMoved = spec.find("child") != std::string::npos;
+        hanabi::notify::Snapshot prev{
+            {"parent", hanabi::notify::Activity::Other},
+            {"child", hanabi::notify::Activity::Other}};
+        std::vector<std::pair<std::string, hanabi::notify::Activity>> now{
+            {"parent", childMoved ? hanabi::notify::Activity::Other
+                                  : hanabi::notify::Activity::Blocked},
+            {"child", childMoved ? hanabi::notify::Activity::Blocked
+                                 : hanabi::notify::Activity::Other}};
+        hanabi::notify::Children children{"child"};
+        hanabi::notify::Wants wants;
+        wants.subagents = Settings::get().get_notify_subagents();
+        const auto event = hanabi::notify::native_event(
+            prev, now, {{"parent", "parent"}, {"child", "child"}}, {},
+            children, wants);
+        printf("%s\n", event.has_value() ? event->id.c_str() : "none");
+        return 0;
+    }
+    if (std::string spec = cmdl("chime-probe").str(); !spec.empty()) {
+        Settings::get().auto_save_enabled = false;
+        Settings::get().load_save_file();
+        const bool finished = spec.find("finished") != std::string::npos;
+        const std::optional<hanabi::notify::Event> event =
+            hanabi::notify::Event{finished
+                                      ? hanabi::notify::Event::Kind::Finished
+                                      : hanabi::notify::Event::Kind::Blocked,
+                                  "probe", "probe"};
+        const auto cue = hanabi::notify::cue_for(
+            event, Settings::get().get_notifications_enabled(),
+            Settings::get().get_run_chime());
+        if (cue.chime) native_play_chime();
+        printf("%s notifications=%d chime=%d from=%s\n",
+               cue.chime ? "chime" : "silent",
+               Settings::get().get_notifications_enabled() ? 1 : 0,
+               Settings::get().get_run_chime() ? 1 : 0,
+               Settings::get().get_settings_path().c_str());
+        return 0;
+    }
+    if (std::string url = cmdl("parse-settings-url").str(); !url.empty()) {
+        char pane[128] = {};
+        native_simulate_open_url(url.c_str());
+        if (!native_take_open_settings(pane, sizeof(pane))) return 2;
+        printf("%s\n", pane);
         return 0;
     }
     if (std::string url = cmdl("parse-thread-url").str(); !url.empty()) {

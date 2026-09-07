@@ -1,0 +1,29 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"notifications"}
+# env: HANABI_TEST_OVERLAY=settings
+
+wait_frames 10
+expect_text "Show notifications"
+expect_text "Play a sound"
+expect_text "Chime when a run finishes"
+expect_text "Notify me about sub-agents"
+expect_text "Quiet hours"
+
+click_ui settings_notify_show_0
+wait_frames 10
+expect_text "notifications are off"
+
+click_ui settings_notify_show_1
+wait_frames 10
+expect_no_text "notifications are off"
+
+click_ui sb_settings_nav_connection
+wait_frames 10
+expect_text "Send settings to your account"
+expect_text "Read-only: shown, not settable"
+expect_text "Set in your config file or environment; a change takes effect at the next launch."
+
+click_ui settings_search
+wait_frames 6
+type "telemetry"
+wait_frames 10
+expect_text "Send settings to your account"

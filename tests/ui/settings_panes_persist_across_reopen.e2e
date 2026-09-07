@@ -1,0 +1,56 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_no_text "BACKEND"
+
+click_ui sb_settings
+wait_frames 8
+
+assert_ui settings_panel w=720
+assert_ui sb_settings_nav w=280
+assert_ui settings_search_row w=672
+
+expect_text "APP"
+expect_text "BACKEND"
+expect_text "INPUT"
+expect_text "SYSTEM"
+
+expect_text "General"
+expect_text "Appearance"
+expect_text "Notifications"
+expect_text "Storage"
+expect_text "Connection"
+expect_text "Shortcuts"
+expect_text "About"
+
+expect_text "Sending, timestamps, and what comes back on restart"
+expect_text "Send message with"
+expect_no_text "Rotate theme"
+
+click_ui sb_settings_nav_appearance
+wait_frames 8
+expect_text "Rotate theme"
+expect_text "Theme, typeface, and the two colours you can name"
+expect_no_text "Send message with"
+
+click_ui sb_settings_nav_storage
+wait_frames 8
+expect_text "Keep at most on disk"
+expect_text "Export conversations"
+expect_no_text "Rotate theme"
+
+click_ui settings_close
+wait_frames 8
+expect_no_text "Keep at most on disk"
+
+click_ui sb_settings
+wait_frames 8
+expect_text "Keep at most on disk"
+expect_no_text "Send message with"
+
+key ESCAPE
+wait_frames 8
+expect_no_text "Keep at most on disk"
+
+click_ui sb_settings
+wait_frames 8
+expect_text "Keep at most on disk"

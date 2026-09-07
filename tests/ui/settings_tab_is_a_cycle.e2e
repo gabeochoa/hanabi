@@ -1,0 +1,54 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+
+key TAB
+wait_frames 6
+expect_focused sb_settings_nav_general
+key TAB
+key TAB
+key TAB
+key TAB
+key TAB
+key TAB
+key TAB
+wait_frames 8
+expect_focused sb_settings_nav_about
+
+key TAB
+wait_frames 6
+expect_focused settings_send_key_row
+key TAB
+wait_frames 6
+expect_focused settings_new_line_value
+key TAB
+wait_frames 6
+expect_focused settings_restore_tabs_row
+key TAB
+wait_frames 6
+expect_focused settings_timestamps_row
+
+key TAB
+wait_frames 6
+expect_focused settings_search
+
+shift_tab
+wait_frames 6
+expect_focused settings_timestamps_row
+shift_tab
+wait_frames 6
+expect_focused settings_restore_tabs_row
+shift_tab
+wait_frames 6
+expect_focused settings_new_line_value
+shift_tab
+wait_frames 6
+expect_focused settings_send_key_row
+shift_tab
+wait_frames 6
+expect_focused sb_settings_nav_about
+shift_tab
+wait_frames 6
+expect_focused sb_settings_nav_shortcuts

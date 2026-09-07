@@ -14,7 +14,9 @@
 
 click_ui sb_settings
 wait_frames 8
-expect_text "Custom colours"
+click_ui sb_settings_nav_appearance
+wait_frames 8
+expect_text "Theme, typeface, and the two colours you can name"
 expect_text "Accent   ·   Default"
 expect_text "Find highlight   ·   Default"
 
@@ -22,13 +24,16 @@ click_ui settings_accent_violet
 wait_frames 8
 expect_text "Accent   ·   Violet"
 
+mouse_move 700 500
+scroll_wheel 0 -30
+wait_frames 10
 click_ui settings_highlight_green
 wait_frames 8
 expect_text "Find highlight   ·   Green"
 
 # The choice belongs to the token, not to the palette: switching to light must
 # not quietly drop it back to Default.
-click_ui settings_theme_light
+click_ui settings_palette_light
 wait_frames 10
 expect_text "Accent   ·   Violet"
 expect_text "Find highlight   ·   Green"

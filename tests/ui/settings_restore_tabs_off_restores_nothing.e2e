@@ -1,0 +1,5 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","restore_tabs":false}
+
+wait_frames 30
+expect_no_text "Tab: needs a decision before it can go on"
+expect_text "Home"

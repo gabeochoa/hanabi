@@ -75,6 +75,19 @@ bool Settings::load_save_file() {
             j.value("font_weight", font_weight_));
         accent_choice_ = j.value("theme_accent", accent_choice_);
         highlight_choice_ = j.value("theme_highlight", highlight_choice_);
+        settings_pane_ = j.value("settings_pane", settings_pane_);
+        restore_tabs_ = j.value("restore_tabs", restore_tabs_);
+        jump_to_latest_ = j.value("jump_to_latest", jump_to_latest_);
+        show_minimap_ = j.value("show_minimap", show_minimap_);
+        minimap_hidden_marks_ =
+            j.value("minimap_hidden_marks", minimap_hidden_marks_);
+        user_font_ = j.value("user_font", user_font_);
+        assistant_font_ = j.value("assistant_font", assistant_font_);
+        notifications_enabled_ =
+            j.value("notifications_enabled", notifications_enabled_);
+        run_chime_ = j.value("run_chime", run_chime_);
+        notify_subagents_ = j.value("notify_subagents", notify_subagents_);
+        send_usage_data_ = j.value("send_usage_data", send_usage_data_);
         export_dir_ = j.value("export_dir", export_dir_);
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
         cache_cap_bytes_ = j.value("cache_cap_bytes", cache_cap_bytes_);
@@ -101,6 +114,37 @@ bool Settings::load_save_file() {
         default_effort_ = j.value("default_effort", default_effort_);
         set_send_key(j.value("send_key", send_key_));
         custom_shortcuts_.fill(std::nullopt);
+        shortcut_off_.fill(false);
+        custom_globals_.fill(std::nullopt);
+        global_off_.fill(false);
+        if (j.contains("global_shortcuts") && j["global_shortcuts"].is_object())
+            for (const auto& item : hanabi::globals::kDefinitions) {
+                const auto at =
+                    j["global_shortcuts"].find(std::string(item.key));
+                if (at == j["global_shortcuts"].end() || !at->is_string())
+                    continue;
+                const auto parsed =
+                    hanabi::shortcuts::parse(at->get<std::string>());
+                if (!parsed.has_value()) continue;
+                if (*parsed != item.shortcut)
+                    custom_globals_[hanabi::globals::index(item.slot)] =
+                        *parsed;
+            }
+        if (j.contains("global_shortcuts_off") &&
+            j["global_shortcuts_off"].is_array())
+            for (const auto& e : j["global_shortcuts_off"])
+                if (e.is_string())
+                    for (const auto& item : hanabi::globals::kDefinitions)
+                        if (e.get<std::string>() == std::string(item.key))
+                            global_off_[hanabi::globals::index(item.slot)] =
+                                true;
+        if (j.contains("shortcuts_off") && j["shortcuts_off"].is_array())
+            for (const auto& e : j["shortcuts_off"])
+                if (e.is_string())
+                    for (const auto& item : hanabi::shortcuts::kDefinitions)
+                        if (e.get<std::string>() == std::string(item.key))
+                            shortcut_off_[hanabi::shortcuts::index(
+                                item.command)] = true;
         auto loaded_shortcuts = hanabi::shortcuts::defaults();
         if (j.contains("shortcuts") && j["shortcuts"].is_object()) {
             for (const auto& item : hanabi::shortcuts::kDefinitions) {
@@ -198,6 +242,17 @@ void Settings::write_save_file() {
     j["font_weight"] = font_weight_;
     j["theme_accent"] = accent_choice_;
     j["theme_highlight"] = highlight_choice_;
+    j["settings_pane"] = settings_pane_;
+    j["restore_tabs"] = restore_tabs_;
+    j["jump_to_latest"] = jump_to_latest_;
+    j["show_minimap"] = show_minimap_;
+    j["minimap_hidden_marks"] = minimap_hidden_marks_;
+    j["user_font"] = user_font_;
+    j["assistant_font"] = assistant_font_;
+    j["notifications_enabled"] = notifications_enabled_;
+    j["run_chime"] = run_chime_;
+    j["notify_subagents"] = notify_subagents_;
+    j["send_usage_data"] = send_usage_data_;
     j["export_dir"] = export_dir_;
     j["sidebar_collapsed"] = sidebar_collapsed_;
     j["cache_cap_bytes"] = cache_cap_bytes_;
@@ -226,6 +281,23 @@ void Settings::write_save_file() {
                 hanabi::shortcuts::serialize(*custom);
     }
     j["shortcuts"] = std::move(shortcuts);
+    json shortcuts_off = json::array();
+    for (const auto& item : hanabi::shortcuts::kDefinitions)
+        if (shortcut_off_[hanabi::shortcuts::index(item.command)])
+            shortcuts_off.push_back(std::string(item.key));
+    j["shortcuts_off"] = std::move(shortcuts_off);
+    json globals_json = json::object();
+    json globals_off = json::array();
+    for (const auto& item : hanabi::globals::kDefinitions) {
+        const auto& custom = custom_globals_[hanabi::globals::index(item.slot)];
+        if (custom.has_value())
+            globals_json[std::string(item.key)] =
+                hanabi::shortcuts::serialize(*custom);
+        if (global_off_[hanabi::globals::index(item.slot)])
+            globals_off.push_back(std::string(item.key));
+    }
+    j["global_shortcuts"] = std::move(globals_json);
+    j["global_shortcuts_off"] = std::move(globals_off);
     j["split_open"] = split_open_;
     j["split_ratio"] = split_ratio_;
     j["split_focused_pane"] = split_focused_pane_;
@@ -332,6 +404,91 @@ const std::string& Settings::get_highlight_choice() const {
 void Settings::set_highlight_choice(const std::string& key) {
     if (key == highlight_choice_) return;
     highlight_choice_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_settings_pane() const {
+    return settings_pane_;
+}
+void Settings::set_settings_pane(const std::string& slug) {
+    if (slug == settings_pane_) return;
+    settings_pane_ = slug;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_restore_tabs() const { return restore_tabs_; }
+void Settings::set_restore_tabs(bool on) {
+    if (on == restore_tabs_) return;
+    restore_tabs_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_jump_to_latest() const { return jump_to_latest_; }
+void Settings::set_jump_to_latest(bool on) {
+    if (on == jump_to_latest_) return;
+    jump_to_latest_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_show_minimap() const { return show_minimap_; }
+void Settings::set_show_minimap(bool on) {
+    if (on == show_minimap_) return;
+    show_minimap_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_run_chime() const { return run_chime_; }
+void Settings::set_run_chime(bool on) {
+    if (on == run_chime_) return;
+    run_chime_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_notify_subagents() const { return notify_subagents_; }
+void Settings::set_notify_subagents(bool on) {
+    if (on == notify_subagents_) return;
+    notify_subagents_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_send_usage_data() const { return send_usage_data_; }
+void Settings::set_send_usage_data(bool on) {
+    if (on == send_usage_data_) return;
+    send_usage_data_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_user_font() const { return user_font_; }
+void Settings::set_user_font(const std::string& key) {
+    if (key == user_font_) return;
+    user_font_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_assistant_font() const {
+    return assistant_font_;
+}
+void Settings::set_assistant_font(const std::string& key) {
+    if (key == assistant_font_) return;
+    assistant_font_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_minimap_hidden_marks() const {
+    return minimap_hidden_marks_;
+}
+void Settings::set_minimap_hidden_marks(const std::string& keys) {
+    if (keys == minimap_hidden_marks_) return;
+    minimap_hidden_marks_ = keys;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_notifications_enabled() const {
+    return notifications_enabled_;
+}
+void Settings::set_notifications_enabled(bool on) {
+    if (on == notifications_enabled_) return;
+    notifications_enabled_ = on;
     if (auto_save_enabled) write_save_file();
 }
 
@@ -666,11 +823,90 @@ hanabi::shortcuts::Validation Settings::set_shortcut(
     return result;
 }
 
+bool Settings::get_shortcut_enabled(
+    hanabi::shortcuts::Command command) const {
+    return !shortcut_off_[hanabi::shortcuts::index(command)];
+}
+
+void Settings::set_shortcut_enabled(hanabi::shortcuts::Command command,
+                                    bool on) {
+    const std::size_t at = hanabi::shortcuts::index(command);
+    if (shortcut_off_[at] == !on) return;
+    shortcut_off_[at] = !on;
+    ++shortcut_revision_;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::shortcuts_are_default() const {
+    for (const auto& shortcut : custom_shortcuts_)
+        if (shortcut.has_value()) return false;
+    for (const bool off : shortcut_off_)
+        if (off) return false;
+    for (const auto& shortcut : custom_globals_)
+        if (shortcut.has_value()) return false;
+    for (const bool off : global_off_)
+        if (off) return false;
+    return true;
+}
+
+hanabi::shortcuts::Shortcut Settings::get_global_shortcut(
+    hanabi::globals::Slot slot) const {
+    const std::size_t at = hanabi::globals::index(slot);
+    if (custom_globals_[at].has_value()) return *custom_globals_[at];
+    return hanabi::globals::definition(slot).shortcut;
+}
+
+void Settings::set_global_shortcut(hanabi::globals::Slot slot,
+                                   hanabi::shortcuts::Shortcut shortcut) {
+    const std::size_t at = hanabi::globals::index(slot);
+    if (get_global_shortcut(slot) == shortcut) return;
+    custom_globals_[at] =
+        shortcut == hanabi::globals::definition(slot).shortcut
+            ? std::optional<hanabi::shortcuts::Shortcut>{}
+            : std::optional<hanabi::shortcuts::Shortcut>{shortcut};
+    ++shortcut_revision_;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_global_enabled(hanabi::globals::Slot slot) const {
+    return !global_off_[hanabi::globals::index(slot)];
+}
+
+void Settings::set_global_enabled(hanabi::globals::Slot slot, bool on) {
+    const std::size_t at = hanabi::globals::index(slot);
+    if (global_off_[at] == !on) return;
+    global_off_[at] = !on;
+    ++shortcut_revision_;
+    if (auto_save_enabled) write_save_file();
+}
+
+hanabi::globals::Requests Settings::get_global_requests() const {
+    hanabi::globals::Requests out;
+    for (const auto& item : hanabi::globals::kDefinitions) {
+        const std::size_t at = hanabi::globals::index(item.slot);
+        out[at] = hanabi::globals::Request{get_global_shortcut(item.slot),
+                                           get_global_enabled(item.slot)};
+    }
+    return out;
+}
+
 void Settings::reset_shortcuts() {
     bool changed = false;
     for (auto& shortcut : custom_shortcuts_) {
         if (shortcut.has_value()) changed = true;
         shortcut.reset();
+    }
+    for (bool& off : shortcut_off_) {
+        if (off) changed = true;
+        off = false;
+    }
+    for (auto& shortcut : custom_globals_) {
+        if (shortcut.has_value()) changed = true;
+        shortcut.reset();
+    }
+    for (bool& off : global_off_) {
+        if (off) changed = true;
+        off = false;
     }
     if (!changed) return;
     ++shortcut_revision_;

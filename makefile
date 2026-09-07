@@ -534,6 +534,14 @@ $(TEST_DIR)/test_theme_contrast: tests/unit/test_theme_contrast.cpp src/ui/theme
 # 0.5 threshold the ring lands on decides whether those edges are invisible or
 # are the brightest thing on screen. Same split as test_tab_colors: no scripted
 # assertion can see a colour, so the guard is arithmetic.
+$(TEST_DIR)/test_global_hotkeys: tests/unit/test_global_hotkeys.cpp src/global_hotkeys.h src/shortcuts.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_global_hotkeys..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_global_hotkeys.cpp -o $@
+
+$(TEST_DIR)/test_settings_catalog: tests/unit/test_settings_catalog.cpp src/ui/settings_catalog.h $(TEST_HDRS) | $(TEST_DIR)
+	@echo "Compiling test_settings_catalog..."
+	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_settings_catalog.cpp -o $@
+
 $(TEST_DIR)/test_focus_ring: tests/unit/test_focus_ring.cpp src/ui/focus_visible.h src/ui/theme.h $(TEST_HDRS) | $(TEST_DIR)
 	@echo "Compiling test_focus_ring..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_focus_ring.cpp -o $@
@@ -702,7 +710,7 @@ $(TEST_DIR)/test_div_move: tests/unit/test_div_move.cpp src/ui/div.h $(TEST_HDRS
 	@echo "Compiling test_div_move..."
 	$(CXX) $(TEST_CXXFLAGS) $(TEST_INCLUDES) tests/unit/test_div_move.cpp -o $@
 
-UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_elicitation $(TEST_DIR)/test_ask_card $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_subagent_parent_index $(TEST_DIR)/test_sidebar_buckets $(TEST_DIR)/test_home_buckets $(TEST_DIR)/test_contains_lower $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_md_spans $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_frame_activity $(TEST_DIR)/test_latency $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo $(TEST_DIR)/test_div_move $(TEST_DIR)/test_widget_key
+UNIT_TEST_EXES := $(TEST_DIR)/test_native_extras $(TEST_DIR)/test_menubar $(TEST_DIR)/test_shortcuts $(TEST_DIR)/test_spotlight_catalog $(TEST_DIR)/test_api $(TEST_DIR)/test_auth $(TEST_DIR)/test_send $(TEST_DIR)/test_stream $(TEST_DIR)/test_tools $(TEST_DIR)/test_textinput $(TEST_DIR)/test_input_pipeline $(TEST_DIR)/test_data $(TEST_DIR)/test_settings $(TEST_DIR)/test_agentcloud $(TEST_DIR)/test_elicitation $(TEST_DIR)/test_ask_card $(TEST_DIR)/test_notify_events $(TEST_DIR)/test_find_nav $(TEST_DIR)/test_session_index $(TEST_DIR)/test_subagent_parent_index $(TEST_DIR)/test_sidebar_buckets $(TEST_DIR)/test_home_buckets $(TEST_DIR)/test_contains_lower $(TEST_DIR)/test_snippet_text $(TEST_DIR)/test_diff $(TEST_DIR)/test_ellipsize $(TEST_DIR)/test_trend $(TEST_DIR)/test_tab_colors $(TEST_DIR)/test_footer_geometry $(TEST_DIR)/test_secondary_surface $(TEST_DIR)/test_pane_memory $(TEST_DIR)/test_transcript_item_index $(TEST_DIR)/test_wrap_count $(TEST_DIR)/test_md_spans $(TEST_DIR)/test_text_cache $(TEST_DIR)/test_widget_retire $(TEST_DIR)/test_gpu_mem $(TEST_DIR)/test_texture_budget $(TEST_DIR)/test_downscale $(TEST_DIR)/test_digest_layout $(TEST_DIR)/test_heap_walk $(TEST_DIR)/test_minimap_scrub $(TEST_DIR)/test_minimap_marks $(TEST_DIR)/test_focus_ring $(TEST_DIR)/test_outbox $(TEST_DIR)/test_atlas_guard $(TEST_DIR)/test_frame_activity $(TEST_DIR)/test_latency $(TEST_DIR)/test_follow_latch $(TEST_DIR)/test_theme_contrast $(TEST_DIR)/test_find_memo $(TEST_DIR)/test_div_move $(TEST_DIR)/test_widget_key $(TEST_DIR)/test_settings_catalog $(TEST_DIR)/test_global_hotkeys
 E2E_TEST_EXES := $(TEST_DIR)/test_e2e
 PERF_TEST_EXES := $(TEST_DIR)/test_perf
 
@@ -754,6 +762,8 @@ test: $(UNIT_TEST_EXES) $(E2E_TEST_EXES) $(PERF_TEST_EXES) $(MAIN_EXE)
 	@$(MAKE) harness-gate
 	@$(MAKE) tab-persistence-gate
 	@$(MAKE) verify-vendor-patches
+	@echo "Running run-finished cue gate (scripts/chime_gate.sh)..."
+	@bash scripts/chime_gate.sh
 	@echo "Running ask-card contrast gate (scripts/ask_contrast_gate.py)..."
 	@python3 scripts/ask_contrast_gate.py
 	@echo "Running launch/RSS perf gate (scripts/measure_launch.sh)..."
@@ -989,7 +999,7 @@ source-checks: $(BRANDING_HEADER) $(BRANDING_PLIST)
 	if /usr/bin/python3 scripts/branding.py --config "$(BRANDING_CONFIG)" check \
 	    $(BRANDING_ARGS) --template "$(BRANDING_TEMPLATE)" --output-dir "$(BRANDING_DIR)" --root .; then :; else rc=1; fi; \
 	if /usr/bin/python3 tests/test_branding.py; then :; else rc=1; fi; \
-	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py scripts/check_gap_references.py scripts/check_div_routing.py scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/check_theme_config.py scripts/check_resize_deferral.py scripts/focus_edge_gate.py scripts/attachment_route_gate.py; do \
+	for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py scripts/check_fixture_env.py scripts/check_gap_references.py scripts/check_div_routing.py scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/check_theme_config.py scripts/check_vocabulary.py scripts/check_settings_readers.py scripts/check_resize_deferral.py scripts/focus_edge_gate.py scripts/attachment_route_gate.py; do \
 	    if /usr/bin/python3 $$chk; then :; else rc=1; fi; \
 	done; \
 	if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi; \

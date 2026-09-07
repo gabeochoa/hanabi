@@ -1,0 +1,31 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+expect_text "VIEWS"
+expect_no_text "SETTINGS"
+
+click_ui sb_settings
+wait_frames 10
+expect_text "SETTINGS"
+expect_no_text "VIEWS"
+assert_ui sb_settings_nav_general w=268
+expect_text "Send message with"
+
+click_ui sb_settings_nav_storage
+wait_frames 10
+expect_text "Keep at most on disk"
+expect_no_text "Send message with"
+
+click_ui settings_close
+wait_frames 10
+expect_text "VIEWS"
+expect_no_text "SETTINGS"
+expect_no_text "Keep at most on disk"
+
+click_ui sb_settings
+wait_frames 10
+expect_text "Keep at most on disk"
+expect_text "SETTINGS"
+
+key ESCAPE
+wait_frames 10
+expect_text "VIEWS"

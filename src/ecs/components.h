@@ -581,10 +581,21 @@ struct AppComponent : public afterhours::BaseComponent {
     // currently selected in the panel ("dark"/"light"/"system"); composer
     // open state + its draft text for kicking off a new task.
     bool showSettings = false;
+    std::string settingsPane;
+    std::string settingsRoute;
+    std::string settingsQuery;
+    int settingsFocusZone = 0;  // 0 search, 1 nav/results, 2 content
+    int settingsFocusIndex = 0;
+    std::string settingsRevealRow;
+    int settingsRevealFrames = 0;
+    int settingsReturnFocus = 0;
     // The keyboard-shortcut reference (Cmd+/). Every binding in this app is
     // otherwise invisible.
     bool showShortcuts = false;
     int shortcutRecording = -1;
+    bool shortcutResetArmed = false;
+    int globalRecording = -1;
+    std::string globalMessage;
     std::string shortcutMessage;
 
     // The command palette (Cmd+K): a query and a cursor over the rows it
@@ -939,7 +950,6 @@ struct AppComponent : public afterhours::BaseComponent {
     bool streamCollecting = false;      // a worker is gathering the reply.
     api::OutgoingMessage streamPendingMessage;
     std::string streamPendingSession;   // session the collection targets.
-
 
     // Phase AUTH (device-code login). The flow lives here as an optional so
     // the whole app is unchanged when auth is not configured (authFlow stays

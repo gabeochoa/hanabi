@@ -1,0 +1,22 @@
+# settings: {"window_width":760,"window_height":620,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"chat"}
+# env: HANABI_TEST_OVERLAY=settings
+
+resize 760 620
+wait_frames 10
+
+assert_ui settings_panel w=712
+assert_ui settings_body w=664
+assert_ui settings_pane_scroll w=478
+assert_ui settings_search_wrap w=464
+
+assert_ui settings_reasoning_label_line w=440
+assert_ui settings_reasoning_row w=440
+
+expect_text "Reasoning blocks"
+expect_text "This Mac"
+expect_text "Your account"
+
+resize 1100 760
+wait_frames 10
+assert_ui settings_reasoning_label_line w=634
+assert_ui settings_reasoning_row w=634

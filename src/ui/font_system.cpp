@@ -162,6 +162,14 @@ bool weight_available(std::string_view family, std::string_view weight) {
     return found != nullptr && found->paths.contains(weight);
 }
 
+std::string face_name(std::string_view family, std::string_view weight) {
+    const std::string resolved = effective_family(family);
+    const std::string w = effective_weight(resolved, weight);
+    const Family* found = find_family(resolved);
+    if (found == nullptr || !found->paths.contains(w)) return {};
+    return registered_name(resolved, w);
+}
+
 std::string effective_family(std::string_view requested) {
     return family_available(requested) ? std::string(requested) : "default";
 }

@@ -56,6 +56,19 @@ extern "C" {
 // process-lifetime Carbon event handler + a global hotkey registration.
 void native_hotkey_install(void);
 
+// Ask for a new pair of desktop-global chords. Returns true when every ENABLED
+// slot is actually registered with the system; false means at least one chord
+// was refused (another app owns it) and the caller should put its previous,
+// working binding back. Safe to call while the app is not frontmost: the
+// request is stored and applied the next time the chords are registered.
+struct GlobalHotkeyRequest {
+    int key = 0;
+    unsigned char modifiers = 0;
+    bool enabled = true;
+};
+bool native_set_global_hotkeys(GlobalHotkeyRequest new_task,
+                               GlobalHotkeyRequest palette);
+
 // One-shot: returns true exactly once per hotkey press, then clears. Polled by
 // the C++ frame loop, which then runs the existing activate + new-task path.
 bool native_hotkey_take_triggered(void);
@@ -76,6 +89,14 @@ void native_notifications_start(void);
 // authorization answer instead of being dropped. `sound` controls whether this
 // request carries UNNotificationSound.defaultSound. Clicking it routes
 // `thread_id` through native_take_open_thread().
+// A sound with no banner: the run-finished cue. Separate from native_notify's
+// `sound` flag because that one rides a notification, and this one exists
+// precisely for the reader who has banners switched off.
+//
+// HANABI_CHIME_LOG names a file the cue appends to instead of playing, which
+// is how a headless test proves the cue/no-cue decision without a speaker.
+void native_play_chime(void);
+
 void native_notify(const char* title, const char* body, const char* thread_id,
                    bool sound);
 
@@ -114,6 +135,11 @@ void native_openurl_install(void);
 // nothing is pending. Polled by the C++ frame loop, which then sets
 // AppComponent::requestOpenTab to open + navigate to the thread.
 bool native_take_open_thread(char* out, int cap);
+
+// The settings half of the same scheme: <scheme>://settings/<pane-slug>.
+// A slug this build does not know still opens Settings, on the pane the
+// reader was last on, rather than doing nothing.
+bool native_take_open_settings(char* out, int cap);
 
 // ---- 6. Attachments: clipboard paste + file drop ---------------------------
 //

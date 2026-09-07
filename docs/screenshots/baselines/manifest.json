@@ -38,7 +38,7 @@
     },
     "07c_hover_user_actions_dark": {
       "threshold_pct": 0.0,
-      "note": "A hovered user message with the labeled Copy and Retry action bar."
+      "note": "A hovered user message with the persistent Copy and Retry action labels inside the redesigned frame."
     },
     "08_view_blocked_dark": {
       "threshold_pct": 0.0,
@@ -94,11 +94,11 @@
     },
     "15_settings_dark": {
       "threshold_pct": 0.0,
-      "note": "Settings overlay, dark. Every preference control on one sheet."
+      "note": "Settings, dark, on the General pane: navigation column, search field, and each row's origin mark."
     },
     "16_settings_light": {
       "threshold_pct": 0.0,
-      "note": "Settings overlay, light."
+      "note": "Settings, light, on the General pane."
     },
     "17_newtask_dark": {
       "threshold_pct": 0.0,
@@ -234,7 +234,7 @@
     },
     "21b_tools_expanded_detail_dark": {
       "threshold_pct": 0.0,
-      "note": "Expanded tool rows with real command, node, duration, status, and result details."
+      "note": "Expanded tool details inside the redesigned frame; the tool renderer itself is unchanged."
     },
     "22_split_view_dark": {
       "threshold_pct": 0.0,
@@ -280,14 +280,6 @@
       "threshold_pct": 0.0,
       "note": "Reopening a thread that gained messages while you were away. Same pinned-epoch dependency as 20_big_transcript_dark."
     },
-    "07c_hover_user_actions_dark": {
-      "threshold_pct": 0.0,
-      "note": "A hovered user message with the persistent Copy and Retry action labels inside the redesigned frame."
-    },
-    "21b_tools_expanded_detail_dark": {
-      "threshold_pct": 0.0,
-      "note": "Expanded tool details inside the redesigned frame; the tool renderer itself is unchanged."
-    },
     "33_narrow_dark": {
       "threshold_pct": 0.0,
       "resolution": "760x620",
@@ -301,7 +293,7 @@
     "35_settings_narrow_dark": {
       "threshold_pct": 0.0,
       "resolution": "600x500",
-      "note": "Settings collapses from two columns to one scrollable column on a narrow desktop window."
+      "note": "Settings at a narrow width: the navigation column takes its rail form and the group headings drop."
     },
     "36_shortcuts_narrow_dark": {
       "threshold_pct": 0.0,
@@ -376,7 +368,7 @@
     "68_split_below_the_edge_dark": {
       "threshold_pct": 0.0,
       "resolution": "700x620",
-      "note": "Below the two-pane floor the split closes cleanly to one pane — the preference is remembered, so widening brings it back."
+      "note": "Below the two-pane floor the split closes cleanly to one pane \u2014 the preference is remembered, so widening brings it back."
     },
     "66_ask_two_questions_tiny_dark": {
       "threshold_pct": 0.0,
@@ -406,6 +398,61 @@
       "threshold_pct": 0.0,
       "resolution": "1100x300",
       "note": "A window too short to show the approval command: the card says so where the command would be and both actions are dimmed. Behaviourally tested already; this pins the threshold in pixels."
+    },
+    "15a_settings_appearance_dark": {
+      "threshold_pct": 0.0,
+      "note": "Appearance pane, dark: theme, rotation, typeface and the two named colour rows."
+    },
+    "15b_settings_appearance_light": {
+      "threshold_pct": 0.0,
+      "note": "Appearance pane, light."
+    },
+    "15c_settings_chat_dark": {
+      "threshold_pct": 0.0,
+      "note": "Chat pane, dark: the transcript preferences, including the one row marked as following the account rather than the machine."
+    },
+    "15d_settings_chat_light": {
+      "threshold_pct": 0.0,
+      "note": "Chat pane, light."
+    },
+    "15e_settings_notifications_dark": {
+      "threshold_pct": 0.0,
+      "note": "Notifications pane: the master switch, the dependent sound row, and quiet hours."
+    },
+    "15f_settings_storage_dark": {
+      "threshold_pct": 0.0,
+      "note": "Storage pane: disk usage, the cap ladder, and the export destination."
+    },
+    "15g_settings_storage_light": {
+      "threshold_pct": 0.0,
+      "note": "Storage pane, light."
+    },
+    "15h_settings_connection_dark": {
+      "threshold_pct": 0.0,
+      "note": "Connection pane: the read-only endpoint and identity rows beside the two account-backed controls."
+    },
+    "15i_settings_shortcuts_dark": {
+      "threshold_pct": 0.0,
+      "note": "Shortcuts pane: the two desktop-global chords with their switches, the rebindable commands, and the reset control."
+    },
+    "15j_settings_about_dark": {
+      "threshold_pct": 0.0,
+      "note": "About pane."
+    },
+    "15k_settings_split_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "600x500",
+      "note": "Settings open over a two-pane split at the rail width: the sheet keeps its own geometry and the split is untouched underneath."
+    },
+    "15l_settings_split_applied_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "760x620",
+      "note": "The same split with Settings closed and its Chat preferences applied to BOTH panes -- timestamps and reasoning rows are gone from each. Flipping either preference changes this image, which is what makes it evidence rather than decoration."
+    },
+    "35a_settings_narrow_storage_dark": {
+      "threshold_pct": 0.0,
+      "resolution": "600x500",
+      "note": "The Storage pane at the rail width, where the two-line export row has the least room."
     }
   },
   "unbaselined": {}

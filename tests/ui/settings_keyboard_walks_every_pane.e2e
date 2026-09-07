@@ -1,0 +1,54 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+click_ui sb_settings
+wait_frames 8
+expect_text "Send message with"
+
+type "dark"
+wait_frames 8
+expect_text "Palette"
+expect_text "Appearance"
+
+key ESCAPE
+wait_frames 8
+expect_text "Send message with"
+expect_text "Sending, timestamps, and what comes back on restart"
+
+key TAB
+wait_frames 6
+key DOWN
+wait_frames 4
+expect_text "Rotate theme"
+key DOWN
+wait_frames 4
+expect_text "Reasoning blocks"
+key DOWN
+wait_frames 4
+expect_text "Show notifications"
+key DOWN
+wait_frames 4
+expect_text "Keep at most on disk"
+expect_no_text "Reasoning blocks"
+
+key UP
+wait_frames 4
+expect_text "Show notifications"
+
+key DOWN
+key DOWN
+key DOWN
+wait_frames 6
+expect_text "Chords you can rebind, and the ones the system owns"
+expect_text "Start a task from anywhere"
+
+key DOWN
+wait_frames 4
+expect_text "Version, and what this build carries"
+
+key DOWN
+wait_frames 4
+expect_text "Version, and what this build carries"
+
+key ESCAPE
+wait_frames 8
+expect_no_text "Version, and what this build carries"

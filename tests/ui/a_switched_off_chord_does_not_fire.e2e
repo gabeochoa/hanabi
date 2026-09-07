@@ -1,0 +1,34 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","shortcuts_off":["toggle_sidebar"]}
+
+# A chord switched off must stop FIRING, not merely stop being advertised.
+# The switch used to write a value only the settings sheet read, so a disabled
+# chord still worked and the control was decoration.
+#
+# The assertion is the sidebar's SETTLED width -- 280 open, 52 folded -- taken
+# after the frames the fold would need. Asserting visible text instead passes
+# on the pre-fold frame and proves nothing.
+wait_frames 10
+assert_ui sidebar w=280
+
+key CMD+B
+wait_frames 16
+assert_ui sidebar w=280
+
+key CMD+B
+wait_frames 16
+assert_ui sidebar w=280
+
+# Switch it back on in the pane, and the same chord starts working again --
+# which is what proves the first half was the switch and not a broken chord.
+click_ui sb_settings
+wait_frames 10
+click_ui sb_settings_nav_shortcuts
+wait_frames 10
+click_ui settings_chord_switch_toggle_sidebar
+wait_frames 10
+click_ui settings_close
+wait_frames 10
+
+key CMD+B
+wait_frames 16
+assert_ui sidebar w=52

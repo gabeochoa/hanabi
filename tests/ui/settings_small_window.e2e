@@ -4,9 +4,9 @@
 resize 800 360
 wait_frames 6
 assert_ui settings_panel y=24 h=312
-assert_ui settings_body_scroll h=220
+assert_ui settings_body h=172
 expect_text "Settings"
 expect_text "Appearance"
 key ESCAPE
 wait_frames 6
-expect_no_text "Appearance, behavior, notifications, and local data"
+expect_no_text "How the app looks, what it keeps, and where it points"

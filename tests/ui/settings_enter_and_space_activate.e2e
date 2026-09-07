@@ -1,0 +1,49 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+
+shift_tab
+wait_frames 6
+shift_tab
+wait_frames 6
+shift_tab
+wait_frames 6
+shift_tab
+wait_frames 6
+expect_focused settings_send_key_row
+expect_text "Shift+Return  ·  Cmd+Return also sends"
+
+key ENTER
+wait_frames 10
+expect_text "Return  ·  Cmd+Return sends"
+
+key SPACE
+wait_frames 10
+expect_text "Shift+Return  ·  Cmd+Return also sends"
+
+key TAB
+wait_frames 6
+expect_focused settings_new_line_value
+key ENTER
+wait_frames 10
+key SPACE
+wait_frames 10
+expect_text "Shift+Return  ·  Cmd+Return also sends"
+expect_focused settings_new_line_value
+
+click_ui sb_settings_nav_appearance
+wait_frames 8
+click_ui settings_search
+wait_frames 8
+shift_tab
+wait_frames 8
+expect_focused settings_highlight_row
+expect_text "Find highlight   ·   Default"
+key ENTER
+wait_frames 10
+expect_text "Find highlight   ·   Green"
+key SPACE
+wait_frames 10
+expect_text "Find highlight   ·   Pink"
