@@ -1,0 +1,40 @@
+# Cmd+T opens the ONE New Thread surface, and Cmd+Shift+T brings back the tab
+# you just closed.
+#
+# Hanabi had neither. Cmd+T is deliberately the same request Cmd+N makes: a
+# second "new tab" surface would be exactly the duplication this wave deleted.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 16
+
+# Cmd+T lands on the one surface, with the caret already in the composer.
+key CMD+T
+wait_frames 24
+expect_text "What can I help with?"
+type "opened with cmd t"
+wait_frames 10
+expect_input_text composer_reply_input "opened with cmd t"
+
+# Escape twice: clear the draft, then close the surface back to the thread it
+# was opened over.
+key ESCAPE
+wait_frames 8
+key ESCAPE
+wait_frames 8
+key ESCAPE
+wait_frames 24
+
+# Assert on the TRANSCRIPT, not on the tab caption: the thread's title is in
+# the sidebar list too, so a title assertion cannot tell an open thread from a
+# closed one.
+expect_text "Reconcile this cycle"
+
+# Close the active tab, then bring it back. The reopened tab is the same
+# THREAD through the ordinary open path -- there is no second way into a tab.
+key CMD+W
+wait_frames 24
+expect_no_text "Reconcile"
+key CMD+SHIFT+T
+wait_frames 40
+expect_text "Reconcile this cycle"

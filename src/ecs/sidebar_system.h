@@ -38,6 +38,7 @@
 #include "../util/prof.h"
 #include "../util/text_cache.h"
 #include "../util/text_epoch.h"
+#include "../ui/accessibility.h"
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/snippet_highlight.h"
@@ -1662,17 +1663,30 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // footer's three buttons"), and sizing one icon set's glyph to a
         // different icon set's box is measuring the fixture -- the same claim
         // `feat/vis-tabs3` declined to make about the tab strip's `+`.
+        // Each carries an accessible NAME and stays in the tab order. All
+        // three were skip_tabbing with no name, so the sidebar's own New
+        // Thread button -- one of the surface's entry points -- could not be
+        // reached from the keyboard at all, while the tab strip's identical +
+        // could. An entry point a keyboard user cannot reach is not an entry
+        // point.
         struct FootBtn {
             const char* icon;
             const char* fallback;
             const char* name;
+            const char* a11y;
             int id;
             float px;
         };
+        // The names are the ACTION, deliberately not the surface's own title:
+        // an accessible name is registered as visible text for the scripted
+        // matcher, so "Command palette" here would make two scripts' "the
+        // palette is closed" assertions unfalsifiable.
         const FootBtn btns[3] = {
-            {"plus", "+", "sb_new", 13, 13.0f},
-            {"search", "\xf0\x9f\x94\x8d", "sb_palette", 14, 13.0f},
-            {"gear", "\xe2\x9a\x99", "sb_settings_footer", 15, 14.0f},
+            {"plus", "+", "sb_new", "New conversation", 13, 13.0f},
+            {"search", "\xf0\x9f\x94\x8d", "sb_palette", "Open the command palette",
+             14, 13.0f},
+            {"gear", "\xe2\x9a\x99", "sb_settings_footer", "Open settings", 15,
+             14.0f},
         };
         for (int k = 0; k < 3; ++k) {
             const float cx = r.width - 70.0f + 24.0f * static_cast<float>(k);
@@ -1686,15 +1700,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_skip_tabbing(true)
                     .with_roundness(0.3f)
                     .with_render_layer(2)
                     .with_on_draw_fg(hanabi::icons::draw_fg(
                         btns[k].icon, btns[k].fallback, theme::text_faint(),
                         btns[k].px))
                     .with_debug_name(btns[k].name));
+            hanabi::a11y::set_name(hit.ent(), btns[k].a11y);
             if (!hit) continue;
-            if (k == 0) app.composerOpen = true;
+            if (k == 0) app.requestNewThread = true;
             else if (k == 1) app.paletteOpen = true;
             else app.showSettings = true;
         }

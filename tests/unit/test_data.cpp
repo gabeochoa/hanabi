@@ -744,7 +744,11 @@ static void test_slash_parsing() {
     CHECK(sl::filter("/model gpt").empty());
 
     CHECK(sl::completion(*sl::find("model")) == "/model");
-    CHECK(sl::completion(*sl::find("new")) == "/new");
+    // /new takes an optional first message now, so completing it leaves the
+    // caret past a space with the argument still to type -- the same shape as
+    // /btw, and the reason a typed argument is RUN rather than completed away.
+    CHECK(sl::completion(*sl::find("new")) == "/new ");
+    CHECK(sl::completion(*sl::find("btw")) == "/btw ");
 
     CHECK(sl::find("rename") == nullptr);
     for (const auto& c : sl::all())

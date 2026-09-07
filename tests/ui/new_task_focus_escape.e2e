@@ -1,9 +1,28 @@
+# Every New Thread entry point reaches ONE composer, and Escape protects the
+# draft in two steps rather than destroying it in one.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_TEST_OVERLAY=composer
 
+expect_text "What can I help with?"
 type "Investigate the launch regression"
 wait_frames 8
-expect_input_text composer_input "Investigate the launch regression"
+expect_input_text composer_reply_input "Investigate the launch regression"
+
+# STEP ONE arms and says so. The draft is still there -- this is the whole
+# behaviour: one press used to empty the box.
 key ESCAPE
-wait_frames 6
-expect_no_text "Start a focused conversation with your agent"
+wait_frames 8
+expect_text "Press Escape again to clear the draft"
+expect_input_text composer_reply_input "Investigate the launch regression"
+
+# STEP TWO clears.
+key ESCAPE
+wait_frames 8
+expect_input_text composer_reply_input ""
+expect_no_text "Press Escape again to clear the draft"
+
+# An empty box does not arm: there is nothing to protect and a hint about
+# clearing nothing would be a lie.
+key ESCAPE
+wait_frames 8
+expect_no_text "Press Escape again to clear the draft"

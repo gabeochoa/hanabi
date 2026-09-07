@@ -58,3 +58,8 @@ pdf.extend(
     f"startxref\n{xref}\n%%EOF\n".encode()
 )
 (HERE / "sample.pdf").write_bytes(pdf)
+
+# A kind the allowlist refuses, so the refusal SENTENCE is reachable from a
+# scripted test. Deliberately tiny: what is being exercised is the extension,
+# not the bytes.
+(HERE / "sample.zip").write_bytes(b"PK\x03\x04not really a zip, and that is the point\n")

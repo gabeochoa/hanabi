@@ -102,7 +102,7 @@
     },
     "17_newtask_dark": {
       "threshold_pct": 0.0,
-      "note": "New-task overlay with an empty field."
+      "note": "The one New Thread surface, dark: the landing page with the production composer focused. There is no separate new-task sheet."
     },
     "17b_shortcuts_dark": {
       "threshold_pct": 0.0,
@@ -114,7 +114,27 @@
     },
     "17d_newtask_light": {
       "threshold_pct": 0.0,
-      "note": "New-task sheet with focused field, light."
+      "note": "The one New Thread surface, light."
+    },
+    "17g_newthread_narrow_dark": {
+      "threshold_pct": 0.0,
+      "note": "New Thread at 760pt, where the composer goes compact: the Attach pill becomes a + inside the field."
+    },
+    "17h_newthread_split_dark": {
+      "threshold_pct": 0.0,
+      "note": "New Thread inside a split. It belongs to the FOCUSED pane; the other half keeps its thread."
+    },
+    "17i_newthread_create_failed_dark": {
+      "threshold_pct": 0.0,
+      "note": "A create the server refused: the exact prompt back in the field, the reason, and a Retry."
+    },
+    "17j_newthread_create_failed_light": {
+      "threshold_pct": 0.0,
+      "note": "A refused create, light."
+    },
+    "17k_newthread_creating_dark": {
+      "threshold_pct": 0.0,
+      "note": "A create IN FLIGHT: the strip dimmed and locked, the draft kept, the send disc showing its ring."
     },
     "18_auth_dark": {
       "threshold_pct": 0.0,

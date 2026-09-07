@@ -1,0 +1,39 @@
+# A create the server REFUSED loses nothing and offers a one-press Retry.
+#
+# The old path cleared the draft and the staged files BEFORE the create was
+# attempted and had no failure arm at all: a refused create was silent,
+# unrecoverable, and covered by no test. This is that test.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer HANABI_MOCK_CREATE_FAIL=rejected HANABI_PICK_FILE_TEST='tests/fixtures/attachments/sample.md'
+
+expect_text "What can I help with?"
+focus_ui composer_attach
+enter
+wait_frames 12
+expect_text "sample.md"
+
+click_ui composer_reply_input
+type "the prompt that must survive a refused create"
+wait_frames 10
+
+# GATE-0: how long from pressing Send to the Retry being on screen.
+watch_ink failed_create_restored ui composer_retry
+click_ui composer_send
+wait_frames 90
+expect_latency failed_create_restored 15
+
+# The EXACT text, the staged file, and the reason -- all back in front of the
+# reader, on the surface they typed into.
+expect_input_text composer_reply_input "the prompt that must survive a refused create"
+expect_text "sample.md"
+expect_text "nothing was created"
+expect_text "What can I help with?"
+
+# RETRY presses the composer's own Send. The injected failure fires once, so
+# this create succeeds and the thread opens with the message in it.
+watch_ink failed_create_retried text_gone "What can I help with?"
+click_ui composer_retry
+wait_frames 90
+expect_latency failed_create_retried 15
+expect_text "the prompt that must survive a refused create"
+expect_no_text "nothing was created"

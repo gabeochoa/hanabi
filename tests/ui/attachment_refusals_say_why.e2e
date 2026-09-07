@@ -1,0 +1,30 @@
+# Every attachment refusal SAYS WHY.
+#
+# All three sentences lived in src/api/attachments.h and not one was reached by
+# any test (regression matrix MTX-B-15). Two of them are byte caps and are
+# exercised in tests/unit/test_api.cpp, where the multi-megabyte files can be
+# written to a temp dir instead of checked into the repo. These two are the
+# ones a reader actually trips over, through the real intake.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_DROP_TEST='tests/fixtures/attachments/sample.png;tests/fixtures/attachments/sample.md;tests/fixtures/attachments/sample.txt;tests/fixtures/attachments/sample.pdf;tests/fixtures/attachments/sample.png;tests/fixtures/attachments/sample.md'
+
+require_thread t2
+wait_frames 20
+
+# FIVE staged, and the sixth refused by the count cap with the rule stated.
+expect_text "A message can carry at most five files."
+expect_text "sample.png"
+expect_text "sample.pdf"
+expect_text "sample.txt"
+
+# FIVE chips exist. The sentence above can only be raised by the branch that
+# already holds kMaxCount, so "five staged and the sixth refused" is carried by
+# the two assertions together -- a sixth chip would mean the cap never fired
+# and the sentence would not be on screen.
+assert_ui attach_chip_4 hidden=false
+
+# Image and file are distinguished in the chip itself: an image gets a decoded
+# thumbnail, a document the hand-drawn page glyph. Both kinds staged through
+# one path.
+assert_ui attach_thumb_0 hidden=false
+assert_ui attach_thumb_3 hidden=false

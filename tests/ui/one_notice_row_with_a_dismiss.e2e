@@ -1,0 +1,57 @@
+# ONE notice row: a fixed slot order, and a dismiss that clears exactly the
+# slot on screen.
+#
+# An attachment complaint used to appear in TWO places at once (a note under
+# the chips and a toast) and could only be cleared by fixing the cause; a
+# failed send had nowhere to go at all. This drives the precedence and the
+# dismiss, and the load-bearing assertion is the one a single shared string
+# would fail: dismissing the TOP slot reveals the one underneath rather than
+# clearing everything.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer HANABI_DROP_TEST='tests/fixtures/attachments/sample.zip' HANABI_MOCK_CREATE_FAIL=rejected
+
+expect_text "What can I help with?"
+wait_frames 16
+
+# ATTACHMENT slot, the lowest of the four. The .zip is refused by the type
+# allowlist and the sentence names the whole accepted set.
+expect_text "Choose a PNG, JPEG, GIF, WebP, PDF, Markdown, or plain-text file."
+
+# COMMAND slot outranks it: a slash answer is a reply to a keystroke.
+click_ui composer_reply_input
+type "/compact"
+wait_frames 8
+key ENTER
+wait_frames 12
+expect_text "has no compact call yet"
+expect_no_text "Choose a PNG"
+
+# DISMISS clears EXACTLY the slot showing, so the attachment complaint
+# underneath comes back rather than being cleared with it. This is the
+# assertion one shared notice string cannot pass.
+click_ui composer_notice_dismiss
+wait_frames 12
+expect_no_text "has no compact call yet"
+expect_text "Choose a PNG, JPEG, GIF, WebP, PDF, Markdown, or plain-text file."
+
+# SEND slot outranks both. The slash router puts the verb BACK in the field so
+# it can be edited, so the box is selected and typed over rather than appended
+# to -- otherwise this send is another slash command and never reaches a
+# create at all.
+click_ui composer_reply_input
+key CTRL+A
+type "a prompt whose create is refused"
+wait_frames 8
+click_ui composer_send
+wait_frames 90
+expect_text "nothing was created"
+expect_no_text "Choose a PNG"
+
+# Down to the attachment complaint that was there first, then gone.
+click_ui composer_notice_dismiss
+wait_frames 12
+expect_no_text "nothing was created"
+expect_text "Choose a PNG, JPEG, GIF, WebP, PDF, Markdown, or plain-text file."
+click_ui composer_notice_dismiss
+wait_frames 12
+expect_no_text "Choose a PNG"

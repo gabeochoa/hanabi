@@ -1,0 +1,31 @@
+# The New Thread surface stages, lists and removes files through the SAME
+# attachment path a thread reply uses -- per file, not all-or-nothing.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer HANABI_DROP_TEST=tests/fixtures/attachments/sample.pdf HANABI_PICK_FILE_TEST=tests/fixtures/attachments/sample.md
+
+expect_text "What can I help with?"
+wait_frames 8
+expect_text "sample.pdf"
+
+# The picker is the production one, reachable from the keyboard.
+focus_ui composer_attach
+enter
+wait_frames 10
+expect_text "sample.md"
+
+# PER-FILE removal. The old new-task sheet had one "Remove" that emptied the
+# whole list; the production strip removes the one chip you name and leaves
+# the rest staged.
+focus_ui attach_remove_0
+enter
+wait_frames 8
+expect_no_text "sample.pdf"
+expect_text "sample.md"
+
+click_ui composer_reply_input
+type "start from the attached brief"
+wait_frames 6
+click_ui composer_send
+wait_frames 45
+expect_text "start from the attached brief"
+expect_text "File · sample.md"

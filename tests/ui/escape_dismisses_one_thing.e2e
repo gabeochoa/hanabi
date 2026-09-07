@@ -38,7 +38,12 @@ expect_no_text "1 of 3"
 expect_text "draft that must survive"
 
 # With nothing over it, Esc belongs to the composer again — and the caret is
-# still in the field, because closing the bar hands focus back.
+# still in the field, because closing the bar hands focus back. It still takes
+# TWO presses to lose a draft: the first arms and says so.
+key ESCAPE
+wait_frames 8
+expect_text "Press Escape again to clear the draft"
+expect_text "draft that must survive"
 key ESCAPE
 wait_frames 8
 expect_no_text "draft that must survive"

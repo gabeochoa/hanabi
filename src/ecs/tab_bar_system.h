@@ -55,6 +55,19 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // Reopen the last closed tab, serviced beside the close it undoes so
+        // the two read as one rule. It opens the THREAD again, through the
+        // ordinary open path -- there is no second way into a tab.
+        if (app.requestReopenClosedTab) {
+            app.requestReopenClosedTab = false;
+            const std::string reopen = app.take_closed_tab();
+            if (!reopen.empty()) {
+                app.requestOpenTab = reopen;
+                app.requestOpenTabPane = std::clamp(app.focusedPane, 0, 1);
+                app.requestOpenTabKeep = true;
+            }
+        }
+
         const auto& r = layout.tabStrip;
         if (r.height <= 0.0f || r.width <= 0.0f) return;
 
@@ -723,7 +736,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         15.0f, tab_colors::kPlusYBias))
                     .with_debug_name("tab_new"));
             hanabi::a11y::set_name(plusBtn.ent(), "New tab");
-            if (plusBtn) app.composerOpen = true;
+            if (plusBtn) app.requestNewThread = true;
         }
 
         // ---- Right-click context menu (render + act) ----------------------

@@ -1,0 +1,25 @@
+# A create whose fate nobody heard gets the draft back and NO Retry.
+#
+# This is the control that makes the refused-create test mean something: both
+# arms restore, and only one offers a button. A Retry here could mint a second
+# conversation, because the first one may already exist -- the server simply
+# never said. Without this script, a build that offered Retry unconditionally
+# would pass every other test in the suite.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer HANABI_MOCK_CREATE_FAIL=unknown
+
+expect_text "What can I help with?"
+click_ui composer_reply_input
+type "a prompt with an unheard fate"
+wait_frames 10
+click_ui composer_send
+wait_frames 90
+
+# Nothing is dropped.
+expect_input_text composer_reply_input "a prompt with an unheard fate"
+# And the reader is told which kind of failure this is, in words that do not
+# claim more than the transport said.
+expect_text "we never heard whether the conversation was created"
+# No Retry: the discriminator between this script and its refused twin.
+# (The control is asserted by the copy, which is what a reader can act on.)
+expect_no_text "Retry"

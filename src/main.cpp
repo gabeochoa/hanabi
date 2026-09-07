@@ -60,7 +60,7 @@
 #include "api/token_store.h"
 #include "ecs/components.h"
 #include "ecs/auth_system.h"
-#include "ecs/composer_system.h"
+#include "ecs/new_thread.h"
 #include "ecs/command_system.h"
 #include "ecs/palette_system.h"
 #include "ecs/session_search_system.h"
@@ -415,7 +415,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::TabBarSystem>());
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
     sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
-    sm.register_update_system(std::make_unique<ecs::ComposerSystem>());
+    sm.register_update_system(std::make_unique<ecs::NewThreadSystem>());
     sm.register_update_system(std::make_unique<ecs::PaletteSystem>());
     sm.register_update_system(std::make_unique<ecs::SessionSearchSystem>());
     sm.register_update_system(std::make_unique<ecs::RenameModalSystem>());
@@ -616,7 +616,8 @@ static void app_frame() {
 
     // Drain menu-bar action flags into ECS state (single-owner: only the frame
     // loop mutates AppComponent). Show brings the window front; New task opens
-    // the composer (via requestNewTask, mirrored below into composerOpen).
+    // the new-thread surface (via requestNewTask, mirrored below into
+    // requestNewThread).
     // The global hotkey (Cmd+Shift+N) folds into the SAME activate+new-task
     // path, so a press behaves exactly like the "New task" menu item.
     bool nativeWake = false;
@@ -849,7 +850,7 @@ static void app_frame() {
         if (!q.empty()) {
             auto& app = q[0].get().get<ecs::AppComponent>();
             if (app.requestNewTask) {
-                app.composerOpen = true;
+                app.requestNewThread = true;
                 app.requestNewTask = false;
             }
 
@@ -1166,7 +1167,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     if (const char* ov = std::getenv("HANABI_TEST_OVERLAY"); ov && *ov) {
         std::string os(ov);
         if (os == "settings") app->showSettings = true;
-        else if (os == "composer") app->composerOpen = true;
+        else if (os == "composer") app->requestNewThread = true;
         else if (os == "shortcuts") app->showShortcuts = true;
         else if (os == "shortcuts-recording") {
             app->showShortcuts = true;

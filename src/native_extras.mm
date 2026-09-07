@@ -1037,6 +1037,17 @@ static std::string write_temp_png(NSData* png) {
 
 bool native_take_clipboard_image(char* out, int cap) {
     if (out == nullptr || cap <= 0) return false;
+    // TEST HOOK, the same shape as HANABI_PICK_FILE_TEST and HANABI_DROP_TEST:
+    // a scripted paste. Deliberately NOT one-shot -- the whole point of the
+    // focus gate is that the same clipboard is asked twice and only one of the
+    // two asks stages, so a hook that answered once would make the gated arm
+    // pass for the wrong reason.
+    if (const char* test = std::getenv("HANABI_PASTE_IMAGE_TEST");
+        test != nullptr && test[0] != '\0') {
+        std::strncpy(out, test, static_cast<size_t>(cap - 1));
+        out[cap - 1] = '\0';
+        return true;
+    }
     @autoreleasepool {
         NSPasteboard* pb = hanabi_paste_source();
         if (pb == nil) return false;

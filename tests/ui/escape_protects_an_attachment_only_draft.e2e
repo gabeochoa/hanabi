@@ -1,0 +1,112 @@
+# An attachment-only draft is a draft: Escape protects it, twice, and never
+# closes the surface out from under it.
+#
+# THE BLOCKER THIS COVERS. The escape rule took a single `draft` STRING, so a
+# composer holding staged files and no typed words answered "empty" -- and the
+# empty arm CLOSES the surface. One unwarned press took the reader off a
+# surface with their files on it. The committed tests covered empty drafts and
+# text drafts, and neither could see it.
+#
+# The surface is opened OVER a thread on purpose: that is what sets the return
+# target, and a return target is what made the empty arm reachable. Without
+# it the press would land on the harmless release-focus arm and this script
+# would pass against the defect.
+#
+# The files are staged through the production routes -- the native picker
+# (composer_attach -> native_pick_attachments -> the same queue AppKit's drop
+# drains) and a paste (Cmd/Ctrl+V -> native_take_clipboard_image -> the same
+# AttachmentIntakeSystem::add). No fixture writes a chip directly.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_PICK_FILE_TEST='tests/fixtures/attachments/sample.pdf;tests/fixtures/attachments/sample.md' HANABI_PASTE_IMAGE_TEST=tests/fixtures/attachments/sample.png
+
+require_thread t2
+wait_frames 16
+
+# Open the surface over the thread, so there IS somewhere for a stray Escape
+# to close back to.
+key CMD+T
+wait_frames 24
+expect_text "What can I help with?"
+
+# Two files through the picker, one through a paste. Three ordered chips.
+focus_ui composer_attach
+enter
+wait_frames 20
+click_ui composer_reply_input
+wait_frames 8
+key CTRL+V
+wait_frames 20
+expect_text "sample.pdf"
+expect_text "sample.md"
+expect_text "sample.png"
+
+# ZERO text. This is the whole point: the box is empty and the draft is not.
+expect_input_text composer_reply_input ""
+
+# FIRST Escape: protected, and it says what it refused rather than what it
+# will destroy.
+key ESCAPE
+wait_frames 12
+expect_text "Files are still attached"
+expect_text "What can I help with?"
+
+# SECOND Escape: still protected. A rule that merely deferred the close by one
+# press would fail here, and so would one that "completed" the two-step by
+# clearing something.
+key ESCAPE
+wait_frames 12
+expect_text "Files are still attached"
+expect_text "What can I help with?"
+
+# A third, for good measure: the protection is a property of the draft, not a
+# counter that runs out.
+key ESCAPE
+wait_frames 12
+expect_text "What can I help with?"
+
+# FOCUS SURVIVES. The press that puts a sentence up must not also take the
+# caret out of the field, or the reader's next keystroke goes nowhere. Typed
+# with no click in between:
+type "x"
+wait_frames 10
+expect_input_text composer_reply_input "x"
+
+# ...and with text in the box the ordinary two-step is back, unchanged by any
+# of this: one press arms, the next clears the TEXT.
+key ESCAPE
+wait_frames 10
+expect_text "Press Escape again to clear the draft"
+key ESCAPE
+wait_frames 12
+expect_input_text composer_reply_input ""
+
+# All three files are still staged, IN THE ORDER THEY WERE STAGED. The chips
+# lay out left to right, so each name's own x pins its position: a reordered
+# or dropped file moves the others and every one of these fails.
+assert_ui_text "sample.pdf" x=350 y=639
+assert_ui_text "sample.md" x=598 y=639
+assert_ui_text "sample.png" x=846 y=639
+assert_ui attach_chip_0 x=318 hidden=false
+assert_ui attach_chip_1 x=566 hidden=false
+assert_ui attach_chip_2 x=814 hidden=false
+
+# And the way OUT is the per-file remove, which is explicit, visible and
+# keyboard-reachable -- so protecting the files strands nobody.
+focus_ui attach_remove_2
+enter
+wait_frames 12
+focus_ui attach_remove_1
+enter
+wait_frames 12
+focus_ui attach_remove_0
+enter
+wait_frames 12
+expect_no_text "sample.pdf"
+expect_no_text "Files are still attached"
+
+# With the composer genuinely empty at last, Escape closes back to the thread.
+click_ui composer_reply_input
+wait_frames 8
+key ESCAPE
+wait_frames 24
+expect_text "Reconcile this cycle"

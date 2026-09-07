@@ -12,6 +12,7 @@
 
 #include "../settings.h"
 #include "../api/attachments.h"
+#include "../api/create_outcome.h"
 #include "../api/disk_cache.h"
 #include "load_older_model.h"
 #include "pane_state.h"
@@ -811,7 +812,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     return c->create_with_message(message, sink);
                 });
         }
-        if (app.kickoffPending && app.kickoffFuture.valid()) {
+        // TEST HOOK: hold the create's RESULT for N frames so the in-flight
+        // state -- the dim, the lock, the second-press refusal -- is long
+        // enough to observe. Frames, not milliseconds: a scripted run advances
+        // the app through a fixed dt and never advances the wall clock, so a
+        // sleep in the mock is invisible to it and the whole state was
+        // unreachable from any test. Off unless set.
+        static const int kCreateHoldFrames = [] {
+            const char* v = std::getenv("HANABI_MOCK_CREATE_DELAY_FRAMES");
+            return (v && *v) ? std::atoi(v) : 0;
+        }();
+        if (app.kickoffPending && kickoffHeldFrames_ < kCreateHoldFrames) {
+            ++kickoffHeldFrames_;
+        } else if (app.kickoffPending && app.kickoffFuture.valid()) {
+            kickoffHeldFrames_ = 0;
             if (app.kickoffFuture.wait_for(std::chrono::seconds(0)) ==
                 std::future_status::ready) {
                 auto r = app.kickoffFuture.get();
@@ -819,34 +833,40 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.transfer.reset();
                 api::OutgoingMessage message = std::move(app.kickoffMessage);
                 app.kickoffMessage = {};
-                if (r.ok) {
-                    if (r.value.input_accepted)
-                        release_sent_attachments(message);
+                // Six ways a create can end, read once and in one place
+                // (api/create_outcome.h). The arm that matters is the one that
+                // used to be missing: a fate nobody heard is not a refusal, so
+                // it gets the draft back and NO Retry -- pressing one could
+                // mint a second conversation.
+                const api::CreateVerdict verdict = api::classify_create(r);
+                const bool sessionExists = !verdict.session_id.empty();
+                if (verdict.ok()) release_sent_attachments(message);
+                if (sessionExists) {
                     app.requestListRefresh = true;
-                    app.requestOpenTab = r.value.session_id;
+                    app.requestOpenTab = verdict.session_id;
                     app.requestOpenTabPane = app.kickoffPaneIndex;
                     app.requestOpenTabKeep = true;
-                    if (!r.value.input_accepted) {
-                        message.target.session_id = r.value.session_id;
-                        message.target.draft_key = r.value.session_id;
-                        if (r.value.input_failure.kind ==
-                            api::SendFailureKind::Unknown) {
-                            message.auto_retry = false;
-                            api::disk_cache::outbox_add(r.value.session_id, message);
-                            app.outboxRetry.adopt(r.value.session_id, message);
-                        } else {
-                            restore_to_composer(app.kickoffPaneIndex,
-                                                r.value.session_id, message,
-                                                r.value.input_failure.message);
-                        }
-                        app.listError = r.value.input_failure.message;
-                    }
-                } else {
+                    message.target.session_id = verdict.session_id;
+                    message.target.draft_key = verdict.session_id;
+                }
+                if (verdict.park_in_outbox) {
+                    message.auto_retry = false;
+                    api::disk_cache::outbox_add(verdict.session_id, message);
+                    app.outboxRetry.adopt(verdict.session_id, message);
+                }
+                if (verdict.restore_draft) {
                     restore_to_composer(app.kickoffPaneIndex,
                                         message.target.draft_key, message,
-                                        r.error);
-                    app.listError = r.error;
+                                        verdict.notice);
+                    app.composerRestore.target =
+                        api::OutgoingTarget{app.kickoffPaneIndex,
+                                            message.target.session_id,
+                                            message.target.draft_key};
+                    app.composerRestore.notice = verdict.notice;
+                    app.composerRestore.offerRetry = verdict.offer_retry;
+                    app.composerRestore.pending = true;
                 }
+                if (!verdict.notice.empty()) app.listError = verdict.notice;
             }
         }
 
@@ -1134,6 +1154,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     }
 
   private:
+    int kickoffHeldFrames_ = 0;
     static void release_sent_attachments(api::OutgoingMessage& message,
                                          Pane* pane = nullptr) {
         for (auto& attachment : message.attachments) {
@@ -1147,10 +1168,17 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
     }
 
+    // Puts a refused message's text and files back in the composer that sent
+    // it. It no longer carries the REASON: that used to be parked in
+    // attachmentNotice, which now feeds the attachment slot of the one notice
+    // row (ecs/composer_notice.h) -- so a create failure appeared in the send
+    // slot AND again underneath it, and dismissing the top one revealed the
+    // same sentence. A failure's reason belongs to the send slot alone.
     static void restore_to_composer(int paneIndex,
                                     const std::string& id,
                                     const api::OutgoingMessage& message,
                                     const std::string& notice) {
+        (void)notice;
         auto& state = model::pane_states().touch(model::pane_key(paneIndex, id));
         if (state.replyDraft.empty()) state.replyDraft = message.text;
         else if (state.replyDraft.find(message.text) == std::string::npos)
@@ -1161,7 +1189,6 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                           attachment) == state.attachments.end())
                 state.attachments.push_back(attachment);
         }
-        state.attachmentNotice = notice;
         state.replyDraftLoaded = true;
         state.persistedReplyDraft = state.replyDraft;
         state.persistedAttachments = state.attachments;

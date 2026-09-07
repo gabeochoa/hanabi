@@ -513,6 +513,12 @@ struct StreamSink {
 
 struct CreateOutcome {
     std::string session_id;
+    // False when the create leg itself failed and the adapter KNOWS it did.
+    // A transport that simply threw returns Result::failure instead, which
+    // api/create_outcome.h reads as an unknown fate rather than a refusal --
+    // the distinction that decides whether a Retry can be offered.
+    bool created = true;
+    SendFailure create_failure;
     bool input_accepted = true;
     SendFailure input_failure;
 };

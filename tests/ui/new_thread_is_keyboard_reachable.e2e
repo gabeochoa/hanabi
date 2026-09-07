@@ -1,0 +1,27 @@
+# Every New Thread entry point is reachable from the keyboard alone.
+#
+# The sidebar's + was skip_tabbing with no accessible name, so the one entry
+# point sitting in the sidebar could not be reached by keyboard at all while
+# the tab strip's identical + could. This walks to it with Tab and presses it,
+# and the surface it opens is the same one every other entry point opens.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 16
+
+# The name is what a screen reader would say, and what makes the control
+# findable at all -- it had none.
+expect_text "New conversation"
+
+# Reached and pressed with no pointer.
+focus_ui sb_new
+expect_focused sb_new
+enter
+wait_frames 24
+expect_text "What can I help with?"
+
+# The caret is already in the composer: an entry point that needs a click
+# afterwards is only half keyboard-reachable.
+type "typed with no pointer at all"
+wait_frames 10
+expect_input_text composer_reply_input "typed with no pointer at all"

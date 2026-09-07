@@ -1,0 +1,47 @@
+# A create already in flight refuses a second one, and says why.
+#
+# Send is disabled while a create runs, but ENTER reached the submit router
+# anyway and the loader only guards `!kickoffPending` -- so a second request
+# sat in requestKickoff and fired the moment the first finished. Two presses,
+# two conversations. Nothing covered it.
+#
+# The refusal is the reference client's own sentence for this state rather
+# than silence, which is also what makes it assertable: without the guard the
+# second press produces no sentence AND a duplicate.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer HANABI_MOCK_CREATE_DELAY_FRAMES=200
+
+expect_text "What can I help with?"
+click_ui composer_reply_input
+type "the first conversation"
+wait_frames 8
+key ENTER
+
+# The submit empties the box, so the second press needs something in it --
+# which is also the real gesture: type, send, get impatient, type, send again.
+# A few frames on, so the loader has actually started the create; pressing
+# before it does is a different (and harmless) case.
+wait_frames 4
+type "and a second, by mistake"
+wait_frames 4
+key ENTER
+wait_frames 10
+expect_text "Still starting this conversation"
+
+# Nothing was lost to the refused press: the text it refused is back in the
+# box, and the first conversation is the one that exists.
+expect_input_text composer_reply_input "and a second, by mistake"
+wait_frames 400
+expect_text "the first conversation"
+
+# And the lock is temporary, not permanent: once the create has landed the
+# composer takes a second conversation normally. A guard that never released
+# would pass every assertion above.
+click_ui composer_reply_input
+key CTRL+A
+type "the second conversation, on purpose"
+wait_frames 8
+key ENTER
+wait_frames 400
+expect_text "the second conversation, on purpose"
+expect_no_text "Still starting this conversation"

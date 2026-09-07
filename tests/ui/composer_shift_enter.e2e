@@ -72,7 +72,14 @@ key CMD+A
 wait_frames 6
 expect_input_selection composer_reply_input 0 33
 
-# Esc clears the field, multi-line draft and all.
+# Esc clears the field, multi-line draft and all -- in TWO presses. The first
+# arms and warns; a three-line draft is not destroyed by one keystroke.
+key ESCAPE
+wait_frames 8
+expect_text "Press Escape again to clear the draft"
+# Three rows still standing: the box measures the draft, so a field that had
+# been emptied would have collapsed to one row here.
+assert_ui composer_input_wrap h=88
 key ESCAPE
 wait_frames 8
 click_ui composer_reply_input

@@ -23,9 +23,13 @@ ECS + immediate-mode UI framework, and **Sokol** (Metal on macOS) for rendering.
   to close the active tab. Switching tabs swaps the transcript.
 - **Tab persistence.** The open tab set and the active tab are saved and
   restored across launches.
-- **Interactive composer.** A persistent composer at the bottom of the
-  transcript. Type a reply and **Send** to continue an open thread, or use
-  **New task** (`+` / Cmd+N) to kick one off. Replies stream back **live,
+- **One interactive composer.** A persistent composer at the bottom of the
+  transcript, and the same one on the New Thread landing page — every entry
+  point (`+` / Cmd+N / the sidebar / `/new` / the global hotkey) opens that one
+  surface, so there is no second composer to fall behind the first. Type a
+  reply and **Send** to continue an open thread, or start a new one from the
+  landing page. Escape protects a draft in two steps, and a create the server
+  refuses hands the exact text and files back with a Retry. Replies stream back **live,
   token-by-token** — the assistant bubble appears immediately and fills in as
   tokens arrive, with a *thinking… / streaming…* affordance. Works fully offline
   against the mock; a config-driven SSE adapter drives it against a real backend.
@@ -215,7 +219,7 @@ src/
 │   ├── sidebar_system.h    # collapsible sidebar (smart views, folders, rows)
 │   ├── tab_bar_system.h    # VS Code-style closable tabs + tab flow/restore
 │   ├── main_pane_system.h  # smart-view digests + transcript + composer
-│   ├── composer_system.h   # New-task sheet
+│   ├── new_thread.h        # the one New Thread surface every entry point opens
 │   ├── settings_system.h   # settings overlay (theme toggle)
 │   ├── auth_system.h       # device-code login overlay
 │   └── status_bar_system.h # bottom bar (backend + blocked count)

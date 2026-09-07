@@ -57,6 +57,7 @@
 
 #include "../api/attachments.h"
 #include "../api/types.h"
+#include "composer_notice.h"
 #include "../ui/minimap_marks.h"
 #include "../ui/minimap_scrub.h"
 #include "follow_latch.h"
@@ -119,6 +120,14 @@ struct PaneState {
     std::vector<api::Attachment> attachments;
     std::vector<api::Attachment> persistedAttachments;
     std::string attachmentNotice;
+    // This composer's one notice row, rebuilt each frame from its four
+    // sources (ecs/composer_notice.h). Per pane+thread, because a complaint
+    // about THIS thread's send must not follow the reader to another tab.
+    model::ComposerNotices notices;
+    // The outbox keeps retrying whether or not the reader wants to hear about
+    // it, so its slot needs somewhere to remember a dismissal; the other three
+    // slots are cleared at their source.
+    bool outboxNoticeDismissed = false;
     float attachmentLayoutHeight = 0.0f;
     int attachmentLayoutGrace = 0;
 

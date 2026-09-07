@@ -78,6 +78,13 @@ assert_ui composer_bar y=1324 h=196
 # logical height and sits in the footer band, not off the bottom.
 assert_ui sb_session_count y=1466
 
+# The composer's own BOX scales with everything else. The parity audit reads
+# kComposerBoxH1 (46), kComposerLineH (21) and kFieldH as literal constants and
+# concludes the composer does not follow zoom; they are pixels() values, and
+# pixels() is exactly what the Adaptive cascade multiplies. 46 -> 92 is the
+# whole of that claim, measured.
+assert_ui composer_input_wrap h=92
+
 # The thread really is rendered — the geometry above is of a live pane, not of
 # an empty one that happens to measure correctly.
 expect_text "the build box is at 96% disk"

@@ -1,0 +1,26 @@
+# A paste belongs to the composer, not to whatever field has the caret.
+#
+# The intake used to test Cmd+V GLOBALLY and lean on
+# native_take_clipboard_image answering false for text -- so a Cmd+V aimed at
+# the sidebar search, with an image on the clipboard, staged that image onto a
+# conversation the reader was not typing into. This is the control: the SAME
+# chord, the same clipboard, twice, and only the composer's turn stages.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_PASTE_IMAGE_TEST=tests/fixtures/attachments/sample.png
+
+require_thread t2
+wait_frames 16
+
+# The caret is in the SIDEBAR SEARCH. A paste here is not the composer's.
+click_ui sb_search
+wait_frames 8
+key CMD+V
+wait_frames 12
+expect_no_text "sample.png"
+
+# The same chord with the caret in the composer stages it.
+click_ui composer_reply_input
+wait_frames 8
+key CMD+V
+wait_frames 16
+expect_text "sample.png"

@@ -69,8 +69,12 @@ type "seven"
 wait_frames 24
 assert_ui composer_input_wrap h=151
 
-# And it comes back down. Esc clears the draft; the box returns to one row
+# And it comes back down. Esc clears the draft in two presses -- the first
+# arms and leaves the six rows standing -- and the box then returns to one row
 # rather than staying tall around an empty field.
+key ESCAPE
+wait_frames 16
+assert_ui composer_input_wrap h=151
 key ESCAPE
 wait_frames 24
 assert_ui composer_input_wrap h=46

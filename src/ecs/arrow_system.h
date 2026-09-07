@@ -50,7 +50,7 @@ struct ArrowSystem : afterhours::System<UIContext<InputAction>> {
             app->arrow = ArrowIntent::SessionSearch;
         else if (any_text_field_focused())
             app->arrow = ArrowIntent::TextField;
-        else if (app->renameOpen || app->composerOpen || app->showShortcuts ||
+        else if (app->renameOpen || app->showShortcuts ||
                  app->showSettings || app->showAuth)
             app->arrow = ArrowIntent::None;
         else if (app->askFocused)

@@ -1,0 +1,97 @@
+# GATE-0 for the New Thread surface: event -> first ink, on every gesture the
+# unified composer owns. Each arm takes a pixel baseline, stamps the input
+# event, and measures the frames to the first ink of the REQUIRED direction --
+# so a budget that passes because something else moved is not available.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_PICK_FILE_TEST='tests/fixtures/attachments/sample.md' HANABI_PASTE_IMAGE_TEST=tests/fixtures/attachments/sample.png
+
+require_thread t2
+wait_frames 20
+
+# FIRST FOCUS, measured first because it is the only arm whose starting state
+# is scarce: a thread's composer does not take the keyboard on its own, so
+# this is the one moment it is provably unfocused. (An arm that starts already
+# satisfied is refused by latency.h rather than passing, which is why the
+# order matters here and nowhere else.)
+watch_ink new_thread_first_focus focus composer_reply_input
+click_ui tab_new
+wait_frames 24
+expect_latency new_thread_first_focus 8
+
+# CLOSE. An empty box goes back to the thread the surface was opened over.
+watch_ink new_thread_close text_gone "What can I help with?"
+key ESCAPE
+wait_frames 24
+expect_latency new_thread_close 8
+
+# OPEN. The tab strip's + is one of six entry points and they all arrive here.
+watch_ink new_thread_open text "What can I help with?"
+click_ui tab_new
+wait_frames 24
+expect_latency new_thread_open 8
+
+# PICKER AND STAGING, through the production attachment transport.
+focus_ui composer_attach
+wait_frames 4
+watch_ink new_thread_staging ui attach_chip_0
+enter
+wait_frames 24
+expect_latency new_thread_staging 10
+
+# REMOVAL, per file.
+focus_ui attach_remove_0
+wait_frames 4
+watch_ink new_thread_attach_remove ui_gone attach_chip_0
+enter
+wait_frames 24
+expect_latency new_thread_attach_remove 10
+
+# ESCAPE, STEP ONE: the warning has to be on screen before the second press
+# can be honest, so the time to it is a budget like any other.
+click_ui composer_reply_input
+type "a draft worth protecting"
+wait_frames 10
+watch_ink escape_step_one text "Press Escape again to clear the draft"
+key ESCAPE
+wait_frames 20
+expect_latency escape_step_one 8
+
+# ESCAPE, STEP TWO.
+watch_ink escape_step_two text_gone "a draft worth protecting"
+key ESCAPE
+wait_frames 20
+expect_latency escape_step_two 8
+
+# SUBMIT from the new-thread surface: the created thread replaces the landing.
+click_ui composer_reply_input
+type "kick off the parity work"
+wait_frames 10
+watch_ink new_thread_submit text_gone "What can I help with?"
+key ENTER
+wait_frames 90
+expect_latency new_thread_submit 15
+expect_text "kick off the parity work"
+
+# PASTE, through the same production transport as the picker and the drop.
+click_ui composer_reply_input
+wait_frames 8
+watch_ink new_thread_paste ui attach_chip_0
+key CTRL+V
+wait_frames 24
+expect_latency new_thread_paste 10
+
+# NOTICE DISMISS. The row is the composer's only channel for a failure, so the
+# time to it going away is a budget like any other.
+focus_ui attach_remove_0
+wait_frames 4
+enter
+wait_frames 16
+click_ui composer_reply_input
+type "/compact"
+wait_frames 8
+key ENTER
+wait_frames 16
+watch_ink notice_dismiss text_gone "has no compact call yet"
+click_ui composer_notice_dismiss
+wait_frames 20
+expect_latency notice_dismiss 8

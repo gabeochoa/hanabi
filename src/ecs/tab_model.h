@@ -378,6 +378,8 @@ inline void close_tab(TabStripComponent& strip, AppComponent& app,
                       afterhours::EntityID tabId, size_t index,
                       bool wasActive) {
     auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+    if (opt.valid() && opt->has<Tab>())
+        app.note_tab_closed(opt->get<Tab>().sessionId);
     if (index < strip.tabOrder.size())
         strip.tabOrder.erase(strip.tabOrder.begin() + static_cast<long>(index));
     if (opt.valid()) opt.asE().cleanup = true;

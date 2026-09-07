@@ -53,7 +53,7 @@ struct Command {
 
 inline const std::vector<Command>& all() {
     static const std::vector<Command> kCommands = {
-        {"new", "", "start a new conversation", true, ""},
+        {"new", "<message>", "start a new conversation", true, ""},
         {"model", "", "choose the default model", true, ""},
         {"effort", "", "choose the thinking effort", true, ""},
         {"btw", "<question>", "fork this thread", true, ""},

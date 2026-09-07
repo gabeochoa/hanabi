@@ -10,12 +10,17 @@
 // and wiped the draft you had typed.
 //
 // So the key is read exactly once, here, and resolved into a single intent by
-// what is on top: the rename modal draws over the modal composer, which draws
-// over the shortcuts sheet, which draws over settings, which draws over the
-// find bar, which sits over the composer's own menus (slash commands, the
-// model picker, the effort picker), which sit over the transcript. The auth
-// overlay is deliberately absent — login gates the app and Esc must not
-// dismiss it.
+// what is on top: the rename modal draws over the shortcuts sheet, which draws
+// over settings, which draws over the find bar, which sits over the composer's
+// own menus (slash commands, the model picker, the effort picker), which sit
+// over the transcript. The auth overlay is deliberately absent — login gates
+// the app and Esc must not dismiss it.
+//
+// The composer is the LAST rung and gets ClearTranscript: it owns a two-step
+// rule of its own (ecs/composer_escape.h) and only ever sees a press nothing
+// above it wanted. There is no new-task sheet rung any more — the new-thread
+// surface is a pane, not an overlay, so Escape reaches the composer there
+// exactly as it does in a thread.
 //
 // Registered ahead of every consumer, so the intent is already resolved by the
 // time a UI system reads it.
@@ -45,8 +50,6 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseContextMenu;
         else if (app->renameOpen && !app->renamePending)
             app->escape = EscapeIntent::CloseRename;
-        else if (app->composerOpen)
-            app->escape = EscapeIntent::CloseComposer;
         else if (app->shortcutRecording >= 0)
             app->escape = EscapeIntent::CancelShortcutRecording;
         else if (app->showShortcuts)

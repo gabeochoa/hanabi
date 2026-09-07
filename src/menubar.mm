@@ -300,6 +300,8 @@ static void install_main_menu() {
     NSMenuItem* fileRoot = item(@"File", nil, @"", nil);
     NSMenu* fileMenu = [[[NSMenu alloc] initWithTitle:@"File"] autorelease];
     [fileMenu addItem:command_item(hanabi::shortcuts::Command::NewTask)];
+    [fileMenu addItem:command_item(hanabi::shortcuts::Command::NewTab)];
+    [fileMenu addItem:command_item(hanabi::shortcuts::Command::ReopenClosedTab)];
     [fileMenu addItem:command_item(hanabi::shortcuts::Command::CloseTab)];
     fileRoot.submenu = fileMenu;
     [g_main_menu addItem:fileRoot];

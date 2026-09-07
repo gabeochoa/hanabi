@@ -31,6 +31,7 @@
 #include "../util/text_cache.h"
 #include "../util/wrap_count.h"
 #include "transcript_render_cache.h"
+#include "../ui/accessibility.h"
 #include "../ui/edged_field.h"
 #include "../ui/field_chrome.h"
 #include "../ui/find_highlight.h"
@@ -142,8 +143,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (hanabi::keys::cmd_down() &&
             hanabi::keys::pressed(hanabi::keys::kC))
             hanabi::text_select::copy();
-        if (app->escape == EscapeIntent::ClearTranscript)
+        if (app->escape == EscapeIntent::ClearTranscript) {
+            // Step one of the composer's two-step Escape is "dismiss the
+            // transient thing", and a live selection is a transient thing. The
+            // composer has to know this press was spent, so record it before
+            // the selection is dropped rather than asking afterwards.
+            app->escapeDismissedTransient =
+                hanabi::text_select::state().has_range();
             hanabi::text_select::clear();
+        } else {
+            app->escapeDismissedTransient = false;
+        }
 
         // 98 is the one-row strip. A draft that has grown past one row makes
         // the whole strip taller, so the transcript above it gets shorter
@@ -6280,7 +6290,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         owner.openSession->summary.id == target.session_id
                     ? &*owner.openSession
                     : nullptr);
-            if (!submittedBrake.refuses_input &&
+            // A CREATE ALREADY IN FLIGHT REFUSES A SECOND ONE. Send is
+            // disabled while one runs, but Enter reached this router anyway,
+            // and the loader only guards `!kickoffPending` -- so the second
+            // request sat in requestKickoff and fired the moment the first
+            // finished. Two presses, two conversations. The text is handed
+            // back rather than swallowed, and the reason is said out loud.
+            const bool createInFlight =
+                target.session_id.empty() && app.kickoffPending;
+            if (createInFlight) {
+                // The refused text goes back to the slot it was typed in,
+                // which need not be the one being drawn: in a split the other
+                // pane's Enter lands here too.
+                staged_state(target).replyDraft = submitted.message.text;
+                app.composerRestore.target = target;
+                app.composerRestore.notice =
+                    "Still starting this conversation \xe2\x80\x94 nothing is "
+                    "sent until it exists.";
+                app.composerRestore.offerRetry = false;
+                app.composerRestore.adopted = false;
+            } else if (!submittedBrake.refuses_input &&
                 hanabi::enter_sends(Settings::get().get_send_key(),
                                     submitted.withCmd)) {
                 if (hanabi::slash::is_command_text(submitted.message.text)) {
@@ -6375,6 +6404,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          .with_translate(absX, absY)
                          .with_render_layer(6);  // above pane content
         }
+        // IN FLIGHT: dim and lock. Send was already disabled, but the field
+        // stayed live, so a reader could keep typing into a composer whose
+        // create was already running -- and Enter reached the router (see the
+        // guard above). The draft is deliberately KEPT, the way the reference
+        // keeps it: this is a lock, not a clear.
+        const bool createLocked = targetKickoff && app.kickoffPending;
+        if (createLocked) barCfg = barCfg.with_opacity(0.55f);
         app.lastComposerPaneW = paneW;
         auto bar = div(ctx, mk(parent, 3), barCfg);
 
@@ -6696,13 +6732,55 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             render_fold_popover(ctx, parent, app, foldChip.ent(), currentFold);
         }
         std::string caption;
+        // Two-step Escape's own sentence outranks everything: the reader
+        // pressed a key half a second ago and the whole point of the arm is
+        // that they are told before the second press destroys anything.
+        // The escape input is built ONCE, here, and every reader below asks
+        // it rather than re-deriving "is there anything here" from the text
+        // alone -- which is exactly how the attachment-only draft slipped
+        // through the empty arm and closed the surface.
+        model::ComposerEscapeInput escapeIn;
+        escapeIn.slot = composerStateKey;
+        escapeIn.text = replyDraft;
+        for (const api::Attachment& staged : composerState.attachments)
+            escapeIn.attachments.push_back(staged.name);
+        escapeIn.now_ms = model::escape_now_ms();
+        const bool escapeArmed = app.composerEscape.armed_for_now(
+            composerStateKey, escapeIn.identity(), escapeIn.now_ms);
+        // A create that came back refused hands its reason to the composer it
+        // was typed in, not to whichever one happens to be on screen.
+        const bool restoreHere = app.composerRestore.live() &&
+                                 app.composerRestore.target == composerTarget;
+
+        // THE ONE NOTICE CHANNEL, filled in slot order (ecs/composer_notice.h).
+        // Four sources that used to be three unrelated places -- a caption, a
+        // note under the chips, and a toast -- with nothing dismissible and no
+        // slot at all for a failed send.
+        model::ComposerNotices& notices = composerState.notices;
+        notices.send = restoreHere ? app.composerRestore.notice : std::string();
+        if (!targetKickoff) {
+            const std::size_t held = app.outboxRetry.count_for(openId);
+            notices.outbox = held > 0 && !composerState.outboxNoticeDismissed
+                                 ? model::outbox_notice(
+                                       held, app.outboxRetry.attempts_for(
+                                                 openId, app.sendingMessage))
+                                 : std::string();
+        } else {
+            notices.outbox.clear();
+        }
+        notices.command = app.slashNotice;
+        notices.attachment = composerState.attachmentNotice;
+        const bool noticeHere = notices.any();
+
         // A brake outranks the slash notice: the notice is a transient answer
         // to something the reader just typed, and the brake is the reason the
         // thing they typed will not be answered at all.
-        if (brake.engaged)
+        if (escapeArmed)
+            caption = model::armed_hint_for(escapeIn);
+        else if (brake.engaged)
             caption = brake.caption;
-        else if (!app.slashNotice.empty())
-            caption = app.slashNotice;
+        else if (noticeHere)
+            caption = notices.visible();
         else if (!canSend)
             caption =
                 "read-only — this backend doesn't support replies";
@@ -6822,10 +6900,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // is meter and pills only — but the key hint is the fix for "HOW DO I
         // SEND A MESSAGE" and a scripted test asserts it.
         if (!caption.empty()) {
+            // A notice carries the server's own sentence and can be as long
+            // as the server likes. Every other caption here is a few words and
+            // sizes to its children; a notice is bounded and ellipsised,
+            // because a caption that grows without limit pushes the Attach
+            // pill and the pickers off the right edge of the pane.
+            const bool serverSentence = noticeHere && caption == notices.visible();
+            const float noticeW = std::min(
+                theme::text_px(caption, theme::type::SM) + kLabelInset,
+                std::max(160.0f, paneW * 0.42f));
             div(ctx, mk(leftMeta.ent(), 11),
                 ComponentConfig{}
                     .with_label(caption)
-                    .with_size(ComponentSize{children(), pixels(16)})
+                    .with_size(serverSentence
+                                   ? ComponentSize{pixels(noticeW), pixels(16)}
+                                   : ComponentSize{children(), pixels(16)})
+                    .with_text_overflow(serverSentence ? TextOverflow::Ellipsis
+                                                       : TextOverflow::Clip)
                     .with_margin(Margin{.left = pixels(10)})
                     .with_transparent_bg()
                     // A brake reads at the secondary weight, not the faint
@@ -6838,6 +6929,50 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
                     .with_debug_name("composer_status"));
+        }
+        // DISMISS. It clears exactly the slot that is showing, so the next
+        // notice takes the row rather than everything vanishing at once. Only
+        // a notice gets one: the live-status arms below (sending, uploading,
+        // the send-key hint) are conditions, and dismissing a condition would
+        // only hide it until the next frame put it back.
+        if (noticeHere && caption == notices.visible()) {
+            auto dismiss = button(ctx, mk(leftMeta.ent(), 20),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(16), pixels(16)})
+                    .with_margin(Margin{.left = pixels(4)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_on_draw_fg(hanabi::icons::draw_fg(
+                        "close", "\xc3\x97", theme::text_faint(), 11.0f))
+                    .with_debug_name("composer_notice_dismiss"));
+            hanabi::a11y::set_name(dismiss.ent(), "Dismiss this notice");
+            if (dismiss) app.requestComposerNoticeDismiss = true;
+        }
+        // RETRY. Offered only for a failure the server stated, because a
+        // repeat of an unknown fate is how a reader ends up with two
+        // conversations (api/create_outcome.h). It does not carry its own copy
+        // of the send: it presses the composer's own Send, one frame later, so
+        // there is one submit path and a retry cannot drift from it.
+        if (restoreHere && app.composerRestore.offerRetry) {
+            const std::string retryText = "Retry";
+            auto retry = button(ctx, mk(leftMeta.ent(), 21),
+                ComponentConfig{}
+                    .with_label(retryText)
+                    .with_size(ComponentSize{pixels(run_box(retryText, 6.0f)),
+                                             pixels(16)})
+                    .with_margin(Margin{.left = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::accent())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_debug_name("composer_retry"));
+            if (retry) app.requestComposerRetry = true;
         }
         // A live selection says how much is on the clipboard's doorstep. It
         // also confirms the selection exists at all: the band is drawn behind
@@ -7023,6 +7158,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_line_height(pixels(kComposerLineH))
                 .with_max_lines(kComposerMaxRows)
+                // Enter stays ARMED while a create runs, deliberately. The
+                // router refuses it and SAYS SO (the reference's own sentence
+                // for this state), which is better than a key that silently does
+                // nothing -- and it keeps the refusal to one mechanism that a
+                // script can actually reach and assert.
                 .with_submit_on_enter(hanabi::enter_sends(
                     Settings::get().get_send_key(), hanabi::keys::cmd_down()))
                 .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
@@ -7196,6 +7336,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (hanabi::test_hooks::focus_composer())
             ctx.set_focus(focusable_field(inputRes.ent()));
 
+        // A served focus REQUEST, not a flag: every New Thread entry point
+        // bumps the counter, so asking twice focuses twice and a second Cmd+N
+        // on an open surface puts the caret back in the field. Only the pane
+        // the request was made for answers it -- in a split, the other half
+        // must not steal the keyboard.
+        if (app.composer_focus_wanted() &&
+            composerTarget.pane_index == std::clamp(app.focusedPane, 0, 1)) {
+            app.composerFocusServed = app.composerFocusRequest;
+            ctx.set_focus(focusable_field(inputRes.ent()));
+            if (inputRes.ent()
+                    .has<afterhours::text_input::HasTextAreaState>())
+                inputRes.ent()
+                    .get<afterhours::text_input::HasTextAreaState>()
+                    .was_focused = true;
+        }
+
         // Opt-in field diagnostics: dump the live text_input state so we can
         // see EXACTLY what the field receives (chars, cursor, h-scroll) —
         // pins down space/backspace/wrap issues instead of guessing across the
@@ -7216,21 +7372,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
-        // ESCAPE-TO-CLEAR (Gabe): when the composer field is focused and ESC is
-        // pressed, clear the input. (The first-ESC-pauses-the-agent behavior is
-        // deferred — for now ESC just clears, which is the common chat-app
-        // behavior.) Only when Esc belongs to the transcript this frame: with
-        // an overlay or the find bar up, Esc dismisses THAT and the draft you
-        // typed survives (escape_system.h).
-        if (inputRes.ent().has<afterhours::text_input::HasTextAreaState>()) {
-            auto& st =
-                inputRes.ent().get<afterhours::text_input::HasTextAreaState>();
-            if (st.is_focused && app.escape == EscapeIntent::ClearTranscript) {
-                st.storage.clear();
-                st.cursor_position = 0;
-                replyDraft.clear();
-            }
-        }
+        // TWO-STEP ESCAPE, half one: whether the caret was in the field when
+        // the key was read. afterhours' text_input blurs on its own read of
+        // Escape and offers no way out (afterhours_gaps.md #57), so asking
+        // after the rule has run gets the wrong answer. The rule itself is
+        // carried out further down, once set_field() exists to do it with.
+        const bool escapeFieldFocused =
+            inputRes.ent().has<afterhours::text_input::HasTextAreaState>() &&
+            inputRes.ent()
+                .get<afterhours::text_input::HasTextAreaState>()
+                .is_focused;
 
         // SLASH COMMANDS. A draft that opens with "/" is addressed to this
         // client, not to the agent: the menu below offers the vocabulary, and
@@ -7317,6 +7468,85 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // there is something that can write to it. The widget keeps its own
         // storage, so clearing replyDraft up there is not enough.
         if (clearFieldAfterSubmit) set_field("");
+
+        // Dismissing clears the slot AT ITS SOURCE. Clearing the rendered copy
+        // alone would be undone on the very next frame, which is the shape of
+        // bug that makes a dismiss control feel broken rather than absent.
+        if (app.requestComposerNoticeDismiss) {
+            app.requestComposerNoticeDismiss = false;
+            switch (notices.dismiss()) {
+                case model::NoticeSlot::Send:
+                    app.composerRestore.clear();
+                    break;
+                case model::NoticeSlot::Outbox:
+                    composerState.outboxNoticeDismissed = true;
+                    break;
+                case model::NoticeSlot::Command:
+                    app.slashNotice.clear();
+                    break;
+                case model::NoticeSlot::Attachment:
+                    composerState.attachmentNotice.clear();
+                    break;
+                case model::NoticeSlot::None:
+                    break;
+            }
+        }
+
+        // A refused create put the text and the ordered files back in this
+        // composer's slot; this is where the field itself catches up. Once,
+        // and only in the composer the message was typed in.
+        if (restoreHere && !app.composerRestore.adopted) {
+            app.composerRestore.adopted = true;
+            set_field(replyDraft);
+        }
+
+        // TWO-STEP ESCAPE, half two.
+        //
+        // One press used to empty the box outright: a reader who reached for
+        // Escape to dismiss something, with a stale caret in the field, lost
+        // what they had typed with no warning and no undo. The rule is now a
+        // total function (ecs/composer_escape.h) and this is the only place
+        // that carries it out -- there is one composer, so there is one Escape.
+        model::retire_stale_arm(app.composerEscape, composerStateKey,
+                                escapeIn.identity(), escapeIn.now_ms);
+        if (app.escape == EscapeIntent::ClearTranscript && escapeFieldFocused) {
+            // A notice on screen is transient UI: Escape spends itself
+            // dismissing it, exactly as it does on a menu, and the draft is
+            // not armed by the same press. Step one is always "put away the
+            // thing that is up".
+            escapeIn.transient_up =
+                app.escapeDismissedTransient || notices.any();
+            escapeIn.field_focused = true;
+            escapeIn.surface_can_close =
+                targetKickoff && !app.pane().newThreadReturnId.empty();
+            switch (model::resolve_composer_escape(app.composerEscape,
+                                                   escapeIn)) {
+                case model::ComposerEscapeStep::Cleared:
+                    // The TEXT only. Staged files are not the box's contents
+                    // and have their own per-file remove; a keystroke that
+                    // silently unlinked them would be the defect this whole
+                    // rule exists to refuse.
+                    set_field("");
+                    refocus_field();
+                    break;
+                case model::ComposerEscapeStep::Armed:
+                case model::ComposerEscapeStep::KeptStaged:
+                    // The keystroke that put the sentence up must not also
+                    // take the caret out of the field, or the second press
+                    // lands somewhere else and the reader is told a lie.
+                    refocus_field();
+                    break;
+                case model::ComposerEscapeStep::ClosedSurface:
+                    app.requestCloseNewThread = true;
+                    break;
+                case model::ComposerEscapeStep::DismissedTransient:
+                    if (notices.any()) app.requestComposerNoticeDismiss = true;
+                    break;
+                case model::ComposerEscapeStep::ReleasedFocus:
+                case model::ComposerEscapeStep::Ignored:
+                    break;
+            }
+        }
         if (app.forkRestoreSessionId == openId && !app.forkError.empty()) {
             set_field(app.forkRestoreDraft);
             app.slashNotice = app.forkError;
@@ -7409,8 +7639,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 return;
             }
             if (cmd->name == "new") {
-                // The same new-conversation sheet Cmd+N raises.
-                app.composerOpen = true;
+                // The same surface every other entry point opens, carrying
+                // whatever was typed after the verb. It used to throw the
+                // argument away and raise a second composer.
+                app.requestNewThread = true;
+                if (!p.args.empty()) app.welcomeSeed = p.args;
                 app.slashNotice.clear();
                 set_target_field(target, "");
             }
@@ -7638,7 +7871,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     }
                 })
                 .with_debug_name("composer_send"));
-        if (send && sendEnabled) {
+        // A Retry presses this button. One submit path: a retry that built its
+        // own outgoing message would BE a second send path, which is the thing
+        // this wave exists to delete.
+        const bool retryPressed = app.requestComposerRetry;
+        app.requestComposerRetry = false;
+        if ((send || retryPressed) && sendEnabled) {
             // A slash draft is a command, so the button carries it out rather
             // than sending the words to the agent (the Enter path above does
             // the same).
@@ -7667,6 +7905,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 else
                     app.requestSend = std::move(message);
                 replyDraft.clear();
+                // The restored text has been handed back to the send path, so
+                // the notice and its Retry have done their job.
+                if (restoreHere) app.composerRestore.clear();
             }
         }
 

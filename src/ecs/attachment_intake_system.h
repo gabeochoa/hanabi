@@ -27,6 +27,7 @@
 #include "../keys.h"
 #include "../native_extras.h"
 #include "components.h"
+#include "keyboard_focus.h"
 #include "pane_state.h"
 #include "ui_imports.h"
 
@@ -66,9 +67,24 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
 
         // A paste is a pull: the chord is the question and the pasteboard
         // answers it on the spot, so there is nothing to latch. Asking every
-        // frame would allocate for nothing. A clipboard holding TEXT is not
-        // ours — the field's own paste handles that and this answers false.
-        if (hanabi::keys::cmd_down() && hanabi::keys::pressed(hanabi::keys::kV))
+        // frame would allocate for nothing.
+        //
+        // GATED ON THE COMPOSER HAVING THE CARET. This used to test the chord
+        // globally and rely on native_take_clipboard_image answering false for
+        // text -- so a Cmd+V aimed at the search field, the palette or a rename
+        // box, with an image on the clipboard, staged that image onto a
+        // conversation the reader was not typing into. The reference client
+        // routes its paste through the text view itself for exactly this
+        // reason; this is the same rule at the one seam hanabi has.
+        // Ctrl is accepted as an alias of Cmd, the same bargain keys.h's own
+        // ctrl_down() records: the scripted harness cannot hold Super, so a
+        // chord that reads cmd_down() alone is unreachable from every test we
+        // can write (afterhours_gaps.md #49, #256). This path had exactly that
+        // shape -- the paste route was never once exercised by a test, and the
+        // focus gate below would have passed vacuously without this.
+        if (composer_field_focused() &&
+            (hanabi::keys::cmd_down() || hanabi::keys::ctrl_down()) &&
+            hanabi::keys::pressed(hanabi::keys::kV))
             if (native_take_clipboard_image(path, sizeof(path))) add(*app, path);
 
         // A drop is a push: whatever AppKit queued drains in one pass, so a
@@ -78,10 +94,7 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
 
   private:
     static void add(AppComponent& app, const char* path) {
-        api::OutgoingTarget target =
-            app.composerOpen && app.composerOverlayTarget.valid()
-                ? app.composerOverlayTarget
-                : app.current_composer_target();
+        const api::OutgoingTarget target = app.current_composer_target();
         auto& state = model::pane_states().touch(
             model::pane_key(target.pane_index, target.draft_key));
         const std::string persistedKey = model::persisted_reply_key(
@@ -95,24 +108,22 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
             state.persistedAttachments = saved.attachments;
             state.replyDraftLoaded = true;
         }
+        // ONE home for a complaint. Each of these used to set the note AND
+        // raise a toast, so a refused file said the same sentence twice in two
+        // places and neither could be dismissed. The note feeds the composer's
+        // single notice channel (ecs/composer_notice.h), which has a dismiss.
         if (state.attachments.size() >= api::attachments::kMaxCount) {
             state.attachmentNotice = "A message can carry at most five files.";
-            app.raise_toast(state.attachmentNotice, "",
-                            AppComponent::ToastUndo::None);
             return;
         }
         auto staged = api::attachments::stage(path);
         if (!staged.ok) {
             state.attachmentNotice = staged.error;
-            app.raise_toast(state.attachmentNotice, "",
-                            AppComponent::ToastUndo::None);
             return;
         }
         auto retained = api::disk_cache::retain_attachment(staged.value);
         if (!retained.ok) {
             state.attachmentNotice = retained.error;
-            app.raise_toast(state.attachmentNotice, "",
-                            AppComponent::ToastUndo::None);
             return;
         }
         state.attachments.push_back(std::move(retained.value));

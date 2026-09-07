@@ -1,7 +1,12 @@
 // Unit tests for the backend-agnostic API layer. Pure logic only — no network.
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <vector>
+
+#include "../../src/api/attachments.h"
 
 #include "../../src/api/http_client.h"
 #include "../../src/api/mock_client.h"
@@ -228,6 +233,78 @@ static void test_attention_state_field() {
     CHECK(s.tag == api::ThreadTag::Waiting);
 }
 
+// The attachment caps and the sentences they raise.
+//
+// All three sentences existed in src/api/attachments.h and NOT ONE was reached
+// by any test (regression matrix MTX-B-15). Two of them cannot be reached from
+// a scripted UI test without checking multi-megabyte blobs into the repo, so
+// the bytes are written to a temp file here and deleted again -- the cap is
+// what is being exercised, not the file.
+static std::string write_sized(const std::string& name, std::uint64_t bytes) {
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / name;
+    std::ofstream out(path, std::ios::binary);
+    const std::string chunk(64 * 1024, 'x');
+    std::uint64_t written = 0;
+    while (written + chunk.size() <= bytes) {
+        out.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        written += chunk.size();
+    }
+    if (written < bytes)
+        out.write(chunk.data(), static_cast<std::streamsize>(bytes - written));
+    out.close();
+    return path.string();
+}
+
+static void test_attachment_caps_say_why() {
+    std::printf("test_attachment_caps_say_why\n");
+    namespace at = api::attachments;
+
+    // A kind the allowlist refuses NAMES the whole accepted set. (The
+    // reference client drops the file silently here; the audit calls hanabi's
+    // sentence the better behaviour, so it is pinned rather than matched away.)
+    const auto zip = at::stage("tests/fixtures/attachments/sample.zip");
+    CHECK(!zip.ok);
+    CHECK(zip.error.find("PNG, JPEG, GIF, WebP, PDF, Markdown") !=
+          std::string::npos);
+
+    // The per-file ceiling, from both sides of the exact byte.
+    const std::string under = write_sized("hanabi_cap_under.txt",
+                                          at::kMaxFileBytes - 1);
+    const std::string over = write_sized("hanabi_cap_over.txt",
+                                         at::kMaxFileBytes + 1);
+    const auto ok = at::stage(under);
+    CHECK(ok.ok);
+    const auto big = at::stage(over);
+    CHECK(!big.ok);
+    CHECK(big.error == "That file is over the 7 MB limit.");
+
+    // The WHOLE-BODY ceiling is a different rule with a different sentence: a
+    // set of files that each pass can still be refused together, and this is
+    // the one that a per-file test can never reach.
+    std::vector<api::Attachment> many;
+    for (int i = 0; i < 3; ++i) {
+        auto one = at::stage(under);
+        CHECK(one.ok);
+        if (one.ok) many.push_back(one.value);
+    }
+    api::OutgoingMessage body;
+    body.text = "three files that each fit";
+    body.attachments = many;
+    const auto verdict = at::validate_message(body);
+    CHECK(!verdict.ok);
+    CHECK(verdict.error ==
+          "Those files are too large to send together. Remove one and try "
+          "again.");
+
+    // And the count cap is a constant both the intake and validate agree on.
+    CHECK(at::kMaxCount == 5);
+
+    std::error_code ec;
+    std::filesystem::remove(under, ec);
+    std::filesystem::remove(over, ec);
+}
+
 int main() {
     std::printf("=== test_api ===\n");
     test_config_defaults();
@@ -238,6 +315,7 @@ int main() {
     test_states_the_fixture_no_longer_carries();
     test_http_defaults_are_calm();
     test_attention_state_field();
+    test_attachment_caps_say_why();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

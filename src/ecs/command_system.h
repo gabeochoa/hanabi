@@ -15,7 +15,14 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
     using hanabi::shortcuts::Command;
     switch (command) {
         case Command::NewTask:
-            app.composerOpen = !app.composerOpen;
+        case Command::NewTab:
+            // Two names for one thing on purpose: Cmd+N and Cmd+T both open
+            // the ONE New Thread surface. A second surface for "new tab" is
+            // exactly the duplication this wave deleted.
+            app.requestNewThread = true;
+            break;
+        case Command::ReopenClosedTab:
+            app.requestReopenClosedTab = true;
             break;
         case Command::CloseTab:
             app.requestCloseActiveTab = true;

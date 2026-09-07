@@ -258,6 +258,8 @@ MANYTABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","
 SPLIT_EDGE_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}'
 SPLIT_EDGE_DARK_700='{"window_width":700,"window_height":620,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}'
 NARROW_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}'
+NEWTHREAD_NARROW_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}'
+NEWTHREAD_SPLIT_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}'
 SHORT_DARK='{"window_width":1100,"window_height":300,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}'
 NARROW_MANY='{"window_width":760,"window_height":620,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"],"active_tab":"t5","theme":"dark"}'
 SETTINGS_NARROW='{"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark"}'
@@ -353,6 +355,27 @@ capture_sized 15k_settings_split_dark "600 x 500" "$SET_SPLIT_DARK" HANABI_WIN_W
 capture_sized 15l_settings_split_applied_dark "760 x 620" "$SET_SPLIT_AFTER_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=t2 HANABI_SPLIT=t6
 capture 17_newtask_dark    "$NOTABS_DARK"  HANABI_TEST_OVERLAY=composer
 capture 17d_newtask_light  "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=composer
+# The one New Thread surface, at the width where the composer goes compact
+# (the Attach pill becomes a + inside the field) and inside a split, where it
+# belongs to the FOCUSED pane and the other half keeps its thread.
+capture_sized 17g_newthread_narrow_dark "760 x 620" "$NEWTHREAD_NARROW_DARK" \
+    HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=composer
+capture_sized 17h_newthread_split_dark "1100 x 760" "$NEWTHREAD_SPLIT_DARK" \
+    HANABI_OPEN=t2 HANABI_SPLIT=t6 HANABI_TEST_OVERLAY=composer
+# A create the server refused: the exact prompt, the reason, and a Retry --
+# the state that used to be a silently emptied box.
+capture 17i_newthread_create_failed_dark "$NOTABS_DARK" \
+    HANABI_KICKOFF_DEMO="the prompt a refused create must not eat" \
+    HANABI_MOCK_CREATE_FAIL=rejected
+capture 17j_newthread_create_failed_light "$NOTABS_LIGHT" \
+    HANABI_KICKOFF_DEMO="the prompt a refused create must not eat" \
+    HANABI_MOCK_CREATE_FAIL=rejected
+# The create IN FLIGHT: the strip dimmed and locked, with the draft kept. The
+# frame hold is what makes the state photographable at all -- the mock answers
+# instantly and a scripted run advances frames, not the clock.
+capture 17k_newthread_creating_dark "$NOTABS_DARK" \
+    HANABI_KICKOFF_DEMO="a create that is still in flight" \
+    HANABI_MOCK_CREATE_DELAY_FRAMES=400
 capture 17b_shortcuts_dark  "$NOTABS_DARK"  HANABI_TEST_OVERLAY=shortcuts
 capture 17c_shortcuts_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=shortcuts
 capture 17e_shortcut_recorder_dark  "$NOTABS_DARK"  HANABI_TEST_OVERLAY=shortcuts-recording

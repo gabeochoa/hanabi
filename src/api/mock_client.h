@@ -265,9 +265,38 @@ class MockClient : public Client {
         return Result<std::string>::success(id);
     }
 
+    // TEST HOOK, same contract as injected_send_failure: off unless
+    // HANABI_MOCK_CREATE_FAIL is set. `rejected` makes the create come back as
+    // a stated refusal (a Retry is safe), `unknown` as a fate nobody heard (a
+    // Retry could mint a second conversation), `throw` as a bare transport
+    // error. The three arms are the three the composer has to tell apart and
+    // the offline mock cannot otherwise produce any of them.
+    static std::string injected_create_failure() {
+        static const std::string mode = [] {
+            const char* v = std::getenv("HANABI_MOCK_CREATE_FAIL");
+            return (v && *v) ? std::string(v) : std::string();
+        }();
+        static bool used = false;
+        if (mode.empty() || used) return "";
+        used = true;
+        return mode;
+    }
+
     Result<CreateOutcome> create_with_message(
         const OutgoingMessage& message, const StreamSink& sink) override {
         (void)sink;
+        if (const std::string mode = injected_create_failure(); !mode.empty()) {
+            const std::string why =
+                "mock: injected create failure (HANABI_MOCK_CREATE_FAIL)";
+            if (mode == "throw") return Result<CreateOutcome>::failure(why);
+            CreateOutcome refused;
+            refused.created = false;
+            refused.create_failure = SendFailure{
+                mode == "unknown" ? SendFailureKind::Unknown
+                                  : SendFailureKind::Rejected,
+                why};
+            return Result<CreateOutcome>::success(std::move(refused));
+        }
         auto created = create_session(message.text);
         if (!created.ok) return Result<CreateOutcome>::failure(created.error);
         Session* session = find_mutable(created.value);

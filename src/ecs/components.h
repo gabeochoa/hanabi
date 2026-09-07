@@ -21,6 +21,7 @@
 #include "../settings.h"
 #include "../search/find_memo.h"
 #include "ask_card.h"
+#include "composer_escape.h"
 #include "transcript_cache.h"
 #include "transcript_item_index.h"
 
@@ -57,7 +58,6 @@ enum class EscapeIntent {
     CloseSessionSearch,
     CloseContextMenu,
     CloseRename,
-    CloseComposer,
     CancelShortcutRecording,
     CloseShortcuts,
     CloseSettings,
@@ -136,6 +136,11 @@ inline const std::string& more_key(std::string_view key, std::string& scratch) {
 struct Pane {
     // The thread this pane is showing, and its transcript.
     std::string selectedId;
+    // Where Escape goes back to when the new-thread surface is showing over a
+    // thread and the box is empty. Empty means there is nothing behind it, and
+    // an empty-box Escape then hands the keyboard back instead of closing
+    // something that was never opened.
+    std::string newThreadReturnId;
     std::optional<api::Session> openSession;
     model::TranscriptMutation transcriptMutation;
 
@@ -632,9 +637,68 @@ struct AppComponent : public afterhours::BaseComponent {
     // the selection band can be captured without a live drag. Empty normally.
     std::string selectDemo;
     std::string themeChoice = "dark";
-    bool composerOpen = false;
-    api::OutgoingTarget composerOverlayTarget;
-    std::string composerDraft;
+    // NEW THREAD -- one surface, one path.
+    //
+    // There used to be two composers: this flag opened a modal sheet with its
+    // own field, its own draft, its own attachment summary and its own Start
+    // button, and the in-pane composer had every affordance the sheet lacked.
+    // Two implementations of one thing drift, and they had: twelve affordances
+    // apart by the time anyone counted.
+    //
+    // So there is one composer, and "new thread" is a SURFACE the pane shows,
+    // not a second widget tree. Every entry point -- Cmd+N, the sidebar +, the
+    // tab strip +, /new, the global hotkey, the menu bar, the test overlay --
+    // sets requestNewThread and nothing else; new_thread.h is the only thing
+    // that services it.
+    bool requestNewThread = false;
+    bool requestCloseNewThread = false;
+    // A COUNTER, not a flag. Asking twice has to focus twice -- a second Cmd+N
+    // on an open new-thread surface puts the caret back in the field -- and a
+    // bool cannot say "again".
+    unsigned composerFocusRequest = 0;
+    unsigned composerFocusServed = 0;
+    void request_composer_focus() { ++composerFocusRequest; }
+    [[nodiscard]] bool composer_focus_wanted() const {
+        return composerFocusServed != composerFocusRequest;
+    }
+    // Two-step Escape's arm, held across frames. The rule itself is pure and
+    // lives in ecs/composer_escape.h.
+    model::ComposerEscapeState composerEscape;
+    // What a failed create handed back. The loader sets it from the create
+    // verdict (api/create_outcome.h); the composer adopts it once, restoring
+    // the surface, the focus and -- only when a repeat is provably safe -- a
+    // Retry.
+    struct ComposerRestore {
+        api::OutgoingTarget target;
+        std::string notice;
+        bool offerRetry = false;
+        // Not yet adopted: the surface still has to be selected and focused.
+        bool pending = false;
+        // The restored text still has to be pushed into the widget's OWN
+        // storage. Writing the draft string alone leaves the visible field
+        // exactly as it was, which is how a restore can be perfectly correct
+        // and completely invisible.
+        bool adopted = false;
+
+        [[nodiscard]] bool live() const { return !notice.empty(); }
+        void clear() {
+            target = {};
+            notice.clear();
+            offerRetry = false;
+            pending = false;
+            adopted = false;
+        }
+    };
+    ComposerRestore composerRestore;
+    // One-shot: the Retry affordance presses the composer's own Send rather
+    // than carrying a second copy of the submit path.
+    bool requestComposerRetry = false;
+    // One-shot: dismiss whichever notice slot is showing.
+    bool requestComposerNoticeDismiss = false;
+    // Set once a frame by MainPaneSystem: this frame's Escape already had
+    // transient UI to dismiss (a transcript selection), so the composer's
+    // two-step rule must treat it as step one rather than arming the draft.
+    bool escapeDismissedTransient = false;
     hanabi::ask::RescuedDrafts askRescued;
 
     // Phase G (menu-bar): set by the frame loop when the menu-bar "New task…"
@@ -642,6 +706,25 @@ struct AppComponent : public afterhours::BaseComponent {
     // flag (mirrors requestOpenTab/requestToggleStar) — cleared on consume.
     bool requestNewTask = false;
     bool requestCloseActiveTab = false;
+    bool requestReopenClosedTab = false;
+    // The threads whose tabs were closed, newest last. Bounded, because an
+    // unbounded undo stack is a leak with a friendly name; ten is well past
+    // what anyone reaches for and the whole list is a few short strings.
+    std::vector<std::string> closedTabs;
+    static constexpr std::size_t kMaxClosedTabs = 10;
+    void note_tab_closed(const std::string& sessionId) {
+        if (sessionId.empty()) return;
+        std::erase(closedTabs, sessionId);
+        closedTabs.push_back(sessionId);
+        if (closedTabs.size() > kMaxClosedTabs)
+            closedTabs.erase(closedTabs.begin());
+    }
+    [[nodiscard]] std::string take_closed_tab() {
+        if (closedTabs.empty()) return {};
+        std::string id = closedTabs.back();
+        closedTabs.pop_back();
+        return id;
+    }
     int requestFindStep = 0;
     // Optional text a welcome-screen suggestion chip seeds into the new-task
     // composer draft (consumed once by render_composer). Empty = no seed.
@@ -1418,7 +1501,7 @@ struct TabStripComponent : public afterhours::BaseComponent {
 // Is a modal sheet covering the app? Keyboard navigation behind one moves
 // something the reader cannot see, so every key owner asks this first.
 inline bool overlay_up(const AppComponent& app) {
-    return app.renameOpen || app.composerOpen || app.showShortcuts ||
+    return app.renameOpen || app.showShortcuts ||
            app.showSettings || app.showAuth || app.paletteOpen;
 }
 

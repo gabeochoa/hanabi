@@ -5,10 +5,12 @@ resize 600 500
 wait_frames 8
 assert_ui shortcuts_panel x=24 y=24 w=552 h=452
 assert_ui shortcuts_cols x=48 y=96 w=504 h=360
-assert_ui shortcuts_commands x=48 y=96 w=504 h=404
-assert_ui shortcuts_reference x=48 y=500 w=504 h=454
+assert_ui shortcuts_commands x=48 y=96 w=504 h=472
+assert_ui shortcuts_reference x=48 y=568 w=504 h=454
 expect_text "CUSTOMIZABLE COMMANDS"
+# Two more customizable commands (Cmd+T, Cmd+Shift+T) push the reference
+# section 68pt further down, so the reach is further too.
 mouse_move 300 300
-scroll_wheel 0 -4
+scroll_wheel 0 -6
 wait_frames 12
 expect_text "EDITING TEXT"

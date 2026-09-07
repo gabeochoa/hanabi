@@ -1,0 +1,46 @@
+# The compact threshold, from BOTH sides, and the outbox notice that used to
+# have nowhere to appear.
+#
+# Two gaps in one script because they share a fixture. MTX-B-09: the 560pt
+# threshold is a FACT in the source and nothing exercised its two sides -- a
+# rung that only ever ran on one side of itself is a rung nobody has shown
+# does anything. MTX-B-23: the outbox held and retried in complete silence,
+# with attempts() exposed for a reader that did not exist.
+# settings: {"window_width":900,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIN_W=900 HANABI_WIN_H=620 HANABI_MOCK_SEND_FAIL=1
+
+require_thread t2
+wait_frames 16
+
+# Both faces answer to the same name on purpose, so a keyboard script reaches
+# the picker at either width; what changes is the SHAPE, which is the only
+# honest discriminator here.
+#
+# ABOVE the threshold: the labelled 52x18 pill in the right meta cluster.
+assert_ui composer_attach w=52 h=18
+
+# BELOW it: a 20x20 + inside the input, and the tool-fold pill is gone.
+resize 520 620
+wait_frames 24
+assert_ui composer_attach w=20 h=20
+expect_no_text "Tools: Folded"
+
+# And back up again. A threshold that only ever falls is half a rule.
+resize 900 620
+wait_frames 24
+assert_ui composer_attach w=52 h=18
+
+# THE OUTBOX SAYS SO. The first send of the process is refused and the prompt
+# is held; the composer now has a slot for saying that rather than retrying in
+# silence. The backoff is left at its real curve on purpose: a scripted run
+# has no wall clock to spend, so the message STAYS held and the sentence is
+# deterministic. Its other half -- the notice clearing when the retry lands --
+# is asserted in a_refused_send_is_retried_from_the_outbox.e2e, which collapses
+# the backoff instead.
+click_ui composer_reply_input
+type "held while the backend is away"
+wait_frames 6
+key ENTER
+wait_frames 60
+expect_text "has not reached the server"
+expect_text "still retrying"

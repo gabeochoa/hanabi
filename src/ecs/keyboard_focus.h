@@ -46,6 +46,23 @@ inline bool any_text_field_focused() {
     return false;
 }
 
+// Is the CARET in the composer, as opposed to some other field?
+//
+// The composer is the tree's only text_AREA -- every other field (search, the
+// palette, rename, settings) is a text_input -- and scripts/composer_parity_gate.sh
+// fails the build if a second text_area appears. So "a focused HasTextAreaState"
+// is exactly "the composer has the keyboard", and it stays true by construction
+// rather than by a name comparison that a rename would silently break.
+inline bool composer_field_focused() {
+    for (const auto& e :
+         afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+        if (!e || !e->has<afterhours::text_input::HasTextAreaState>()) continue;
+        if (e->get<afterhours::text_input::HasTextAreaState>().is_focused)
+            return true;
+    }
+    return false;
+}
+
 // The inner field of a text_input: the child that can actually take focus.
 // The wrapper imm::text_input hands back carries no click listener, so focus
 // set on IT is dropped at the end of the frame (afterhours_gaps.md #57) — the

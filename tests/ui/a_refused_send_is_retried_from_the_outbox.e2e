@@ -37,3 +37,8 @@ key ENTER
 wait_frames 240
 expect_text "hold this until the backend comes back"
 expect_text "working on: hold this until the backend comes back"
+
+# And the composer's notice slot for a held message clears with it. A notice
+# that outlived its cause would be worse than none -- and until this wave the
+# outbox had no slot to say anything in at all.
+expect_no_text "has not reached the server"

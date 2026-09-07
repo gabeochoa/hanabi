@@ -61,11 +61,14 @@ wait_frames 8
 expect_text "(Low)"
 expect_input_text composer_reply_input ""
 
-# /new raises the new-conversation sheet.
+# /new opens the ONE new-thread surface -- there is no second composer to
+# raise -- and it carries whatever was typed after the verb, which the old
+# sheet threw away.
 click_ui composer_reply_input
 wait_frames 4
-type "/new"
+type "/new chase the launch regression"
 wait_frames 8
 key ENTER
-wait_frames 20
-expect_text "Describe the task"
+wait_frames 24
+expect_text "What can I help with?"
+expect_input_text composer_reply_input "chase the launch regression"
