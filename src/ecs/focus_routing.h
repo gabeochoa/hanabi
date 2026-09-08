@@ -55,26 +55,55 @@ inline constexpr unsigned kSurfaceFind = 1u << 5;
 inline constexpr unsigned kSurfaceAskFocused = 1u << 6;
 inline constexpr unsigned kSurfaceAskWaiting = 1u << 7;
 
+// THREE CLAIMANTS, ONE LADDER.
+//
+// A surface from the set above is one claimant and the composer is another,
+// and the third is any OTHER text field. Most fields are already covered by a
+// surface -- settings, the palette, rename and cross-session search each live
+// inside one, the find bar has kSurfaceFind, and a card's answer boxes are
+// under kSurfaceAskWaiting -- but the sidebar's search is covered by nothing,
+// and presence cannot cover it either, because it is on screen in every frame
+// the sidebar is unfolded. So a field claims the keyboard the same way the
+// composer does, by taking the caret on purpose, and the newest claim wins.
+// Without the third claimant the composer counted as the holder while the
+// reader was typing in the search box, and the seam that puts a yielded caret
+// BACK in the composer took it out from under them the moment the surface it
+// had yielded to went away: the keystrokes after that landed in the draft.
+//
+// A caret is in one place, so caretInComposer and caretInField are never both
+// true; both are read off the same focus id (ecs/keyboard_focus.h).
 struct KeyboardClaim {
     unsigned issued = 0;
     unsigned surfaces = 0;
     unsigned surfaceClaimedAt = 0;
     unsigned composerClaimedAt = 0;
+    unsigned fieldClaimedAt = 0;
     bool caretInComposer = false;
+    bool caretInField = false;
 
     void observe(unsigned surfacesNow, bool caretInComposerNow,
-                 bool claimedOnPurpose) {
+                 bool caretInFieldNow, bool claimedOnPurpose) {
         if ((surfacesNow & ~surfaces) != 0) surfaceClaimedAt = ++issued;
         if (caretInComposerNow && !caretInComposer && claimedOnPurpose)
             composerClaimedAt = ++issued;
+        if (caretInFieldNow && !caretInField && claimedOnPurpose)
+            fieldClaimedAt = ++issued;
         surfaces = surfacesNow;
         caretInComposer = caretInComposerNow;
+        caretInField = caretInFieldNow;
     }
 };
 
+// A claim outranks the composer only while the thing that made it is still
+// there: a surface that has gone hands the keyboard back, and so does a field
+// the caret has left. The composer holds it when nothing live outranks it,
+// which is also the state the app starts in.
 [[nodiscard]] inline bool composer_holds_keyboard(const KeyboardClaim& claim) {
-    return claim.surfaces == 0 ||
-           claim.composerClaimedAt > claim.surfaceClaimedAt;
+    if (claim.surfaces != 0 && claim.surfaceClaimedAt > claim.composerClaimedAt)
+        return false;
+    if (claim.caretInField && claim.fieldClaimedAt > claim.composerClaimedAt)
+        return false;
+    return true;
 }
 
 [[nodiscard]] inline constexpr bool is_high_surrogate(int unit) {

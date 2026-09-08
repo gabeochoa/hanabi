@@ -74,6 +74,33 @@ inline bool caret_in_composer(afterhours::EntityID focusId) {
            owner->has<afterhours::text_input::HasTextAreaState>();
 }
 
+// Is the caret in a field the composer does not own -- the sidebar's search,
+// the find bar's input, a card's answer box, a sheet's field?
+//
+// The mirror of caret_in_composer, and read off the same focus id rather than
+// off the widgets' own is_focused flags. any_text_field_focused() answers the
+// same question from the other side, but it answers it a frame late for a
+// CLAIM: is_focused is written while the widget is being built, and a click is
+// processed inside that same build (text_area.h:366), so on the frame the
+// reader lands in a field the flag still describes the frame before. focus_id
+// is already the field by the time the claim is taken at the end of the frame.
+//
+// The text_AREA arm comes first because the composer's wrapper carries a
+// shadow HasTextInputState too (the scripted harness reads the draft off it),
+// so asking about the input state first would file the composer under "someone
+// else's field" and yield the keyboard to itself.
+inline bool caret_in_other_field(afterhours::EntityID focusId) {
+    if (caret_in_composer(focusId)) return false;
+    auto focused = afterhours::ui::UICollectionHolder::getEntityForID(focusId);
+    if (!focused.valid()) return false;
+    if (focused->has<afterhours::text_input::HasTextInputState>()) return true;
+    if (!focused->has<afterhours::ui::UIComponent>()) return false;
+    auto owner = afterhours::ui::UICollectionHolder::getEntityForID(
+        focused->get<afterhours::ui::UIComponent>().parent);
+    return owner.valid() &&
+           owner->has<afterhours::text_input::HasTextInputState>();
+}
+
 // The inner field of a text_input: the child that can actually take focus.
 // The wrapper imm::text_input hands back carries no click listener, so focus
 // set on IT is dropped at the end of the frame (afterhours_gaps.md #57) — the

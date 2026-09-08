@@ -1370,6 +1370,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // once and not every frame.
     bool findStepApplied_ = false;
     bool composerYieldedCaret_ = false;
+    // Last frame's verdict, for the edge where the composer takes the keyboard
+    // back. Starts held: the app opens with no surface up and no other field
+    // carrying a caret, which is exactly what composer_holds_keyboard says.
+    bool composerHeldKeyboard_ = true;
     bool modelPopoverWasOpen_ = false;
     bool effortPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
@@ -7218,6 +7222,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (composerYieldedCaret_ && !ecs::any_text_field_focused())
             while (afterhours::input::get_char_pressed() > 0) {
             }
+        // The drop above reaches only a caret the composer itself gave up. A
+        // surface that owns a field and does not put the caret in it -- the
+        // find bar opens with the caret wherever it was, which is usually
+        // nowhere -- leaves the queue with no reader at all: nothing drains it,
+        // nothing clears it, and the whole run is still sitting there when the
+        // composer is next clicked, which is where it lands. So the frame the
+        // composer takes the keyboard back is also the frame the queue is spent:
+        // what was typed before the claim was addressed to whatever held the
+        // keyboard then, and a claim adopts the keyboard, not its backlog.
+        //
+        // Only on the EDGE. Draining whenever the composer does not hold the
+        // keyboard would also eat the run a reader types at a card and then
+        // clicks a field to receive (an_overlay_owns_the_typing_too.e2e ends on
+        // exactly that), and those characters do reach a field that is entitled
+        // to them.
+        if (composerOwnsInput && !composerHeldKeyboard_)
+            while (afterhours::input::get_char_pressed() > 0) {
+            }
+        composerHeldKeyboard_ = composerOwnsInput;
         if (restoreComposerCaret) composerYieldedCaret_ = false;
         auto inputRes = afterhours::ui::imm::text_area(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
@@ -7483,6 +7506,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // The find bar just closed and took the caret with it (it owns a field
         // of its own). Put it back where the user was typing.
+        //
+        // Ungated on purpose, and it is worth writing down why, because the
+        // restore above refuses exactly this move. Both ways the bar closes
+        // have already taken the caret out of whatever field held it before
+        // this runs: Escape blurs the focused field on afterhours' own read of
+        // the key (afterhours_gaps.md #57), and a click on the bar's × focuses
+        // the × (a click on find_next, which closes nothing, blurs a sidebar
+        // search the same way). So there is never a live field here for this to
+        // rob, and gating it would only refuse a caret nobody is holding.
         if (app.refocusComposer) {
             app.refocusComposer = false;
             refocus_field();

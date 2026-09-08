@@ -1,0 +1,61 @@
+# The sidebar's search keeps the keyboard the reader handed it.
+#
+# f6aacf3 ranked two claimants -- the escape ladder's own surfaces, and the
+# composer -- and the sidebar's search is neither. It is a text field that is on
+# screen in every frame the sidebar is unfolded, so presence says nothing about
+# it, and no flag in the surface set describes it. The composer therefore still
+# counted as the keyboard's holder while the reader was typing a query, and the
+# seam that puts a yielded caret BACK in the composer took it out of the search
+# box the moment the surface it had yielded to went away. Everything typed after
+# that landed in the draft behind the sidebar, and the query stopped growing
+# with no sign that anything had moved.
+#
+# The order is the whole assertion, and it takes three steps to set up: the
+# composer is claimed first, a surface is raised over it so the composer yields,
+# and the search field is claimed while that surface is up. The find bar is that
+# surface because it is the one an ordinary chord raises WITHOUT covering the
+# sidebar -- a modal sheet swallows the click that would reach the search field,
+# so it cannot state this case at all. Closing the surface is the moment under
+# test: the composer is entitled to its caret back only when nothing else is
+# holding one.
+#
+# The last arm is the counter-case in the same run. A click on the composer IS a
+# claim and the newest claim wins, so the draft grows again -- and the query
+# stays exactly where the reader left it, which is what says the keyboard moved
+# rather than the text.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 20
+
+focus_ui composer_reply_input
+wait_frames 10
+type "mine"
+wait_frames 12
+expect_input_text composer_reply_input "mine"
+
+key CTRL+F
+wait_frames 16
+expect_input_text find_input ""
+
+click_ui sb_search
+wait_frames 14
+type "abc"
+wait_frames 14
+expect_input_text sb_search_text "abc"
+expect_input_text composer_reply_input "mine"
+
+key CTRL+F
+wait_frames 20
+type "def"
+wait_frames 16
+expect_input_text sb_search_text "abcdef"
+expect_input_text composer_reply_input "mine"
+
+click_ui composer_reply_input
+wait_frames 12
+type " again"
+wait_frames 14
+expect_input_text composer_reply_input "mine again"
+expect_input_text sb_search_text "abcdef"

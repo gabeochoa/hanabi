@@ -165,73 +165,153 @@ using ecs::model::KeyboardClaim;
 static void test_a_composer_alone_owns_the_keyboard() {
     KeyboardClaim claim;
     CHECK(composer_holds_keyboard(claim));
-    claim.observe(0, true, true);
+    claim.observe(0, true, false, true);
     CHECK(composer_holds_keyboard(claim));
 }
 
 static void test_a_surface_raised_after_the_composer_takes_the_keyboard() {
     KeyboardClaim claim;
-    claim.observe(0, true, true);
+    claim.observe(0, true, false, true);
     CHECK(composer_holds_keyboard(claim));
-    claim.observe(ecs::model::kSurfaceModalSheet, true, false);
+    claim.observe(ecs::model::kSurfaceModalSheet, true, false, false);
     CHECK(!composer_holds_keyboard(claim));
 }
 
 static void test_a_composer_claimed_after_a_surface_keeps_the_keyboard() {
     KeyboardClaim claim;
-    claim.observe(ecs::model::kSurfaceAskWaiting, false, false);
+    claim.observe(ecs::model::kSurfaceAskWaiting, false, false, false);
     CHECK(!composer_holds_keyboard(claim));
-    claim.observe(ecs::model::kSurfaceAskWaiting, true, true);
+    claim.observe(ecs::model::kSurfaceAskWaiting, true, false, true);
     CHECK(composer_holds_keyboard(claim));
 }
 
 static void test_a_second_surface_outranks_a_reclaimed_composer() {
     KeyboardClaim claim;
-    claim.observe(ecs::model::kSurfaceAskWaiting, false, false);
-    claim.observe(ecs::model::kSurfaceAskWaiting, true, true);
+    claim.observe(ecs::model::kSurfaceAskWaiting, false, false, false);
+    claim.observe(ecs::model::kSurfaceAskWaiting, true, false, true);
     CHECK(composer_holds_keyboard(claim));
     claim.observe(ecs::model::kSurfaceAskWaiting | ecs::model::kSurfaceRowMenu,
-                  true, false);
+                  true, false, false);
     CHECK(!composer_holds_keyboard(claim));
 }
 
 static void test_a_surface_leaving_hands_the_keyboard_back() {
     KeyboardClaim claim;
-    claim.observe(0, true, true);
-    claim.observe(ecs::model::kSurfaceModalSheet, true, false);
+    claim.observe(0, true, false, true);
+    claim.observe(ecs::model::kSurfaceModalSheet, true, false, false);
     CHECK(!composer_holds_keyboard(claim));
-    claim.observe(0, false, false);
+    claim.observe(0, false, false, false);
     CHECK(composer_holds_keyboard(claim));
 }
 
 static void test_only_a_deliberate_caret_is_a_claim() {
     KeyboardClaim grabbed;
-    grabbed.observe(ecs::model::kSurfaceModalSheet, false, false);
-    grabbed.observe(ecs::model::kSurfaceModalSheet, true, false);
+    grabbed.observe(ecs::model::kSurfaceModalSheet, false, false, false);
+    grabbed.observe(ecs::model::kSurfaceModalSheet, true, false, false);
     CHECK(!composer_holds_keyboard(grabbed));
 
     KeyboardClaim clicked;
-    clicked.observe(ecs::model::kSurfaceModalSheet, false, false);
-    clicked.observe(ecs::model::kSurfaceModalSheet, true, true);
+    clicked.observe(ecs::model::kSurfaceModalSheet, false, false, false);
+    clicked.observe(ecs::model::kSurfaceModalSheet, true, false, true);
     CHECK(composer_holds_keyboard(clicked));
 }
 
 static void test_a_caret_that_never_left_is_not_a_fresh_claim() {
     KeyboardClaim claim;
-    claim.observe(0, true, true);
-    claim.observe(ecs::model::kSurfaceAskWaiting, true, false);
+    claim.observe(0, true, false, true);
+    claim.observe(ecs::model::kSurfaceAskWaiting, true, false, false);
     CHECK(!composer_holds_keyboard(claim));
-    claim.observe(ecs::model::kSurfaceAskWaiting, true, true);
+    claim.observe(ecs::model::kSurfaceAskWaiting, true, false, true);
     CHECK(!composer_holds_keyboard(claim));
 }
 
 static void test_a_surface_still_up_never_loses_to_an_older_claim() {
     for (int bits = 0; bits < 8; ++bits) {
         KeyboardClaim claim;
-        claim.observe(0, (bits & 1) != 0, (bits & 2) != 0);
-        claim.observe(ecs::model::kSurfaceFind, (bits & 4) != 0, false);
+        claim.observe(0, (bits & 1) != 0, false, (bits & 2) != 0);
+        claim.observe(ecs::model::kSurfaceFind, (bits & 4) != 0, false, false);
         CHECK(!composer_holds_keyboard(claim));
     }
+}
+
+// The third claimant. No surface is up in any of these: the sidebar's search
+// is the case the surface set cannot describe, and it has to outrank the
+// composer on its own.
+static void test_a_field_claimed_after_the_composer_takes_the_keyboard() {
+    KeyboardClaim claim;
+    claim.observe(0, true, false, true);
+    CHECK(composer_holds_keyboard(claim));
+    claim.observe(0, false, true, true);
+    CHECK(!composer_holds_keyboard(claim));
+}
+
+static void test_a_composer_clicked_after_a_field_takes_it_back() {
+    KeyboardClaim claim;
+    claim.observe(0, false, true, true);
+    CHECK(!composer_holds_keyboard(claim));
+    claim.observe(0, true, false, true);
+    CHECK(composer_holds_keyboard(claim));
+}
+
+static void test_a_caret_leaving_a_field_hands_the_keyboard_back() {
+    KeyboardClaim claim;
+    claim.observe(0, true, false, true);
+    claim.observe(0, false, true, true);
+    CHECK(!composer_holds_keyboard(claim));
+    claim.observe(0, false, false, false);
+    CHECK(composer_holds_keyboard(claim));
+}
+
+static void test_only_a_deliberate_caret_in_a_field_is_a_claim() {
+    KeyboardClaim grabbed;
+    grabbed.observe(0, true, false, true);
+    grabbed.observe(0, false, true, false);
+    CHECK(composer_holds_keyboard(grabbed));
+
+    KeyboardClaim clicked;
+    clicked.observe(0, true, false, true);
+    clicked.observe(0, false, true, true);
+    CHECK(!composer_holds_keyboard(clicked));
+}
+
+// The order between the two is the whole of it, exactly as it is for a
+// surface: a field the reader left and came back to outranks the composer
+// again, and a composer clicked after the field outranks the field.
+static void test_a_field_and_the_composer_trade_the_keyboard_by_order() {
+    KeyboardClaim claim;
+    claim.observe(0, false, true, true);
+    CHECK(!composer_holds_keyboard(claim));
+    claim.observe(0, true, false, true);
+    CHECK(composer_holds_keyboard(claim));
+    claim.observe(0, false, true, true);
+    CHECK(!composer_holds_keyboard(claim));
+    claim.observe(0, true, false, true);
+    CHECK(composer_holds_keyboard(claim));
+}
+
+static void test_a_live_field_never_loses_to_an_older_claim() {
+    for (int bits = 0; bits < 4; ++bits) {
+        KeyboardClaim claim;
+        claim.observe((bits & 1) != 0 ? ecs::model::kSurfaceFind : 0u, true,
+                      false, true);
+        claim.observe((bits & 2) != 0 ? ecs::model::kSurfaceFind : 0u, false,
+                      true, true);
+        CHECK(!composer_holds_keyboard(claim));
+    }
+}
+
+// A field the caret has left stops outranking the composer even while the
+// surface that was up when it claimed is still there, so the two claimants are
+// read independently rather than as one "somebody else" flag.
+static void test_a_surface_and_a_field_are_ranked_separately() {
+    KeyboardClaim claim;
+    claim.observe(ecs::model::kSurfaceFind, false, false, false);
+    claim.observe(ecs::model::kSurfaceFind, true, false, true);
+    CHECK(composer_holds_keyboard(claim));
+    claim.observe(ecs::model::kSurfaceFind, false, true, true);
+    CHECK(!composer_holds_keyboard(claim));
+    claim.observe(ecs::model::kSurfaceFind, false, false, false);
+    CHECK(composer_holds_keyboard(claim));
 }
 
 int main() {
@@ -253,6 +333,13 @@ int main() {
     test_only_a_deliberate_caret_is_a_claim();
     test_a_caret_that_never_left_is_not_a_fresh_claim();
     test_a_surface_still_up_never_loses_to_an_older_claim();
+    test_a_field_claimed_after_the_composer_takes_the_keyboard();
+    test_a_composer_clicked_after_a_field_takes_it_back();
+    test_a_caret_leaving_a_field_hands_the_keyboard_back();
+    test_only_a_deliberate_caret_in_a_field_is_a_claim();
+    test_a_field_and_the_composer_trade_the_keyboard_by_order();
+    test_a_live_field_never_loses_to_an_older_claim();
+    test_a_surface_and_a_field_are_ranked_separately();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

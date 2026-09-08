@@ -1,0 +1,58 @@
+# A find bar never hands its typing to the draft.
+#
+# The find bar owns a field of its own, and opening it does not put the caret in
+# that field -- the caret stays wherever it was, which at a transcript is
+# nowhere at all. So no widget on screen reads the character queue: the composer
+# is not focused, the find field is not focused, and the queue is a ring buffer
+# that nobody clears per frame. The run the reader typed at the bar sat in it
+# until the composer was next clicked, and then arrived whole, in the draft, on
+# the frame the caret got there.
+#
+# f6aacf3 spends characters at the composer's seam, but only while the composer
+# is holding a caret it gave up. This is the case where it never had one, which
+# is the same leak one surface later and the half that survived.
+#
+# The second arm is the split. There is ONE composer strip and it serves the
+# focused pane, so "the other pane's composer" is that strip re-aimed: the find
+# bar left open in the pane behind must not stop it taking a claim, the draft
+# that grows must be the newly focused pane's, and the pane holding the bar must
+# still have the draft it had. Reading both halves by session id rather than off
+# the screen is what makes that last part assertable at all.
+#
+# The transcript click that moves the focus edge deliberately does NOT move the
+# caret: pane_click_takes_caret asks composer_typing_live first and an open find
+# bar answers no (components.h). That is the existing ranking and it is not what
+# this script is about, so the claim is made with a click on the field.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_SPLIT=t6
+
+require_thread t2
+wait_frames 24
+
+key CTRL+F
+wait_frames 18
+expect_input_text find_input ""
+
+type "leaked"
+wait_frames 16
+click_ui composer_reply_input
+wait_frames 18
+expect_input_text composer_reply_input ""
+expect_reply_draft t2 0 <empty>
+
+type "left"
+wait_frames 14
+expect_input_text composer_reply_input "left"
+expect_reply_draft t2 0 "left"
+
+click 900 300
+wait_frames 16
+assert_ui split_focus_edge x=693
+
+click_ui composer_reply_input
+wait_frames 14
+type "right"
+wait_frames 16
+expect_reply_draft t6 1 "right"
+expect_reply_draft t2 0 "left"

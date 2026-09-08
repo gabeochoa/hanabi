@@ -58,6 +58,7 @@ struct KeyboardClaimSystem : afterhours::System<UIContext<InputAction>> {
         app->keyboardClaim.observe(
             keyboard_surfaces_up(*app, strip != nullptr && strip->menuOpen),
             caret_in_composer(ctx.focus_id),
+            caret_in_other_field(ctx.focus_id),
             ctx.focus_source == afterhours::ui::FocusSource::Explicit);
     }
 };
