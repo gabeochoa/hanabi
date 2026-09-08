@@ -730,6 +730,10 @@ struct AppComponent : public afterhours::BaseComponent {
     bool requestNewTask = false;
     bool requestCloseActiveTab = false;
     bool requestReopenClosedTab = false;
+    // 1..9 while a Cmd digit is waiting to be resolved against the strip, 0
+    // otherwise. Resolved by TabBarSystem, which is the only thing that knows
+    // the tab order.
+    int requestSelectTabSlot = 0;
     // The threads whose tabs were closed, newest last. Bounded, because an
     // unbounded undo stack is a leak with a friendly name; ten is well past
     // what anyone reaches for and the whole list is a few short strings.

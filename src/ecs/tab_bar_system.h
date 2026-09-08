@@ -71,6 +71,29 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // Cmd 1..9. The slot is resolved against the ORDER the strip renders,
+        // so a pinned tab counts where it sits and a tab scrolled out of the
+        // strip is still the nth one. What the chord then does is exactly what
+        // clicking that tab does -- commit it if it is the one already showing
+        // a preview, switch to it otherwise -- and switch_to_tab opens it in
+        // the focused pane, which is what keeps a split independent.
+        if (app.requestSelectTabSlot != 0) {
+            const int slot = app.requestSelectTabSlot;
+            app.requestSelectTabSlot = 0;
+            const int at = hanabi::shortcuts::tab_index_for_slot(
+                slot, static_cast<int>(strip.tabOrder.size()));
+            if (at >= 0) {
+                auto opt = EntityHelper::getEntityForID(
+                    strip.tabOrder[static_cast<size_t>(at)]);
+                if (opt.valid() && opt->has<Tab>()) {
+                    if (opt->has<ActiveTab>())
+                        model::keep_tab(opt.asE());
+                    else
+                        switch_to_tab(app, opt.asE());
+                }
+            }
+        }
+
         const auto& r = layout.tabStrip;
         if (r.height <= 0.0f || r.width <= 0.0f) return;
 

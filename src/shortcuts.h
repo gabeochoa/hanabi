@@ -27,8 +27,19 @@ enum class Command : int {
     FindNext,
     FindPrevious,
     SearchThreads,
+    SelectTab1,
+    SelectTab2,
+    SelectTab3,
+    SelectTab4,
+    SelectTab5,
+    SelectTab6,
+    SelectTab7,
+    SelectTab8,
+    SelectTab9,
     Count,
 };
+
+inline constexpr int kTabSlots = 9;
 
 inline constexpr std::uint8_t CommandModifier = 1 << 0;
 inline constexpr std::uint8_t ShiftModifier = 1 << 1;
@@ -152,6 +163,60 @@ inline constexpr std::array<Definition,
          {afterhours::keys::F,
           static_cast<std::uint8_t>(CommandModifier | ShiftModifier)},
          true},
+        {Command::SelectTab1,
+         "select_tab_1",
+         "Select tab 1",
+         "Window",
+         {afterhours::keys::ONE, CommandModifier},
+         false},
+        {Command::SelectTab2,
+         "select_tab_2",
+         "Select tab 2",
+         "Window",
+         {afterhours::keys::TWO, CommandModifier},
+         false},
+        {Command::SelectTab3,
+         "select_tab_3",
+         "Select tab 3",
+         "Window",
+         {afterhours::keys::THREE, CommandModifier},
+         false},
+        {Command::SelectTab4,
+         "select_tab_4",
+         "Select tab 4",
+         "Window",
+         {afterhours::keys::FOUR, CommandModifier},
+         false},
+        {Command::SelectTab5,
+         "select_tab_5",
+         "Select tab 5",
+         "Window",
+         {afterhours::keys::FIVE, CommandModifier},
+         false},
+        {Command::SelectTab6,
+         "select_tab_6",
+         "Select tab 6",
+         "Window",
+         {afterhours::keys::SIX, CommandModifier},
+         false},
+        {Command::SelectTab7,
+         "select_tab_7",
+         "Select tab 7",
+         "Window",
+         {afterhours::keys::SEVEN, CommandModifier},
+         false},
+        {Command::SelectTab8,
+         "select_tab_8",
+         "Select tab 8",
+         "Window",
+         {afterhours::keys::EIGHT, CommandModifier},
+         false},
+        {Command::SelectTab9,
+         "select_tab_9",
+         "Select the last tab",
+         "Window",
+         {afterhours::keys::NINE, CommandModifier},
+         false},
     }};
 
 using Bindings = std::array<Shortcut, kDefinitions.size()>;
@@ -175,6 +240,28 @@ inline const Definition* definition_for_key(std::string_view key) {
     for (const auto& item : kDefinitions)
         if (item.key == key) return &item;
     return nullptr;
+}
+
+// 1..9 for the tab-index commands, 0 for everything else.
+inline constexpr int tab_slot_for(Command command) {
+    const int at = static_cast<int>(command);
+    const int first = static_cast<int>(Command::SelectTab1);
+    if (at < first || at > static_cast<int>(Command::SelectTab9)) return 0;
+    return at - first + 1;
+}
+
+inline constexpr Command command_for_tab_slot(int slot) {
+    return static_cast<Command>(static_cast<int>(Command::SelectTab1) + slot -
+                                1);
+}
+
+// Which tab a slot names, or -1 when it names none. The last slot is the LAST
+// tab whatever the count, which is what every browser does with Cmd 9 and what
+// makes the chord useful on a strip of three.
+inline constexpr int tab_index_for_slot(int slot, int count) {
+    if (count <= 0 || slot < 1 || slot > kTabSlots) return -1;
+    if (slot == kTabSlots) return count - 1;
+    return slot - 1 < count ? slot - 1 : -1;
 }
 
 inline std::string key_name(int key) {

@@ -82,12 +82,74 @@ static void test_safe_custom_chord_is_accepted() {
     CHECK(!validate(Command::NewTask, custom, bindings).ok);
 }
 
+static void test_tab_slots_name_their_position() {
+    using namespace hanabi::shortcuts;
+    using namespace afterhours::keys;
+    CHECK(tab_slot_for(Command::NewTask) == 0);
+    CHECK(tab_slot_for(Command::SearchThreads) == 0);
+    CHECK(tab_slot_for(Command::SelectTab1) == 1);
+    CHECK(tab_slot_for(Command::SelectTab9) == kTabSlots);
+    for (int slot = 1; slot <= kTabSlots; ++slot) {
+        const Command command = command_for_tab_slot(slot);
+        CHECK(tab_slot_for(command) == slot);
+        const Definition& def = definition(command);
+        CHECK(def.shortcut.modifiers == CommandModifier);
+        CHECK(def.shortcut.key == ZERO + slot);
+        CHECK(def.section == "Window");
+    }
+}
+
+static void test_tab_index_for_slot_covers_short_strips() {
+    using hanabi::shortcuts::tab_index_for_slot;
+    for (int slot = 1; slot <= hanabi::shortcuts::kTabSlots; ++slot)
+        CHECK(tab_index_for_slot(slot, 0) == -1);
+
+    CHECK(tab_index_for_slot(1, 3) == 0);
+    CHECK(tab_index_for_slot(3, 3) == 2);
+    CHECK(tab_index_for_slot(4, 3) == -1);
+    CHECK(tab_index_for_slot(8, 3) == -1);
+
+    // The last slot is the last TAB, which is the whole point of it: on a
+    // strip of three it is the third, and it is never a miss.
+    CHECK(tab_index_for_slot(9, 1) == 0);
+    CHECK(tab_index_for_slot(9, 3) == 2);
+    CHECK(tab_index_for_slot(9, 9) == 8);
+    CHECK(tab_index_for_slot(9, 20) == 19);
+    CHECK(tab_index_for_slot(8, 20) == 7);
+
+    // Out of range is refused, never wrapped.
+    CHECK(tab_index_for_slot(0, 5) == -1);
+    CHECK(tab_index_for_slot(10, 5) == -1);
+    CHECK(tab_index_for_slot(-1, 5) == -1);
+}
+
+static void test_tab_chords_clear_the_reserved_list() {
+    using namespace hanabi::shortcuts;
+    using namespace afterhours::keys;
+    auto bindings = defaults();
+    for (int slot = 1; slot <= kTabSlots; ++slot) {
+        const Command command = command_for_tab_slot(slot);
+        CHECK(validate(command, definition(command).shortcut, bindings).ok);
+    }
+    // Shift Cmd 3/4/5 stay the system's screenshot chords, so the digits are
+    // allowed as a plain Cmd chord and not blanket-allowed.
+    const auto shot = validate(
+        Command::SelectTab3,
+        Shortcut{THREE,
+                 static_cast<std::uint8_t>(CommandModifier | ShiftModifier)},
+        bindings);
+    CHECK(!shot.ok);
+}
+
 int main() {
     test_defaults_are_unique_and_valid();
     test_serialization_round_trips();
     test_conflicts_name_the_owner();
     test_reserved_chords_explain_why();
     test_safe_custom_chord_is_accepted();
+    test_tab_slots_name_their_position();
+    test_tab_index_for_slot_covers_short_strips();
+    test_tab_chords_clear_the_reserved_list();
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

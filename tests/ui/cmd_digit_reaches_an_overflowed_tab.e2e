@@ -1,0 +1,27 @@
+# A tab scrolled out of the strip is still the nth tab.
+#
+# Twenty tabs do not fit in 1100px, so the strip scrolls and the first tabs are
+# off its left edge while r11 is active. The chord has to reach them anyway --
+# selecting by index is most useful exactly when the tab is not on screen to be
+# clicked -- and the strip then scrolls the choice into view, which is the
+# behaviour the active-tab scroll already owns.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10","r1","r2","r4","r5","r6","r7","r8","r9","r10","r11"],"active_tab":"r11","pinned_tabs":["r10","r11"],"theme":"dark"}
+
+require_thread r11
+wait_frames 25
+
+key CTRL+1
+wait_frames 30
+require_thread t1
+
+# Nine tabs in, still by position.
+key CTRL+8
+wait_frames 30
+require_thread t8
+
+# And the last slot is the twentieth tab, not the ninth -- the rule is "the
+# last one", which on an overflowing strip is the one furthest out of view.
+key CTRL+9
+wait_frames 30
+require_thread r11

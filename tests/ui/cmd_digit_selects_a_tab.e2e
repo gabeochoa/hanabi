@@ -1,0 +1,49 @@
+# Cmd 1 to Cmd 9 select a tab by where it SITS in the strip.
+#
+# The strip is one global row in visual order, so "the third tab" is the third
+# entry of that row whatever it is -- a pinned tab, a preview, or one scrolled
+# out of sight. That is why the slot is resolved against tabOrder rather than
+# against a filtered list: a rule that skipped pinned tabs would number the
+# strip differently from how it is drawn, and the chord would land on a tab the
+# reader is not looking at.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4"],"active_tab":"t1","pinned_tabs":["t2"],"theme":"dark"}
+
+require_thread t1
+wait_frames 20
+
+# t2 is PINNED and sits second. Cmd 2 reaches it -- pinning changes how a tab
+# is drawn and what closes it, not where it is counted.
+key CTRL+2
+wait_frames 30
+require_thread t2
+
+key CTRL+3
+wait_frames 30
+require_thread t3
+
+key CTRL+1
+wait_frames 30
+require_thread t1
+
+# Cmd 9 is the LAST tab, on a strip of four as on a strip of nine. This is the
+# half the reference states outright, and the half a naive "slot nine" would
+# get wrong by doing nothing.
+key CTRL+9
+wait_frames 30
+require_thread t4
+
+# A slot past the end is not an error and is not a wrap: it does nothing, and
+# the tab that was showing is still showing.
+key CTRL+6
+wait_frames 30
+require_thread t4
+
+# The chord is a SELECT, never an open: four tabs went in and four are still
+# here, so nothing above opened a fifth.
+key CTRL+1
+wait_frames 30
+require_thread t1
+key CTRL+9
+wait_frames 30
+require_thread t4

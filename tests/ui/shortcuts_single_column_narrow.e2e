@@ -5,12 +5,13 @@ resize 600 500
 wait_frames 8
 assert_ui shortcuts_panel x=24 y=24 w=552 h=452
 assert_ui shortcuts_cols x=48 y=96 w=504 h=360
-assert_ui shortcuts_commands x=48 y=96 w=504 h=472
-assert_ui shortcuts_reference x=48 y=568 w=504 h=454
+assert_ui shortcuts_commands x=48 y=96 w=504 h=778
+assert_ui shortcuts_reference x=48 y=874 w=504 h=454
 expect_text "CUSTOMIZABLE COMMANDS"
-# Two more customizable commands (Cmd+T, Cmd+Shift+T) push the reference
-# section 68pt further down, so the reach is further too.
+# The customizable list is what the reference sits under in one column, so
+# every command added to it pushes the reference further down and the reach
+# further with it: nine tab chords (Cmd 1 to Cmd 9) add 306pt on their own.
 mouse_move 300 300
-scroll_wheel 0 -6
+scroll_wheel 0 -30
 wait_frames 12
 expect_text "EDITING TEXT"

@@ -1,0 +1,43 @@
+# A tab chord opens its thread in the FOCUSED pane, and leaves the other one
+# alone -- the same rule a tab CLICK follows (a_tab_opens_in_the_focused_pane).
+#
+# Asserted the way that script asserts it, and for the same reason: both panes
+# are on screen while split, so "t3 is visible" cannot say which pane got it.
+# Closing the split leaves pane 0, so what survives names the pane that changed.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3"],"active_tab":"t1","theme":"dark"}
+
+require_thread t1
+wait_frames 20
+
+key CTRL+BACKSLASH
+wait_frames 20
+assert_ui split_right hidden=false
+assert_ui split_focus_edge x=280
+
+# Keyboard into the right pane.
+click 900 400
+wait_frames 12
+assert_ui split_focus_edge x=693
+
+key CTRL+3
+wait_frames 30
+require_thread t3
+
+# Close the split. Pane 0 survives, and it is still on t1 -- which is only true
+# if the chord never touched the left pane.
+key CTRL+BACKSLASH
+wait_frames 30
+require_thread t1
+
+# The other direction, so it is a rule and not an accident of which pane is
+# which.
+key CTRL+BACKSLASH
+wait_frames 20
+assert_ui split_focus_edge x=280
+key CTRL+2
+wait_frames 30
+require_thread t2
+key CTRL+BACKSLASH
+wait_frames 30
+require_thread t2

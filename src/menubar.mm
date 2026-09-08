@@ -340,6 +340,10 @@ static void install_main_menu() {
     [windowMenu addItem:item(@"Minimize", @selector(performMiniaturize:), @"m", nil)];
     [windowMenu addItem:item(@"Zoom", @selector(performZoom:), @"", nil)];
     [windowMenu addItem:[NSMenuItem separatorItem]];
+    for (int slot = 1; slot <= hanabi::shortcuts::kTabSlots; ++slot)
+        [windowMenu addItem:command_item(
+                                hanabi::shortcuts::command_for_tab_slot(slot))];
+    [windowMenu addItem:[NSMenuItem separatorItem]];
     [windowMenu addItem:item(@"Bring All to Front", @selector(arrangeInFront:), @"", nil)];
     windowRoot.submenu = windowMenu;
     [g_main_menu addItem:windowRoot];

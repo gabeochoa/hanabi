@@ -272,6 +272,8 @@ SET_STORAGE_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"activ
 SET_STORAGE_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"light","settings_pane":"storage"}'
 SET_CONNECTION_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"connection"}'
 SET_SHORTCUTS_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"shortcuts"}'
+SET_SHORTCUTS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"light","settings_pane":"shortcuts"}'
+SET_NARROW_SHORTCUTS='{"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"shortcuts"}'
 SET_ABOUT_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"about"}'
 SET_MIDWIDTH_CHAT='{"window_width":760,"window_height":620,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"chat"}'
 SET_NARROW_STORAGE='{"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"storage"}'
@@ -351,6 +353,7 @@ capture 15f_settings_storage_dark     "$SET_STORAGE_DARK"     HANABI_TEST_OVERLA
 capture 15g_settings_storage_light    "$SET_STORAGE_LIGHT"    HANABI_TEST_OVERLAY=settings
 capture 15h_settings_connection_dark  "$SET_CONNECTION_DARK"  HANABI_TEST_OVERLAY=settings
 capture 15i_settings_shortcuts_dark   "$SET_SHORTCUTS_DARK"   HANABI_TEST_OVERLAY=settings
+capture 15m_settings_shortcuts_light  "$SET_SHORTCUTS_LIGHT"  HANABI_TEST_OVERLAY=settings
 capture 15j_settings_about_dark       "$SET_ABOUT_DARK"       HANABI_TEST_OVERLAY=settings
 capture_sized 15k_settings_split_dark "600 x 500" "$SET_SPLIT_DARK" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=settings HANABI_OPEN=t2 HANABI_SPLIT=t6
 capture_sized 15l_settings_split_applied_dark "760 x 620" "$SET_SPLIT_AFTER_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=t2 HANABI_SPLIT=t6
@@ -463,6 +466,7 @@ capture_sized 34_narrow_many_tabs_dark "760 x 620" "$NARROW_MANY" HANABI_WIN_W=7
 capture_sized 35_settings_narrow_dark "600 x 500" "$SETTINGS_NARROW" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=settings
 capture_sized 35b_settings_midwidth_chat_dark "760 x 620" "$SET_MIDWIDTH_CHAT" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=settings
 capture_sized 35a_settings_narrow_storage_dark "600 x 500" "$SET_NARROW_STORAGE" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=settings
+capture_sized 35c_settings_narrow_shortcuts_dark "600 x 500" "$SET_NARROW_SHORTCUTS" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=settings
 capture_sized 36_shortcuts_narrow_dark "600 x 500" "$SETTINGS_NARROW" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=shortcuts
 capture_sized 37_narrow_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620
 capture 38_workspace_groups_dark "$NOTABS_DARK" HANABI_FOLDER_DEMO=1

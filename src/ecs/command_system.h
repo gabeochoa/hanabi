@@ -65,6 +65,17 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
             app.sessionSearchQuery.clear();
             app.sessionSearchIndex = 0;
             break;
+        case Command::SelectTab1:
+        case Command::SelectTab2:
+        case Command::SelectTab3:
+        case Command::SelectTab4:
+        case Command::SelectTab5:
+        case Command::SelectTab6:
+        case Command::SelectTab7:
+        case Command::SelectTab8:
+        case Command::SelectTab9:
+            app.requestSelectTabSlot = hanabi::shortcuts::tab_slot_for(command);
+            break;
         case Command::Count:
             break;
     }
