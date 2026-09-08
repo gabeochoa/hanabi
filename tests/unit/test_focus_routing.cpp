@@ -115,6 +115,50 @@ static void test_a_parked_character_keeps_its_bytes() {
     CHECK(out == "ab");
 }
 
+static void test_an_emoji_arrives_as_two_units_and_leaves_as_one_character() {
+    using ecs::model::TypedRun;
+    TypedRun run;
+    run.offer(0xD83D);
+    CHECK(run.text.empty());
+    run.offer(0xDE00);
+    CHECK(run.text == "\xF0\x9F\x98\x80");
+
+    TypedRun after_text;
+    for (int unit : std::initializer_list<int>{0x68, 0x69, 0xD83D, 0xDE00})
+        after_text.offer(unit);
+    CHECK(after_text.text == "hi\xF0\x9F\x98\x80");
+}
+
+static void test_an_unpaired_surrogate_never_reaches_the_draft() {
+    using ecs::model::TypedRun;
+
+    TypedRun trailing;
+    trailing.offer('a');
+    trailing.offer(0xD83D);
+    CHECK(trailing.text == "a");
+
+    TypedRun leading;
+    leading.offer(0xDE00);
+    leading.offer('a');
+    CHECK(leading.text == "a");
+
+    TypedRun abandoned;
+    abandoned.offer(0xD83D);
+    abandoned.offer('a');
+    CHECK(abandoned.text == "a");
+
+    TypedRun restarted;
+    restarted.offer(0xD83D);
+    restarted.offer(0xD83D);
+    restarted.offer(0xDE00);
+    CHECK(restarted.text == "\xF0\x9F\x98\x80");
+
+    CHECK(!ecs::model::typed_char_is_text(0xD83D));
+    CHECK(!ecs::model::typed_char_is_text(0xDE00));
+    CHECK(ecs::model::typed_char_is_text(0xD7FF));
+    CHECK(ecs::model::typed_char_is_text(0xE000));
+}
+
 int main() {
     test_a_transcript_takes_both();
     test_an_owner_above_the_composer_takes_neither();
@@ -124,6 +168,8 @@ int main() {
     test_typing_never_outruns_a_click();
     test_control_characters_are_not_text();
     test_a_parked_character_keeps_its_bytes();
+    test_an_emoji_arrives_as_two_units_and_leaves_as_one_character();
+    test_an_unpaired_surrogate_never_reaches_the_draft();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

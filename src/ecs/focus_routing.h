@@ -46,8 +46,20 @@ struct FocusRouting {
     return pane_click_takes_caret(in) && !in.modifierHeld;
 }
 
+[[nodiscard]] inline constexpr bool is_high_surrogate(int unit) {
+    return unit >= 0xD800 && unit <= 0xDBFF;
+}
+
+[[nodiscard]] inline constexpr bool is_low_surrogate(int unit) {
+    return unit >= 0xDC00 && unit <= 0xDFFF;
+}
+
+[[nodiscard]] inline constexpr bool is_surrogate(int unit) {
+    return is_high_surrogate(unit) || is_low_surrogate(unit);
+}
+
 [[nodiscard]] inline bool typed_char_is_text(int codepoint) {
-    return codepoint >= 32 && codepoint != 127;
+    return codepoint >= 32 && codepoint != 127 && !is_surrogate(codepoint);
 }
 
 inline void append_utf8(std::string& out, int codepoint) {
@@ -67,5 +79,28 @@ inline void append_utf8(std::string& out, int codepoint) {
         out += static_cast<char>(0x80 | (codepoint & 0x3F));
     }
 }
+
+struct TypedRun {
+    std::string text;
+    int high = 0;
+
+    void offer(int unit) {
+        if (high != 0) {
+            const int pending = high;
+            high = 0;
+            if (is_low_surrogate(unit)) {
+                append_utf8(text, 0x10000 + ((pending - 0xD800) << 10) +
+                                      (unit - 0xDC00));
+                return;
+            }
+        }
+        if (is_high_surrogate(unit)) {
+            high = unit;
+            return;
+        }
+        if (!typed_char_is_text(unit)) return;
+        append_utf8(text, unit);
+    }
+};
 
 }  // namespace ecs::model

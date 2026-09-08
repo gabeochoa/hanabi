@@ -39,13 +39,13 @@ struct FocusRoutingSystem : afterhours::System<UIContext<InputAction>> {
 
         if (!model::composer_takes_typing(in)) return;
 
-        std::string typed;
+        model::TypedRun run;
         for (int c = afterhours::input::get_char_pressed(); c > 0;
              c = afterhours::input::get_char_pressed())
-            if (model::typed_char_is_text(c)) model::append_utf8(typed, c);
-        if (typed.empty()) return;
+            run.offer(c);
+        if (run.text.empty()) return;
 
-        app->typedSeed += typed;
+        app->typedSeed += run.text;
         app->request_composer_focus();
     }
 };
