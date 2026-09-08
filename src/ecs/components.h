@@ -676,6 +676,14 @@ struct AppComponent : public afterhours::BaseComponent {
     [[nodiscard]] bool composer_focus_wanted() const {
         return composerFocusServed != composerFocusRequest;
     }
+    // A pane the mouse just focused, waiting one frame before its composer is
+    // offered the caret. The frame is what makes it safe: by the time it is
+    // read, a click that landed IN a field of that pane has already focused
+    // that field, so the offer can be withdrawn instead of stealing it.
+    int paneFocusPending = -1;
+    // Characters typed while the transcript owned the keyboard, waiting for
+    // the focused pane's composer to adopt them.
+    std::string typedSeed;
     // Two-step Escape's arm, held across frames. The rule itself is pure and
     // lives in ecs/composer_escape.h.
     model::ComposerEscapeState composerEscape;
@@ -810,6 +818,10 @@ struct AppComponent : public afterhours::BaseComponent {
     std::map<std::string, std::vector<api::PendingAsk>> attachAsks;
     hanabi::ask::State askState;
     bool askFocused = false;
+    // A card is DRAWN, whether or not it holds the keyboard. The agent asking
+    // outranks starting a message: a keystroke belongs to the card that is
+    // waiting for one, not to the composer behind it.
+    bool askOnScreen = false;
     static float ask_refresh_seconds() {
         if (const char* v = std::getenv("HANABI_ASK_REFRESH_SECS");
             v != nullptr && *v != '\0') {
@@ -1521,9 +1533,9 @@ inline bool overlay_up(const AppComponent& app) {
            app.showSettings || app.showAuth || app.paletteOpen;
 }
 
-inline bool ask_keys_live(const AppComponent& app, bool tabMenuOpen) {
+inline hanabi::ask::KeyOwnership key_ownership(const AppComponent& app,
+                                               bool tabMenuOpen) {
     hanabi::ask::KeyOwnership own;
-    own.cardFocused = app.askFocused;
     own.modalSheet = overlay_up(app);
     own.recordingShortcut = app.shortcutRecording >= 0;
     own.transientUi = app.sessionSearchOpen || app.slashMenuOpen ||
@@ -1532,21 +1544,28 @@ inline bool ask_keys_live(const AppComponent& app, bool tabMenuOpen) {
                       app.rowMenuOpen || tabMenuOpen;
     for (const Pane& pane : app.panes)
         own.transientUi = own.transientUi || pane.findOpen;
+    return own;
+}
+
+inline bool ask_keys_live(const AppComponent& app, bool tabMenuOpen) {
+    hanabi::ask::KeyOwnership own = key_ownership(app, tabMenuOpen);
+    own.cardFocused = app.askFocused;
     return hanabi::ask::keys_live(own);
 }
 
 inline bool ask_input_live(const AppComponent& app, bool tabMenuOpen) {
-    hanabi::ask::KeyOwnership own;
+    hanabi::ask::KeyOwnership own = key_ownership(app, tabMenuOpen);
     own.cardFocused = true;
-    own.modalSheet = overlay_up(app);
-    own.recordingShortcut = app.shortcutRecording >= 0;
-    own.transientUi = app.sessionSearchOpen || app.slashMenuOpen ||
-                      app.modelPopoverOpen || app.effortPopoverOpen ||
-                      app.planPopoverOpen || app.foldPopoverOpen ||
-                      app.rowMenuOpen || tabMenuOpen;
-    for (const Pane& pane : app.panes)
-        own.transientUi = own.transientUi || pane.findOpen;
     return hanabi::ask::input_live(own);
+}
+
+// Is the composer the thing a bare keystroke belongs to? Everything the escape
+// ladder ranks above it -- a sheet, a menu, a popover, the find bar, a card
+// holding the keyboard -- answers no, and so does a card merely WAITING for
+// one: the letter typed at a pending question is the answer to it.
+inline bool composer_typing_live(const AppComponent& app, bool tabMenuOpen) {
+    return hanabi::ask::input_live(key_ownership(app, tabMenuOpen)) &&
+           !app.askFocused && !app.askOnScreen;
 }
 
 }  // namespace ecs

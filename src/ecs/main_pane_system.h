@@ -2603,8 +2603,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // a pane also lands on whatever it was aimed at inside it.
         if (ctx.mouse.just_pressed && !focused &&
             afterhours::ui::is_mouse_inside(
-                ctx.mouse.pos, pane_screen_rect(app, index)))
+                ctx.mouse.pos, pane_screen_rect(app, index))) {
             app.focusedPane = index;
+            app.paneFocusPending = index;
+        }
 
         render_transcript(ctx, col.ent(), app, pane, w, h);
 
@@ -5162,6 +5164,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          afterhours::ui::imm::ElementResult& bar,
                          AppComponent& app, float gutter) {
         const api::PendingAsk* found = open_ask(app);
+        app.askOnScreen = found != nullptr;
         if (found == nullptr) {
             app.askFocused = false;
             return;
@@ -6223,6 +6226,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!app.welcomeSeed.empty() && targetKickoff) {
             replyDraft = app.welcomeSeed;
             app.welcomeSeed.clear();
+        }
+
+        // The keystroke that started this message, typed before the field had
+        // the caret (ecs/focus_routing.h). Only the pane it was typed at
+        // adopts it: in a split the other composer must not grow a letter.
+        if (!app.typedSeed.empty() &&
+            composerTarget.pane_index == std::clamp(app.focusedPane, 0, 1)) {
+            replyDraft += app.typedSeed;
+            app.typedSeed.clear();
         }
 
         // Screenshot affordance: HANABI_REPLY_DEMO=<text> seeds the draft ONCE

@@ -1,0 +1,21 @@
+# What typing at a transcript COSTS, measured event-to-first-ink.
+#
+# The field does not have the caret when the first character arrives, so the
+# keystroke is parked and the composer adopts it during the same frame's build
+# (ecs/focus_routing.h) -- the ink is one present away. Measured at one frame,
+# budgeted at five, so the arm fails on a routing that started costing a round
+# trip rather than on jitter.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 20
+
+# The keyboard is on the transcript, not in the field.
+click 700 300
+wait_frames 8
+
+watch_ink type_to_compose text "regression"
+type "regression"
+wait_frames 16
+expect_latency type_to_compose 5

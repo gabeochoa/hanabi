@@ -1,0 +1,46 @@
+# Clicking a pane puts the caret in THAT pane's composer.
+#
+# The focus edge moved on a click long before this; the caret did not, so the
+# reader clicked a pane and then had to click its composer as well. The offer
+# is made one frame after the click on purpose (ecs/focus_routing.h): by then a
+# click that landed in a field has already focused that field, and the offer is
+# withdrawn instead of taking the caret off it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 20
+
+key CTRL+BACKSLASH
+wait_frames 20
+assert_ui split_right hidden=false
+assert_ui split_focus_edge x=280
+
+# Type into the LEFT pane's composer, so there is a draft to lose.
+click_ui composer_reply_input
+wait_frames 8
+type "left pane"
+wait_frames 10
+expect_input_text composer_reply_input "left pane"
+
+# Click the right pane's transcript. The keyboard follows -- and so does the
+# caret, which is the half that was missing.
+click 900 400
+wait_frames 14
+assert_ui split_focus_edge x=693
+type "right pane"
+wait_frames 12
+expect_input_text composer_reply_input "right pane"
+
+# Back to the left. Its draft is still there, which is what says the two panes
+# hold their own text rather than sharing one box.
+click 300 400
+wait_frames 14
+assert_ui split_focus_edge x=280
+expect_input_text composer_reply_input "left pane"
+
+# And the caret came back with it: more typing extends the left draft rather
+# than starting somewhere else.
+type " again"
+wait_frames 12
+expect_input_text composer_reply_input "left pane again"

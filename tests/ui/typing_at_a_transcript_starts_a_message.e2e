@@ -1,0 +1,46 @@
+# Typing at a transcript starts a message.
+#
+# The character that starts it is the awkward one: the field does not have the
+# caret yet on the frame it arrives, so a routing that merely focused the
+# composer would swallow the first letter and start the draft at "ello". The
+# keystroke is parked and the composer adopts it as it builds
+# (ecs/focus_routing.h), which is why the assertion below is the WHOLE word.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 20
+
+# Put the keyboard on the transcript, not in the field.
+click 700 300
+wait_frames 10
+
+type "hello"
+wait_frames 12
+expect_input_text composer_reply_input "hello"
+
+# The caret is really in the field now, so the rest of the sentence goes
+# through the ordinary path rather than through the parking lot.
+type " there"
+wait_frames 12
+expect_input_text composer_reply_input "hello there"
+
+# A CHORD is not typing. Cmd B folds the sidebar and must not leave a "b"
+# behind in the draft -- the modifier guard is what separates the two, and
+# without it every shortcut would also type its own letter.
+key CTRL+B
+wait_frames 16
+expect_input_text composer_reply_input "hello there"
+
+key CTRL+B
+wait_frames 16
+
+# An OVERLAY owns the keyboard outright. Settings has its own search field and
+# the composer must not take a letter out from under it.
+click_ui sb_settings
+wait_frames 12
+type "zz"
+wait_frames 12
+click_ui settings_close
+wait_frames 12
+expect_input_text composer_reply_input "hello there"

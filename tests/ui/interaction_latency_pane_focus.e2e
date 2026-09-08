@@ -1,0 +1,25 @@
+# What a pane click COSTS the caret, measured event-to-first-ink.
+#
+# The ring lands the frame AFTER the click, deliberately: the offer of the
+# caret waits a frame so a click that landed in a FIELD inside that pane keeps
+# it (ecs/focus_routing.h). Measured at one frame, budgeted at six, so the arm
+# fails on a seam that regressed into a wait rather than on jitter.
+#
+# Its own script because the arm needs an unfocused field to watch focus be
+# gained, and that is only true before anything else in a session has typed.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 20
+
+key CTRL+BACKSLASH
+wait_frames 20
+assert_ui split_right hidden=false
+assert_ui split_focus_edge x=280
+
+watch_ink pane_click_focus focus composer_reply_input
+click 900 400
+wait_frames 16
+expect_latency pane_click_focus 6
+assert_ui split_focus_edge x=693

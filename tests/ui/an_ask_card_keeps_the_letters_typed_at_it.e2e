@@ -1,0 +1,25 @@
+# A card holding the keyboard keeps every letter typed at it.
+#
+# Type-to-compose reads the escape ladder's ranking (escape_system.h) before it
+# takes a character: a card with the keyboard outranks the composer, so a
+# keystroke aimed at an answer box must never appear in the draft behind it.
+# Without that check the routing would fork every answer into two places at
+# once.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1
+
+require_thread t2
+expect_text "The agent is asking"
+
+click_ui ask_text_q3
+wait_frames 8
+type "answer text"
+wait_frames 10
+expect_input_text ask_text_q3 "answer text"
+
+# The card took all of it. Nothing leaked into the composer behind the card.
+click_ui ask_submit
+wait_frames 25
+expect_no_text "The agent is asking"
+expect_input_text composer_reply_input ""

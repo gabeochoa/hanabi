@@ -73,6 +73,7 @@
 #include "ecs/publish_accessibility_system.h"
 #include "ecs/tooltip_system.h"
 #include "ecs/focus_visible_system.h"
+#include "ecs/focus_routing_system.h"
 #include "ecs/text_edit_chords_system.h"
 #include "ecs/rename_modal_system.h"
 #include "ecs/toast_system.h"
@@ -422,6 +423,10 @@ static void build_systems(afterhours::SystemManager& sm) {
     // Backspace deletes it later this frame -- so this has to be ahead of the
     // UI systems that build the fields (text_edit_chords_system.h).
     sm.register_update_system(std::make_unique<ecs::TextEditChordsSystem>());
+    // Where a bare keystroke and a pane click put the caret. Ahead of the UI
+    // systems for the same reason: the composer built later this frame is what
+    // adopts the character (ecs/focus_routing.h).
+    sm.register_update_system(std::make_unique<ecs::FocusRoutingSystem>());
     // Pasted images / dropped files become composer attachments here, before
     // systems: MainPaneSystem reserves the composer strip from that list.
     sm.register_update_system(std::make_unique<ecs::AttachmentIntakeSystem>());
