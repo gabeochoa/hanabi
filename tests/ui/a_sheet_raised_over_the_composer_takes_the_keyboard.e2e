@@ -1,0 +1,76 @@
+# A sheet raised over a composer that already has the caret takes the keyboard.
+#
+# Every overlay that leaked here was one with no field of its own. Settings and
+# the palette look safe only because opening them moves the caret into a field
+# they own, which makes the composer's text_area read is_focused as false and
+# stop draining. The shortcuts sheet owns no field, so the caret stays in the
+# composer and the widget goes on consuming the character queue at
+# text_area.h:502 -- before ShortcutsSystem is even registered (main.cpp:436
+# against :439).
+#
+# The order is the whole assertion. This script focuses the composer FIRST and
+# raises the sheet SECOND, which is the case where the reader never chose the
+# composer over the sheet. a_waiting_card_raised_over_the_composer_yields.e2e
+# is the same shape for a card, and the three cards-first scripts
+# (an_agents_question_is_answered_from_the_card.e2e and its two siblings) are
+# the counter-case: a composer clicked AFTER the surface keeps the keyboard.
+# Ownership follows the most recent claim, so both are true at once.
+#
+# The first arm is also the first-ink path: the click lands on the transcript,
+# not in the field, so the whole word has to survive the frame the caret
+# arrives on (ecs/focus_routing.h) -- the same assertion
+# typing_at_a_transcript_starts_a_message.e2e makes.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 20
+
+click 700 300
+wait_frames 10
+type "mine"
+wait_frames 12
+expect_input_text composer_reply_input "mine"
+
+key CTRL+SLASH
+wait_frames 16
+expect_text "Keyboard shortcuts"
+
+type "leaked"
+wait_frames 16
+expect_input_text composer_reply_input "mine"
+
+key ESCAPE
+wait_frames 16
+expect_no_text "Keyboard shortcuts"
+expect_input_text composer_reply_input "mine"
+
+type " again"
+wait_frames 14
+expect_input_text composer_reply_input "mine again"
+
+# The claim is the composer's own, not the pane's. Split, and the sheet still
+# outranks the focused pane's composer -- and the draft the left pane was
+# holding is still there afterwards, so nothing was routed to the wrong half.
+key CTRL+BACKSLASH
+wait_frames 20
+assert_ui split_right hidden=false
+assert_ui split_focus_edge x=280
+
+click_ui composer_reply_input
+wait_frames 10
+expect_input_text composer_reply_input "mine again"
+
+key CTRL+SLASH
+wait_frames 16
+expect_text "Keyboard shortcuts"
+
+type "leaked"
+wait_frames 16
+expect_input_text composer_reply_input "mine again"
+
+key ESCAPE
+wait_frames 16
+expect_no_text "Keyboard shortcuts"
+assert_ui split_focus_edge x=280
+expect_input_text composer_reply_input "mine again"

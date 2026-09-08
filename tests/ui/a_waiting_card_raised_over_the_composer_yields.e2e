@@ -1,0 +1,85 @@
+# A card raised over a composer that already has the caret takes the keyboard.
+#
+# A card WAITING for an answer outranks starting a message: the letter typed at
+# a pending question is the answer to it (components.h). That rule only ever
+# reached the unfocused path. With the caret already in the composer the card
+# could not stop the widget draining the character queue, so the answer to the
+# agent's question went into the draft behind the card and the card was left
+# looking unanswered.
+#
+# The order is the whole assertion, and it is why this is not the same state as
+# an_agents_question_is_answered_from_the_card.e2e. There the card is on screen
+# and the reader CLICKS the composer -- an explicit re-claim, and the draft
+# must land. Here the composer is claimed first and the card arrives after it,
+# so the card is the most recent claimant and the draft must stay clean. Both
+# scripts have to pass, which is what makes this about ordering rather than
+# about a card being present.
+#
+# The `raised` fixture is the only deterministic mid-run arrival: an approval,
+# then a gap of two reads with nothing pending, then a second question
+# (mock_client.h raise_second_ask). The composer is claimed inside that gap.
+#
+# The claim is taken with focus_ui inside that gap, which is the plainest
+# reading of "the composer is focused first". The first-ink path -- a bare
+# keystroke at the transcript, whole word intact -- is claimed and asserted by
+# a_sheet_raised_over_the_composer_takes_the_keyboard.e2e instead, because the
+# transcript under this card is not a bare surface to click.
+#
+# The pointer is parked away from the composer on purpose. A cursor left over
+# the field is activated again the moment the card's arrival re-lays the strip
+# out under it, and that synthetic press is a real claim -- it would hand the
+# keyboard back for a reason the reader never gave.
+#
+# The question is answered rather than dismissed, and its disappearance is NOT
+# asserted: raise_second_ask re-appends this question on every read past the
+# gap (mock_client.h), so under this fixture it cannot be made to go away. What
+# the answer has to leave behind is a clean draft, and that is what is checked.
+#
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=raised HANABI_ASK_REFRESH_SECS=0.2 HANABI_ASK_RAISED_GAP=14
+
+require_thread t2
+expect_text "The agent needs approval"
+expect_text "bash may write outside the workspace; a human has to allow it."
+
+click_ui ask_submit
+wait_frames 30
+expect_no_text "bash may write outside the workspace; a human has to allow it."
+
+mouse_move 400 180
+focus_ui composer_reply_input
+wait_frames 10
+type "mine"
+wait_frames 12
+expect_input_text composer_reply_input "mine"
+
+wait_frames 200
+expect_text "One more before I run it: which cycle books the correction?"
+
+type "leaked"
+wait_frames 16
+expect_input_text composer_reply_input "mine"
+
+click_ui ask_text_q3
+wait_frames 8
+type "book it against 2026-09"
+wait_frames 12
+expect_input_text ask_text_q3 "book it against 2026-09"
+expect_input_text composer_reply_input "mine"
+
+click_ui ask_option_q1_1
+wait_frames 6
+click_ui ask_option_q2_1
+wait_frames 6
+click_ui ask_submit
+wait_frames 40
+expect_input_text composer_reply_input "mine"
+
+# The counter-case, in the same run: a click IS an explicit claim, so the
+# composer takes the keyboard back from the card that outranked it a moment
+# ago. This is the arm the three cards-first scripts pin from the other side.
+click_ui composer_reply_input
+wait_frames 10
+type " again"
+wait_frames 14
+expect_input_text composer_reply_input "mine again"

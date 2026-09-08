@@ -50,4 +50,16 @@ struct FocusRoutingSystem : afterhours::System<UIContext<InputAction>> {
     }
 };
 
+struct KeyboardClaimSystem : afterhours::System<UIContext<InputAction>> {
+    void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
+        auto* app = find_singleton<AppComponent>();
+        if (app == nullptr) return;
+        auto* strip = find_singleton<TabStripComponent>();
+        app->keyboardClaim.observe(
+            keyboard_surfaces_up(*app, strip != nullptr && strip->menuOpen),
+            caret_in_composer(ctx.focus_id),
+            ctx.focus_source == afterhours::ui::FocusSource::Explicit);
+    }
+};
+
 }  // namespace ecs

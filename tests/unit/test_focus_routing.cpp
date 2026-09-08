@@ -159,6 +159,81 @@ static void test_an_unpaired_surrogate_never_reaches_the_draft() {
     CHECK(ecs::model::typed_char_is_text(0xE000));
 }
 
+using ecs::model::composer_holds_keyboard;
+using ecs::model::KeyboardClaim;
+
+static void test_a_composer_alone_owns_the_keyboard() {
+    KeyboardClaim claim;
+    CHECK(composer_holds_keyboard(claim));
+    claim.observe(0, true, true);
+    CHECK(composer_holds_keyboard(claim));
+}
+
+static void test_a_surface_raised_after_the_composer_takes_the_keyboard() {
+    KeyboardClaim claim;
+    claim.observe(0, true, true);
+    CHECK(composer_holds_keyboard(claim));
+    claim.observe(ecs::model::kSurfaceModalSheet, true, false);
+    CHECK(!composer_holds_keyboard(claim));
+}
+
+static void test_a_composer_claimed_after_a_surface_keeps_the_keyboard() {
+    KeyboardClaim claim;
+    claim.observe(ecs::model::kSurfaceAskWaiting, false, false);
+    CHECK(!composer_holds_keyboard(claim));
+    claim.observe(ecs::model::kSurfaceAskWaiting, true, true);
+    CHECK(composer_holds_keyboard(claim));
+}
+
+static void test_a_second_surface_outranks_a_reclaimed_composer() {
+    KeyboardClaim claim;
+    claim.observe(ecs::model::kSurfaceAskWaiting, false, false);
+    claim.observe(ecs::model::kSurfaceAskWaiting, true, true);
+    CHECK(composer_holds_keyboard(claim));
+    claim.observe(ecs::model::kSurfaceAskWaiting | ecs::model::kSurfaceRowMenu,
+                  true, false);
+    CHECK(!composer_holds_keyboard(claim));
+}
+
+static void test_a_surface_leaving_hands_the_keyboard_back() {
+    KeyboardClaim claim;
+    claim.observe(0, true, true);
+    claim.observe(ecs::model::kSurfaceModalSheet, true, false);
+    CHECK(!composer_holds_keyboard(claim));
+    claim.observe(0, false, false);
+    CHECK(composer_holds_keyboard(claim));
+}
+
+static void test_only_a_deliberate_caret_is_a_claim() {
+    KeyboardClaim grabbed;
+    grabbed.observe(ecs::model::kSurfaceModalSheet, false, false);
+    grabbed.observe(ecs::model::kSurfaceModalSheet, true, false);
+    CHECK(!composer_holds_keyboard(grabbed));
+
+    KeyboardClaim clicked;
+    clicked.observe(ecs::model::kSurfaceModalSheet, false, false);
+    clicked.observe(ecs::model::kSurfaceModalSheet, true, true);
+    CHECK(composer_holds_keyboard(clicked));
+}
+
+static void test_a_caret_that_never_left_is_not_a_fresh_claim() {
+    KeyboardClaim claim;
+    claim.observe(0, true, true);
+    claim.observe(ecs::model::kSurfaceAskWaiting, true, false);
+    CHECK(!composer_holds_keyboard(claim));
+    claim.observe(ecs::model::kSurfaceAskWaiting, true, true);
+    CHECK(!composer_holds_keyboard(claim));
+}
+
+static void test_a_surface_still_up_never_loses_to_an_older_claim() {
+    for (int bits = 0; bits < 8; ++bits) {
+        KeyboardClaim claim;
+        claim.observe(0, (bits & 1) != 0, (bits & 2) != 0);
+        claim.observe(ecs::model::kSurfaceFind, (bits & 4) != 0, false);
+        CHECK(!composer_holds_keyboard(claim));
+    }
+}
+
 int main() {
     test_a_transcript_takes_both();
     test_an_owner_above_the_composer_takes_neither();
@@ -170,6 +245,14 @@ int main() {
     test_a_parked_character_keeps_its_bytes();
     test_an_emoji_arrives_as_two_units_and_leaves_as_one_character();
     test_an_unpaired_surrogate_never_reaches_the_draft();
+    test_a_composer_alone_owns_the_keyboard();
+    test_a_surface_raised_after_the_composer_takes_the_keyboard();
+    test_a_composer_claimed_after_a_surface_keeps_the_keyboard();
+    test_a_second_surface_outranks_a_reclaimed_composer();
+    test_a_surface_leaving_hands_the_keyboard_back();
+    test_only_a_deliberate_caret_is_a_claim();
+    test_a_caret_that_never_left_is_not_a_fresh_claim();
+    test_a_surface_still_up_never_loses_to_an_older_claim();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

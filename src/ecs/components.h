@@ -23,6 +23,7 @@
 #include "../ui/menu_keys.h"
 #include "ask_card.h"
 #include "composer_escape.h"
+#include "focus_routing.h"
 #include "transcript_cache.h"
 #include "transcript_item_index.h"
 
@@ -684,6 +685,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // Characters typed while the transcript owned the keyboard, waiting for
     // the focused pane's composer to adopt them.
     std::string typedSeed;
+    model::KeyboardClaim keyboardClaim;
     // Two-step Escape's arm, held across frames. The rule itself is pure and
     // lives in ecs/composer_escape.h.
     model::ComposerEscapeState composerEscape;
@@ -1537,18 +1539,34 @@ inline bool overlay_up(const AppComponent& app) {
            app.showSettings || app.showAuth || app.paletteOpen;
 }
 
+inline bool composer_strip_surface_up(const AppComponent& app) {
+    return app.slashMenuOpen || app.modelPopoverOpen || app.effortPopoverOpen ||
+           app.planPopoverOpen || app.foldPopoverOpen;
+}
+
 inline hanabi::ask::KeyOwnership key_ownership(const AppComponent& app,
                                                bool tabMenuOpen) {
     hanabi::ask::KeyOwnership own;
     own.modalSheet = overlay_up(app);
     own.recordingShortcut = app.shortcutRecording >= 0;
-    own.transientUi = app.sessionSearchOpen || app.slashMenuOpen ||
-                      app.modelPopoverOpen || app.effortPopoverOpen ||
-                      app.planPopoverOpen || app.foldPopoverOpen ||
-                      app.rowMenuOpen || tabMenuOpen;
-    for (const Pane& pane : app.panes)
-        own.transientUi = own.transientUi || pane.findOpen;
+    own.transientUi = app.sessionSearchOpen || app.rowMenuOpen || tabMenuOpen ||
+                      app.any_find_open() || composer_strip_surface_up(app);
     return own;
+}
+
+inline unsigned keyboard_surfaces_up(const AppComponent& app,
+                                     bool tabMenuOpen) {
+    unsigned surfaces = 0;
+    if (overlay_up(app)) surfaces |= model::kSurfaceModalSheet;
+    if (app.shortcutRecording >= 0)
+        surfaces |= model::kSurfaceRecordingShortcut;
+    if (app.sessionSearchOpen) surfaces |= model::kSurfaceSessionSearch;
+    if (app.rowMenuOpen) surfaces |= model::kSurfaceRowMenu;
+    if (tabMenuOpen) surfaces |= model::kSurfaceTabMenu;
+    if (app.any_find_open()) surfaces |= model::kSurfaceFind;
+    if (app.askFocused) surfaces |= model::kSurfaceAskFocused;
+    if (app.askOnScreen) surfaces |= model::kSurfaceAskWaiting;
+    return surfaces;
 }
 
 inline bool ask_keys_live(const AppComponent& app, bool tabMenuOpen) {

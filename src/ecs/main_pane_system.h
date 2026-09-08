@@ -1369,6 +1369,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // One-shot: HANABI_FIND_STEP is a stand-in for a keypress, so it fires
     // once and not every frame.
     bool findStepApplied_ = false;
+    bool composerYieldedCaret_ = false;
     bool modelPopoverWasOpen_ = false;
     bool effortPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
@@ -7205,6 +7206,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // rule is not "never match Puffin's token"; it is "measure what lands".
         const auto savedMuted = ctx.theme.font_muted;
         ctx.theme.font_muted = theme::text_secondary();
+        const bool caretInComposer = ecs::caret_in_composer(ctx.focus_id);
+        const bool composerOwnsInput =
+            model::composer_holds_keyboard(app.keyboardClaim);
+        if (caretInComposer && !composerOwnsInput) {
+            ctx.focus_id = ctx.FAKE;
+            composerYieldedCaret_ = true;
+        }
+        const bool restoreComposerCaret =
+            composerYieldedCaret_ && composerOwnsInput;
+        if (composerYieldedCaret_ && !ecs::any_text_field_focused())
+            while (afterhours::input::get_char_pressed() > 0) {
+            }
+        if (restoreComposerCaret) composerYieldedCaret_ = false;
         auto inputRes = afterhours::ui::imm::text_area(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
@@ -7472,6 +7486,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.refocusComposer) {
             app.refocusComposer = false;
             refocus_field();
+        }
+        if (restoreComposerCaret) {
+            ctx.set_focus(focusable_field(inputRes.ent()),
+                          afterhours::ui::FocusSource::Grab);
+            if (inputRes.ent()
+                    .has<afterhours::text_input::HasTextAreaState>())
+                inputRes.ent()
+                    .get<afterhours::text_input::HasTextAreaState>()
+                    .was_focused = true;
         }
 
         const std::vector<const hanabi::slash::Command*> slashRows =

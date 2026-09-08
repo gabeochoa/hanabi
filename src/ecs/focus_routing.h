@@ -46,6 +46,37 @@ struct FocusRouting {
     return pane_click_takes_caret(in) && !in.modifierHeld;
 }
 
+inline constexpr unsigned kSurfaceModalSheet = 1u << 0;
+inline constexpr unsigned kSurfaceRecordingShortcut = 1u << 1;
+inline constexpr unsigned kSurfaceSessionSearch = 1u << 2;
+inline constexpr unsigned kSurfaceRowMenu = 1u << 3;
+inline constexpr unsigned kSurfaceTabMenu = 1u << 4;
+inline constexpr unsigned kSurfaceFind = 1u << 5;
+inline constexpr unsigned kSurfaceAskFocused = 1u << 6;
+inline constexpr unsigned kSurfaceAskWaiting = 1u << 7;
+
+struct KeyboardClaim {
+    unsigned issued = 0;
+    unsigned surfaces = 0;
+    unsigned surfaceClaimedAt = 0;
+    unsigned composerClaimedAt = 0;
+    bool caretInComposer = false;
+
+    void observe(unsigned surfacesNow, bool caretInComposerNow,
+                 bool claimedOnPurpose) {
+        if ((surfacesNow & ~surfaces) != 0) surfaceClaimedAt = ++issued;
+        if (caretInComposerNow && !caretInComposer && claimedOnPurpose)
+            composerClaimedAt = ++issued;
+        surfaces = surfacesNow;
+        caretInComposer = caretInComposerNow;
+    }
+};
+
+[[nodiscard]] inline bool composer_holds_keyboard(const KeyboardClaim& claim) {
+    return claim.surfaces == 0 ||
+           claim.composerClaimedAt > claim.surfaceClaimedAt;
+}
+
 [[nodiscard]] inline constexpr bool is_high_surrogate(int unit) {
     return unit >= 0xD800 && unit <= 0xDBFF;
 }

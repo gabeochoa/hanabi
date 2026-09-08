@@ -63,6 +63,17 @@ inline bool composer_field_focused() {
     return false;
 }
 
+inline bool caret_in_composer(afterhours::EntityID focusId) {
+    auto focused = afterhours::ui::UICollectionHolder::getEntityForID(focusId);
+    if (!focused.valid()) return false;
+    if (focused->has<afterhours::text_input::HasTextAreaState>()) return true;
+    if (!focused->has<afterhours::ui::UIComponent>()) return false;
+    auto owner = afterhours::ui::UICollectionHolder::getEntityForID(
+        focused->get<afterhours::ui::UIComponent>().parent);
+    return owner.valid() &&
+           owner->has<afterhours::text_input::HasTextAreaState>();
+}
+
 // The inner field of a text_input: the child that can actually take focus.
 // The wrapper imm::text_input hands back carries no click listener, so focus
 // set on IT is dropped at the end of the frame (afterhours_gaps.md #57) — the
