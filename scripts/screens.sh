@@ -321,6 +321,8 @@ capture 07_hover_tab_dark "$TABS_DARK" HANABI_TEST_HOVER=tab:t6
 #    message of t2, so the bar appears under its body.
 capture 07b_hover_msg_copy_dark "$TABS_DARK" HANABI_TEST_HOVER=msg:m2
 capture 07c_hover_user_actions_dark "$TABS_DARK" HANABI_TEST_HOVER=msg:m1
+#  - the Quote button explaining itself on hover.
+capture 07d_tooltip_msg_quote_dark "$TABS_DARK" HANABI_TEST_HOVER=msg:m2 HANABI_TEST_TIP=msg_quote_btn
 
 # --- Smart views. HANABI_VIEW forces the landing view (no click needed).
 capture 08_view_blocked_dark  "$NOTABS_DARK"  HANABI_VIEW=blocked

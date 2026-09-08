@@ -43,6 +43,7 @@
 #include "../ui/md_spans.h"
 #include "../ui/minimap.h"
 #include "../ui/find_operators.h"
+#include "../ui/reply_quote.h"
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
 #include "../ui/slash_commands.h"
@@ -9939,6 +9940,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         state->retriedMessageKey = key;
         state->retriedMessageAt = std::chrono::steady_clock::now();
     }
+    enum class ActionIcon { Copy, Quote, Retry };
+
+    static std::string_view icon_debug_stem(ActionIcon icon) {
+        switch (icon) {
+            case ActionIcon::Retry: return "msg_retry";
+            case ActionIcon::Quote: return "msg_quote";
+            case ActionIcon::Copy: return "msg_copy";
+        }
+        return "msg_copy";
+    }
+
     static void draw_copy_action(RectangleType r, theme::Color c) {
         const float cx = r.x + r.width * 0.5f;
         const float cy = r.y + r.height * 0.5f;
@@ -9953,6 +9965,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                  {cx + 5.0f, cy - 4.0f}, 1.4f, c);
         afterhours::draw_line_ex({cx + 5.0f, cy - 4.0f},
                                  {cx + 4.0f, cy - 1.0f}, 1.4f, c);
+    }
+    static void draw_quote_action(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_line_ex({cx - 4.0f, cy - 1.0f},
+                                 {cx + 2.0f, cy - 1.0f}, 1.4f, c);
+        afterhours::draw_line_ex({cx + 2.0f, cy - 1.0f},
+                                 {cx + 2.0f, cy + 4.0f}, 1.4f, c);
+        afterhours::draw_line_ex({cx - 4.0f, cy - 1.0f},
+                                 {cx - 1.0f, cy - 4.0f}, 1.4f, c);
+        afterhours::draw_line_ex({cx - 4.0f, cy - 1.0f},
+                                 {cx - 1.0f, cy + 2.0f}, 1.4f, c);
     }
 
     void message_actions(UIContext<InputAction>& ctx, Entity& host,
@@ -10008,10 +10032,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const auto add_button = [&](int id, const std::string& debugName,
                                     const std::string& label, bool active,
-                                    bool retryIcon) -> Entity& {
+                                    ActionIcon icon) -> Entity& {
+            const float buttonW = icon == ActionIcon::Copy ? 52.0f : 56.0f;
             auto button = div(ctx, mk(bar.ent(), id),
                 ComponentConfig{}
-                    .with_size(ComponentSize{pixels(retryIcon ? 56.0f : 52.0f),
+                    .with_size(ComponentSize{pixels(buttonW),
                                              pixels(18)})
                     .with_flex_direction(FlexDirection::Row)
                     .with_flex_wrap(FlexWrap::NoWrap)
@@ -10031,13 +10056,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_size(ComponentSize{pixels(11), pixels(16)})
                     .with_transparent_bg()
                     .with_margin(Margin{.right = pixels(2)})
-                    .with_on_draw_fg([retryIcon, color](RectangleType r) {
-                        if (retryIcon) draw_retry_action(r, color);
-                        else draw_copy_action(r, color);
+                    .with_on_draw_fg([icon, color](RectangleType r) {
+                        switch (icon) {
+                            case ActionIcon::Retry:
+                                draw_retry_action(r, color);
+                                break;
+                            case ActionIcon::Quote:
+                                draw_quote_action(r, color);
+                                break;
+                            case ActionIcon::Copy:
+                                draw_copy_action(r, color);
+                                break;
+                        }
                     })
-                    .with_debug_name((retryIcon ? "msg_retry_icon"
-                                                    : "msg_copy_icon") +
-                                                   paneSuffix));
+                    .with_debug_name(std::string(icon_debug_stem(icon)) +
+                                     "_icon" + paneSuffix));
             div(ctx, mk(button.ent(), 2),
                 ComponentConfig{}
                     .with_label(label)
@@ -10047,9 +10080,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_font_size(theme::type::MICRO)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name((retryIcon ? "msg_retry_label"
-                                                    : "msg_copy_label") +
-                                                   paneSuffix));
+                    .with_debug_name(std::string(icon_debug_stem(icon)) +
+                                     "_label" + paneSuffix));
             button.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});
             return button.ent();
@@ -10058,18 +10090,48 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         Entity& copyButton =
             add_button(10, "msg_copy_btn" + paneSuffix,
                        copied ? "Copied" : "Copy",
-                       copied, false);
+                       copied, ActionIcon::Copy);
         if (copyButton.get<afterhours::ui::HasClickListener>().down) {
             afterhours::clipboard::set_text(rawText);
             hanabi::test_hooks::record_clipboard_text(rawText);
             record_copied(key);
         }
 
+        Entity* quoteButton = nullptr;
+        std::vector<std::string> handles;
+        for (const api::Attachment& a : attachments)
+            handles.push_back(a.name.empty() ? a.media_type : a.name);
+        if (hanabi::reply_quote::is_offered(rawText, !handles.empty()) &&
+            app != nullptr && pane != nullptr && pane->openSession) {
+            Entity& button = add_button(15, "msg_quote_btn" + paneSuffix,
+                                        "Quote", false, ActionIcon::Quote);
+            quoteButton = &button;
+            if (button.get<afterhours::ui::HasClickListener>().down) {
+                if (const auto seed =
+                        hanabi::reply_quote::seed(rawText, handles)) {
+                    const std::string& draftKey =
+                        pane->openSession->summary.id;
+                    model::PaneState& composerState =
+                        model::pane_states().touch(
+                            model::pane_key(paneIndex, draftKey));
+                    composerState.replyDraft =
+                        *seed + composerState.replyDraft;
+                    api::disk_cache::save_draft(
+                        model::persisted_reply_key(paneIndex, draftKey),
+                        composerState.replyDraft);
+                    composerState.persistedReplyDraft =
+                        composerState.replyDraft;
+                    app->focusedPane = paneIndex;
+                    app->request_composer_focus();
+                }
+            }
+        }
+
         Entity* retryButton = nullptr;
         if (retryable) {
             Entity& button = add_button(20, "msg_retry_btn" + paneSuffix,
                                         retried ? "Queued" : "Retry",
-                                        retried, true);
+                                        retried, ActionIcon::Retry);
             retryButton = &button;
             if (button.get<afterhours::ui::HasClickListener>().down) {
                 if (app != nullptr && pane != nullptr && pane->openSession) {
@@ -10092,6 +10154,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         if (state != nullptr) {
             const bool actionFocused = ctx.has_focus(copyButton.id) ||
+                (quoteButton != nullptr && ctx.has_focus(quoteButton->id)) ||
                 (retryButton != nullptr && ctx.has_focus(retryButton->id));
             if (actionFocused) state->focusedMessageActionKey = key;
             else if (!hovering && state->focusedMessageActionKey == key)

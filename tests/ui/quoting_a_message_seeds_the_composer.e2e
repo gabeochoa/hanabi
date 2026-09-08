@@ -1,0 +1,15 @@
+# Quoting a message seeds the composer with its opening line, keeps what was already typed under it, and leaves the caret in the field.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+
+mouse_move 900 160
+wait_frames 4
+expect_text "Quote"
+click_ui msg_quote_btn
+wait_frames 6
+expect_text "> Reconcile this cycle's Stars payouts against the ledger…"
+
+type "so which one wins?"
+wait_frames 6
+expect_text "so which one wins?"

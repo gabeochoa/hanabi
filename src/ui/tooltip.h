@@ -12,11 +12,14 @@ inline constexpr float kTipPadH = 10.0f;
 inline constexpr float kTipCharW = 6.0f;
 
 inline std::string_view text_for(std::string_view control) {
+    if (control.ends_with("_2")) control.remove_suffix(2);
     if (control == "composer_attach") return "Attach a file";
     if (control == "composer_send") return "Send this message";
     if (control == "code_block_copy") return "Copy this code block";
     if (control == "find_close") return "Close find";
     if (control == "jump_to_bottom") return "Jump to the newest message";
+    if (control == "msg_quote_btn")
+        return "Quote this message in the composer";
     if (control == "row_star") return "Star this conversation";
     if (control == "split_close") return "Close this pane";
     if (control == "tab_close") return "Close this tab";
