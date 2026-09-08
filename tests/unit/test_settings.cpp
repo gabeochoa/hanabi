@@ -600,6 +600,44 @@ static void test_shortcuts_round_trip_and_reset() {
           definition(Command::OpenPalette).shortcut);
 }
 
+static void test_a_switched_off_chord_survives_a_reload() {
+    std::printf("test_a_switched_off_chord_survives_a_reload\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    using namespace hanabi::shortcuts;
+
+    s.reset_shortcuts();
+    CHECK(s.get_shortcut_enabled(Command::ToggleSidebar));
+    CHECK(s.get_global_enabled(hanabi::globals::Slot::Palette));
+    CHECK(s.shortcuts_are_default());
+
+    s.set_shortcut_enabled(Command::ToggleSidebar, false);
+    s.set_global_enabled(hanabi::globals::Slot::Palette, false);
+    CHECK(!s.shortcuts_are_default());
+    s.load_save_file();
+    CHECK(!s.get_shortcut_enabled(Command::ToggleSidebar));
+    CHECK(!s.get_global_enabled(hanabi::globals::Slot::Palette));
+
+    // OFF is a flag of its own, never an emptied binding: the chord a switched
+    // off command would come back to is still the one it had, and a global
+    // that is off is still refused registration rather than registered blank.
+    CHECK(s.get_shortcut(Command::ToggleSidebar) ==
+          definition(Command::ToggleSidebar).shortcut);
+    CHECK(!s.get_shortcut(Command::ToggleSidebar).empty());
+    const auto requests = s.get_global_requests();
+    CHECK(!requests[hanabi::globals::index(hanabi::globals::Slot::Palette)]
+               .enabled);
+    CHECK(!requests[hanabi::globals::index(hanabi::globals::Slot::Palette)]
+               .shortcut.empty());
+
+    // Restoring defaults switches everything back on, not just the rebinds.
+    s.reset_shortcuts();
+    s.load_save_file();
+    CHECK(s.get_shortcut_enabled(Command::ToggleSidebar));
+    CHECK(s.get_global_enabled(hanabi::globals::Slot::Palette));
+    CHECK(s.shortcuts_are_default());
+}
+
 static void test_font_preferences_round_trip_and_reject_unknown_values() {
     std::printf("test_font_preferences_round_trip_and_reject_unknown_values\n");
     isolate_settings();
@@ -632,6 +670,7 @@ int main() {
     test_effort_round_trips();
     test_send_key_round_trips();
     test_shortcuts_round_trip_and_reset();
+    test_a_switched_off_chord_survives_a_reload();
     test_quiet_hours_window();
     test_quiet_hours_persist();
     test_archive_overlay_round_trips();
