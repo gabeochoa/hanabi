@@ -294,6 +294,105 @@ static void test_a_late_target_is_measured_at_the_target_not_the_first_ink() {
     }
 }
 
+static void test_an_outcome_without_ink_is_not_settled_by_later_unrelated_ink() {
+    latency::reset();
+    bool outcome = false;
+    const auto reached = [&outcome](const latency::Watch&) { return outcome; };
+
+    CHECK(!latency::arm("outcome_then_unrelated_ink",
+                        latency::Outcome::UiAppears, "panel", false)
+               .has_value());
+    latency::presented(frame({kPermanent}), 100, 2, reached);
+    CHECK(latency::event_queued(1'000) == latency::EventResult::Fired);
+    latency::input_delivered();
+
+    outcome = true;
+    latency::presented(frame({kPermanent}), 2'000, 50, reached);
+    auto* watch = latency::find("outcome_then_unrelated_ink");
+    CHECK(watch != nullptr && watch->outcome_seen);
+    CHECK(watch != nullptr && !watch->ink_seen);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+
+    outcome = false;
+    latency::presented(frame({kPermanent, kNewGlyph}), 3'000, 50, reached);
+    CHECK(watch != nullptr && watch->ink_seen);
+    CHECK(watch != nullptr && watch->phase != latency::Phase::Settled);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+    if (watch != nullptr)
+        CHECK(latency::unresolved_reason(*watch).find(
+                  "the required outcome arrived with no ink of its own") !=
+              std::string::npos);
+}
+
+static void test_ink_settles_only_inside_the_render_lag_window() {
+    CHECK(latency::kRenderLagFrames == 0);
+
+    for (long gap = 0; gap <= latency::kRenderLagFrames + 1; ++gap) {
+        latency::reset();
+        bool outcome = false;
+        const auto reached = [&outcome](const latency::Watch&) {
+            return outcome;
+        };
+        CHECK(!latency::arm("window", latency::Outcome::UiAppears, "panel",
+                            false)
+                   .has_value());
+        latency::presented(frame({kPermanent}), 100, 2, reached);
+        CHECK(latency::event_queued(1'000) == latency::EventResult::Fired);
+        latency::input_delivered();
+
+        outcome = true;
+        latency::presented(frame({kPermanent}), 2'000, 50, reached);
+        outcome = false;
+        for (long idle = 1; idle < gap; ++idle)
+            latency::presented(frame({kPermanent}), 2'500, 50, reached);
+        outcome = gap == 0;
+        latency::presented(frame({kPermanent, kNewGlyph}), 3'000, 50, reached);
+
+        auto* watch = latency::find("window");
+        CHECK(watch != nullptr &&
+              (watch->phase == latency::Phase::Settled) ==
+                  (gap <= latency::kRenderLagFrames));
+    }
+}
+
+static void test_a_held_outcome_settles_on_the_frame_its_own_ink_lands() {
+    latency::reset();
+    int held = 0;
+    const auto reached = [&held](const latency::Watch&) { return held > 0; };
+
+    CHECK(!latency::arm("held", latency::Outcome::PressHeld, "button", false)
+               .has_value());
+    latency::presented(frame({kPermanent}), 100, 2, reached);
+    CHECK(latency::event_queued(1'000) == latency::EventResult::Fired);
+    latency::input_delivered();
+
+    held = 3;
+    latency::presented(frame({kPermanent}), 2'000, 50, reached);
+    auto* watch = latency::find("held");
+    CHECK(watch != nullptr && !watch->reading.has_value());
+    --held;
+    latency::presented(frame({kPermanent, kNewGlyph}), 3'000, 50, reached);
+    CHECK(watch != nullptr && watch->phase == latency::Phase::Settled);
+    if (watch != nullptr && watch->reading.has_value())
+        CHECK(watch->reading->frames == 2);
+}
+
+static void test_wrong_direction_ink_inside_the_window_never_settles() {
+    latency::reset();
+    const auto reached = [](const latency::Watch&) { return true; };
+
+    CHECK(!latency::arm("inside", latency::Outcome::UiAppears, "panel", false)
+               .has_value());
+    latency::presented(frame({kPermanent, kRemovableGlyph}), 100, 2, reached);
+    CHECK(latency::event_queued(1'000) == latency::EventResult::Fired);
+    latency::input_delivered();
+
+    latency::presented(frame({kPermanent}), 2'000, 50, reached);
+    auto* watch = latency::find("inside");
+    CHECK(watch != nullptr && !watch->ink_seen);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+}
+
 int main() {
     test_directional_pixels_and_caret();
     test_every_outcome_uses_its_direction();
@@ -302,6 +401,10 @@ int main() {
     test_refusals_and_unresolved_results();
     test_event_and_delivery_boundaries();
     test_a_late_target_is_measured_at_the_target_not_the_first_ink();
+    test_an_outcome_without_ink_is_not_settled_by_later_unrelated_ink();
+    test_ink_settles_only_inside_the_render_lag_window();
+    test_a_held_outcome_settles_on_the_frame_its_own_ink_lands();
+    test_wrong_direction_ink_inside_the_window_never_settles();
     if (failures == 0) std::printf("OK\n");
     return failures == 0 ? 0 : 1;
 }

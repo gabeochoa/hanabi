@@ -36,6 +36,7 @@ enum class Phase {
 inline constexpr int kInkTolerance = 24;
 inline constexpr int kInkFloor = 40;
 inline constexpr long kDeadlineFrames = 600;
+inline constexpr long kRenderLagFrames = 0;
 
 struct Frame {
     int width = 0;
@@ -144,6 +145,7 @@ struct Watch {
     long event_frame = -1;
     long first_probe_frame = -1;
     bool outcome_seen = false;
+    long outcome_frame = -1;
     bool ink_seen = false;
     std::optional<Reading> reading;
     std::string failure;
@@ -199,6 +201,11 @@ inline std::vector<Watch>& watches() {
 inline long& presented_frames() {
     static long value = 0;
     return value;
+}
+
+inline bool outcome_within_render_lag(const Watch& watch) {
+    return watch.outcome_frame >= 0 &&
+           presented_frames() - watch.outcome_frame <= kRenderLagFrames;
 }
 
 inline Watch* find(std::string_view label) {
@@ -302,7 +309,10 @@ inline void presented(std::optional<Frame> frame, std::uint64_t confirmed_at_us,
 
     if (watch->phase == Phase::AwaitingEvent) return;
 
-    watch->outcome_seen = watch->outcome_seen || outcome_reached(*watch);
+    if (outcome_reached(*watch)) {
+        watch->outcome_seen = true;
+        watch->outcome_frame = presented_frames();
+    }
     if (watch->first_probe_frame < 0 ||
         presented_frames() < watch->first_probe_frame)
         return;
@@ -320,7 +330,7 @@ inline void presented(std::optional<Frame> frame, std::uint64_t confirmed_at_us,
         const bool inkNow =
             requiredInk >= kInkFloor && frame->ink() >= kInkFloor;
         watch->ink_seen = watch->ink_seen || inkNow;
-        if (inkNow && watch->outcome_seen) {
+        if (inkNow && outcome_within_render_lag(*watch)) {
             Reading reading;
             reading.event_to_ink_us = confirmed_at_us - watch->event_at_us;
             reading.probe_us = probe_us;
