@@ -19,6 +19,7 @@
 #include <branding.h>
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -121,15 +122,40 @@ static_assert(hanabi::globals::kCarbonControl == controlKey,
 static std::mutex g_globals_mu;
 static hanabi::globals::Requests g_globals = hanabi::globals::defaults();
 
+// Whether the chords are MEANT to be live -- i.e. hanabi is frontmost. A slot
+// that is switched off holds no registration, so the Carbon refs cannot answer
+// this.
+static bool g_hotkeys_active = false;
+
+static bool g_hotkey_test_seam = false;
+
 static hanabi::globals::Requests globals_snapshot(void) {
     std::lock_guard<std::mutex> lk(g_globals_mu);
     return g_globals;
 }
 
-// Register the Carbon hotkey iff not already registered. Called when hanabi
-// becomes active. Runs on the main thread (notification + first-frame path).
-static void hotkey_register(void) {
-    if (g_hotkey_ref != nullptr || g_palette_ref != nullptr) return;
+// Drop every registration this process holds, whatever the requests now say.
+static void hotkey_release(void) {
+    if (g_hotkey_ref != nullptr) {
+        if (!g_hotkey_test_seam) {
+            OSStatus st = UnregisterEventHotKey(g_hotkey_ref);
+            if (st != noErr) {
+                NSLog(@"native_extras: UnregisterEventHotKey failed (%d)",
+                      (int)st);
+            }
+        }
+        g_hotkey_ref = nullptr;
+    }
+    if (g_palette_ref != nullptr) {
+        if (!g_hotkey_test_seam) UnregisterEventHotKey(g_palette_ref);
+        g_palette_ref = nullptr;
+    }
+}
+
+// Reapply FROM ZERO: release whatever is held, then register every slot the
+// requests have switched on.
+static void hotkey_apply(void) {
+    hotkey_release();
 
     const hanabi::globals::Requests wanted = globals_snapshot();
 
@@ -139,6 +165,11 @@ static void hotkey_register(void) {
         if (!req.enabled) return;
         const auto key = hanabi::globals::carbon_key(req.shortcut.key);
         if (!key.has_value()) return;
+        if (g_hotkey_test_seam) {
+            *out = reinterpret_cast<EventHotKeyRef>(
+                static_cast<std::uintptr_t>(slotId));
+            return;
+        }
         EventHotKeyID hkId;
         hkId.signature = kHotkeySig;
         hkId.id = slotId;
@@ -164,22 +195,19 @@ static void hotkey_register(void) {
          product_branding::kAppName);
 }
 
-// Unregister the Carbon hotkey iff registered. Called when hanabi resigns
-// active, so the chord flows through to whatever app is now frontmost.
+// Called when hanabi becomes active. Runs on the main thread (notification +
+// first-frame path).
+static void hotkey_register(void) {
+    g_hotkeys_active = true;
+    hotkey_apply();
+}
+
+// Called when hanabi resigns active, so the chords flow through to whatever
+// app is now frontmost.
 static void hotkey_unregister(void) {
-    if (g_hotkey_ref == nullptr && g_palette_ref == nullptr) return;
-    if (g_hotkey_ref != nullptr) {
-        OSStatus st = UnregisterEventHotKey(g_hotkey_ref);
-        if (st != noErr) {
-            NSLog(@"native_extras: UnregisterEventHotKey failed (%d)",
-                  (int)st);
-        }
-    }
-    g_hotkey_ref = nullptr;
-    if (g_palette_ref != nullptr) {
-        UnregisterEventHotKey(g_palette_ref);
-        g_palette_ref = nullptr;
-    }
+    if (!g_hotkeys_active) return;
+    g_hotkeys_active = false;
+    hotkey_release();
     // Clear any press that arrived right at the focus boundary so a stale
     // trigger doesn't fire after we've decided hanabi isn't focused.
     g_hotkey_triggered.store(false);
@@ -204,12 +232,11 @@ bool native_set_global_hotkeys(GlobalHotkeyRequest new_task,
         std::lock_guard<std::mutex> lk(g_globals_mu);
         g_globals = wanted;
     }
-    const bool wasRegistered =
-        g_hotkey_ref != nullptr || g_palette_ref != nullptr;
-    if (!wasRegistered) return true;
+    // Not frontmost: the request is stored and becomes real on the next
+    // didBecomeActive.
+    if (!g_hotkeys_active) return true;
 
-    hotkey_unregister();
-    hotkey_register();
+    hotkey_apply();
     const bool newTaskOk =
         !wanted[hanabi::globals::index(hanabi::globals::Slot::NewTask)]
              .enabled ||
@@ -219,6 +246,29 @@ bool native_set_global_hotkeys(GlobalHotkeyRequest new_task,
              .enabled ||
         g_palette_ref != nullptr;
     return newTaskOk && paletteOk;
+}
+
+void native_hotkey_test_begin(void) {
+    g_hotkey_test_seam = true;
+    g_hotkeys_active = false;
+    g_hotkey_ref = nullptr;
+    g_palette_ref = nullptr;
+    std::lock_guard<std::mutex> lk(g_globals_mu);
+    g_globals = hanabi::globals::defaults();
+}
+
+void native_hotkey_test_set_active(bool active) {
+    if (active)
+        hotkey_register();
+    else
+        hotkey_unregister();
+}
+
+unsigned native_hotkey_test_registered_mask(void) {
+    unsigned mask = 0;
+    if (g_hotkey_ref != nullptr) mask |= 1u;
+    if (g_palette_ref != nullptr) mask |= 2u;
+    return mask;
 }
 
 // Observer that toggles the Carbon hotkey registration with hanabi's active

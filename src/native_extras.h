@@ -78,6 +78,13 @@ bool native_hotkey_take_triggered(void);
 // hanabi never swallows a chord another app owns.
 bool native_palette_hotkey_take_triggered(void);
 
+// Test seam for the registration shell. Once begun, NO Carbon registration is
+// made, so a test never takes a chord off the whole desktop. The mask's bit 0
+// is new task, bit 1 is the palette.
+void native_hotkey_test_begin(void);
+void native_hotkey_test_set_active(bool active);
+unsigned native_hotkey_test_registered_mask(void);
+
 // ---- 2. Native notification ------------------------------------------------
 
 // Installs the UNUserNotificationCenter delegate and requests alert/sound

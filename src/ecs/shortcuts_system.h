@@ -13,6 +13,7 @@
 #include "../ui/icons.h"
 #include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
+#include "global_hotkey_apply.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -272,7 +273,11 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
         if (restore) {
             Settings::get().reset_shortcuts();
             app.shortcutRecording = -1;
-            app.shortcutMessage = "Default shortcuts restored.";
+            app.shortcutMessage =
+                apply_global_hotkeys_from_settings()
+                    ? "Default shortcuts restored."
+                    : "Default shortcuts restored. Another app already owns a "
+                      "global chord.";
         }
         if (closeButton) close(app);
     }

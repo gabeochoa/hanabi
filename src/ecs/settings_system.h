@@ -57,6 +57,7 @@
 #include "../global_hotkeys.h"
 #include "../native_extras.h"
 #include "../ui/font_system.h"
+#include "global_hotkey_apply.h"
 #include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
 #include "ui_imports.h"
 
@@ -1178,16 +1179,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static bool apply_globals(AppComponent&) {
-        const auto reqs = Settings::get().get_global_requests();
-        const auto& nt = reqs[hanabi::globals::index(
-            hanabi::globals::Slot::NewTask)];
-        const auto& pl = reqs[hanabi::globals::index(
-            hanabi::globals::Slot::Palette)];
-        return native_set_global_hotkeys(
-            GlobalHotkeyRequest{nt.shortcut.key, nt.shortcut.modifiers,
-                                nt.enabled},
-            GlobalHotkeyRequest{pl.shortcut.key, pl.shortcut.modifiers,
-                                pl.enabled});
+        return apply_global_hotkeys_from_settings();
     }
 
     void apply_globals_or_revert(AppComponent& app,
@@ -1387,6 +1379,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("settings_chord_reset_cancel"));
             if (go) {
                 Settings::get().reset_shortcuts();
+                apply_globals(app);
                 app.shortcutResetArmed = false;
             }
             if (cancel) app.shortcutResetArmed = false;

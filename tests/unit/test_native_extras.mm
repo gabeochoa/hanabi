@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../../src/native_extras.h"
+#include "../../src/global_hotkeys.h"
 
 static int failures = 0;
 #define CHECK(value)                                                        \
@@ -16,6 +17,82 @@ static int failures = 0;
             ++failures;                                                     \
         }                                                                   \
     } while (0)
+
+static GlobalHotkeyRequest chord_for(hanabi::globals::Slot slot, bool on) {
+    const auto shortcut = hanabi::globals::definition(slot).shortcut;
+    return GlobalHotkeyRequest{shortcut.key, shortcut.modifiers, on};
+}
+
+static constexpr unsigned kNewTaskBit = 1u;
+static constexpr unsigned kPaletteBit = 2u;
+
+static void test_re_enabling_one_chord_after_both_were_off_registers_it() {
+    native_hotkey_test_begin();
+    native_hotkey_test_set_active(true);
+    CHECK(native_hotkey_test_registered_mask() == (kNewTaskBit | kPaletteBit));
+
+    const auto newTaskOff = chord_for(hanabi::globals::Slot::NewTask, false);
+    const auto paletteOff = chord_for(hanabi::globals::Slot::Palette, false);
+    CHECK(native_set_global_hotkeys(newTaskOff, paletteOff));
+    CHECK(native_hotkey_test_registered_mask() == 0u);
+
+    const auto newTaskOn = chord_for(hanabi::globals::Slot::NewTask, true);
+    CHECK(native_set_global_hotkeys(newTaskOn, paletteOff));
+    CHECK(native_hotkey_test_registered_mask() == kNewTaskBit);
+
+    const auto paletteOn = chord_for(hanabi::globals::Slot::Palette, true);
+    CHECK(native_set_global_hotkeys(newTaskOn, paletteOn));
+    CHECK(native_hotkey_test_registered_mask() == (kNewTaskBit | kPaletteBit));
+}
+
+static void test_a_reset_after_a_disable_brings_both_chords_back() {
+    native_hotkey_test_begin();
+    native_hotkey_test_set_active(true);
+    CHECK(native_set_global_hotkeys(
+        chord_for(hanabi::globals::Slot::NewTask, false),
+        chord_for(hanabi::globals::Slot::Palette, false)));
+    CHECK(native_hotkey_test_registered_mask() == 0u);
+
+    const auto restored = hanabi::globals::defaults();
+    const auto& nt =
+        restored[hanabi::globals::index(hanabi::globals::Slot::NewTask)];
+    const auto& pl =
+        restored[hanabi::globals::index(hanabi::globals::Slot::Palette)];
+    CHECK(nt.enabled);
+    CHECK(pl.enabled);
+    CHECK(native_set_global_hotkeys(
+        GlobalHotkeyRequest{nt.shortcut.key, nt.shortcut.modifiers,
+                            nt.enabled},
+        GlobalHotkeyRequest{pl.shortcut.key, pl.shortcut.modifiers,
+                            pl.enabled}));
+    CHECK(native_hotkey_test_registered_mask() == (kNewTaskBit | kPaletteBit));
+}
+
+static void test_a_switched_off_slot_keeps_its_chord_and_stays_unregistered() {
+    native_hotkey_test_begin();
+    native_hotkey_test_set_active(true);
+    const auto off = chord_for(hanabi::globals::Slot::NewTask, false);
+    CHECK(off.key == hanabi::globals::definition(hanabi::globals::Slot::NewTask)
+                         .shortcut.key);
+    CHECK(off.modifiers != 0);
+    CHECK(native_set_global_hotkeys(
+        off, chord_for(hanabi::globals::Slot::Palette, true)));
+    CHECK(native_hotkey_test_registered_mask() == kPaletteBit);
+}
+
+static void test_a_background_app_registers_nothing_and_catches_up_on_focus() {
+    native_hotkey_test_begin();
+    CHECK(native_hotkey_test_registered_mask() == 0u);
+    CHECK(native_set_global_hotkeys(
+        chord_for(hanabi::globals::Slot::NewTask, true),
+        chord_for(hanabi::globals::Slot::Palette, true)));
+    CHECK(native_hotkey_test_registered_mask() == 0u);
+
+    native_hotkey_test_set_active(true);
+    CHECK(native_hotkey_test_registered_mask() == (kNewTaskBit | kPaletteBit));
+    native_hotkey_test_set_active(false);
+    CHECK(native_hotkey_test_registered_mask() == 0u);
+}
 
 int main() {
     char thread[128] = {};
@@ -75,6 +152,11 @@ int main() {
     }
     CHECK(system_regular);
     CHECK(system_bold);
+
+    test_re_enabling_one_chord_after_both_were_off_registers_it();
+    test_a_reset_after_a_disable_brings_both_chords_back();
+    test_a_switched_off_slot_keeps_its_chord_and_stays_unregistered();
+    test_a_background_app_registers_nothing_and_catches_up_on_focus();
 
     if (failures == 0) {
         std::printf("OK\n");
