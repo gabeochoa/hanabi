@@ -124,10 +124,12 @@ static void test_wrong_direction_never_settles_any_outcome() {
             2'000, 50, [](const latency::Watch&) { return true; });
         auto* watch = latency::find("direction");
         CHECK(watch != nullptr && !watch->reading.has_value());
-        latency::presented(
-            gained ? frame({kPermanent, kRemovableGlyph, kNewGlyph})
-                   : frame({kPermanent}),
-            3'000, 50, [](const latency::Watch&) { return true; });
+        // The right-direction ink is what THIS frame paints, so the frame is
+        // written as the paint it makes rather than as a cumulative screen: a
+        // gained arm gains the glyph the wrong-direction frame did not, and a
+        // lost arm loses the glyph that frame added.
+        latency::presented(frame({kPermanent, kNewGlyph}), 3'000, 50,
+                           [](const latency::Watch&) { return true; });
         CHECK(watch != nullptr && watch->phase == latency::Phase::Settled);
         CHECK(watch != nullptr && watch->reading.has_value());
         if (watch != nullptr && watch->reading.has_value()) {
@@ -245,11 +247,14 @@ static void test_event_and_delivery_boundaries() {
     auto* delayed = latency::find("delayed");
     CHECK(delayed != nullptr && !delayed->reading.has_value());
     latency::input_delivered(1);
-    latency::presented(std::nullopt, 3'000, 0,
+    // The instrument probes every frame a live watch sees, so the frame before
+    // the first one that can carry the effect is a real read, and the effect's
+    // own paint has to land on the frame being measured.
+    latency::presented(frame({kPermanent, kNewGlyph}), 3'000, 50,
                        [](const latency::Watch&) { return true; });
     CHECK(delayed != nullptr && !delayed->reading.has_value());
-    latency::presented(frame({kPermanent, kNewGlyph}), 4'000, 50,
-                       [](const latency::Watch&) { return true; });
+    latency::presented(frame({kPermanent, kNewGlyph, kRemovableGlyph}), 4'000,
+                       50, [](const latency::Watch&) { return true; });
     CHECK(delayed != nullptr && delayed->reading.has_value());
     if (delayed != nullptr && delayed->reading.has_value()) {
         CHECK(delayed->reading->frames == 3);
@@ -322,6 +327,88 @@ static void test_an_outcome_without_ink_is_not_settled_by_later_unrelated_ink() 
         CHECK(latency::unresolved_reason(*watch).find(
                   "the required outcome arrived with no ink of its own") !=
               std::string::npos);
+}
+
+static void test_unrelated_ink_before_the_outcome_is_not_the_targets_own() {
+    latency::reset();
+    bool outcome = false;
+    const auto reached = [&outcome](const latency::Watch&) { return outcome; };
+
+    CHECK(!latency::arm("unrelated_then_outcome", latency::Outcome::UiAppears,
+                        "panel", false)
+               .has_value());
+    latency::presented(frame({kPermanent}), 100, 2, reached);
+    CHECK(latency::event_queued(1'000) == latency::EventResult::Fired);
+    latency::input_delivered();
+
+    latency::presented(frame({kPermanent, kNewGlyph}), 2'000, 50, reached);
+    auto* watch = latency::find("unrelated_then_outcome");
+    CHECK(watch != nullptr && watch->ink_seen);
+    CHECK(watch != nullptr && !watch->outcome_seen);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+
+    outcome = true;
+    latency::presented(frame({kPermanent, kNewGlyph}), 3'000, 50, reached);
+    CHECK(watch != nullptr && watch->outcome_seen);
+    CHECK(watch != nullptr && watch->phase != latency::Phase::Settled);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+    if (watch != nullptr)
+        CHECK(latency::unresolved_reason(*watch).find(
+                  "the required outcome arrived with no ink of its own") !=
+              std::string::npos);
+
+    latency::presented(frame({kPermanent, kNewGlyph, kRemovableGlyph}), 4'000,
+                       50, reached);
+    CHECK(watch != nullptr && watch->phase == latency::Phase::Settled);
+    CHECK(watch != nullptr && watch->reading.has_value());
+    if (watch != nullptr && watch->reading.has_value()) {
+        CHECK(watch->reading->frames == 3);
+        CHECK(watch->reading->required_ink == 96);
+    }
+}
+
+static void test_paint_before_the_event_is_never_credited_to_the_target() {
+    latency::reset();
+    bool outcome = false;
+    const auto reached = [&outcome](const latency::Watch&) { return outcome; };
+
+    CHECK(!latency::arm("painted_before_event", latency::Outcome::UiAppears,
+                        "panel", false)
+               .has_value());
+    latency::presented(frame({kPermanent}), 100, 2, reached);
+    latency::presented(frame({kPermanent, kNewGlyph}), 150, 2, reached);
+    CHECK(latency::event_queued(1'000) == latency::EventResult::Fired);
+    latency::input_delivered();
+
+    outcome = true;
+    latency::presented(frame({kPermanent, kNewGlyph}), 2'000, 50, reached);
+    auto* watch = latency::find("painted_before_event");
+    CHECK(watch != nullptr && watch->outcome_seen);
+    CHECK(watch != nullptr && !watch->ink_seen);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+    if (watch != nullptr)
+        CHECK(latency::unresolved_reason(*watch) == "no first ink was rendered");
+}
+
+static void test_a_frame_whose_predecessor_went_unread_is_not_measured() {
+    latency::reset();
+    const auto reached = [](const latency::Watch&) { return true; };
+
+    CHECK(!latency::arm("unread_basis", latency::Outcome::UiAppears, "panel",
+                        false)
+               .has_value());
+    latency::presented(frame({kPermanent}), 100, 2, reached);
+    CHECK(latency::event_queued(1'000) == latency::EventResult::Fired);
+    latency::input_delivered(1);
+    latency::presented(std::nullopt, 2'000, 0, reached);
+    latency::presented(frame({kPermanent, kNewGlyph}), 3'000, 50, reached);
+
+    auto* watch = latency::find("unread_basis");
+    CHECK(watch != nullptr && watch->phase == latency::Phase::Failed);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+    if (watch != nullptr)
+        CHECK(latency::unresolved_reason(*watch) ==
+              "the frame before the first-ink probe was never read");
 }
 
 static void test_ink_settles_only_inside_the_render_lag_window() {
@@ -402,6 +489,9 @@ int main() {
     test_event_and_delivery_boundaries();
     test_a_late_target_is_measured_at_the_target_not_the_first_ink();
     test_an_outcome_without_ink_is_not_settled_by_later_unrelated_ink();
+    test_unrelated_ink_before_the_outcome_is_not_the_targets_own();
+    test_paint_before_the_event_is_never_credited_to_the_target();
+    test_a_frame_whose_predecessor_went_unread_is_not_measured();
     test_ink_settles_only_inside_the_render_lag_window();
     test_a_held_outcome_settles_on_the_frame_its_own_ink_lands();
     test_wrong_direction_ink_inside_the_window_never_settles();

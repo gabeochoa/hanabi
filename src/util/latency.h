@@ -141,6 +141,8 @@ struct Watch {
     std::string target;
     Phase phase = Phase::AwaitingBaseline;
     Frame baseline;
+    Frame previous;
+    long previous_frame = -1;
     std::uint64_t event_at_us = 0;
     long event_frame = -1;
     long first_probe_frame = -1;
@@ -208,6 +210,36 @@ inline bool outcome_within_render_lag(const Watch& watch) {
            presented_frames() - watch.outcome_frame <= kRenderLagFrames;
 }
 
+// ---------------------------------------------------------------------------
+// WHAT THE INK TERM IS MEASURED AGAINST.
+//
+// The question the ink term answers is what the frame under the outcome
+// PAINTED, so the comparison basis is the frame presented immediately before
+// it -- never the pre-event baseline. A baseline comparison carries every
+// earlier unrelated repaint forever: a caret blink, a hover, the other pane
+// redrawing, all of them still sitting in the difference on a frame that
+// painted nothing of its own. An outcome-only frame then settles a reading out
+// of ink the named target never produced, and the arm passes green describing
+// paint that belongs to something else.
+//
+// This is the association kRenderLagFrames already states in time, now read in
+// space as well. The eligible window is kRenderLagFrames + 1 presented frames
+// wide, and at 0 that is exactly one frame -- so its origin is the frame
+// before it, and the basis is the previous frame. A positive lag would have to
+// retain the window's ORIGIN frame here instead, which is one more reason the
+// constant is pinned rather than left to judgement.
+//
+// The basis is refreshed from whichever frames were actually read back. A
+// readback that failed leaves it behind, which is not a basis this instrument
+// will quietly measure against; the crediting site checks that the retained
+// frame really is the immediately preceding one.
+// ---------------------------------------------------------------------------
+inline void adopt_basis(Watch& watch, const std::optional<Frame>& frame) {
+    if (!frame.has_value() || !frame->valid()) return;
+    watch.previous = *frame;
+    watch.previous_frame = presented_frames();
+}
+
 inline Watch* find(std::string_view label) {
     for (auto& watch : watches())
         if (watch.label == label) return &watch;
@@ -271,20 +303,25 @@ inline void input_delivered(int effect_lag_frames = 0) {
             presented_frames() + 1 + std::max(0, effect_lag_frames);
 }
 
+// A probe on EVERY presented frame a live watch sees, not only from the first
+// frame that could carry the effect. The basis for that first frame is the
+// frame before it, and which frame that is only becomes knowable when the
+// input is delivered -- by then the frame before it is already gone, so there
+// is no going back to read it. Probing from the baseline forward is what makes
+// the first candidate frame measurable on the same terms as every later one.
 inline bool needs_probe() {
     const Watch* watch = active();
-    return watch != nullptr &&
-           (watch->phase == Phase::AwaitingBaseline ||
-            (watch->phase == Phase::AwaitingInk &&
-             watch->first_probe_frame >= 0 &&
-             presented_frames() + 1 >= watch->first_probe_frame &&
-             !watch->reading.has_value()));
+    return watch != nullptr && (watch->phase == Phase::AwaitingBaseline ||
+                                watch->phase == Phase::AwaitingEvent ||
+                                (watch->phase == Phase::AwaitingInk &&
+                                 !watch->reading.has_value()));
 }
 
 inline void fail(Watch& watch, std::string message) {
     watch.phase = Phase::Failed;
     watch.failure = std::move(message);
     watch.baseline = {};
+    watch.previous = {};
 }
 
 template<typename OutcomeFn>
@@ -302,26 +339,36 @@ inline void presented(std::optional<Frame> frame, std::uint64_t confirmed_at_us,
             fail(*watch, "pixel baseline was unreadable");
             return;
         }
+        adopt_basis(*watch, frame);
         watch->baseline = std::move(*frame);
         watch->phase = Phase::AwaitingEvent;
         return;
     }
 
-    if (watch->phase == Phase::AwaitingEvent) return;
+    if (watch->phase == Phase::AwaitingEvent) {
+        adopt_basis(*watch, frame);
+        return;
+    }
 
     if (outcome_reached(*watch)) {
         watch->outcome_seen = true;
         watch->outcome_frame = presented_frames();
     }
     if (watch->first_probe_frame < 0 ||
-        presented_frames() < watch->first_probe_frame)
+        presented_frames() < watch->first_probe_frame) {
+        adopt_basis(*watch, frame);
         return;
+    }
     if (!watch->reading.has_value()) {
         if (!frame.has_value() || !frame->valid() || frame->flat()) {
             fail(*watch, "first-ink pixel probe was unreadable");
             return;
         }
-        const auto delta = difference(watch->baseline, *frame);
+        if (watch->previous_frame != presented_frames() - 1) {
+            fail(*watch, "the frame before the first-ink probe was never read");
+            return;
+        }
+        const auto delta = difference(watch->previous, *frame);
         if (!delta.has_value()) {
             fail(*watch, "first-ink pixel probe changed shape");
             return;
@@ -343,6 +390,10 @@ inline void presented(std::optional<Frame> frame, std::uint64_t confirmed_at_us,
             reading.ink_after = frame->ink();
             watch->reading = reading;
             watch->baseline = {};
+            watch->previous = {};
+            watch->previous_frame = -1;
+        } else {
+            adopt_basis(*watch, frame);
         }
     }
 
