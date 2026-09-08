@@ -40,9 +40,9 @@ wait_frames 8
 watch_ink submit text "Got it"
 key ENTER
 wait_frames 240
-expect_latency submit 4
+expect_latency submit 7
 
 watch_ink click_feedback text "412"
 click_text "two workers still out"
 wait_frames 20
-expect_latency click_feedback 4
+expect_latency click_feedback 8

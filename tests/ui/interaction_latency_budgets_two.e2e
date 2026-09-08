@@ -7,11 +7,11 @@ wait_frames 20
 watch_ink session_switch_forward text "Kicked 41"
 click_ui tab_t9
 wait_frames 20
-expect_latency session_switch_forward 4
+expect_latency session_switch_forward 7
 watch_ink session_switch_back text "Reconciled 4,812"
 click_ui tab_t2
 wait_frames 20
-expect_latency session_switch_back 4
+expect_latency session_switch_back 6
 
 focus_ui composer_attach
 expect_focused composer_attach

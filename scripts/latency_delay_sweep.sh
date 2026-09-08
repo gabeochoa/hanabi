@@ -112,7 +112,7 @@ echo "  planted controls"
 plants_fail=0
 
 over="$SCRATCH/interaction_latency_budgets.e2e"
-sed 's/expect_latency submit 4/expect_latency submit 0/' \
+sed 's/expect_latency submit 7/expect_latency submit 0/' \
     tests/ui/interaction_latency_budgets.e2e > "$over"
 plant "over budget" "$over" \
     'expect_latency submit: [0-9]+ frames from event timestamp to first ink, budget 0' "" || plants_fail=1

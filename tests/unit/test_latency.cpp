@@ -198,7 +198,8 @@ static void test_refusals_and_unresolved_results() {
     latency::presented(frame({kPermanent, kNewGlyph}), 2'000, 50,
                        [](const latency::Watch&) { return false; });
     auto* noOutcome = latency::find("no_outcome");
-    CHECK(noOutcome != nullptr && noOutcome->reading.has_value());
+    CHECK(noOutcome != nullptr && noOutcome->ink_seen);
+    CHECK(noOutcome != nullptr && !noOutcome->reading.has_value());
     if (noOutcome != nullptr)
         CHECK(latency::unresolved_reason(*noOutcome).find("outcome") !=
               std::string::npos);
@@ -263,6 +264,36 @@ static void test_event_and_delivery_boundaries() {
     CHECK(early != nullptr && early->phase == latency::Phase::Failed);
 }
 
+static void test_a_late_target_is_measured_at_the_target_not_the_first_ink() {
+    latency::reset();
+    bool outcome = false;
+    const auto reached = [&outcome](const latency::Watch&) { return outcome; };
+
+    CHECK(!latency::arm("late_target", latency::Outcome::UiAppears, "panel",
+                        false)
+               .has_value());
+    latency::presented(frame({kPermanent}), 100, 2, reached);
+    CHECK(latency::event_queued(1'000) == latency::EventResult::Fired);
+    latency::input_delivered();
+
+    latency::presented(frame({kPermanent, kNewGlyph}), 2'000, 50, reached);
+    auto* watch = latency::find("late_target");
+    CHECK(watch != nullptr && watch->ink_seen);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+    latency::presented(frame({kPermanent, kNewGlyph}), 3'000, 50, reached);
+    CHECK(watch != nullptr && !watch->reading.has_value());
+
+    outcome = true;
+    latency::presented(frame({kPermanent, kNewGlyph, kRemovableGlyph}), 4'000,
+                       50, reached);
+    CHECK(watch != nullptr && watch->phase == latency::Phase::Settled);
+    CHECK(watch != nullptr && watch->reading.has_value());
+    if (watch != nullptr && watch->reading.has_value()) {
+        CHECK(watch->reading->frames == 3);
+        CHECK(watch->reading->event_to_ink_us == 3'000);
+    }
+}
+
 int main() {
     test_directional_pixels_and_caret();
     test_every_outcome_uses_its_direction();
@@ -270,6 +301,7 @@ int main() {
     test_real_caret_never_satisfies_the_opposite_direction();
     test_refusals_and_unresolved_results();
     test_event_and_delivery_boundaries();
+    test_a_late_target_is_measured_at_the_target_not_the_first_ink();
     if (failures == 0) std::printf("OK\n");
     return failures == 0 ? 0 : 1;
 }

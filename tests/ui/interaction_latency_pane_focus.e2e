@@ -2,8 +2,9 @@
 #
 # The ring lands the frame AFTER the click, deliberately: the offer of the
 # caret waits a frame so a click that landed in a FIELD inside that pane keeps
-# it (ecs/focus_routing.h). Measured at one frame, budgeted at six, so the arm
-# fails on a seam that regressed into a wait rather than on jitter.
+# it (ecs/focus_routing.h). Measured at two frames event-to-first-ink -- the
+# click's own frame and the frame the ring lands on -- budgeted at six, so the
+# arm fails on a seam that regressed into a wait rather than on jitter.
 #
 # Its own script because the arm needs an unfocused field to watch focus be
 # gained, and that is only true before anything else in a session has typed.

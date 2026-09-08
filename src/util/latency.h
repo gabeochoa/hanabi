@@ -144,6 +144,7 @@ struct Watch {
     long event_frame = -1;
     long first_probe_frame = -1;
     bool outcome_seen = false;
+    bool ink_seen = false;
     std::optional<Reading> reading;
     std::string failure;
     bool reported = false;
@@ -316,7 +317,10 @@ inline void presented(std::optional<Frame> frame, std::uint64_t confirmed_at_us,
             return;
         }
         const int requiredInk = directional_ink(watch->outcome, *delta);
-        if (requiredInk >= kInkFloor && frame->ink() >= kInkFloor) {
+        const bool inkNow =
+            requiredInk >= kInkFloor && frame->ink() >= kInkFloor;
+        watch->ink_seen = watch->ink_seen || inkNow;
+        if (inkNow && watch->outcome_seen) {
             Reading reading;
             reading.event_to_ink_us = confirmed_at_us - watch->event_at_us;
             reading.probe_us = probe_us;
@@ -337,7 +341,7 @@ inline void presented(std::optional<Frame> frame, std::uint64_t confirmed_at_us,
         return;
     }
     if (presented_frames() - watch->event_frame > kDeadlineFrames) {
-        fail(*watch, watch->reading.has_value()
+        fail(*watch, watch->ink_seen
                          ? "first ink appeared but the required outcome did not"
                          : "the deadline passed without first ink");
     }
@@ -349,9 +353,11 @@ inline std::string unresolved_reason(const Watch& watch) {
         return "the pixel baseline was never presented";
     if (watch.phase == Phase::AwaitingEvent)
         return "no input event timestamp was recorded";
-    if (!watch.reading.has_value()) return "no first ink was rendered";
+    if (!watch.ink_seen) return "no first ink was rendered";
     if (!watch.outcome_seen)
         return "first ink rendered but the required outcome did not";
+    if (!watch.reading.has_value())
+        return "the required outcome arrived with no ink of its own";
     return "the measurement did not settle";
 }
 
