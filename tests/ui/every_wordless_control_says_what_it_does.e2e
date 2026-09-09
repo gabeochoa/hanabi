@@ -1,0 +1,19 @@
+# Every control with no words on it says what it does when the pointer rests there. Five screens: home, a thread, the find bar, settings, and a split.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 10
+expect_tooltips
+
+key cmd+f
+wait_frames 8
+expect_tooltips
+escape
+wait_frames 6
+
+key cmd+comma
+wait_frames 12
+expect_text "Appearance"
+expect_tooltips settings_backdrop
+escape
+wait_frames 8

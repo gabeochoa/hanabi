@@ -1282,6 +1282,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto collapseBtn = button(ctx, mk(header.ent(), 4),
             icon_btn_sprite("sidebar_open", "\xc2\xbb")
                 .with_debug_name("sb_collapse"));
+        hanabi::a11y::set_name(collapseBtn.ent(), "Collapse the sidebar");
         if (collapseBtn) {
             layout.sidebarCollapsed = !layout.sidebarCollapsed;
             Settings::get().set_sidebar_collapsed(layout.sidebarCollapsed);
@@ -1409,6 +1410,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                        .with_on_draw_fg(
                            hanabi::icons::draw_fg("brand", "*", tint, 15.0f))
                        .with_debug_name("sb_subagents_toggle"));
+        hanabi::a11y::set_name(subagentsBtn.ent(),
+                               "Show sessions spawned by another session");
         if (subagentsBtn) {
             app.subagentSidebarOpen = !app.subagentSidebarOpen;
             Settings::get().set_subagent_sidebar_open(app.subagentSidebarOpen);
@@ -1435,6 +1438,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "panel_left", "\xc2\xab", tint, 17.0f))
                 .with_debug_name("sb_collapse"));
+        hanabi::a11y::set_name(collapseBtn.ent(), "Collapse the sidebar");
         if (collapseBtn) {
             layout.sidebarCollapsed = !layout.sidebarCollapsed;
             Settings::get().set_sidebar_collapsed(layout.sidebarCollapsed);
@@ -1959,6 +1963,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     hanabi::glyph::filter_rules(r, fg, theme::chrome::raised());
                 })
                 .with_debug_name("sb_search_filter"));
+        hanabi::a11y::set_name(filt.ent(), "Hide automated threads");
         if (filt) {
             if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);
             else app.collapsedFolders.insert(kHideAutoKey);

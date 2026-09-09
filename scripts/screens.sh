@@ -409,6 +409,7 @@ capture 18q2_tab_menu_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=tab-menu
 capture 18x_tooltip_dark "$TABS_DARK" HANABI_TEST_TIP=composer_attach
 capture 18y_tooltip_light "$TABS_LIGHT" HANABI_TEST_TIP=composer_attach
 capture 18z_tooltip_tab_close_dark "$TABS_DARK" HANABI_TEST_TIP=tab_close
+capture 18z2_tooltip_sidebar_footer_dark "$TABS_DARK" HANABI_TEST_TIP=sb_settings_footer
 capture 18aa_menu_pressed_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu HANABI_TEST_PRESS=row_menu_archive
 capture 18ab_menu_pressed_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=row-menu HANABI_TEST_PRESS=row_menu_archive
 capture 18ac_menu_disabled_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu HANABI_MOCK_NO_RENAME=1 HANABI_MOCK_NO_FORK=1

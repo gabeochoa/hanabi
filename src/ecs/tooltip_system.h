@@ -6,6 +6,7 @@
 #include "../keys.h"
 #include "../test_hooks.h"
 #include "../ui/anchored_surface.h"
+#include "../ui/reply_quote.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/accessibility.h"
 #include "../ui/tooltip.h"
@@ -17,6 +18,31 @@ namespace ecs {
 
 inline constexpr int kTooltipLayer = 40;
 
+inline bool control_says_words(const Entity& e) {
+    if (e.has<afterhours::ui::HasLabel>() &&
+        hanabi::reply_quote::has_ink(e.get<afterhours::ui::HasLabel>().label))
+        return true;
+    if (!e.has<afterhours::ui::UIComponent>()) return false;
+    for (const afterhours::EntityID child :
+         e.get<afterhours::ui::UIComponent>().children) {
+        auto opt = afterhours::ui::UICollectionHolder::getEntityForID(child);
+        if (!opt.valid()) continue;
+        if (control_says_words(opt.asE())) return true;
+    }
+    return false;
+}
+
+inline std::string tooltip_text_for(const std::string& control,
+                                    const Entity& e) {
+    const std::string_view curated = hanabi::tip::text_for(control);
+    if (!curated.empty()) return std::string(curated);
+    if (!e.has<hanabi::a11y::AccessibleName>()) return {};
+    const auto& named = e.get<hanabi::a11y::AccessibleName>();
+    if (named.role != hanabi::a11y::Role::Button) return {};
+    if (control_says_words(e)) return {};
+    return named.value;
+}
+
 inline bool& pending_reveal() {
     static bool value = false;
     return value;
@@ -26,10 +52,11 @@ struct TooltipSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx,
                        float dt) override {
         std::string control;
+        std::string resolved;
         hanabi::surface::Rect anchor{};
-        resolve_hovered(ctx, &control, &anchor);
+        resolve_hovered(ctx, &control, &resolved, &anchor);
 
-        const std::string_view text = hanabi::tip::text_for(control);
+        const std::string_view text = resolved;
         const bool forced = !hanabi::test_hooks::forced_tip_name().empty();
         if (text.empty())
             timer_.leave();
@@ -81,7 +108,7 @@ struct TooltipSystem : afterhours::System<UIContext<InputAction>> {
 
    private:
     static void resolve_hovered(const UIContext<InputAction>& ctx,
-                                std::string* name,
+                                std::string* name, std::string* text,
                                 hanabi::surface::Rect* rect) {
         const std::string_view forced = hanabi::test_hooks::forced_tip_name();
         if (forced.empty() && !pointer_state().ever_moved) return;
@@ -98,9 +125,11 @@ struct TooltipSystem : afterhours::System<UIContext<InputAction>> {
             if (e.has<afterhours::ui::UIComponentDebug>()) {
                 const std::string named =
                     e.get<afterhours::ui::UIComponentDebug>().name();
-                if (!hanabi::tip::text_for(named).empty()) {
+                const std::string said = tooltip_text_for(named, e);
+                if (!said.empty()) {
                     const auto r = uic.rect();
                     *name = named;
+                    *text = said;
                     *rect = hanabi::surface::Rect{r.x, r.y, r.width, r.height};
                     return;
                 }

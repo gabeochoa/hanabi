@@ -3401,6 +3401,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                 afterhours::vec2{cx, cy + h}, c);
                     })
                     .with_debug_name(up ? "find_prev" : "find_next"));
+            hanabi::a11y::set_name(b.ent(), up ? "Previous match"
+                                               : "Next match");
             if (b && navigable) {
                 apply_find_step(pane, up ? hanabi::find_nav::Step::Prev
                                          : hanabi::find_nav::Step::Next);

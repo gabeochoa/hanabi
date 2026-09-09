@@ -70,6 +70,9 @@
 #include "../util/gfx_resize.h"
 #include "../util/latency.h"
 #include "../ui/control_state.h"
+#include "../ui/reply_quote.h"
+#include "../ui/tooltip.h"
+#include "tooltip_system.h"
 #include "../a11y_bridge.h"
 #include "components.h"
 #include "pane_state.h"
@@ -1335,6 +1338,62 @@ struct HandleExpectHitTargetsCommand
     }
 };
 
+struct HandleExpectTooltipsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_tooltips")) return;
+        const std::vector<std::string> allowed = cmd.args;
+
+        std::vector<std::string> silent;
+        int checked = 0;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!e) continue;
+            if (!e->has<afterhours::ui::HasClickListener>()) continue;
+            if (!e->has<afterhours::ui::UIComponent>()) continue;
+            const auto& uic = e->get<afterhours::ui::UIComponent>();
+            if (!uic.was_rendered_to_screen) continue;
+            const auto r = uic.rect();
+            if (r.width <= 0.0f || r.height <= 0.0f) continue;
+            if (hanabi::control::is_text_surface(*e) || text_entry(*e) ||
+                text_entry_parent(uic))
+                continue;
+            if (ecs::control_says_words(*e)) continue;
+            const std::string name =
+                e->has<afterhours::ui::UIComponentDebug>()
+                    ? e->get<afterhours::ui::UIComponentDebug>().name()
+                    : std::string("<unnamed>");
+            if (std::find(allowed.begin(), allowed.end(), name) !=
+                allowed.end())
+                continue;
+            ++checked;
+            if (!ecs::tooltip_text_for(name, *e).empty()) continue;
+            silent.push_back(name);
+        }
+        if (checked == 0) {
+            cmd.fail("expect_tooltips found no wordless control to check");
+            return;
+        }
+        if (!silent.empty()) {
+            std::string joined;
+            for (const std::string& s : silent) {
+                if (!joined.empty()) joined += ", ";
+                joined += s;
+            }
+            cmd.fail(std::format(
+                "expect_tooltips: {} of {} wordless controls say nothing on "
+                "hover: {}",
+                silent.size(), checked, joined));
+            return;
+        }
+        std::printf("[tooltips] %d wordless controls all name themselves\n",
+                    checked);
+        cmd.consume();
+    }
+};
+
 // Registered BEFORE afterhours' builtins, so the resize handler above sees
 // `resize` first. Everything else hanabi owns goes in the function below.
 inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
@@ -1373,6 +1432,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(
         std::make_unique<HandleExpectA11yPressRefusedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectHitTargetsCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectTooltipsCommand>());
 }
 
 }  // namespace hanabi::e2e

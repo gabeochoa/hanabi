@@ -21,9 +21,12 @@ inline std::string_view text_for(std::string_view control) {
     if (control == "msg_quote_btn")
         return "Quote this message in the composer";
     if (control == "row_star") return "Star this conversation";
+    if (control == "settings_close") return "Close settings";
+    if (control == "shortcuts_close") return "Close the shortcut list";
     if (control == "split_close") return "Close this pane";
     if (control == "tab_close") return "Close this tab";
     if (control == "tab_pin") return "Keep this tab open";
+    if (control == "toast_close") return "Dismiss this notice";
     return {};
 }
 
