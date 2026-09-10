@@ -1098,6 +1098,59 @@ static void test_an_attach_freeze_reaches_the_catalog_row() {
                .engaged);
 }
 
+// A thread the server refused to attach reads as FAILED on its catalog row --
+// the sidebar and the tab strip both read `find_summary` -- and keeps reading
+// so across the next catalog replacement, until an attach succeeds.
+static void test_a_refused_attach_reads_as_failed_in_the_list() {
+    std::printf("test_a_refused_attach_reads_as_failed_in_the_list\n");
+    ecs::AppComponent app;
+
+    api::SessionSummary row;
+    row.id = "t3";
+    row.title = "style guide written";
+    row.state = api::ThreadState::Unknown;
+    row.tag = api::ThreadTag::Done;
+    row.preview = "three variants";
+    std::vector<api::SessionSummary> rows{row};
+    app.replace_sessions(std::move(rows));
+    CHECK(ecs::model::status_glyph(*app.find_summary("t3")) ==
+          ecs::model::StatusGlyph::Done);
+
+    // The refusal is typed, not a string the loader would have to sniff.
+    const auto refused = api::Result<api::Session>::refusal("attach refused: x");
+    CHECK(!refused.ok);
+    CHECK(refused.refused);
+    CHECK(!api::Result<api::Session>::failure("timed out").refused);
+
+    app.apply_attach_refusal("t3", refused.error);
+    const api::SessionSummary* s = app.find_summary("t3");
+    CHECK(s != nullptr);
+    if (s == nullptr) return;
+    CHECK(s->tag == api::ThreadTag::Failed);
+    CHECK(ecs::model::status_glyph(*s) == ecs::model::StatusGlyph::Blocked);
+    CHECK(ecs::model::in_blocked_view(*s));
+    CHECK(s->preview == "attach refused: x");
+    CHECK(app.is_refused("t3"));
+
+    // The next list poll knows nothing about it and must not wash it away.
+    std::vector<api::SessionSummary> poll{row};
+    app.overlay_attach_refusals(poll);
+    app.replace_sessions(std::move(poll));
+    CHECK(app.find_summary("t3")->tag == api::ThreadTag::Failed);
+    CHECK(ecs::model::status_glyph(*app.find_summary("t3")) ==
+          ecs::model::StatusGlyph::Blocked);
+
+    // A successful attach lifts it, and the poll after that reads clean.
+    app.clear_attach_refusal("t3");
+    CHECK(!app.is_refused("t3"));
+    std::vector<api::SessionSummary> clean{row};
+    app.overlay_attach_refusals(clean);
+    app.replace_sessions(std::move(clean));
+    CHECK(app.find_summary("t3")->tag == api::ThreadTag::Done);
+    CHECK(ecs::model::status_glyph(*app.find_summary("t3")) ==
+          ecs::model::StatusGlyph::Done);
+}
+
 // COLD START, then a thaw that happened while the app was closed. The cache
 // remembers a freeze; the first live poll does not. The server wins: the mark
 // goes, the brake lifts, and the re-save must not write the freeze back --
@@ -1244,6 +1297,7 @@ int main() {
     test_paused_survives_restart_and_the_next_refresh();
     test_an_attach_freeze_reaches_the_catalog_row();
     test_a_server_thaw_beats_a_cached_freeze();
+    test_a_refused_attach_reads_as_failed_in_the_list();
     test_the_mock_catalog_cannot_carry_paused();
     test_cache_wipe_keeps_visible_panes_and_rejects_old_reads();
     test_message_queue_ordering();

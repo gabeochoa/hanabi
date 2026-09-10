@@ -442,6 +442,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // disk for the next session's instant (stale) paint.
                     app.transcriptCache.put(r.value);
                     save_and_trim(app, r.value);
+                    app.clear_attach_refusal(completedId);
                     // Only swap into the view if this is still the open thread
                     // (the user may have switched tabs during a slow fetch).
                     if (pane.selectedId == completedId &&
@@ -461,6 +462,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             pane.transcriptLoadingId.clear();
                     }
                 } else if (pane.selectedId == completedId) {
+                    if (r.refused) app.apply_attach_refusal(completedId, r.error);
                     // Network fetch failed. If we already painted a stale copy
                     // from disk/LRU, KEEP it rather than blanking the pane on a
                     // transient slow-network error; only surface the error when
@@ -555,6 +557,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     apply_local_overlays(sessions);
                     app.seed_attach_brakes_from(sessions);
                     app.overlay_attach_brakes(sessions);
+                    app.overlay_attach_refusals(sessions);
                     app.replace_sessions(std::move(sessions));
                     app.listState = LoadState::Loaded;  // show stale now
                     // sessions is provably non-empty here (loaded from a
@@ -577,6 +580,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 if (r.ok) {
                     apply_local_overlays(r.value);
                     app.overlay_attach_brakes(r.value);
+                    app.overlay_attach_refusals(r.value);
                     app.replace_sessions(std::move(r.value));
                     app.listState = LoadState::Loaded;
                     app.listError.clear();

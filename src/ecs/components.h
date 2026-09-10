@@ -1386,6 +1386,51 @@ struct AppComponent : public afterhours::BaseComponent {
         if (changed) mark_session_catalog_changed();
     }
 
+    // A thread the server REFUSED to attach. The refusal arrives on the pane
+    // that tried to open it, but it is a fact about the thread, so it is
+    // written through to the catalog row and every pane showing it, and it
+    // outlives the next catalog replacement (the list poll knows nothing of
+    // it). It lifts the moment an attach succeeds.
+    std::map<std::string, std::string> attachRefusals;
+
+    static bool project_refusal(api::SessionSummary& s,
+                                const std::string& why) {
+        const bool changed = s.tag != api::ThreadTag::Failed ||
+                             s.state != api::ThreadState::Attention ||
+                             s.preview != why;
+        s.tag = api::ThreadTag::Failed;
+        s.state = api::ThreadState::Attention;
+        s.preview = why;
+        return changed;
+    }
+
+    void apply_attach_refusal(const std::string& id, const std::string& why) {
+        attachRefusals[id] = why;
+        bool changed = false;
+        for (auto& s : sessions)
+            if (s.id == id && project_refusal(s, why)) changed = true;
+        for (Pane& p : panes)
+            if (p.openSession && p.openSession->summary.id == id)
+                project_refusal(p.openSession->summary, why);
+        if (changed) mark_session_catalog_changed();
+    }
+
+    void clear_attach_refusal(const std::string& id) {
+        attachRefusals.erase(id);
+    }
+
+    bool is_refused(const std::string& id) const {
+        return attachRefusals.count(id) != 0;
+    }
+
+    void overlay_attach_refusals(std::vector<api::SessionSummary>& rows) const {
+        if (attachRefusals.empty()) return;
+        for (auto& s : rows) {
+            auto it = attachRefusals.find(s.id);
+            if (it != attachRefusals.end()) project_refusal(s, it->second);
+        }
+    }
+
     void apply_muted(const std::string& id, bool muted) {
         bool changed = false;
         for (auto& s : sessions)

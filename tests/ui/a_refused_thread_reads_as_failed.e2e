@@ -1,0 +1,15 @@
+# A thread the server refused to attach reads as failed without opening it.
+#
+# The refusal used to land only in the pane that tried (transcriptError), so
+# the sidebar row and the tab kept whatever the last catalog poll said. t3 is
+# seeded Done, so its tab wore the "Ready for review" tick; with the attach
+# refused the row is Failed, the tick is gone, and the pane says why. (The
+# Failed mark's own name, "Blocked", is also the Blocked smart view's, so the
+# tick's absence is the assertion the tab can make unambiguously.)
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t3"],"active_tab":"t3","theme":"dark"}
+# env: HANABI_MOCK_REFUSE=t3
+
+wait_frames 30
+expect_text "attach refused"
+expect_no_a11y "Ready for review"

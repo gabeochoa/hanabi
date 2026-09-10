@@ -1519,12 +1519,13 @@ void AgentcloudClient::resolve_child_questions(
 }
 
 std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
-                                              Session* out,
-                                              std::string* error) {
+                                              Session* out, std::string* error,
+                                              bool* refused) {
     const auto fail = [&](const std::string& why) {
         if (error != nullptr) *error = why;
         return std::string();
     };
+    if (refused != nullptr) *refused = false;
 
     const auto& cfg = auth_.config();
     std::string auth_err;
@@ -1566,6 +1567,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     }
     if (str_or(hello, "type", "") == "error") {
         auth_.invalidate();
+        if (refused != nullptr) *refused = true;
         return fail("attach refused: " + str_or(hello, "message", "(no message)"));
     }
 
@@ -2108,11 +2110,15 @@ Result<Session> AgentcloudClient::get_session(const std::string& id, int limit) 
     // subscription, and page inherits it. Splitting them across two sockets
     // would re-attach for nothing.
     std::string error;
+    bool refused = false;
     Session session;
     session.summary.id = id;
 
-    const std::string hello_json = attach_and_page(id, limit, &session, &error);
-    if (hello_json.empty()) return Result<Session>::failure(error);
+    const std::string hello_json =
+        attach_and_page(id, limit, &session, &error, &refused);
+    if (hello_json.empty())
+        return refused ? Result<Session>::refusal(error)
+                       : Result<Session>::failure(error);
     return Result<Session>::success(std::move(session));
 }
 

@@ -144,7 +144,7 @@ class AgentcloudClient : public Client {
         childCauses_;
 
     std::string attach_and_page(const std::string& id, int limit, Session* out,
-                                std::string* error);
+                                std::string* error, bool* refused = nullptr);
 
     agentcloud::TokenCache auth_;
 };

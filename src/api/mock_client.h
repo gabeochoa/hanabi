@@ -160,8 +160,21 @@ class MockClient : public Client {
             elicitation::action_word(action));
     }
 
+    // TEST HOOK -- off unless HANABI_MOCK_REFUSE names a thread id. That
+    // thread's attach comes back as the server's refusal, the way a session
+    // that is not yours or no longer exists answers a real attach.
+    static bool injected_refusal(const std::string& id) {
+        const char* v = std::getenv("HANABI_MOCK_REFUSE");
+        return v != nullptr && id == v;
+    }
+    static Result<Session> refusal_for(const std::string& id) {
+        return Result<Session>::refusal("attach refused: session " + id +
+                                        " is not attachable by this principal");
+    }
+
     Result<Session> get_session(const std::string& id) override {
         session_reads().fetch_add(1);
+        if (injected_refusal(id)) return refusal_for(id);
         for (auto& s : created_) {
             if (s.summary.id == id) {
                 fill_sub_agent_counts(s);

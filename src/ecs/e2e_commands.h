@@ -1076,6 +1076,34 @@ struct HandleExpectA11yPressRefusedCommand
     }
 };
 
+// The inverse of expect_a11y: the name must NOT be published. Settles only
+// after the same give-up window, so a mark that is about to appear cannot
+// pass by being early.
+struct HandleExpectNoA11yCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_no_a11y")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_no_a11y requires <name>");
+            return;
+        }
+        const std::string name = rejoin_quoted(cmd.args)[0];
+        char spoken[512] = {};
+        native_a11y_describe(name.c_str(), spoken, sizeof(spoken));
+        if (spoken[0] != '\0') {
+            cmd.fail(std::format(
+                "expect_no_a11y: '{}' is published to the platform "
+                "accessibility tree as '{}'",
+                name, spoken));
+            return;
+        }
+        std::printf("[a11y] %s is not published\n", name.c_str());
+        cmd.consume();
+    }
+};
+
 struct HandleExpectA11yCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -1428,6 +1456,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(
         std::make_unique<HandleExpectChildrenInsideCommand>());
     sm.register_update_system(std::make_unique<HandleExpectA11yCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectNoA11yCommand>());
     sm.register_update_system(std::make_unique<HandleA11yPressCommand>());
     sm.register_update_system(
         std::make_unique<HandleExpectA11yPressRefusedCommand>());

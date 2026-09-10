@@ -639,14 +639,23 @@ struct UserSettings {
 };
 
 // Result of a fetch. `ok == false` carries a human-readable error in `error`.
+// `refused` is the server answering no about the thing itself (an error frame
+// to an attach), as opposed to a transport that never answered: the first is
+// a fact about the thread and the list should say so, the second is weather.
 template <typename T>
 struct Result {
     bool ok = false;
     T value{};
     std::string error;
+    bool refused = false;
 
-    static Result success(T v) { return Result{true, std::move(v), ""}; }
-    static Result failure(std::string e) { return Result{false, T{}, std::move(e)}; }
+    static Result success(T v) { return Result{true, std::move(v), "", false}; }
+    static Result failure(std::string e) {
+        return Result{false, T{}, std::move(e), false};
+    }
+    static Result refusal(std::string e) {
+        return Result{false, T{}, std::move(e), true};
+    }
 };
 
 }  // namespace api
