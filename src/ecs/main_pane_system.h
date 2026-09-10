@@ -10599,7 +10599,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static std::string tool_label(const api::Message& m) {
         const std::string command = tool_command(m);
         std::string out;
-        if (!m.subtitle.empty() && m.subtitle != command) out = m.subtitle;
+        const std::string name = api::tool_kinds::display_name(m.subtitle);
+        if (!name.empty() && name != command) out = name;
         const std::string node = tool_node(m);
         if (!node.empty()) {
             if (!out.empty()) out += "  \xc2\xb7  ";
@@ -11147,7 +11148,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_on_draw_fg([kind](RectangleType rr) {
                     draw_tool_kind(kind, rr, theme::text_faint());
                 })
-                .with_debug_name("tool_icon"));
+                .with_debug_name("tool_icon" +
+                                 api::tool_kinds::debug_suffix(kind)));
         const float leadW = 34.0f;
         const float rightW = tool_status_width(dur, status);
         const float commandRight = showCount
@@ -11252,19 +11254,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("tool_subrow"));
+        const api::tool_kinds::Kind subKind =
+            api::tool_kinds::classify(m.subtitle);
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
                 .with_size(ComponentSize{pixels(14), pixels(16)})
                 .with_transparent_bg()
                 .with_margin(Margin{.right = pixels(5)})
-                .with_on_draw_fg([](RectangleType rr) {
-                    draw_terminal(rr, theme::text_faint());
+                .with_on_draw_fg([subKind](RectangleType rr) {
+                    if (subKind == api::tool_kinds::Kind::Generic)
+                        draw_terminal(rr, theme::text_faint());
+                    else
+                        draw_tool_kind(subKind, rr, theme::text_faint());
                 })
-                .with_debug_name("sub_icon"));
+                .with_debug_name("sub_icon" +
+                                 api::tool_kinds::debug_suffix(subKind)));
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fmtutil::ellipsize(m.subtitle, 10))
+                .with_label(fmtutil::ellipsize(
+                    api::tool_kinds::display_name(m.subtitle), 10))
                 .with_size(ComponentSize{pixels(64), pixels(16)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())

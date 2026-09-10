@@ -1,0 +1,53 @@
+# A common tool call draws as itself on screen, and its row never shows a
+# folder tool's wire spelling.
+#
+# The registry (src/api/tool_kinds.h) is pinned by its own unit test; this is
+# the other half, that the row actually DRAWS what it classified. The harness
+# cannot see a glyph, so the mark's debug name carries the kind: reaching
+# tool_icon_read IS the assertion that the call was read as a read and drawn
+# with the page mark. A folder tool is named by its kind's word or, unknown,
+# spelled as words; a bare name stays what the fleet calls it (bash is bash).
+# An unknown tool keeps the plain wrench (tool_icon, no suffix). A pile of mixed kinds keeps the wrench on its
+# head and gives each sub-row its own mark.
+#
+# settings: {"window_width":1100,"window_height":1400,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TOOLS_DEMO=1 HANABI_OPEN=rtools
+
+require_thread rtools
+
+# The transcript opens at its foot: the later calls first.
+expect_text "Done."
+assert_ui tool_icon_grep hidden=false
+assert_ui tool_icon_glob hidden=false
+assert_ui tool_icon_agent hidden=false
+assert_ui tool_icon_web hidden=false
+expect_no_text "subagent__inspect"
+expect_no_text "web__fetch"
+expect_text "agent  ·  child 9f1e"
+expect_text "web  ·  https://docs.rs/backoff"
+
+# Unknown stays generic, spelled as words.
+assert_ui tool_icon hidden=false
+expect_no_text "weather__forecast_daily"
+expect_text "weather forecast daily"
+
+# The mixed pile: wrench on the head, each sub-row its own mark.
+click_text "tool calls"
+wait_frames 6
+assert_ui sub_icon_read hidden=false
+assert_ui sub_icon_shell hidden=false
+assert_ui sub_icon_edit hidden=false
+
+# Then the earlier calls, above the window.
+mouse_move 700 500
+scroll_wheel 0 400
+wait_frames 10
+scroll_wheel 0 400
+wait_frames 10
+expect_text "wire the retry budget into the worker"
+assert_ui tool_icon_read hidden=false
+assert_ui tool_icon_edit hidden=false
+assert_ui tool_icon_write hidden=false
+assert_ui tool_icon_shell hidden=false
+expect_no_text "MultiEdit"
+expect_text "multiedit  ·  worker/retry.rs"

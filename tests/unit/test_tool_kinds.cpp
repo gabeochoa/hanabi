@@ -81,9 +81,26 @@ static void test_an_unknown_tool_keeps_the_old_headline() {
     CHECK(headline(Kind::Read, R"({"query":"q"})") == "q");
 }
 
+static void test_a_row_names_the_tool_in_words() {
+    std::printf("test_a_row_names_the_tool_in_words\n");
+    CHECK(api::tool_kinds::display_name("subagent__spawn") == "agent");
+    CHECK(api::tool_kinds::display_name("web__fetch") == "web");
+    CHECK(api::tool_kinds::display_name("WebFetch") == "webfetch");
+    CHECK(api::tool_kinds::display_name("Bash") == "bash");
+    CHECK(api::tool_kinds::display_name("python") == "python");
+    CHECK(api::tool_kinds::display_name("weather__forecast_daily") ==
+          "weather forecast daily");
+    CHECK(api::tool_kinds::display_name("meta__run") == "meta run");
+    CHECK(api::tool_kinds::display_name("__read").find("__") == std::string::npos);
+    CHECK(api::tool_kinds::display_name("") == "");
+    CHECK(api::tool_kinds::debug_suffix(api::tool_kinds::Kind::Read) == "_read");
+    CHECK(api::tool_kinds::debug_suffix(api::tool_kinds::Kind::Generic) == "");
+}
+
 int main() {
     std::printf("=== test_tool_kinds ===\n");
     test_every_spelling_of_a_kind_is_that_kind();
+    test_a_row_names_the_tool_in_words();
     test_each_kind_reads_its_own_argument();
     test_an_unknown_tool_keeps_the_old_headline();
     if (failures == 0) {

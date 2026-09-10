@@ -93,6 +93,29 @@ inline std::string first_of(const nlohmann::json& j,
 // as the wire carries it, a JSON string of the argument object; anything
 // that is not one comes back untouched, as does an object with nothing this
 // kind knows how to read.
+// What a row calls the tool. A bare name is what the fleet calls it, in
+// lower case (bash stays bash, not "shell"); a folder name of a known kind is
+// the kind's word (subagent__inspect reads "agent"); a folder name this table
+// does not know is spelled as words (weather__forecast_daily reads "weather
+// forecast daily"). The wire spelling itself never reaches the reader.
+inline std::string display_name(std::string_view tool_name) {
+    std::string out = lower(tool_name);
+    const size_t sep = out.find("__");
+    if (sep == std::string::npos) return out;
+    const Kind k = classify(tool_name);
+    if (k != Kind::Generic) return word(k);
+    if (sep > 0 && sep + 2 < out.size()) out.replace(sep, 2, " ");
+    for (char& c : out)
+        if (c == '_') c = ' ';
+    return out;
+}
+
+// The kind's word as a debug-name suffix, so a scripted test can reach the
+// mark a row drew; empty for Generic, whose names stay as they were.
+inline std::string debug_suffix(Kind k) {
+    return k == Kind::Generic ? std::string() : std::string("_") + word(k);
+}
+
 inline std::string headline(Kind kind, const std::string& raw) {
     using detail::first_of;
     using detail::str;

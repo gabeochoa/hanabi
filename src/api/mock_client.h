@@ -1021,7 +1021,7 @@ class MockClient : public Client {
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
-        "HANABI_ASK_DEMO",
+        "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
     //
@@ -2162,6 +2162,54 @@ class MockClient : public Client {
             };
             for (auto& mm : s.messages)
                 if (mm.role == Role::Tool) mm.tool_node = "cli:aspen";
+            v.push_back(std::move(s));
+        }
+
+        // TOOL-KIND FIXTURE: one call of each common kind, spelled the way the
+        // wire spells it, each alone so it draws as its own row, and one pile
+        // of mixed kinds. Seeded only under HANABI_TOOLS_DEMO.
+        if (const char* td = std::getenv("HANABI_TOOLS_DEMO");
+            td && *td && std::string(td) != "0") {
+            Session s;
+            s.summary = calm("rtools", "wire the retry budget",
+                             hrs_ago(1), "active", ThreadState::Unknown,
+                             "tool kind fixture");
+            auto tool = [&](const char* id, const char* name,
+                            const char* text, const char* result) {
+                Message m{id, Role::Tool, text, hrs_ago(1), name};
+                m.tool_result = result;
+                m.tool_status = "completed";
+                m.tool_duration_ms = 400;
+                return m;
+            };
+            s.messages = {
+                {"tk0", Role::User, "wire the retry budget into the worker",
+                 hrs_ago(2), ""},
+                tool("tk1", "read", "worker/retry.rs", "fn retry_budget()"),
+                {"tk1a", Role::Assistant, "Found the budget.", hrs_ago(1), ""},
+                tool("tk2", "MultiEdit", "worker/retry.rs",
+                     "@@ -1,2 +1,3 @@\n-old\n+new"),
+                {"tk2a", Role::Assistant, "Edited.", hrs_ago(1), ""},
+                tool("tk3", "write", "worker/retry_test.rs", ""),
+                {"tk3a", Role::Assistant, "Test written.", hrs_ago(1), ""},
+                tool("tk4", "bash", "cargo test -p worker", "ok. 12 passed"),
+                {"tk4a", Role::Assistant, "Green.", hrs_ago(1), ""},
+                tool("tk5", "grep", "retry_budget", "worker/retry.rs:4"),
+                {"tk5a", Role::Assistant, "One caller.", hrs_ago(1), ""},
+                tool("tk6", "glob", "**/*.rs", "worker/retry.rs"),
+                {"tk6a", Role::Assistant, "Three files.", hrs_ago(1), ""},
+                tool("tk7", "subagent__inspect", "child 9f1e", "settled: done"),
+                {"tk7a", Role::Assistant, "Child settled.", hrs_ago(1), ""},
+                tool("tk8", "web__fetch", "https://docs.rs/backoff", "200 OK"),
+                {"tk8a", Role::Assistant, "Read the docs.", hrs_ago(1), ""},
+                tool("tk9", "weather__forecast_daily", "{\"city\":\"nyc\"}",
+                     "sunny"),
+                {"tk9a", Role::Assistant, "Unrelated.", hrs_ago(1), ""},
+                tool("tkp1", "read", "worker/breaker.rs", "fn should_open()"),
+                tool("tkp2", "bash", "wc -l worker/breaker.rs", "40"),
+                tool("tkp3", "edit", "worker/breaker.rs", "@@ -1 +1 @@"),
+                {"tkz", Role::Assistant, "Done.", hrs_ago(1), ""},
+            };
             v.push_back(std::move(s));
         }
 
