@@ -28,7 +28,6 @@
 #include "test_hooks.h"
 #include "util/capture_clock.h"
 #include "util/autorelease.h"
-#define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
 #include "frame_activity_collect.h"
 #include "util/gpu_mem.h"

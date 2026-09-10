@@ -4,7 +4,7 @@
 // per-frame classification (which runs at token rate).
 //
 // Build (from the repo root):
-//   clang++ -std=c++23 -O2 -DFMT_HEADER_ONLY -isystem vendor/ \
+//   clang++ -std=c++23 -O2 -include src/build_config.h -isystem vendor/ \
 //       -isystem vendor/afterhours/vendor/ -I. tools/bench_data_layer.cpp \
 //       src/api/disk_cache.cpp vendor/afterhours/src/plugins/files.cpp \
 //       -o output/bench_dl -fobjc-arc -framework Foundation

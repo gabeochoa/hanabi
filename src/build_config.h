@@ -1,7 +1,6 @@
 #pragma once
 
 #define AFTER_HOURS_UI_SINGLE_COLLECTION
-#define AFTER_HOURS_USE_METAL
 #define AFTERHOURS_DEFAULT_TEXT_INSET 5.f
 // afterhours clamps every resolved font size up to this floor
 // (plugins/ui/rendering.h), and upstream 0248b9f raised its default from 10 to
@@ -14,5 +13,4 @@
 // dropped: Theme::min_font_size_warn_720p reports a request under the floor
 // instead of silently resizing it.
 #define AFTERHOURS_MIN_FONT_SIZE 10.0f
-#define HANABI_GPU_ACCOUNTING
 #define FMT_HEADER_ONLY

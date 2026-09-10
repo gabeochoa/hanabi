@@ -322,6 +322,13 @@ J
         verdict="FAIL"
         fail=1
     fi
+    if awk -v a="$allocs" 'BEGIN{exit !(a+0 == 0)}'; then
+        printf '  %-11s %12s %10s %8s   NOT MEASURED — zero allocations a frame: the counter is not linked (src/util/prof_alloc.cpp)\n' \
+            "$name" "$allocs" "$ceiling" "$pct%"
+        rm -rf "$h"
+        fail=1
+        return
+    fi
 
     # The fixture check, BEFORE the number is believed. HANABI_PROF prints one
     # counter row per label as `[prof] <label> <calls> <calls/f>`; the floor is

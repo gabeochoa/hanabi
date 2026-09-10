@@ -14,7 +14,7 @@
 // of it.
 //
 // Build (from the repo root):
-//   clang++ -std=c++23 -O2 -DFMT_HEADER_ONLY -isystem vendor/ \
+//   clang++ -std=c++23 -O2 -include src/build_config.h -isystem vendor/ \
 //       -isystem vendor/afterhours/vendor/ -I. tools/bench_search_index.cpp \
 //       src/api/disk_cache.cpp vendor/afterhours/src/plugins/files.cpp \
 //       -o output/bench_si -fobjc-arc -framework Foundation

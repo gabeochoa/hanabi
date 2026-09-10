@@ -33,7 +33,6 @@
 // The negative is the half that actually bites: a chord written without its
 // modifier would make plain Backspace eat a whole word.
 
-#define FMT_HEADER_ONLY
 #define AFTER_HOURS_ENTITY_HELPER
 #define AFTER_HOURS_ENTITY_QUERY
 #define AFTER_HOURS_SYSTEM

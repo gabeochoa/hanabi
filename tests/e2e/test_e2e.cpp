@@ -15,11 +15,6 @@
 #include <string>
 
 // afterhours ECS core only (headless-safe: no graphics backend linked).
-// FMT_HEADER_ONLY so the autolayout include below (which uses fmt::format for
-// its debug/overflow messages) links without the fmt library — the test build
-// doesn't link libfmt (only the main app does). Must be defined before any
-// afterhours header pulls in fmt.
-#define FMT_HEADER_ONLY
 #define AFTER_HOURS_ENTITY_HELPER
 #define AFTER_HOURS_ENTITY_QUERY
 #define AFTER_HOURS_SYSTEM

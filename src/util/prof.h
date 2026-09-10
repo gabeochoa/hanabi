@@ -156,8 +156,7 @@ inline void frame_cpu(unsigned long long ns) {
 // the frame at all.
 //
 // A global operator new/delete counter sees every C++ allocation, transient
-// ones included. Defined in exactly one TU (main.cpp) via
-// HANABI_PROF_DEFINE_ALLOC_COUNTERS. Costs one predicted branch and one
+// ones included. Costs one predicted branch and one
 // non-atomic increment per allocation next to malloc's own tens of
 // nanoseconds; measured at zero effect on frame CPU.
 inline unsigned long long& alloc_count() {
@@ -203,10 +202,7 @@ inline bool sites_enabled() {
     return on;
 }
 
-#ifndef HANABI_PROF_SITE_DEPTH
-#define HANABI_PROF_SITE_DEPTH 8
-#endif
-inline constexpr size_t kSiteDepth = HANABI_PROF_SITE_DEPTH;
+inline constexpr size_t kSiteDepth = 8;
 inline constexpr size_t kSiteSlots = 16384;
 
 struct Site {
@@ -365,29 +361,3 @@ inline void dump() {
 }
 
 }  // namespace hanabi::prof
-
-// Define the global operator new / delete counters. EXACTLY ONE TU may do
-// this; main.cpp does.
-#ifdef HANABI_PROF_DEFINE_ALLOC_COUNTERS
-#include <cstdlib>
-#include <new>
-void* operator new(std::size_t n) {
-    if (hanabi::prof::enabled()) {
-        ++hanabi::prof::alloc_count();
-        hanabi::prof::alloc_bytes() += n;
-        if (hanabi::prof::sites_enabled()) {
-            const void* pc[hanabi::prof::kSiteDepth];
-            hanabi::prof::capture_site(pc);
-            hanabi::prof::record_site(pc, n);
-        }
-    }
-    void* p = std::malloc(n == 0 ? 1 : n);
-    if (p == nullptr) throw std::bad_alloc();
-    return p;
-}
-void* operator new[](std::size_t n) { return operator new(n); }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete[](void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
-#endif
