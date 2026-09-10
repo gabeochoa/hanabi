@@ -18,6 +18,7 @@
 
 #include "../test_hooks.h"
 #include "../util/clipboard.h"
+#include "../ui/link_detect.h"
 #include "../util/format.h"
 #include "tab_colors.h"
 #include "tab_model.h"
@@ -807,12 +808,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             int action;
             const char* debugName;
         };
-        static constexpr std::array<Entry, 8> kItems{{
+        static constexpr std::array<Entry, 10> kItems{{
             {"Rename\xe2\x80\xa6", 3, "tab_menu_rename"},
+            {"Copy title", 8, "tab_menu_copy_title"},
             {"Fork session", 6, "tab_menu_fork"},
             {nullptr, 4, "tab_menu_pin"},
             {"Copy session link", 0, "tab_menu_copy"},
             {"Copy session ID", 7, "tab_menu_copy_id"},
+            {"Open in browser", 9, "tab_menu_open_web"},
             {"Open in split", 2, "tab_menu_split"},
             {"Close others", 1, "tab_menu_close_others"},
             {"Close all tabs", 5, "tab_menu_close_all"},
@@ -851,6 +854,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     model::navi_url_for(app.webBaseUrl, keepId));
             } else if (action == 7) {
                 hanabi::clipboard::set_text(keepId);
+            } else if (action == 8) {
+                const auto* sum = app.find_summary(keepId);
+                hanabi::clipboard::set_text(sum != nullptr ? sum->title
+                                                           : tab.label);
+            } else if (action == 9) {
+                hanabi::links::open(model::navi_url_for(app.webBaseUrl, keepId));
             } else if (action == 2) {
                 // Open in split (I2): show this thread in the RIGHT pane
                 // beside the active one. No-op if it's the active thread.

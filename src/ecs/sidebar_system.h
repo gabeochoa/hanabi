@@ -31,6 +31,7 @@
 #include "../test_hooks.h"
 #include "../settings.h"
 #include "../util/clipboard.h"
+#include "../ui/link_detect.h"
 #include "../util/prof.h"
 #include "../version.h"
 #include "../util/ellipsize.h"
@@ -699,9 +700,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         enum class Action {
             Open,
             Rename,
+            CopyTitle,
             Fork,
             CopyLink,
             CopyId,
+            OpenWeb,
             Archive,
             Mute,
             ResetOrder,
@@ -723,10 +726,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         actions.push_back(Action::Open);
         add("Rename\xe2\x80\xa6", "row_menu_rename", Action::Rename,
             !(app.client && app.client->supports_rename()));
+        add("Copy title", "row_menu_copy_title", Action::CopyTitle,
+            target->title.empty());
         add("Fork session", "row_menu_fork", Action::Fork,
             !(app.client && app.client->supports_fork()));
         add("Copy session link", "row_menu_copy_link", Action::CopyLink);
         add("Copy session ID", "row_menu_copy_id", Action::CopyId);
+        add("Open in browser", "row_menu_open_web", Action::OpenWeb);
         add(model::is_archived(*target) ? "Unarchive" : "Archive",
             "row_menu_archive", Action::Archive, false,
             !model::is_archived(*target));
@@ -779,6 +785,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::CopyId:
                     hanabi::clipboard::set_text(targetId);
+                    break;
+                case Action::CopyTitle:
+                    hanabi::clipboard::set_text(target->title);
+                    break;
+                case Action::OpenWeb:
+                    hanabi::links::open(
+                        model::navi_url_for(app.webBaseUrl, targetId));
                     break;
                 case Action::Archive:
                     app.requestToggleArchive = targetId;

@@ -3,24 +3,24 @@
 
 wait_frames 20
 
-right_click 200 310
+right_click 200 400
 wait_frames 10
 expect_text "CONVERSATION"
-assert_ui row_menu x=200 y=310 w=184 h=288
+assert_ui row_menu x=200 y=256 w=184 h=360
 
 arrow down
 wait_frames 6
 arrow right
 wait_frames 10
 expect_text "Open in a tab"
-assert_ui row_menu_open_submenu x=20 y=342 w=184 h=80
-assert_ui row_menu_open_tab x=24 y=346 w=176 h=36
+assert_ui row_menu_open_submenu x=20 y=288 w=184 h=80
+assert_ui row_menu_open_tab x=24 y=292 w=176 h=36
 
 key ESCAPE
 wait_frames 8
 expect_no_text "Open in a tab"
 expect_text "CONVERSATION"
-assert_ui row_menu x=200 y=310 w=184 h=288
+assert_ui row_menu x=200 y=256 w=184 h=360
 
 key ESCAPE
 wait_frames 8

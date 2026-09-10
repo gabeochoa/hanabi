@@ -33,8 +33,8 @@ expect_latency menu_close 4
 right_click 120 400
 wait_frames 10
 watch_ink menu_press press row_menu_archive
-mouse_down 212 612
+mouse_down 212 698
 wait_frames 10
 expect_latency menu_press 4
-mouse_up 212 612
+mouse_up 212 698
 wait_frames 8

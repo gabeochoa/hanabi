@@ -12,6 +12,8 @@ arrow down
 wait_frames 6
 arrow down
 wait_frames 6
+arrow down
+wait_frames 6
 expect_text "Copy session link"
 
 key ENTER

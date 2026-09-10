@@ -6,8 +6,8 @@ right_click 120 400
 wait_frames 8
 
 expect_text "Rename…"
-assert_ui row_menu_rename x=124 y=468 w=176 h=36
-assert_ui row_menu h=288
+assert_ui row_menu_rename x=124 y=464 w=176 h=36
+assert_ui row_menu h=360
 
 click 212 486
 wait_frames 10
