@@ -180,7 +180,7 @@ echo "  App exit:   ${APP_RC}"
 if [ "${HANABI_MEASURE_WINDOWED:-0}" != "0" ]; then
     WLOG="$(mktemp -t hanabi_win_XXXX).log"
     ( HANABI_QUIT_AFTER_FIRST_FRAME=1 HANABI_STARTUP_PROF=1 \
-        timeout "$RUN_TIMEOUT" "$EXE" >"$WLOG" 2>&1 ) || true
+        watchdog_run "$RUN_TIMEOUT" "$EXE" >"$WLOG" 2>&1 ) || true
     kill_own_runs
     WFF=$(grep -Eo 'WindowedFirstFrame: [0-9]+ ms' "$WLOG" | grep -Eo '[0-9]+' | head -1)
     WGFX=$(grep -Eo 'Gfx init: [0-9]+ ms' "$WLOG" | grep -Eo '[0-9]+' | head -1)

@@ -108,6 +108,8 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=scripts/watchdog.sh
+. "$ROOT/scripts/watchdog.sh"
 EXE="$ROOT/output/hanabi.exe"
 
 ENTITY_RATIO_CEILING="${HANABI_SCROLL_ENTITY_CEILING:-1.60}"
@@ -147,7 +149,7 @@ fi
 run() {  # $1=sessions $2=frames $3=every $4=settle ; leaves output in $LOG
     HANABI_STRESS_SESSIONS="$1" HANABI_SOAK="$2" HANABI_SOAK_EVERY="$3" \
         HANABI_STRESS_SETTLE="$4" \
-        timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1
+        watchdog_run "$RUN_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1
 }
 
 # The LAST bucket's entity count. The first buckets carry lazy-init; the last

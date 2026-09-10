@@ -107,6 +107,8 @@ FRAMES="${HANABI_DIGEST_FRAMES:-60}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=scripts/watchdog.sh
+. "$ROOT/scripts/watchdog.sh"
 EXE="$ROOT/output/hanabi.exe"
 SHOT="$(mktemp -t hanabi_digest_XXXX).png"
 LOG="$(mktemp -t hanabi_digest_XXXX).log"
@@ -198,7 +200,7 @@ export HANABI_STRESS_ARCHIVED=10
 measure() {  # $1 = view, $2 = session count
     local view="$1" n="$2" w b m cards
     ( HANABI_VIEW="$view" HANABI_STRESS_SESSIONS="$n" \
-          timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1 ) || true
+          watchdog_run "$RUN_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1 ) || true
     cards="$(grep -E 'DigestCards:' "$LOG" | head -1)"
     w="$(grep -Eo 'widgets=[0-9]+' "$LOG" | head -1 | cut -d= -f2)"
     b="$(printf '%s' "$cards" | grep -Eo 'built=[0-9]+' | cut -d= -f2)"

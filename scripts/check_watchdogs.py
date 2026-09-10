@@ -33,7 +33,15 @@ decidable from the line itself, it is the half that costs the time, and a job
 that redirects is harmless even when it IS orphaned.  So the check gates the
 half it can see and names the other half in the message.
 
-Exit 0 = clean.  Exit 1 = at least one unredirected sleeping background job.
+WHAT ELSE IT CHECKS.  No script calls ``timeout`` or ``gtimeout``.  macOS
+ships neither, and the ``/usr/local/bin/timeout`` a homebrew install once
+linked on these Macs is a dangling symlink, so the call exits 127 with an
+empty reading, which a gate that discards stderr reports as a product failure
+(nine FAIL rows on a clean main, every one reading "got /0 calls").
+``watchdog_run`` in ``scripts/watchdog.sh`` is the bound to use.
+
+Exit 0 = clean.  Exit 1 = at least one unredirected sleeping background job
+or one timeout(1) call.
 """
 
 import re
@@ -51,6 +59,9 @@ SLEEPS = re.compile(r"\bsleep\s")
 # A redirect of stdout (or of everything) applied to the job. `>/dev/null`,
 # `> /dev/null`, `&>/dev/null`, `>&-`, or a redirect into a file.
 REDIRECTS_STDOUT = re.compile(r"(^|\s)(&>|\d?>)")
+# `timeout` or `gtimeout` in command position: not `--timeout`, `$timeout`,
+# `./timeout`, and not a word inside a quoted string.
+TIMEOUT_BINARY = re.compile(r"(?<![\w\-./])g?timeout\s")
 
 
 def strip_comment(line: str) -> str:
@@ -102,6 +113,45 @@ def offenders(path: Path):
     return found
 
 
+def inside_quotes(text: str) -> bool:
+    stack = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        top = stack[-1] if stack else None
+        if top == "'":
+            if c == "'":
+                stack.pop()
+        elif c == "\\":
+            i += 2
+            continue
+        elif text.startswith("$(", i):
+            stack.append("(")
+            i += 2
+            continue
+        elif top == '"':
+            if c == '"':
+                stack.pop()
+        elif c in "\"'":
+            stack.append(c)
+        elif c == ")" and top == "(":
+            stack.pop()
+        i += 1
+    return bool(stack) and stack[-1] in "\"'"
+
+
+def timeout_offenders(path: Path):
+    """(lineno, text) for each line that invokes timeout(1) or gtimeout."""
+    found = []
+    for lineno, raw in enumerate(path.read_text().splitlines(), start=1):
+        code = strip_comment(raw)
+        for m in TIMEOUT_BINARY.finditer(code):
+            if not inside_quotes(code[: m.start()]):
+                found.append((lineno, raw.strip()))
+                break
+    return found
+
+
 def main() -> int:
     if not SCRIPTS.is_dir():
         print("check_watchdogs: scripts/ is gone; nothing could be checked, so "
@@ -110,10 +160,13 @@ def main() -> int:
 
     scanned = 0
     all_found = []
+    timeouts = []
     for path in sorted(SCRIPTS.glob("*.sh")):
         scanned += 1
         for lineno, snippet in offenders(path):
             all_found.append((path, lineno, snippet))
+        for lineno, snippet in timeout_offenders(path):
+            timeouts.append((path, lineno, snippet))
 
     if scanned == 0:
         print("check_watchdogs: no shell scripts found under scripts/. This "
@@ -121,12 +174,27 @@ def main() -> int:
               "rather than a clean tree")
         return 1
 
-    if not all_found:
+    if not all_found and not timeouts:
         print(f"check_watchdogs: {scanned} scripts, no background sleep holds "
-              "the caller's stdout")
+              "the caller's stdout, no timeout(1) call")
         return 0
 
     print("check_watchdogs: FAIL")
+    if timeouts:
+        for path, lineno, snippet in timeouts:
+            print(f"  {path.relative_to(ROOT)}:{lineno}: timeout(1) invoked")
+            print(f"      {snippet}")
+        print()
+        print("  macOS ships no timeout(1). On these Macs /usr/local/bin/timeout")
+        print("  is a dangling homebrew symlink, so this line exits 127 with an")
+        print("  empty reading, and a gate that discards stderr reports that as")
+        print("  a product failure. Bound the run with the shared helper:")
+        print()
+        print('      . "$ROOT/scripts/watchdog.sh"')
+        print('      watchdog_run "$RUN_TIMEOUT" "$EXE" args... >"$LOG" 2>&1')
+        print()
+    if not all_found:
+        return 1
     for path, lineno, snippet in all_found:
         print(f"  {path.relative_to(ROOT)}:{lineno}: a backgrounded job that "
               "sleeps, with the caller's stdout")

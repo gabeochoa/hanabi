@@ -83,6 +83,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT" || exit 2
+# shellcheck source=scripts/watchdog.sh
+. "$ROOT/scripts/watchdog.sh"
 EXE="$ROOT/output/hanabi.exe"
 
 SHORT_TURNS="${HANABI_EVENTS_SHORT_TURNS:-15}"
@@ -120,13 +122,13 @@ if [ ! -x "$EXE" ]; then
 fi
 
 run() {  # $1 = turns; leaves output in $LOG
-    env HOME="$HOMEDIR" HANABI_WIN_W=1180 HANABI_WIN_H=949 \
+    HOME="$HOMEDIR" HANABI_WIN_W=1180 HANABI_WIN_H=949 \
         HANABI_BACKEND=mock HANABI_CONFIG=/nonexistent/hanabi/events-gate.json \
         HANABI_BIG_TRANSCRIPT=1 HANABI_BIG_TURNS="$1" HANABI_BIG_EVENTS=1 \
         HANABI_OPEN=rbig HANABI_PROF=1 HANABI_STRESS=idle \
         HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY="$BUCKET" \
         HANABI_SOAK_CENSUS=1 \
-        timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1
+        watchdog_run "$RUN_TIMEOUT" "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1
 }
 
 gauge() { grep -E "^\[prof\] $1 " "$LOG" | awk '{print $NF}' | tail -1; }

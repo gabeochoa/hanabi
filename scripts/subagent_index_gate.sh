@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT" || exit 2
+# shellcheck source=scripts/watchdog.sh
+. "$ROOT/scripts/watchdog.sh"
 
 EXE="${1:-$ROOT/output/hanabi.exe}"
 FRAMES="${HANABI_SUBAGENT_INDEX_FRAMES:-600}"
@@ -19,12 +21,12 @@ mkdir -p "$HOME_DIR/Library/Application Support/hanabi"
 printf '%s\n' '{"window_width":1180,"window_height":949,"theme":"dark","subagent_sidebar_open":true}' \
     > "$HOME_DIR/Library/Application Support/hanabi/settings.json"
 
-if ! env HOME="$HOME_DIR" HANABI_CACHE_DIR="$HOME_DIR/cache" \
+if ! HOME="$HOME_DIR" HANABI_CACHE_DIR="$HOME_DIR/cache" \
     HANABI_CONFIG=/nonexistent/hanabi/subagent-index.json \
     HANABI_BACKEND=mock HANABI_WIN_W=1180 HANABI_WIN_H=949 \
     HANABI_STRESS_SESSIONS=2000 HANABI_PROF=1 HANABI_SOAK="$FRAMES" \
     HANABI_SOAK_WARM_FRAMES=0 HANABI_SOAK_EVERY=200 \
-    HANABI_STRESS=idle timeout 120 "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1; then
+    HANABI_STRESS=idle watchdog_run 120 "$EXE" --screenshot "$SHOT" >"$LOG" 2>&1; then
     echo "subagent-index-gate: INCOMPLETE — app failed or timed out" >&2
     tail -30 "$LOG" >&2
     exit 2

@@ -52,6 +52,11 @@
 #
 # `watchdog_start`'s third argument is optional and names a function to run
 # after the kill, for a caller that has more to tear down than the one pid.
+#
+# A foreground run that only needs the bound is `watchdog_run 120 "$EXE" args...`:
+# it returns the command's exit status (137 once killed). Reach for it where
+# timeout(1) would be typed; macOS does not ship one, and a gate that calls it
+# exits 127 with an empty reading that looks exactly like a product failure.
 
 # Poll `pid` for at most `secs` seconds; kill it and run `on_kill` if it is
 # still alive at the end. Returns as soon as the pid is gone.
@@ -81,4 +86,16 @@ watchdog_stop() {
     kill "$WATCHDOG_PID" >/dev/null 2>&1 || true
     wait "$WATCHDOG_PID" 2>/dev/null || true
     WATCHDOG_PID=""
+}
+
+watchdog_run() {
+    local secs="$1"
+    shift
+    "$@" &
+    local pid=$!
+    watchdog_start "$pid" "$secs"
+    local rc=0
+    wait "$pid" || rc=$?
+    watchdog_stop
+    return "$rc"
 }

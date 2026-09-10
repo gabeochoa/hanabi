@@ -79,6 +79,8 @@ REPEATS="${HANABI_SCALE_REPEATS:-2}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=scripts/watchdog.sh
+. "$ROOT/scripts/watchdog.sh"
 EXE="$ROOT/output/hanabi.exe"
 SHOT="$(mktemp -t hanabi_scale_XXXX).png"
 LOG="$(mktemp -t hanabi_scale_XXXX).log"
@@ -105,7 +107,7 @@ measure() {  # $1 = session count; echoes "<widgets> <best_min_ms>"
     local n="$1" widgets="" best=""
     local i out w m
     for i in $(seq 1 "$REPEATS"); do
-        ( HANABI_STRESS_SESSIONS="$n" timeout "$RUN_TIMEOUT" "$EXE" \
+        ( HANABI_STRESS_SESSIONS="$n" watchdog_run "$RUN_TIMEOUT" "$EXE" \
               --screenshot "$SHOT" >"$LOG" 2>&1 ) || true
         out="$(grep -Eo 'widgets=[0-9]+ min=[0-9.]+ms' "$LOG" | head -1)"
         [ -n "$out" ] || continue
