@@ -1775,6 +1775,9 @@ class MockClient : public Client {
             s.messages.push_back(
                 event_row(EventKind::Goal, "",
                           "Move tenant classes to new quota", mins_ago(24)));
+            s.messages.push_back(event_row(EventKind::Unsupported,
+                                           "quota_ledger_rebalanced", "",
+                                           mins_ago(23)));
             v.push_back(std::move(s));
         }
         {

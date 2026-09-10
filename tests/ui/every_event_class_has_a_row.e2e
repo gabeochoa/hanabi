@@ -37,6 +37,10 @@ expect_text "Migration cutover — 2 of 4"
 expect_text "goal"
 expect_text "Move tenant classes to new quota"
 
+# A tag this build does not know is still a row, and it says which tag.
+expect_text "unknown"
+expect_text "quota_ledger_rebalanced"
+
 # A delivery is folded — it has a body worth reading, so it discloses rather
 # than being ellipsized into a stamp. Closed, the head shows; the body does not.
 expect_text "delivered"

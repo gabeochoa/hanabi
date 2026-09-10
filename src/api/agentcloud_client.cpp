@@ -722,6 +722,44 @@ namespace agentcloud {
 
 namespace {
 
+// The shipped SessionEvent vocabulary minus what parse_page_frames renders.
+// A tag in neither place is one this build has never seen, and that one
+// draws an Unsupported row instead of vanishing.
+bool is_silent_wire_event(const std::string& type) {
+    static const std::set<std::string> kSilent = {
+        "session_created", "options_changed", "session_renamed",
+        "reply_target_configured", "fork_boundary", "epoch_change_started",
+        "epoch_change_completed", "run_resumed", "input_applied",
+        "queued_input_dropped", "queued_input_edited", "run_started",
+        "run_finished", "model_call_started", "model_call_settled",
+        "model_call_superseded", "model_call_fallback",
+        "tool_approval_requested", "tool_approval_resolved", "task_detached",
+        "task_retagged", "task_cancel_requested", "context_contributed",
+        "mcp_tool_enabled", "mcp_tool_disabled", "compacted",
+        "working_context_changed", "node_lease_renewed", "node_lease_expiring",
+        "node_lease_close_noticed", "node_grant_issued", "harness_bound",
+        "harness_unbound", "harness_tuning_delivered", "harness_transcript",
+        "subscription_added", "subscription_removed", "subscription_checkpoint",
+        "subscription_hook_intent", "subscription_hook_settled",
+        "outbound_enqueued", "outbound_settled", "channel_message_received",
+        "channel_reply_delivered", "compact_requested", "compact_applied",
+        "artifact_created", "artifact_version_added", "artifact_shown",
+        "artifact_hidden", "artifact_metadata_updated", "noop", "block_delta",
+        "tool_output", "compaction_started", "usage_delta", "telemetry",
+        "reply_handled", "session_halted", "session_resumed",
+        "elicitation_requested", "elicitation_resolved",
+        "option_defaults_changed", "child_elicitation_notice",
+        "control_mode_changed", "channel_replies_paused",
+        "channel_replies_resumed", "tool_checkpoint",
+        "elicitation_notice_settled", "child_elicitation_update",
+        "admin_action", "refs_discovered", "container_changed",
+        "session_archived", "session_unarchived",
+        "legacy_archive_authority_consumed", "task_dispatched",
+        "halt_mark_arrived", "checkpoint_chunk",
+    };
+    return kSilent.count(type) > 0;
+}
+
 SessionPlanStep::Status plan_status(const std::string& value) {
     if (value == "pending") return SessionPlanStep::Status::Pending;
     if (value == "in_progress") return SessionPlanStep::Status::InProgress;
@@ -1000,10 +1038,9 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
         } else if (type == "goal_updated") {
             if (auto goal = goal_from_json(obj_at(e, "goal")))
                 push_event(EventKind::Goal, "", goal_line(*goal));
+        } else if (!is_silent_wire_event(type)) {
+            push_event(EventKind::Unsupported, type, "");
         }
-        // Everything else -- run_started, model_call_*, epoch_change_*, noop
-        // and the rest of a vocabulary the server says will grow -- folds as
-        // nothing on purpose.
     }
     return out;
 }

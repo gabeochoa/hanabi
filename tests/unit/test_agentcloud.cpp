@@ -382,18 +382,33 @@ static void test_tool_use_block_does_not_double_the_row() {
     CHECK(out[0].role == Role::Tool);
 }
 
-static void test_unknown_events_fold_as_nothing() {
-    // The server says the vocabulary grows. A new variant must not throw and
-    // must not render as a blank row.
+static void test_known_bookkeeping_events_fold_as_nothing() {
     const std::string reply = R"({"type":"page","frames":[
       {"seq":1,"event":{"type":"run_started"}},
       {"seq":2,"event":{"type":"model_call_settled"}},
-      {"seq":3,"event":{"type":"something_invented_next_quarter","x":1}},
+      {"seq":3,"event":{"type":"noop"}},
       {"seq":4,"event":{"type":"user_input","text":"still here"}}
     ]})";
     const auto out = parse_page_frames(reply);
     CHECK(out.size() == 1);
     CHECK(out[0].text == "still here");
+}
+
+static void test_an_unknown_event_draws_a_row_naming_its_tag() {
+    // The server says the vocabulary grows. A tag this build has never seen
+    // must not vanish: the reader gets a muted row that names it.
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":3,"created_at_unix_ms":1700000000000,
+       "event":{"type":"something_invented_next_quarter","x":1}},
+      {"seq":4,"event":{"type":"user_input","text":"still here"}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 2);
+    CHECK(out[0].kind == api::EventKind::Unsupported);
+    CHECK(out[0].role == Role::System);
+    CHECK(out[0].subtitle == "something_invented_next_quarter");
+    CHECK(out[0].created_at == 1700000000);
+    CHECK(out[1].text == "still here");
 }
 
 static void test_bad_page_input_is_empty_not_a_crash() {
@@ -1491,7 +1506,8 @@ int main() {
     test_failed_tool_reports_failed();
     test_result_for_an_offpage_intent_is_dropped();
     test_tool_use_block_does_not_double_the_row();
-    test_unknown_events_fold_as_nothing();
+    test_known_bookkeeping_events_fold_as_nothing();
+    test_an_unknown_event_draws_a_row_naming_its_tag();
     test_bad_page_input_is_empty_not_a_crash();
     test_accumulated_text_becomes_an_increment();
     test_a_new_block_is_emitted_whole_not_diffed();

@@ -11368,7 +11368,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::EventKind::Notice:
             case api::EventKind::Status:
             case api::EventKind::Plan:
-            case api::EventKind::Goal: return true;
+            case api::EventKind::Goal:
+            case api::EventKind::Unsupported: return true;
             default: return false;
         }
     }
@@ -11389,6 +11390,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::EventKind::Goal:     return {"goal", theme::status_active()};
             case api::EventKind::Notice:   return {"notice", theme::destructive()};
             case api::EventKind::Delivery: return {"delivered", theme::accent()};
+            case api::EventKind::Unsupported:
+                return {"unknown", theme::text_faint()};
             default:                       return {"event", theme::text_faint()};
         }
     }
