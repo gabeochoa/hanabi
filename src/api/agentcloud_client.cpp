@@ -1520,7 +1520,8 @@ void AgentcloudClient::resolve_child_questions(
 
 std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
                                               Session* out, std::string* error,
-                                              bool* refused) {
+                                              bool* refused,
+                                              std::uint64_t since_seq) {
     const auto fail = [&](const std::string& why) {
         if (error != nullptr) *error = why;
         return std::string();
@@ -1592,6 +1593,9 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     // transcript, which is how this first went wrong.
     const bool want_all = (limit <= 0);
     const int per_page = want_all ? 500 : (limit > 500 ? 500 : limit);
+    // A resume pages until it reaches the seq the caller already holds, so a
+    // long absence is drained whole instead of clipped to one window.
+    const bool resume = !want_all && since_seq > 0;
     // A session can be millions of seqs long; "all" has to mean "all we will
     // sit here for". 20 pages of 500 is 10k frames, well past any transcript a
     // person reads, and the caller still learns there is more.
@@ -1603,7 +1607,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     std::vector<json> pages;
     uint64_t before = std::numeric_limits<uint64_t>::max();
     bool done = false;
-    for (int p = 0; p < (want_all ? kMaxPages : 1) && !done; ++p) {
+    for (int p = 0; p < ((want_all || resume) ? kMaxPages : 1) && !done; ++p) {
         const json page_env = {{"sub", 1},
                                {"payload",
                                 {{"cmd", "page"},
@@ -1631,6 +1635,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
         pages.push_back(frames);
         done = bool_or(page, "done", true);
         if (oldest == 0) break;  // no usable cursor; stop rather than spin
+        if (resume && oldest <= since_seq) break;
         before = oldest;
     }
 
@@ -2105,6 +2110,22 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
 Result<Session> AgentcloudClient::get_session(const std::string& id) {
     return get_session(id, 200);
 }
+Result<Session> AgentcloudClient::get_session_since(const std::string& id,
+                                                    std::uint64_t since_seq,
+                                                    int window) {
+    if (since_seq == 0 || window <= 0) return get_session(id, window);
+    std::string error;
+    bool refused = false;
+    Session session;
+    session.summary.id = id;
+    const std::string hello_json =
+        attach_and_page(id, window, &session, &error, &refused, since_seq);
+    if (hello_json.empty())
+        return refused ? Result<Session>::refusal(error)
+                       : Result<Session>::failure(error);
+    return Result<Session>::success(std::move(session));
+}
+
 Result<Session> AgentcloudClient::get_session(const std::string& id, int limit) {
     // One socket for the pair: attach binds the principal for this
     // subscription, and page inherits it. Splitting them across two sockets

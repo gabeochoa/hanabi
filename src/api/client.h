@@ -584,6 +584,19 @@ class Client {
         return get_session(id);
     }
 
+    // A RESUME: the caller already holds the transcript up to `since_seq` and
+    // wants what arrived after it, however much that is, in `window`-sized
+    // pages. The reply overlaps the caller's newest rows on purpose (a result
+    // has to find its intent), so it is reconciled onto the transcript rather
+    // than installed over it. A backend without seqs answers with the newest
+    // window, which reconciles the same way.
+    virtual Result<Session> get_session_since(const std::string& id,
+                                              std::uint64_t since_seq,
+                                              int window) {
+        (void)since_seq;
+        return get_session(id, window);
+    }
+
     // Kick off a NEW session from a prompt (composer "New task"). Returns the
     // new session id on success. The mock creates an in-memory session; the
     // http adapter POSTs to a configurable path. Default impl reports that the

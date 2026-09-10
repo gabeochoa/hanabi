@@ -15,6 +15,7 @@
 #include "../api/create_outcome.h"
 #include "../api/disk_cache.h"
 #include "load_older_model.h"
+#include "transcript_reconcile.h"
 #include "pane_state.h"
 #include "ui_imports.h"
 
@@ -90,6 +91,47 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             brakes.frozen_reason = known->frozen_reason;
         }
         app.apply_attach_brakes(s.summary.id, brakes);
+    }
+
+    // A refetched transcript lands on the pane's rows rather than over them:
+    // the tail is appended, changed rows are refreshed in place, and the
+    // reader's anchor holds. Only a history with no row in common resets.
+    // Returns false when the pane is not showing this thread.
+    static bool land_refetch(Pane& pane, api::Session fresh) {
+        if (!pane.openSession || pane.openSession->summary.id != fresh.summary.id) {
+            pane.openSession = std::move(fresh);
+            pane.note_transcript_reset();
+            pane.hasMoreOlder = pane.openSession->has_more_older;
+            return false;
+        }
+        api::Session& mine = *pane.openSession;
+        const model::ReconcileOutcome out =
+            model::reconcile_transcript(mine.messages, std::move(fresh.messages));
+        mine.summary = std::move(fresh.summary);
+        mine.context = fresh.context;
+        mine.pending_asks = std::move(fresh.pending_asks);
+        mine.plan = std::move(fresh.plan);
+        mine.goal = std::move(fresh.goal);
+        mine.sub_agents = std::move(fresh.sub_agents);
+        mine.halted = fresh.halted;
+        mine.halt_contained = fresh.halt_contained;
+        mine.halted_by = std::move(fresh.halted_by);
+        mine.halted_reason = std::move(fresh.halted_reason);
+        switch (out.kind) {
+            case model::ReconcileOutcome::Kind::Unchanged: break;
+            case model::ReconcileOutcome::Kind::Appended:
+                pane.note_transcript_append(out.first, out.count);
+                break;
+            case model::ReconcileOutcome::Kind::Updated:
+                pane.note_transcript_update(out.first, out.count);
+                break;
+            case model::ReconcileOutcome::Kind::Reset:
+                mine.has_more_older = fresh.has_more_older;
+                pane.note_transcript_reset();
+                pane.hasMoreOlder = mine.has_more_older;
+                break;
+        }
+        return true;
     }
 
     static void request_ask_refresh(AppComponent& app, const std::string& id) {
@@ -451,11 +493,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         adopt_attach_brakes(app, r.value, /*authoritative=*/true);
                         adopt_attach_asks(app, r.value, /*authoritative=*/true,
                                           pane.askLoadStamp);
-                        pane.openSession = std::move(r.value);
-                        pane.note_transcript_reset();
+                        land_refetch(pane, std::move(r.value));
                         pane.transcriptState = LoadState::Loaded;
                         pane.transcriptError.clear();
-                        pane.hasMoreOlder = pane.openSession->has_more_older;
                         // Fresh data landed — clear the "loading this thread"
                         // spinner flag for this id.
                         if (pane.transcriptLoadingId == completedId)
@@ -1760,8 +1800,16 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 std::shared_ptr<api::Client> c = app.client;
                 std::string sid = id;
                 ls.askLoadStamp = app.next_ask_load_stamp();
-                ls.future = std::async(std::launch::async, [c, sid] {
-                    return c->get_session(sid, kMessagesWindow);
+                std::uint64_t since = 0;
+                for (std::size_t paneIndex = 0;
+                     paneIndex < app.active_pane_count(); ++paneIndex) {
+                    const Pane& pane = app.panes[paneIndex];
+                    if (pane.openSession && pane.selectedId == id &&
+                        pane.openSession->summary.id == id)
+                        since = model::newest_seq(pane.openSession->messages);
+                }
+                ls.future = std::async(std::launch::async, [c, sid, since] {
+                    return c->get_session_since(sid, since, kMessagesWindow);
                 });
                 ls.pending = true;
             }
@@ -1789,13 +1837,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         adopt_attach_brakes(app, fresh, /*authoritative=*/true);
                         adopt_attach_asks(app, fresh, /*authoritative=*/true,
                                           ls.askLoadStamp);
-                        pane.openSession = std::move(fresh);
+                        land_refetch(pane, std::move(fresh));
                         app.transcriptCache.put(*pane.openSession);
                         save_and_trim(app, *pane.openSession);
-                        pane.note_transcript_reset();
                         pane.transcriptState = LoadState::Loaded;
                         pane.transcriptError.clear();
-                        pane.hasMoreOlder = pane.openSession->has_more_older;
                     }
                 }
             }

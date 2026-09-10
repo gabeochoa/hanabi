@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <memory>
 #include <thread>
+#include <mutex>
+#include <utility>
 #include <vector>
 
 #include "../../src/api/agentcloud_client.h"
@@ -56,6 +58,55 @@ void count_text(void* user, const char* text, size_t len) {
         return;
     r->count.store(msg.value("count", -1));
     r->got.store(true);
+}
+
+struct PagesReply {
+    std::atomic<bool> got{false};
+    std::mutex mu;
+    std::vector<std::pair<std::uint64_t, int>> requests;  // (before, limit)
+};
+
+void pages_text(void* user, const char* text, size_t len) {
+    auto* r = static_cast<PagesReply*>(user);
+    const auto env =
+        nlohmann::json::parse(std::string(text, len), nullptr, false);
+    if (env.is_discarded() || !env.is_object()) return;
+    const auto msg = env.value("msg", nlohmann::json::object());
+    if (!msg.is_object() || msg.value("type", std::string()) != "probe_pages")
+        return;
+    std::lock_guard<std::mutex> lk(r->mu);
+    for (const auto& q : msg.value("requests", nlohmann::json::array()))
+        r->requests.emplace_back(q.value("before", std::uint64_t{0}),
+                                 q.value("limit", 0));
+    r->got.store(true);
+}
+
+// The page commands the harness saw for resume-local since the last probe,
+// oldest first. Drains the harness's record.
+std::vector<std::pair<std::uint64_t, int>> probe_pages(const std::string& host) {
+    PagesReply reply;
+    const std::string url = "ws://" + host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = "";
+    wc.proxy_port = 0;
+    wc.on_text = pages_text;
+    wc.on_close = sentinel_close;
+    wc.user = &reply;
+    ws_conn* conn = ws_open(&wc);
+    if (conn == nullptr) return {};
+    const std::string wire =
+        nlohmann::json{{"sub", 0}, {"payload", {{"cmd", "probe_pages"}}}}
+            .dump();
+    if (!ws_send_text(conn, wire.data(), wire.size())) {
+        ws_close(conn);
+        return {};
+    }
+    for (int i = 0; i < 400 && !reply.got.load(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    ws_close(conn);
+    std::lock_guard<std::mutex> lk(reply.mu);
+    return reply.requests;
 }
 
 // How many times the harness has been attached to for `session`. A child probe
@@ -670,6 +721,78 @@ int main() {
                          "a failed probe latched past its retry window: "
                          "%d -> %d\n",
                          probesAtFirst, afterExpiry);
+            return 1;
+        }
+    }
+
+    // --- A resume drains what arrived after the cursor, and only that -----
+    {
+        (void)probe_pages(host);  // drain whatever earlier arms left
+        // The plain window: one page of 40, has more.
+        const auto window = client.get_session("resume-local", 40);
+        if (!window.ok || window.value.messages.size() != 40 ||
+            !window.value.has_more_older ||
+            window.value.messages.front().id != "61" ||
+            window.value.messages.back().id != "100") {
+            std::fprintf(stderr, "the plain window did not read newest 40: "
+                         "ok=%d n=%zu %s\n", window.ok ? 1 : 0,
+                         window.value.messages.size(), window.error.c_str());
+            return 1;
+        }
+        auto pages = probe_pages(host);
+        if (pages.size() != 1 || pages[0].second != 40) {
+            std::fprintf(stderr, "the plain window paged %zu times\n",
+                         pages.size());
+            return 1;
+        }
+        // A short absence: the cursor is inside the first page, so ONE page
+        // covers it and nothing older is asked for.
+        const auto brief = client.get_session_since("resume-local", 95, 40);
+        pages = probe_pages(host);
+        if (!brief.ok || brief.value.messages.size() != 40 ||
+            pages.size() != 1) {
+            std::fprintf(stderr, "a short resume paged %zu times (n=%zu)\n",
+                         pages.size(), brief.value.messages.size());
+            return 1;
+        }
+        // A long absence: the cursor is 70 frames back, so the resume keeps
+        // paging until it reaches it (100..61, 60..21) and STOPS there: the
+        // frames the reader already holds are not read again.
+        const auto away = client.get_session_since("resume-local", 30, 40);
+        pages = probe_pages(host);
+        if (!away.ok || pages.size() != 2 || pages[1].first != 61 ||
+            away.value.messages.size() != 80 ||
+            away.value.messages.front().id != "21" ||
+            !away.value.has_more_older) {
+            std::fprintf(stderr,
+                         "a long resume did not stop at its cursor: pages=%zu "
+                         "n=%zu more=%d\n",
+                         pages.size(), away.value.messages.size(),
+                         away.value.has_more_older ? 1 : 0);
+            return 1;
+        }
+        // No cursor is the plain window.
+        (void)client.get_session_since("resume-local", 0, 40);
+        pages = probe_pages(host);
+        if (pages.size() != 1) {
+            std::fprintf(stderr, "a cursorless resume paged %zu times\n",
+                         pages.size());
+            return 1;
+        }
+    }
+
+    // --- A refused attach is typed as a refusal, not a transport failure ---
+    // (Last of the client arms: a refusal invalidates the cached token, and
+    // the harness cannot mint another.)
+    {
+        const auto ghost = client.get_session("ghost-local", 40);
+        if (ghost.ok || !ghost.refused ||
+            ghost.error.find("attach refused") == std::string::npos) {
+            std::fprintf(stderr,
+                         "a refused attach did not come back refused: ok=%d "
+                         "refused=%d error=%s\n",
+                         ghost.ok ? 1 : 0, ghost.refused ? 1 : 0,
+                         ghost.error.c_str());
             return 1;
         }
     }

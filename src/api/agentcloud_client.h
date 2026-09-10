@@ -45,6 +45,9 @@ class AgentcloudClient : public Client {
 
     Result<Session> get_session(const std::string& id) override;
     Result<Session> get_session(const std::string& id, int limit) override;
+    Result<Session> get_session_since(const std::string& id,
+                                      std::uint64_t since_seq,
+                                      int window) override;
 
     // Sending is real; steering maps onto the same command with apply set to
     // interrupt. Streaming is how this protocol natively delivers a reply, so
@@ -144,7 +147,8 @@ class AgentcloudClient : public Client {
         childCauses_;
 
     std::string attach_and_page(const std::string& id, int limit, Session* out,
-                                std::string* error, bool* refused = nullptr);
+                                std::string* error, bool* refused = nullptr,
+                                std::uint64_t since_seq = 0);
 
     agentcloud::TokenCache auth_;
 };

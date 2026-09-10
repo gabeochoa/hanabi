@@ -41,6 +41,22 @@ session_of_sub = {}
 # it believes, not what it did on the wire.
 _probe_lock = threading.Lock()
 attach_counts = {}
+# Every page command aimed at resume-local, so a test can say how much a
+# resume asked the wire for. resume-local is 100 durable user_input frames,
+# seq 1..100, paged newest-first the way the real server pages.
+page_requests = []
+RESUME_TOP = 100
+
+
+def resume_page(command):
+    before = command.get("before")
+    limit = int(command.get("limit", 40))
+    hi = RESUME_TOP if before is None else min(int(before) - 1, RESUME_TOP)
+    lo = max(1, hi - limit + 1)
+    frames = [{"seq": n, "created_at_unix_ms": 1700000000000 + n * 1000,
+               "event": {"type": "user_input", "text": f"row {n}"}}
+              for n in range(lo, hi + 1)] if hi >= 1 else []
+    return {"type": "page", "frames": frames, "done": lo <= 1}
 attachment_received = threading.Event()
 attachment_payload = None
 posted_targets = set()
@@ -376,7 +392,18 @@ def _serve(conn):
                               "by": {"by": "user"}}}})
                 continue
             elif kind == "page":
-                msg = {"type": "page", "frames": [], "done": True}
+                if session_of_sub.get(sub) == "resume-local":
+                    with _probe_lock:
+                        page_requests.append({"before": command.get("before"),
+                                              "limit": command.get("limit")})
+                    msg = resume_page(command)
+                else:
+                    msg = {"type": "page", "frames": [], "done": True}
+            elif kind == "probe_pages":
+                with _probe_lock:
+                    requests = list(page_requests)
+                    page_requests.clear()
+                msg = {"type": "probe_pages", "requests": requests}
             elif kind == "create":
                 require(command.get("title") == "start with evidence", command)
                 require("input" not in command, command)
