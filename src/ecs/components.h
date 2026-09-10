@@ -1055,6 +1055,8 @@ struct AppComponent : public afterhours::BaseComponent {
         api::SendFailureKind failureKind = api::SendFailureKind::Retryable;
         std::uint64_t acceptedInput = 0;
         std::string asksJson;
+        std::optional<std::string> servingModel;
+        bool servingFallback = false;
     };
     struct TransferShared {
         std::atomic<int> phase{-1};

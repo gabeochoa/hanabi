@@ -2028,6 +2028,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     sink.on_event = [&out](const api::StreamEvent& ev) {
                         if (ev.kind == api::StreamEventKind::AsksChanged)
                             out.asksJson = ev.payload;
+                        if (ev.kind == api::StreamEventKind::ModelFallback) {
+                            out.servingModel = ev.payload;
+                            out.servingFallback = true;
+                        }
+                        if (ev.kind == api::StreamEventKind::ModelPinned) {
+                            out.servingModel = ev.payload;
+                            out.servingFallback = false;
+                        }
                     };
                     c->send_message_streaming(id, message, sink);
                     return out;
@@ -2049,6 +2057,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             Pane& streamPane = app.panes[static_cast<std::size_t>(ownerIndex)];
 
             const bool accepted = got.acceptedInput != 0 || got.error.empty();
+            if (got.servingModel && streamPane.openSession &&
+                streamPane.openSession->summary.id == id) {
+                auto& m = streamPane.openSession->model;
+                if (got.servingFallback) {
+                    if (m.requested.empty()) m.requested = m.serving;
+                    m.serving = *got.servingModel;
+                    m.fallback = true;
+                } else {
+                    m.requested = got.servingModel->empty() ? m.harness_default
+                                                            : *got.servingModel;
+                    m.serving = m.requested;
+                    m.fallback = false;
+                }
+            }
             const bool restoreDraft =
                 got.failureKind == api::SendFailureKind::Cancelled ||
                 got.failureKind == api::SendFailureKind::Rejected;

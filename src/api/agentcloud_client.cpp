@@ -837,7 +837,35 @@ void apply_plan_goal_state(const json& state, Session& out) {
                                       : std::nullopt;
 }
 
+
+std::string llm_model_of(const json& options) {
+    return str_or(obj_at(options, "llm"), "model", "");
+}
+
+void apply_serving_model_from_state(const json& state, Session& out) {
+    Session::ServingModel m;
+    m.harness_default = llm_model_of(obj_at(state, "option_defaults"));
+    m.requested = llm_model_of(obj_at(state, "options"));
+    if (m.requested.empty()) m.requested = m.harness_default;
+    const json& fb = obj_at(state, "model_fallback");
+    const std::string to = str_or(fb, "to", "");
+    if (!to.empty()) {
+        if (m.requested.empty()) m.requested = str_or(fb, "from", "");
+        m.serving = to;
+        m.fallback = true;
+    } else {
+        m.serving = m.requested;
+    }
+    out.model = std::move(m);
+}
+
 }  // namespace
+
+void parse_serving_model(const std::string& hello_json, Session& out) {
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded()) return;
+    apply_serving_model_from_state(obj_at(hello, "state"), out);
+}
 
 void parse_plan_goal_state(const std::string& hello_json, Session& out) {
     const json hello = json::parse(hello_json, nullptr, false);
@@ -1153,6 +1181,16 @@ LiveFrame classify_live_frame_parsed(const json& root, LiveBlocks& blocks) {
         lf.kind = LiveFrame::Kind::AskRaised;
         return lf;
     }
+    if (type == "model_call_fallback") {
+        lf.kind = LiveFrame::Kind::ModelFallback;
+        lf.payload = str_or(e, "to", "");
+        return lf;
+    }
+    if (type == "options_changed") {
+        lf.kind = LiveFrame::Kind::ModelPinned;
+        lf.payload = llm_model_of(obj_at(e, "options"));
+        return lf;
+    }
     if (type == "elicitation_resolved" || type == "child_elicitation_update" ||
         type == "child_elicitation_notice") {
         lf.kind = LiveFrame::Kind::AskSettled;
@@ -1219,6 +1257,13 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
             break;
         case LiveFrame::Kind::Title:
             sink.emit_event({StreamEventKind::TitleUpdate, lf.payload});
+            break;
+        case LiveFrame::Kind::ModelFallback:
+            if (!lf.payload.empty())
+                sink.emit_event({StreamEventKind::ModelFallback, lf.payload});
+            break;
+        case LiveFrame::Kind::ModelPinned:
+            sink.emit_event({StreamEventKind::ModelPinned, lf.payload});
             break;
         case LiveFrame::Kind::Finished:
             return false;
@@ -1575,6 +1620,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     apply_state(state, out->summary);
     out->context = context_usage_from_state(state);
     apply_brakes_from_state(state, *out);
+    agentcloud::parse_serving_model(hello.dump(), *out);
     agentcloud::parse_plan_goal_state(hello.dump(), *out);
     agentcloud::parse_pending_asks(hello.dump(), *out);
     resolve_child_questions(out->pending_asks);

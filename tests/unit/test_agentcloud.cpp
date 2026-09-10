@@ -1487,6 +1487,61 @@ static void test_user_input_attachment_handles_are_preserved() {
     CHECK(messages[0].attachments[1].is_image());
 }
 
+static void test_the_serving_model_is_read_off_the_attach() {
+    std::printf("test_the_serving_model_is_read_off_the_attach\n");
+    api::Session s;
+    api::agentcloud::parse_serving_model(R"({"state":{
+        "options":{"llm":{"model":null,"effort":"high"}},
+        "option_defaults":{"llm":{"model":"claude-fable-5","effort":"high"}}}})",
+        s);
+    CHECK(s.model.harness_default == "claude-fable-5");
+    CHECK(s.model.requested == "claude-fable-5");
+    CHECK(s.model.serving == "claude-fable-5");
+    CHECK(!s.model.fallback);
+
+    api::agentcloud::parse_serving_model(R"({"state":{
+        "options":{"llm":{"model":"gpt-5.5"}},
+        "option_defaults":{"llm":{"model":"claude-fable-5"}}}})", s);
+    CHECK(s.model.requested == "gpt-5.5");
+    CHECK(s.model.serving == "gpt-5.5");
+    CHECK(!s.model.fallback);
+
+    api::agentcloud::parse_serving_model(R"({"state":{
+        "options":{"llm":{"model":null}},
+        "option_defaults":{"llm":{"model":"claude-fable-5"}},
+        "model_fallback":{"from":"claude-fable-5","to":"claude-opus-4-8",
+                          "hops":1,"seq":40}}})", s);
+    CHECK(s.model.requested == "claude-fable-5");
+    CHECK(s.model.serving == "claude-opus-4-8");
+    CHECK(s.model.fallback);
+
+    api::agentcloud::parse_serving_model(R"({"state":{}})", s);
+    CHECK(s.model.serving.empty());
+    CHECK(s.model.requested.empty());
+    CHECK(!s.model.fallback);
+}
+
+static void test_a_fallback_frame_names_the_model_now_answering() {
+    std::printf("test_a_fallback_frame_names_the_model_now_answering\n");
+    api::agentcloud::LiveFrame lf = api::agentcloud::classify_live_frame(
+        R"({"seq":41,"event":{"type":"model_call_fallback","call":38,
+            "from":"claude-fable-5","to":"claude-opus-4-8"}})");
+    CHECK(lf.kind == api::agentcloud::LiveFrame::Kind::ModelFallback);
+    CHECK(lf.payload == "claude-opus-4-8");
+
+    lf = api::agentcloud::classify_live_frame(
+        R"({"seq":42,"event":{"type":"options_changed","principal":"u",
+            "options":{"llm":{"model":"gpt-5.5"}}}})");
+    CHECK(lf.kind == api::agentcloud::LiveFrame::Kind::ModelPinned);
+    CHECK(lf.payload == "gpt-5.5");
+
+    lf = api::agentcloud::classify_live_frame(
+        R"({"seq":43,"event":{"type":"options_changed","principal":"u",
+            "options":{"llm":{"model":null}}}})");
+    CHECK(lf.kind == api::agentcloud::LiveFrame::Kind::ModelPinned);
+    CHECK(lf.payload.empty());
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -1555,6 +1610,8 @@ int main() {
     test_the_watermark_drops_a_late_frame();
     test_the_watermark_outlives_the_turn();
     test_a_null_elicitation_row_does_not_kill_the_turn();
+    test_the_serving_model_is_read_off_the_attach();
+    test_a_fallback_frame_names_the_model_now_answering();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

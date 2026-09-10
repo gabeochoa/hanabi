@@ -1,0 +1,32 @@
+# The composer chip names the model that answered, not the local default.
+#
+# The chip used to print display_name(get_default_model()) on every thread,
+# which is the model a NEW thread would ask for and says nothing about the one
+# that produced the turns on screen. Now a thread whose attach reported a
+# serving model shows that model; a live refusal fallback is named as such.
+# Only a thread the backend said nothing about falls back to the local default.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["rpinned","rmodel","t2"],"active_tab":"rmodel","theme":"dark"}
+# env: HANABI_MODEL_DEMO=1
+
+require_thread rmodel
+expect_text "Here is a warmer draft."
+
+# Fable was asked for; Opus answered. The chip says which, and that it moved.
+expect_text "Opus 4.8 (fell back)"
+expect_no_text "Server default"
+expect_no_text "Fable 5"
+
+# A thread pinned to a model names the pin.
+click_ui tab_rpinned
+wait_frames 12
+expect_text "Ported."
+expect_text "GPT-5.5"
+expect_no_text "fell back"
+expect_no_text "Server default"
+
+# A thread with no report keeps the local default.
+click_ui tab_t2
+wait_frames 12
+expect_text "Server default"
+expect_no_text "GPT-5.5"

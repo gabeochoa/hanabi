@@ -586,6 +586,18 @@ struct Session {
     std::optional<SessionGoal> goal;
     std::vector<PendingAsk> pending_asks;
 
+    // Which model answers this session. `requested` is the session's own pin,
+    // else `harness_default` (what an unset pin falls to); `serving` is the
+    // model producing the turns right now, which differs from `requested`
+    // while a refusal fallback chain is live. Empty = the backend did not say.
+    struct ServingModel {
+        std::string harness_default;
+        std::string requested;
+        std::string serving;
+        bool fallback = false;
+    };
+    ServingModel model;
+
     // --- Halt, which only an attach can see -------------------------------
     // `halted` is this session's OWN journal-folded flag. `halted_by` is a
     // SEPARATE fact -- halt CONTAINMENT, present when a halt over the ancestor

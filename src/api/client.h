@@ -429,6 +429,8 @@ enum class StreamEventKind {
     TitleUpdate,  // the session title changed (payload = the new title)
     Error,        // the stream failed (payload = a human-readable reason)
     AsksChanged,
+    ModelFallback,  // a refusal handoff; payload = the model now answering
+    ModelPinned,    // the session's model pin changed; payload = the pin or ""
 };
 
 // One streaming event: a kind plus an optional string payload whose meaning

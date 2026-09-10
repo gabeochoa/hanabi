@@ -1022,6 +1022,7 @@ class MockClient : public Client {
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
+        "HANABI_MODEL_DEMO",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
     //
@@ -2211,6 +2212,39 @@ class MockClient : public Client {
                 {"tkz", Role::Assistant, "Done.", hrs_ago(1), ""},
             };
             v.push_back(std::move(s));
+        }
+
+        // SERVING-MODEL FIXTURE: one thread answered by a fallback model,
+        // one pinned to a model of its own. Seeded only under
+        // HANABI_MODEL_DEMO.
+        if (const char* md = std::getenv("HANABI_MODEL_DEMO");
+            md && *md && std::string(md) != "0") {
+            Session fb;
+            fb.summary = calm("rmodel", "rewrite the onboarding email",
+                              hrs_ago(1), "active", ThreadState::Unknown,
+                              "serving model fixture");
+            fb.messages = {
+                {"md1", Role::User, "rewrite the onboarding email", hrs_ago(2), ""},
+                {"md2", Role::Assistant, "Here is a warmer draft.", hrs_ago(1), ""},
+            };
+            fb.model.harness_default = "claude-fable-5";
+            fb.model.requested = "claude-fable-5";
+            fb.model.serving = "claude-opus-4-8";
+            fb.model.fallback = true;
+            v.push_back(std::move(fb));
+
+            Session pin;
+            pin.summary = calm("rpinned", "port the parser",
+                               hrs_ago(1), "active", ThreadState::Unknown,
+                               "pinned model fixture");
+            pin.messages = {
+                {"mp1", Role::User, "port the parser", hrs_ago(2), ""},
+                {"mp2", Role::Assistant, "Ported.", hrs_ago(1), ""},
+            };
+            pin.model.harness_default = "claude-fable-5";
+            pin.model.requested = "gpt-5.5";
+            pin.model.serving = "gpt-5.5";
+            v.push_back(std::move(pin));
         }
 
         // CODE FIXTURE: one reply carrying fenced blocks in several

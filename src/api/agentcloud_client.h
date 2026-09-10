@@ -208,6 +208,8 @@ ContextUsage parse_context_usage(const std::string& hello_json);
 void parse_session_brakes(const std::string& hello_json, Session& out);
 void parse_plan_goal_state(const std::string& hello_json, Session& out);
 void parse_pending_asks(const std::string& hello_json, Session& out);
+// hello.state.{options,option_defaults,model_fallback} -> Session::model.
+void parse_serving_model(const std::string& hello_json, Session& out);
 
 
 //
@@ -235,6 +237,11 @@ struct LiveFrame {
         ToolInputAppend,
         AskRaised,
         AskSettled,
+        // The serving model moved: a refusal handoff (payload = the model
+        // now answering) or the session's pin changed (payload = the pin,
+        // empty when unset).
+        ModelFallback,
+        ModelPinned,
     };
     Kind kind = Kind::Ignore;
     // TextAppend/ThinkingAppend: the new text only. Text/Thinking: the whole

@@ -6582,7 +6582,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // and its own 5px inset is the word space between them.
         {
             const std::string currentModel = Settings::get().get_default_model();
-            const std::string modelText = hanabi::models::display_name(currentModel);
+            const api::Session::ServingModel* serving =
+                app.pane().openSession ? &app.pane().openSession->model : nullptr;
+            const bool servingKnown = serving && !serving->serving.empty();
+            std::string modelText = hanabi::models::display_name(
+                servingKnown ? serving->serving : currentModel);
+            const bool fellBack = servingKnown && serving->fallback;
+            if (fellBack) modelText += " (fell back)";
             auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
                 ComponentConfig{}
                     .with_label(modelText)
@@ -6590,7 +6596,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                              pixels(hanabi::control::kMinHitTarget)})
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_primary())
+                    .with_custom_text_color(fellBack ? theme::status_review()
+                                                     : theme::text_primary())
                     .with_font_size(theme::type::SM)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_alignment(TextAlignment::Left)
