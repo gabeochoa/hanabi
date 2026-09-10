@@ -622,6 +622,21 @@ class Client {
         return Result<CreateOutcome>::success(std::move(outcome));
     }
 
+    // The caller's own worker nodes, for picking one before a thread exists.
+    virtual Result<std::vector<NodeInfo>> list_nodes() {
+        return Result<std::vector<NodeInfo>>::failure(
+            "this backend has no worker nodes");
+    }
+
+    // Put a node on an existing thread's attached set.
+    virtual Result<std::string> attach_node(const std::string& session_id,
+                                            const std::string& node_id) {
+        (void)session_id;
+        (void)node_id;
+        return Result<std::string>::failure(
+            "this backend does not attach nodes");
+    }
+
     virtual Result<std::string> fork_session(const std::string& session_id) {
         (void) session_id;
         return Result<std::string>::failure(

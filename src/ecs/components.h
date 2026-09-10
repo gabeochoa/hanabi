@@ -69,6 +69,7 @@ enum class EscapeIntent {
     CloseEffortPicker,
     ClosePlanPicker,
     CloseFoldPicker,
+    CloseNodePicker,
     DeclineAsk,
     ClearTranscript,
 };
@@ -823,6 +824,17 @@ struct AppComponent : public afterhours::BaseComponent {
     bool planPopoverOpen = false;
     // The composer strip's tool-fold picker (Fold all / Expand all / Auto).
     bool foldPopoverOpen = false;
+    // The composer strip's node picker: the roster it lists, the node a NEW
+    // thread will be born with, and the attach in flight on an open thread.
+    bool nodePopoverOpen = false;
+    std::string pendingNodeId;
+    std::vector<api::NodeInfo> nodeRoster;
+    bool nodeRosterLoaded = false;
+    std::string nodeRosterError;
+    std::future<api::Result<std::vector<api::NodeInfo>>> nodeRosterFuture;
+    std::future<api::Result<std::string>> nodeAttachFuture;
+    std::string nodeAttachSession;
+    std::string nodeAttachError;
 
     std::map<std::string, std::vector<api::PendingAsk>> attachAsks;
     hanabi::ask::State askState;
@@ -1591,7 +1603,7 @@ inline bool overlay_up(const AppComponent& app) {
 
 inline bool composer_strip_surface_up(const AppComponent& app) {
     return app.slashMenuOpen || app.modelPopoverOpen || app.effortPopoverOpen ||
-           app.planPopoverOpen || app.foldPopoverOpen;
+           app.planPopoverOpen || app.foldPopoverOpen || app.nodePopoverOpen;
 }
 
 inline hanabi::ask::KeyOwnership key_ownership(const AppComponent& app,

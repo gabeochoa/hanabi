@@ -634,17 +634,23 @@ Result<CreateOutcome> AgentcloudClient::create_with_message(
     const std::size_t newline = title.find('\n');
     if (newline != std::string::npos) title.resize(newline);
     if (title.size() > 120) title.resize(120);
-    json command = {{"cmd", "create"}};
-    if (!title.empty()) command["title"] = title;
     std::string error;
-    const std::string reply =
-        round_trip(command.dump(), "created", &error, kForkTimeoutSecs);
+    const std::string reply = round_trip(
+        agentcloud::create_command_json(title, message.node_id), "created",
+        &error, kForkTimeoutSecs);
     if (reply.empty()) return Result<CreateOutcome>::failure(error);
     CreateOutcome outcome;
     outcome.session_id = agentcloud::parse_created_session_id(reply);
     if (outcome.session_id.empty())
         return Result<CreateOutcome>::failure(
             "created reply had no destination session id");
+    if (!message.node_id.empty()) {
+        const auto attached = attach_node(outcome.session_id, message.node_id);
+        if (!attached.ok)
+            return Result<CreateOutcome>::failure(
+                "the thread was created but its node could not be attached: " +
+                attached.error);
+    }
     const MessagePost posted =
         post_message(outcome.session_id, message, "after_tool_round", sink);
     outcome.input_accepted = posted.accepted;
@@ -860,6 +866,50 @@ void apply_serving_model_from_state(const json& state, Session& out) {
 }
 
 }  // namespace
+
+std::vector<NodeInfo> parse_nodes_reply(const std::string& msg_json) {
+    std::vector<NodeInfo> out;
+    const json msg = json::parse(msg_json, nullptr, false);
+    if (msg.is_discarded() || !msg.contains("nodes") || !msg["nodes"].is_array())
+        return out;
+    for (const json& n : msg["nodes"]) {
+        if (!n.is_object()) continue;
+        NodeInfo info;
+        info.id = str_or(n, "node_id", "");
+        if (info.id.empty()) continue;
+        const json& attrs = obj_at(n, "attributes");
+        info.os = str_or(attrs, "os", "");
+        info.host_class = str_or(attrs, "host_class", "");
+        info.last_seen_ms = int_or(n, "last_seen_unix_ms", 0);
+        out.push_back(std::move(info));
+    }
+    std::stable_sort(out.begin(), out.end(),
+                     [](const NodeInfo& a, const NodeInfo& b) {
+                         return a.last_seen_ms > b.last_seen_ms;
+                     });
+    return out;
+}
+
+void parse_attached_nodes(const std::string& hello_json, Session& out) {
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded()) return;
+    const json& state = obj_at(hello, "state");
+    out.attached_nodes.clear();
+    if (!state.contains("attached_nodes") || !state["attached_nodes"].is_array())
+        return;
+    for (const json& n : state["attached_nodes"])
+        if (n.is_string() && !n.get<std::string>().empty())
+            out.attached_nodes.push_back(n.get<std::string>());
+}
+
+std::string create_command_json(const std::string& title,
+                                const std::string& node_id) {
+    json command = {{"cmd", "create"}};
+    if (!title.empty()) command["title"] = title;
+    if (!node_id.empty())
+        command["node"] = {{"existing", {{"node_id", node_id}}}};
+    return command.dump();
+}
 
 void parse_serving_model(const std::string& hello_json, Session& out) {
     const json hello = json::parse(hello_json, nullptr, false);
@@ -1621,6 +1671,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     out->context = context_usage_from_state(state);
     apply_brakes_from_state(state, *out);
     agentcloud::parse_serving_model(hello.dump(), *out);
+    agentcloud::parse_attached_nodes(hello.dump(), *out);
     agentcloud::parse_plan_goal_state(hello.dump(), *out);
     agentcloud::parse_pending_asks(hello.dump(), *out);
     resolve_child_questions(out->pending_asks);
@@ -2036,6 +2087,89 @@ Result<std::string> AgentcloudClient::rename_session(
         SessionSummary echoed;
         if (agentcloud::fold_session_renamed(msg.dump(), echoed))
             return Result<std::string>::success(echoed.title);
+    }
+}
+
+Result<std::vector<NodeInfo>> AgentcloudClient::list_nodes() {
+    std::string error;
+    const std::string reply = round_trip(R"({"cmd":"nodes"})", "nodes", &error);
+    if (reply.empty()) return Result<std::vector<NodeInfo>>::failure(error);
+    return Result<std::vector<NodeInfo>>::success(
+        agentcloud::parse_nodes_reply(reply));
+}
+
+Result<std::string> AgentcloudClient::attach_node(const std::string& session_id,
+                                                  const std::string& node_id) {
+    const auto fail = [](const std::string& why) {
+        return Result<std::string>::failure(why);
+    };
+    if (node_id.empty()) return fail("no node named");
+
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded()) {
+        auth_.invalidate();
+        return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    }
+    if (str_or(hello, "type", "") == "error") {
+        auth_.invalidate();
+        return fail("attach refused: " +
+                    str_or(hello, "message", "(no message)"));
+    }
+    Session seen;
+    agentcloud::parse_attached_nodes(hello.dump(), seen);
+    for (const std::string& n : seen.attached_nodes)
+        if (n == node_id) return Result<std::string>::success(node_id);
+
+    const json env = {{"sub", 1},
+                      {"payload", {{"cmd", "attach_node"}, {"node_id", node_id}}}};
+    const std::string wire = env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size()))
+        return fail("socket closed before attach_node was sent");
+
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(kReplyTimeoutSecs);
+    for (;;) {
+        const json msg = q.wait_for_next(deadline);
+        if (msg.is_discarded())
+            return fail(q.closed_note("no attach echo for " + node_id));
+        if (str_or(msg, "type", "") == "error")
+            return fail(str_or(msg, "message", "attach_node refused"));
+        if (str_or(msg, "type", "") != "frame") continue;
+        const json& e = obj_at(msg, "event");
+        const std::string type = str_or(e, "type", "");
+        if ((type == "node_attached" || type == "node_reserved") &&
+            str_or(e, "node_id", "") == node_id)
+            return Result<std::string>::success(node_id);
     }
 }
 

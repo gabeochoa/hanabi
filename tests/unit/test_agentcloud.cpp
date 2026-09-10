@@ -1542,6 +1542,42 @@ static void test_a_fallback_frame_names_the_model_now_answering() {
     CHECK(lf.payload.empty());
 }
 
+static void test_the_node_roster_and_the_create_node_clause() {
+    std::printf("test_the_node_roster_and_the_create_node_clause\n");
+    const auto roster = api::agentcloud::parse_nodes_reply(R"({"type":"nodes",
+        "nodes":[
+          {"node_id":"od-1","attributes":{"os":"linux","host_class":"faas"},
+           "instance":{},"capabilities":[],"last_seen_unix_ms":1000},
+          {"node_id":"mac-2","attributes":{"os":"macos"},
+           "instance":{},"capabilities":[],"last_seen_unix_ms":5000},
+          {"attributes":{},"instance":{},"capabilities":[],"last_seen_unix_ms":9}
+        ]})");
+    CHECK(roster.size() == 2);
+    CHECK(roster[0].id == "mac-2");
+    CHECK(roster[0].os == "macos");
+    CHECK(roster[0].host_class.empty());
+    CHECK(roster[1].id == "od-1");
+    CHECK(roster[1].host_class == "faas");
+    CHECK(api::agentcloud::parse_nodes_reply("not json").empty());
+
+    api::Session s;
+    api::agentcloud::parse_attached_nodes(
+        R"({"state":{"attached_nodes":["od-1","mac-2"]}})", s);
+    CHECK(s.attached_nodes.size() == 2 && s.attached_nodes[1] == "mac-2");
+    api::agentcloud::parse_attached_nodes(R"({"state":{}})", s);
+    CHECK(s.attached_nodes.empty());
+
+    const auto bare = nlohmann::json::parse(
+        api::agentcloud::create_command_json("a title", ""));
+    CHECK(bare["cmd"] == "create");
+    CHECK(bare["title"] == "a title");
+    CHECK(!bare.contains("node"));
+    const auto withNode = nlohmann::json::parse(
+        api::agentcloud::create_command_json("", "od-1"));
+    CHECK(!withNode.contains("title"));
+    CHECK(withNode["node"]["existing"]["node_id"] == "od-1");
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
@@ -1612,6 +1648,7 @@ int main() {
     test_a_null_elicitation_row_does_not_kill_the_turn();
     test_the_serving_model_is_read_off_the_attach();
     test_a_fallback_frame_names_the_model_now_answering();
+    test_the_node_roster_and_the_create_node_clause();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

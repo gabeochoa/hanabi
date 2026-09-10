@@ -6178,6 +6178,108 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+
+    void render_node_popover(UIContext<InputAction>& ctx, Entity& parent,
+                             AppComponent& app, Entity& anchorEnt,
+                             const api::Session* session) {
+        constexpr float kRowH = 30.0f;
+        constexpr float kPopW = 300.0f;
+        const std::vector<api::NodeInfo>& roster = app.nodeRoster;
+        std::string note;
+        if (!app.nodeRosterLoaded) note = "Looking for your nodes\xe2\x80\xa6";
+        else if (!app.nodeRosterError.empty()) note = app.nodeRosterError;
+        else if (roster.empty()) note = "No node is announcing";
+        else if (!app.nodeAttachError.empty()) note = app.nodeAttachError;
+        const size_t rows = roster.size() + (note.empty() ? 0 : 1);
+        const float popH = kRowH * static_cast<float>(rows) + 8.0f;
+        const RectangleType anchor =
+            anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, mk(parent, 3600), anchor, app.nodePopoverOpen,
+            afterhours::ui::overlay::Placement::Above,
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_padding(Padding{.top = pixels(4), .bottom = pixels(4)})
+                .with_roundness(0.25f)
+                .with_render_layer(7)
+                .with_debug_name("node_popover"));
+        if (!pop) return;
+        publish_popover_occluder(pop.ent());
+        int slot = 0;
+        if (!note.empty()) {
+            auto noteRow = div(ctx, mk(pop.ent(), 900),
+                ComponentConfig{}
+                    .with_label(fmtutil::ellipsize(note, 60))
+                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_render_layer(8)
+                    .with_debug_name("node_popover_note"));
+            noteRow.ent().get<afterhours::ui::HasLabel>().text_x_offset = 7.0f;
+        }
+        const bool attaching = app.nodeAttachFuture.valid();
+        for (size_t i = 0; i < roster.size(); ++i) {
+            const api::NodeInfo& n = roster[i];
+            bool selected = false;
+            if (session) {
+                selected = std::find(session->attached_nodes.begin(),
+                                     session->attached_nodes.end(),
+                                     n.id) != session->attached_nodes.end();
+            } else {
+                selected = n.id == app.pendingNodeId;
+            }
+            std::string label = n.id;
+            std::string facts;
+            if (!n.os.empty()) facts = n.os;
+            if (!n.host_class.empty())
+                facts += (facts.empty() ? "" : " ") + n.host_class;
+            if (!facts.empty()) label += "   \xc2\xb7   " + facts;
+            auto row = button(ctx, mk(pop.ent(), slot++),
+                ComponentConfig{}
+                    .with_label(fmtutil::ellipsize(label, 48))
+                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                    .with_custom_background(selected ? theme::selected_bg()
+                                                     : theme::panel_bg_2())
+                    .with_custom_hover_bg(
+                        theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(selected ? theme::text_primary()
+                                                     : theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.0f)
+                    .with_render_layer(8)
+                    .with_on_draw_fg([selected](RectangleType r) {
+                        hanabi::glyph::radio(
+                            RectangleType{r.x + 8.0f, r.y, 12.0f, r.height},
+                            selected,
+                            selected ? theme::accent() : theme::text_faint());
+                    })
+                    .with_debug_name("node_row_" + std::to_string(i)));
+            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 21.0f;
+            if (!row) continue;
+            if (session) {
+                if (selected || attaching) continue;
+                const std::string sid = session->summary.id;
+                const std::string nid = n.id;
+                std::shared_ptr<api::Client> c = app.client;
+                app.nodeAttachSession = sid;
+                app.nodeAttachError.clear();
+                app.nodeAttachFuture = std::async(
+                    std::launch::async,
+                    [c, sid, nid] { return c->attach_node(sid, nid); });
+                app.nodePopoverOpen = false;
+            } else {
+                app.pendingNodeId = selected ? std::string() : n.id;
+                app.nodePopoverOpen = false;
+            }
+        }
+    }
+
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
                          AppComponent& app, float paneW, float composerH,
                          bool kickoff = false, float absX = -1.0f,
@@ -6737,6 +6839,76 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             render_plan_popover(ctx, parent, app, planChip.ent(), *stripSession);
         } else {
             app.planPopoverOpen = false;
+        }
+
+
+        // The nodes chip: which machine this thread runs on, or which one the
+        // next thread will be born with. Present when nothing is attached, and
+        // says so, because not choosing a node is a fact the reader should see.
+        if (!compactComposer) {
+            constexpr float kPillPad = 6.0f;
+            constexpr float kPillIcon = 10.0f;
+            constexpr float kPillIconGap = 3.0f;
+            constexpr float kPillTextX = kPillPad + kPillIcon + kPillIconGap;
+            const api::Session* nodeSession =
+                app.pane().openSession ? &*app.pane().openSession : nullptr;
+            std::string nodeText;
+            if (nodeSession) {
+                const size_t n = nodeSession->attached_nodes.size();
+                nodeText = n == 0   ? "0 nodes"
+                           : n == 1 ? nodeSession->attached_nodes.front()
+                                    : std::to_string(n) + " nodes";
+            } else {
+                nodeText = app.pendingNodeId.empty() ? "0 nodes"
+                                                     : app.pendingNodeId;
+            }
+            nodeText = fmtutil::ellipsize(nodeText, 28);
+            auto nodeChip = button(ctx, mk(rightMeta.ent(), 5),
+                ComponentConfig{}
+                    .with_label(nodeText)
+                    .with_size(ComponentSize{
+                        pixels(kPillTextX +
+                               theme::text_px(nodeText, theme::type::SM) +
+                               kPillPad),
+                        pixels(hanabi::control::kMinHitTarget)})
+                    .with_margin(Margin{.left = pixels(4)})
+                    .with_transparent_bg()
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(9.0f)
+                    .with_on_draw_fg([](RectangleType rr) {
+                        const float cx = rr.x + kPillPad + kPillIcon * 0.5f;
+                        const float cy = rr.y + rr.height * 0.5f;
+                        afterhours::draw_rectangle_outline(
+                            RectangleType{cx - 4.5f, cy - 3.0f, 9.0f, 6.0f},
+                            theme::text_secondary());
+                        afterhours::draw_line_ex({cx - 2.5f, cy + 4.5f},
+                                                 {cx + 2.5f, cy + 4.5f}, 1.2f,
+                                                 theme::text_secondary());
+                    })
+                    .with_debug_name("composer_nodes"));
+            if (nodeChip.ent().has<afterhours::ui::HasLabel>())
+                nodeChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                    kPillTextX - kLabelInset;
+            if (nodeChip) {
+                app.nodePopoverOpen = !app.nodePopoverOpen;
+                if (app.nodePopoverOpen && !app.nodeRosterFuture.valid()) {
+                    app.nodeRosterLoaded = false;
+                    std::shared_ptr<api::Client> c = app.client;
+                    app.nodeRosterFuture = std::async(
+                        std::launch::async, [c] { return c->list_nodes(); });
+                }
+            }
+            if (app.escape == EscapeIntent::CloseNodePicker)
+                app.nodePopoverOpen = false;
+            render_node_popover(ctx, parent, app, nodeChip.ent(), nodeSession);
+        } else {
+            app.nodePopoverOpen = false;
         }
 
         // The tool-fold chip, at the right: how much of a tool call this

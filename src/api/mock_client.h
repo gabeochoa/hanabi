@@ -315,6 +315,8 @@ class MockClient : public Client {
         Session* session = find_mutable(created.value);
         if (session != nullptr && !session->messages.empty())
             session->messages.back().attachments = accepted_attachments(message);
+        if (session != nullptr && !message.node_id.empty())
+            session->attached_nodes.push_back(message.node_id);
         CreateOutcome outcome;
         outcome.session_id = std::move(created.value);
         return Result<CreateOutcome>::success(std::move(outcome));
@@ -322,6 +324,27 @@ class MockClient : public Client {
 
     bool supports_fork() const override {
         return std::getenv("HANABI_MOCK_NO_FORK") == nullptr;
+    }
+
+    Result<std::vector<NodeInfo>> list_nodes() override {
+        if (std::getenv("HANABI_MOCK_NO_NODES") != nullptr)
+            return Result<std::vector<NodeInfo>>::success({});
+        return Result<std::vector<NodeInfo>>::success({
+            {"boulder.local", "macos", "managed_laptop", mock_now() * 1000},
+            {"devvm48270", "linux", "devserver", mock_now() * 1000 - 40000},
+            {"od-7f3a", "linux", "faas", mock_now() * 1000 - 90000},
+        });
+    }
+
+    Result<std::string> attach_node(const std::string& session_id,
+                                    const std::string& node_id) override {
+        Session* session = find_mutable(session_id);
+        if (session == nullptr)
+            return Result<std::string>::failure("no such session");
+        for (const std::string& n : session->attached_nodes)
+            if (n == node_id) return Result<std::string>::success(node_id);
+        session->attached_nodes.push_back(node_id);
+        return Result<std::string>::success(node_id);
     }
 
     Result<std::string> fork_session(const std::string& session_id) override {

@@ -192,6 +192,9 @@ struct OutgoingMessage {
     std::string local_id;
     std::string text;
     std::vector<Attachment> attachments;
+    // The worker node a NEW thread should be born with. Read only by the
+    // create path; a reply to an existing thread ignores it.
+    std::string node_id;
     bool auto_retry = true;
     bool interrupt = false;
     bool attachment_delivery_started = false;
@@ -270,6 +273,14 @@ struct Message {
     EventKind kind = EventKind::Text;
     std::string local_id;
     std::vector<Attachment> attachments;
+};
+
+// One worker node the caller could give a thread, as the roster reports it.
+struct NodeInfo {
+    std::string id;
+    std::string os;
+    std::string host_class;
+    int64_t last_seen_ms = 0;
 };
 
 // Lightweight summary of a session for the list view.
@@ -597,6 +608,9 @@ struct Session {
         bool fallback = false;
     };
     ServingModel model;
+
+    // Node ids in this session's attached set, as the attach reported them.
+    std::vector<std::string> attached_nodes;
 
     // --- Halt, which only an attach can see -------------------------------
     // `halted` is this session's OWN journal-folded flag. `halted_by` is a

@@ -1189,6 +1189,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "model") app->modelPopoverOpen = true;
         else if (os == "effort") app->effortPopoverOpen = true;
         else if (os == "plan") app->planPopoverOpen = true;
+        else if (os == "nodes") app->nodePopoverOpen = true;
         else if (os == "slash") {
             const std::string id = app->pane().openSession
                                        ? app->pane().openSession->summary.id

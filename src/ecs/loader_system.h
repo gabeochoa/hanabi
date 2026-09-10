@@ -4,6 +4,7 @@
 // std::async fetches against the Client, and polls the futures each frame,
 // writing results back into AppComponent. Keeps the UI thread responsive.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -837,6 +838,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (app.requestKickoff && !app.kickoffPending) {
             api::OutgoingMessage message = std::move(*app.requestKickoff);
             app.requestKickoff.reset();
+            if (message.node_id.empty()) message.node_id = app.pendingNodeId;
+            app.pendingNodeId.clear();
             app.kickoffPending = true;
             app.kickoffMessage = message;
             app.kickoffPaneIndex = std::clamp(message.target.pane_index, 0, 1);
@@ -899,6 +902,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     api::disk_cache::outbox_add(verdict.session_id, message);
                     app.outboxRetry.adopt(verdict.session_id, message);
                 }
+                if (verdict.restore_draft && !sessionExists &&
+                    app.pendingNodeId.empty())
+                    app.pendingNodeId = message.node_id;
                 if (verdict.restore_draft) {
                     restore_to_composer(app.kickoffPaneIndex,
                                         message.target.draft_key, message,
@@ -912,6 +918,41 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.composerRestore.pending = true;
                 }
                 if (!verdict.notice.empty()) app.listError = verdict.notice;
+            }
+        }
+
+        // --- Node roster + attach, for the composer's nodes chip -------------
+        if (app.nodeRosterFuture.valid() &&
+            app.nodeRosterFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.nodeRosterFuture.get();
+            app.nodeRosterLoaded = true;
+            if (r.ok) {
+                app.nodeRoster = std::move(r.value);
+                app.nodeRosterError.clear();
+            } else {
+                app.nodeRoster.clear();
+                app.nodeRosterError = r.error;
+            }
+        }
+        if (app.nodeAttachFuture.valid() &&
+            app.nodeAttachFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.nodeAttachFuture.get();
+            const std::string id = app.nodeAttachSession;
+            app.nodeAttachSession.clear();
+            if (r.ok) {
+                app.nodeAttachError.clear();
+                for (Pane& pane : app.panes) {
+                    if (!pane.openSession || pane.openSession->summary.id != id)
+                        continue;
+                    auto& nodes = pane.openSession->attached_nodes;
+                    if (std::find(nodes.begin(), nodes.end(), r.value) ==
+                        nodes.end())
+                        nodes.push_back(r.value);
+                }
+            } else {
+                app.nodeAttachError = r.error;
             }
         }
 

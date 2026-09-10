@@ -1,0 +1,54 @@
+# A node can be chosen before a conversation exists, and the chip says so.
+#
+# create_session took a prompt and nothing else, so the machine a thread ran on
+# was decided after the fact. The composer strip now carries a nodes chip: on
+# the landing composer it names the node the NEXT thread will be born with
+# ("0 nodes" when none is picked, which is a fact and not an empty state), the
+# create carries the pick, and the new thread's chip names the node the mock
+# attached. On an open thread the same chip names what is attached, and a pick
+# there attaches. The picker is sized to its rows, so its last row is reached.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer
+
+expect_text "What can I help with?"
+expect_text "0 nodes"
+
+click_ui composer_nodes
+wait_frames 12
+assert_ui node_row_0 hidden=false
+assert_ui node_row_2 hidden=false
+# Every row is the same height, so the last one is whole, not clipped.
+assert_ui node_row_0 h=30
+assert_ui node_row_2 h=30
+expect_text "boulder.local"
+expect_text "od-7f3a"
+
+click_ui node_row_0
+wait_frames 8
+expect_no_text "0 nodes"
+expect_text "boulder.local"
+expect_no_text "od-7f3a"
+
+click_ui composer_reply_input
+type "start on the laptop"
+wait_frames 6
+click_ui composer_send
+wait_frames 60
+expect_text "start on the laptop"
+expect_no_text "What can I help with?"
+
+# The new thread was born with the node, and its chip says which.
+expect_text "boulder.local"
+expect_no_text "0 nodes"
+
+# An open thread with nothing attached says so, and a pick attaches.
+click_text "needs a decision before it can go on"
+wait_frames 12
+expect_text "0 nodes"
+click_ui composer_nodes
+wait_frames 12
+click_ui node_row_1
+wait_frames 30
+expect_text "devvm48270"
+expect_no_text "0 nodes"

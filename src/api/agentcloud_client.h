@@ -66,6 +66,10 @@ class AgentcloudClient : public Client {
     Result<std::string> rename_session(const std::string& session_id,
                                        const std::string& title) override;
 
+    Result<std::vector<NodeInfo>> list_nodes() override;
+    Result<std::string> attach_node(const std::string& session_id,
+                                    const std::string& node_id) override;
+
     bool supports_resolve_ask() const override { return ready(); }
     Result<std::string> resolve_ask(const std::string& session_id,
                                     const PendingAsk& ask, AskAction action,
@@ -175,6 +179,14 @@ Result<std::string> message_request_json(const OutgoingMessage& message,
 Result<std::uint64_t> parse_message_response(const std::string& body);
 SendFailure message_http_failure(int status, const std::string& body);
 std::string parse_created_session_id(const std::string& msg_json);
+// The `nodes` reply -> the roster, newest announce first.
+std::vector<NodeInfo> parse_nodes_reply(const std::string& msg_json);
+// hello.state.attached_nodes -> Session::attached_nodes.
+void parse_attached_nodes(const std::string& hello_json, Session& out);
+// The create command a new thread sends, with its node clause when one was
+// picked.
+std::string create_command_json(const std::string& title,
+                                const std::string& node_id);
 bool hello_has_capability(const std::string& hello_json,
                           const std::string& capability);
 
