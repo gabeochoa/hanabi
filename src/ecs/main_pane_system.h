@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "../api/attachments.h"
+#include "../api/tool_kinds.h"
 #include "../api/disk_cache.h"
 #include "../test_hooks.h"
 #include "../util/capture_clock.h"
@@ -10652,6 +10653,91 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                  afterhours::vec2{cx + 3.2f, cy + 1.8f}, 1.3f,
                                  c);
     }
+    // Each tool kind's own mark, drawn from the same primitives the wrench
+    // is, so a reader tells a read from a grep from a shell at a glance.
+    static void draw_page(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        for (int i = -1; i <= 1; ++i) {
+            const float y = cy + i * 2.6f;
+            const float w = (i == 1) ? 2.2f : 3.4f;
+            afterhours::draw_line_ex(afterhours::vec2{cx - 3.4f, y},
+                                     afterhours::vec2{cx + w, y}, 1.3f, c);
+        }
+    }
+    static void draw_pen(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.2f, cy + 3.2f},
+                                 afterhours::vec2{cx + 2.8f, cy - 2.8f}, 1.7f,
+                                 c);
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.4f, cy + 3.6f},
+                                 afterhours::vec2{cx - 0.6f, cy + 3.6f}, 1.3f,
+                                 c);
+    }
+    static void draw_pen_over_line(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_line_ex(afterhours::vec2{cx - 2.6f, cy + 1.6f},
+                                 afterhours::vec2{cx + 3.0f, cy - 4.0f}, 1.6f,
+                                 c);
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.6f, cy + 4.0f},
+                                 afterhours::vec2{cx + 3.6f, cy + 4.0f}, 1.2f,
+                                 c);
+    }
+    static void draw_magnifier(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_ring(cx - 1.0f, cy - 1.0f, 1.8f, 3.0f, 16, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx + 1.2f, cy + 1.2f},
+                                 afterhours::vec2{cx + 3.6f, cy + 3.6f}, 1.6f,
+                                 c);
+    }
+    static void draw_asterisk(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_line_ex(afterhours::vec2{cx, cy - 3.6f},
+                                 afterhours::vec2{cx, cy + 3.6f}, 1.3f, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.1f, cy - 1.8f},
+                                 afterhours::vec2{cx + 3.1f, cy + 1.8f}, 1.3f,
+                                 c);
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.1f, cy + 1.8f},
+                                 afterhours::vec2{cx + 3.1f, cy - 1.8f}, 1.3f,
+                                 c);
+    }
+    static void draw_globe(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_ring(cx, cy, 2.6f, 3.8f, 20, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.6f, cy},
+                                 afterhours::vec2{cx + 3.6f, cy}, 1.1f, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx, cy - 3.6f},
+                                 afterhours::vec2{cx, cy + 3.6f}, 1.1f, c);
+    }
+    static void draw_agent_mark(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        afterhours::draw_ring(cx, cy - 1.4f, 1.2f, 2.4f, 14, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx - 3.2f, cy + 3.4f},
+                                 afterhours::vec2{cx + 3.2f, cy + 3.4f}, 1.4f,
+                                 c);
+    }
+    static void draw_tool_kind(api::tool_kinds::Kind kind, RectangleType r,
+                               theme::Color c) {
+        using api::tool_kinds::Kind;
+        switch (kind) {
+            case Kind::Read: draw_page(r, c); return;
+            case Kind::Write: draw_pen(r, c); return;
+            case Kind::Edit: draw_pen_over_line(r, c); return;
+            case Kind::Shell: draw_terminal(r, c); return;
+            case Kind::Grep: draw_magnifier(r, c); return;
+            case Kind::Glob: draw_asterisk(r, c); return;
+            case Kind::Web: draw_globe(r, c); return;
+            case Kind::SubAgent: draw_agent_mark(r, c); return;
+            case Kind::Generic: break;
+        }
+        draw_wrench(r, c);
+    }
     static void draw_check(RectangleType r, theme::Color c) {
         const float cx = r.x + r.width * 0.5f;
         const float cy = r.y + r.height * 0.5f;
@@ -11022,7 +11108,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      float rowW, bool expandable, bool open,
                      const std::string& command, int count,
                      const std::string& dur, const std::string& status,
-                     bool showCount = true) {
+                     bool showCount = true,
+                     api::tool_kinds::Kind kind = api::tool_kinds::Kind::Generic) {
         auto head = div(ctx, mk(parent, idbase),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(rowW), pixels(kToolRowH)})
@@ -11057,8 +11144,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(16), pixels(18)})
                 .with_transparent_bg()
                 .with_margin(Margin{.right = pixels(6)})
-                .with_on_draw_fg([](RectangleType rr) {
-                    draw_wrench(rr, theme::text_faint());
+                .with_on_draw_fg([kind](RectangleType rr) {
+                    draw_tool_kind(kind, rr, theme::text_faint());
                 })
                 .with_debug_name("tool_icon"));
         const float leadW = 34.0f;
@@ -11797,7 +11884,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         Entity& head = tool_row(ctx, parent, 200 + index * 10, rowW,
                                 /*expandable=*/expandable, open,
                                 oneCmd, 1, tool_duration(m), m.tool_status,
-                                /*showCount=*/false);
+                                /*showCount=*/false,
+                                api::tool_kinds::classify(m.subtitle));
         if (expandable && app && !key.empty()) {
             head.addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});

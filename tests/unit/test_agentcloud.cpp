@@ -382,6 +382,20 @@ static void test_tool_use_block_does_not_double_the_row() {
     CHECK(out[0].role == Role::Tool);
 }
 
+static void test_a_read_intent_headlines_its_file() {
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":10,"event":{"type":"tool_intent","tool":"Read",
+                         "input":"{\"file_path\":\"/repo/src/a.h\",\"offset\":0,\"limit\":40}"}},
+      {"seq":11,"event":{"type":"tool_intent","tool":"meta__run",
+                         "input":"{\"command\":\"oncall.rotation list\"}"}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 2);
+    CHECK(out[0].subtitle == "Read");
+    CHECK(out[0].text == "/repo/src/a.h  lines 1\xe2\x80\x93" "40");
+    CHECK(out[1].text == "oncall.rotation list");
+}
+
 static void test_known_bookkeeping_events_fold_as_nothing() {
     const std::string reply = R"({"type":"page","frames":[
       {"seq":1,"event":{"type":"run_started"}},
@@ -1506,6 +1520,7 @@ int main() {
     test_failed_tool_reports_failed();
     test_result_for_an_offpage_intent_is_dropped();
     test_tool_use_block_does_not_double_the_row();
+    test_a_read_intent_headlines_its_file();
     test_known_bookkeeping_events_fold_as_nothing();
     test_an_unknown_event_draws_a_row_naming_its_tag();
     test_bad_page_input_is_empty_not_a_crash();

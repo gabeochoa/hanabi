@@ -1,5 +1,6 @@
 #include "agentcloud_client.h"
 #include "attachments.h"
+#include "tool_kinds.h"
 
 #include <algorithm>
 #include <chrono>
@@ -159,18 +160,10 @@ void fq_close_cb(void* user, const char* reason) {
 }
 
 // A tool's `input` is a JSON STRING of the tool's own argument object. Showing
-// it raw puts {"command": "ls -l"} in the transcript where `ls -l` belongs, so
-// unwrap the argument that IS the call when there is an obvious one. Tools seen
-// live: bash/meta__run take `command`, step takes `text`, and the rest are
-// small enough that their JSON reads fine.
-std::string readable_tool_input(const std::string& raw) {
-    json in = json::parse(raw, nullptr, false);
-    if (in.is_discarded() || !in.is_object()) return raw;
-    for (const char* key : {"command", "text", "query", "path", "pattern"}) {
-        const std::string v = str_or(in, key, "");
-        if (!v.empty()) return v;
-    }
-    return raw;
+// it raw puts {"command": "ls -l"} in the transcript where `ls -l` belongs.
+// The tool-kind registry knows which argument IS the call for each kind.
+std::string readable_tool_input(const std::string& tool, const std::string& raw) {
+    return tool_kinds::headline(tool_kinds::classify(tool), raw);
 }
 
 // `list` sorts newest-first by last_seq. There is no timestamp on the wire
@@ -946,7 +939,9 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                 }
             }
         } else if (type == "tool_intent") {
-            Message& m = push(Role::Tool, readable_tool_input(str_or(e, "input", "")));
+            Message& m = push(Role::Tool,
+                              readable_tool_input(str_or(e, "tool", ""),
+                                                  str_or(e, "input", "")));
             m.kind = EventKind::ToolCall;
             m.subtitle = str_or(e, "tool", "");
             row_for_intent_seq[seq] = out.size() - 1;
