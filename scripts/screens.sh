@@ -275,6 +275,8 @@ SET_SHORTCUTS_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"act
 SET_SHORTCUTS_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"light","settings_pane":"shortcuts"}'
 SET_NARROW_SHORTCUTS='{"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"shortcuts"}'
 SET_ABOUT_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"about"}'
+SET_MODEL_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"model"}'
+SET_COMMANDS_DARK='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"commands"}'
 SET_MIDWIDTH_CHAT='{"window_width":760,"window_height":620,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"chat"}'
 SET_NARROW_STORAGE='{"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"storage"}'
 SET_SPLIT_DARK='{"window_width":600,"window_height":500,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark","settings_pane":"chat","show_timestamps":false,"show_reasoning":false}'
@@ -357,6 +359,8 @@ capture 15h_settings_connection_dark  "$SET_CONNECTION_DARK"  HANABI_TEST_OVERLA
 capture 15i_settings_shortcuts_dark   "$SET_SHORTCUTS_DARK"   HANABI_TEST_OVERLAY=settings
 capture 15m_settings_shortcuts_light  "$SET_SHORTCUTS_LIGHT"  HANABI_TEST_OVERLAY=settings
 capture 15j_settings_about_dark       "$SET_ABOUT_DARK"       HANABI_TEST_OVERLAY=settings
+capture 15n_settings_model_dark       "$SET_MODEL_DARK"       HANABI_TEST_OVERLAY=settings
+capture 15o_settings_commands_dark    "$SET_COMMANDS_DARK"    HANABI_TEST_OVERLAY=settings
 capture_sized 15k_settings_split_dark "600 x 500" "$SET_SPLIT_DARK" HANABI_WIN_W=600 HANABI_WIN_H=500 HANABI_TEST_OVERLAY=settings HANABI_OPEN=t2 HANABI_SPLIT=t6
 capture_sized 15l_settings_split_applied_dark "760 x 620" "$SET_SPLIT_AFTER_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=t2 HANABI_SPLIT=t6
 capture 17_newtask_dark    "$NOTABS_DARK"  HANABI_TEST_OVERLAY=composer

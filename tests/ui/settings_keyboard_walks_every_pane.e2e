@@ -37,9 +37,14 @@ expect_text "Show notifications"
 key DOWN
 key DOWN
 key DOWN
+key DOWN
 wait_frames 6
 expect_text "Chords you can rebind, and the ones the system owns"
 expect_text "Start a task from anywhere"
+
+key DOWN
+wait_frames 4
+expect_text "What a slash in the composer can do here, and what it cannot yet"
 
 key DOWN
 wait_frames 4

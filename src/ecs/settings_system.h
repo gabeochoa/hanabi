@@ -65,6 +65,9 @@
 #include "../ui/secondary_surface.h"
 #include "../ui/settings_catalog.h"
 #include "../ui/minimap_marks.h"
+#include "../ui/model_menu.h"
+#include "../ui/effort_menu.h"
+#include "../ui/slash_commands.h"
 #include "../util/scroll_prefs.h"
 #include "../ui/accessibility.h"
 #include "../ui/control_state.h"
@@ -1021,6 +1024,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "identity") render_account_row(ctx, parent, app);
         else if (id == "memory_backend") render_memory_backend_row(ctx, parent, app);
         else if (id == "auto_archive") render_autoarchive_row(ctx, parent, app);
+        else if (id == "default_model") render_default_model_row(ctx, parent, app);
+        else if (id == "default_effort")
+            render_default_effort_row(ctx, parent, app);
+        else if (id == "slash_commands")
+            render_slash_commands_row(ctx, parent, app);
 
         rowFocused_ = false;
         rowActivate_ = false;
@@ -2244,6 +2252,149 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                i == 1 ? "hindsight" : "traditional");
                        });
     }
+
+    void render_default_model_row(UIContext<InputAction>& ctx, Entity& parent,
+                                  AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 500, "Default model", "settings_default_model");
+        const auto& models = hanabi::models::all();
+        const std::string current = Settings::get().get_default_model();
+        std::vector<std::string> labels;
+        labels.reserve(models.size());
+        for (const auto& m : models) labels.emplace_back(m.name);
+        int selected = 0;
+        for (std::size_t i = 0; i < models.size(); ++i)
+            if (models[i].id == current) selected = static_cast<int>(i);
+        radio_list(ctx, parent, 501, labels, selected, "settings_default_model",
+                   [](int i) {
+                       Settings::get().set_default_model(
+                           std::string(hanabi::models::all()
+                                           [static_cast<std::size_t>(i)]
+                                               .id));
+                   });
+        div(ctx, mk(parent, 502),
+            ComponentConfig{}
+                .with_label("Starts the next conversation; a running one keeps "
+                            "the model it began on.")
+                .with_size(ComponentSize{pixels(content_w()), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_default_model_note"));
+    }
+
+    void render_default_effort_row(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 530, "Thinking effort", "settings_default_effort");
+        const auto& levels = hanabi::effort::all();
+        std::vector<std::string> labels;
+        labels.reserve(levels.size());
+        for (const auto& l : levels) labels.emplace_back(l.name);
+        const std::size_t at =
+            hanabi::effort::index_of(Settings::get().get_default_effort());
+        const int selected = at < levels.size()
+                                 ? static_cast<int>(at)
+                                 : static_cast<int>(hanabi::effort::index_of(
+                                       hanabi::effort::default_id()));
+        real_segmented(ctx, parent, 531, labels, selected,
+                       "settings_default_effort", [](int i) {
+                           Settings::get().set_default_effort(std::string(
+                               hanabi::effort::all()
+                                   [static_cast<std::size_t>(i)]
+                                       .id));
+                       });
+    }
+
+    void render_slash_commands_row(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 540, "Slash commands", "settings_slash");
+        const auto& commands = hanabi::slash::all();
+        for (std::size_t i = 0; i < commands.size(); ++i) {
+            const auto& c = commands[i];
+            std::string verb = "/" + std::string(c.name);
+            if (!c.arg.empty()) verb += " " + std::string(c.arg);
+            std::string line = verb + "  \xc2\xb7  " + std::string(c.blurb);
+            if (!c.runnable) line += "  \xc2\xb7  not yet: " + c.unwired;
+            auto row = div(ctx, mk(parent, 541 + static_cast<int>(i)),
+                ComponentConfig{}
+                    .with_label(line)
+                    .with_size(ComponentSize{
+                        pixels(content_w()),
+                        pixels(hanabi::control::kMinHitTarget)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(c.runnable ? theme::text_secondary()
+                                                       : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_slash_" + std::string(c.name)));
+            if (i == 0) anchor_control(row.ent());
+        }
+        div(ctx, mk(parent, 560),
+            ComponentConfig{}
+                .with_label("Type a slash at the start of the composer to see "
+                            "this list there.")
+                .with_size(ComponentSize{pixels(content_w()), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_slash_note"));
+    }
+
+    template <typename Fn>
+    void radio_list(UIContext<InputAction>& ctx, Entity& parent, int baseId,
+                    const std::vector<std::string>& labels, int selectedIdx,
+                    const std::string& dbg, Fn onPick) {
+        const int n = static_cast<int>(labels.size());
+        auto col = div(ctx, mk(parent, baseId),
+            ComponentConfig{}
+                .with_size(ComponentSize{
+                    pixels(content_w()),
+                    pixels((kSegBtnH + kRadioGap) * static_cast<float>(n))})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_list"));
+        anchor_control(col.ent());
+        for (int i = 0; i < n; ++i) {
+            const bool sel = (i == selectedIdx);
+            auto btn = button(ctx, mk(col.ent(), i + 1),
+                ComponentConfig{}
+                    .with_label(labels[static_cast<size_t>(i)])
+                    .with_size(ComponentSize{pixels(content_w()),
+                                             pixels(kSegBtnH)})
+                    .with_margin(Margin{.bottom = pixels(kRadioGap)})
+                    .with_padding(Padding{.left = pixels(10)})
+                    .with_custom_background(sel ? theme::button_primary()
+                                                : theme::button_secondary())
+                    .with_custom_hover_bg(sel ? theme::button_primary()
+                                              : theme::hover_bg())
+                    .with_custom_text_color(sel ? theme::window_bg()
+                                                : theme::text_primary())
+                    .with_font_size(theme::type::MD)
+                    .with_alignment(TextAlignment::Left)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.35f)
+                    .with_debug_name(dbg + "_" + std::to_string(i)));
+            if (btn) onPick(i);
+        }
+        const int stepped = activated_index(selectedIdx, n);
+        if (stepped >= 0) onPick(stepped);
+    }
+
+    static constexpr float kRadioGap = 4.0f;
 
     // Timestamps on transcript rows: Off / On. Local to this machine, so it
     // persists without going near the sync-dirty flag.

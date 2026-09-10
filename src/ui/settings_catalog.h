@@ -17,11 +17,13 @@ enum class Pane {
     Notifications,
     Storage,
     Connection,
+    Model,
     Shortcuts,
+    Commands,
     About,
 };
 
-inline constexpr size_t kPaneCount = 8;
+inline constexpr size_t kPaneCount = 10;
 
 enum class Group { App, Backend, Input, System };
 
@@ -46,8 +48,12 @@ inline constexpr std::array<PaneInfo, kPaneCount> kPanes{{
      "What is kept on this disk, and your own copies of it"},
     {Pane::Connection, Group::Backend, "Connection", "connection",
      "Which backend this window talks to, and who it thinks you are"},
+    {Pane::Model, Group::Backend, "Model", "model",
+     "Which model a new conversation starts on, and how hard it thinks"},
     {Pane::Shortcuts, Group::Input, "Shortcuts", "shortcuts",
      "Chords you can rebind, and the ones the system owns"},
+    {Pane::Commands, Group::Input, "Commands", "commands",
+     "What a slash in the composer can do here, and what it cannot yet"},
     {Pane::About, Group::System, "About", "about",
      "Version, and what this build carries"},
 }};
@@ -124,7 +130,7 @@ struct Row {
     Origin origin;
 };
 
-inline constexpr std::array<Row, 36> kRows{{
+inline constexpr std::array<Row, 39> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -202,11 +208,23 @@ inline constexpr std::array<Row, 36> kRows{{
     {"auto_archive", Pane::Connection, "Auto-archive",
      "archive age days old automatic tidy", Origin::Account},
 
+    {"default_model", Pane::Model, "Default model",
+     "model default server opus fable sonnet gpt muse avocado pick new "
+     "conversation start",
+     Origin::Account},
+    {"default_effort", Pane::Model, "Thinking effort",
+     "effort reasoning thinking low medium high xhigh max ladder slow fast",
+     Origin::Device},
+
     {"global_chords", Pane::Shortcuts, "Global shortcuts",
      "global anywhere desktop chord hotkey summon launcher", Origin::Device},
     {"command_chords", Pane::Shortcuts, "Command shortcuts",
      "shortcut chord keyboard key rebind record reset binding",
      Origin::Device},
+    {"slash_commands", Pane::Commands, "Slash commands",
+     "slash command verb new model effort btw compact fork composer menu "
+     "type",
+     Origin::Readout},
     {"version", Pane::About, "Version",
      "version build about release number", Origin::Readout},
 }};

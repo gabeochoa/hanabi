@@ -14,6 +14,8 @@ key TAB
 key TAB
 key TAB
 key TAB
+key TAB
+key TAB
 wait_frames 8
 expect_focused sb_settings_nav_about
 
@@ -51,4 +53,4 @@ wait_frames 6
 expect_focused sb_settings_nav_about
 shift_tab
 wait_frames 6
-expect_focused sb_settings_nav_shortcuts
+expect_focused sb_settings_nav_commands
