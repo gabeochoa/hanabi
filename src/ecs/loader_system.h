@@ -584,6 +584,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.replace_sessions(std::move(r.value));
                     app.listState = LoadState::Loaded;
                     app.listError.clear();
+                    app.liveListSeen = true;
                     // Persist the fresh list for the next launch's instant paint.
                     if (disk_cache_enabled(app))
                         api::disk_cache::save_sessions(app.sessions);

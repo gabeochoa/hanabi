@@ -49,6 +49,7 @@
 #include "../ui/status_mark.h"
 #include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
 #include "sidebar_buckets.h"
+#include "folder_state.h"
 #include "line_draw_state.h"
 #include "subagent_parent_index.h"
 #include "thread_model.h"
@@ -2542,12 +2543,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // allocation once the catalog has been seen at its largest.
         std::vector<const api::SessionSummary*>& members = members_;
         members.assign(collected.begin(), collected.end());
-        // Hide a folder with no (matching) members. With an active query this
-        // is what drops non-matching folders out of the tree.
+        const model::FolderState folderState = model::folder_state(
+            members, buckets_.hidden(key),
+            model::catalog_read(app.liveListSeen, app.listError));
+        // A folder with no (matching) members. With an active query this is
+        // what drops non-matching folders out of the tree; without one a
+        // named folder keeps its header and the header says why it is bare.
         if (members.empty()) {
             rowsRendered_ = 0;  // the row audit, below; nothing was drawn
             rowsMatched_ = 0;
             rowsFirst_ = 0;
+            if (q.empty() && !catchAll && !headerless)
+                render_group_header(ctx, parent, base, name, key, folderState,
+                                    archivedStyle ? theme::text_faint()
+                                                  : theme::text_secondary(),
+                                    app, q, panelW);
             return 0;
         }
         const int total = static_cast<int>(members.size());
@@ -2610,7 +2620,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
         return render_group(ctx, parent, base, name, key, members, app, q,
                             panelW, archivedStyle, headerless, cap, limit,
-                            row_window(parent, limit, q.empty()));
+                            row_window(parent, limit, q.empty()), folderState);
     }
 
     // ---- collapsible group header (shared by folders + time-groups) ----
@@ -2619,9 +2629,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // the caller knows whether to emit body rows. `count` is shown in the
     // unified count column so folder heads + time-group heads land flush with
     // the smart-view counts.
+    static theme::Color folder_count_color(const model::FolderState& f) {
+        switch (f.read) {
+            case model::CatalogRead::Failed: return theme::destructive();
+            case model::CatalogRead::Loading: return theme::text_faint();
+            case model::CatalogRead::Fresh: break;
+        }
+        return f.attention > 0 ? theme::accent() : theme::text_faint();
+    }
+
     bool render_group_header(UIContext<InputAction>& ctx, Entity& parent,
                              int base, const std::string& name,
-                             const std::string& key, int count,
+                             const std::string& key,
+                             const model::FolderState& folderState,
                              theme::Color headColor, AppComponent& app,
                              const std::string& q, float panelW) {
         bool collapsed = app.collapsedFolders.count(key) > 0;
@@ -2691,7 +2711,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // for the reason spelled out over the smart-view count: right-aligned
         // text can never be flush (afterhours_gaps.md #84).
         const float kHeadContent = panelW - 10.0f - kCountRightPad;
-        const std::string headCountText = std::to_string(count);
+        const std::string headCountText =
+            model::folder_count_label(folderState);
         const float headCountW =
             std::ceil(theme::text_px(headCountText.c_str(), theme::type::SM)) +
             kAhTextInset;
@@ -2716,7 +2737,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(headCountText)
                 .with_size(ComponentSize{pixels(headCountW), pixels(18)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                .with_custom_text_color(folder_count_color(folderState))
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
@@ -2734,7 +2755,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                      const std::vector<const api::SessionSummary*>& members,
                      AppComponent& app, const std::string& q, float panelW,
                      bool archived, bool headerless, int cap, int limit,
-                     const RowWindow& win) {
+                     const RowWindow& win, const model::FolderState& folderState) {
         if (members.empty()) return 0;
         // Headerless: unfoldered sessions render as a plain flat list with NO
         // folder header (per Gabe: "only keep the real folders" — no invented
@@ -2744,8 +2765,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             theme::Color headColor =
                 archived ? theme::text_faint() : theme::text_secondary();
             bool collapsed = render_group_header(
-                ctx, parent, base, name, key,
-                static_cast<int>(members.size()), headColor, app, q, panelW);
+                ctx, parent, base, name, key, folderState, headColor, app, q,
+                panelW);
             // Collapsed: header only, no body rows.
             if (collapsed) return static_cast<int>(members.size());
         }

@@ -358,6 +358,9 @@ struct AppComponent : public afterhours::BaseComponent {
     std::vector<api::SessionSummary> sessions;
     LoadState listState = LoadState::Idle;
     std::string listError;
+    // Whether a LIVE list has ever landed this run. Rows shown before then
+    // came from the disk, and a folder header says so.
+    bool liveListSeen = false;
 
     // ==== The panes ========================================================
     // Two transcript views. `panes[0]` is the one that has always existed;

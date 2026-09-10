@@ -1,0 +1,23 @@
+# A folder header says how many of its threads want you, and says "hidden"
+# rather than vanishing when the automated-thread filter empties it.
+#
+# Under HANABI_FOLDER_DEMO, subscriptions holds r5 and r6 (running) and r7
+# (failed, so it rides in the Blocked view); monetization holds only the
+# automated kicker-tick. A bare member count read "3" and "1" and, with the
+# filter on, monetization was not drawn at all -- a folder the reader could
+# not tell from one that never existed.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_FOLDER_DEMO=1
+
+wait_frames 10
+expect_text "subscriptions"
+expect_text "1 need you · 3"
+expect_text "monetization"
+
+# Hide automated threads: monetization stays, and says why it is bare.
+click_ui sb_search_filter
+wait_frames 8
+expect_text "monetization"
+expect_text "1 hidden"
+expect_text "1 need you · 3"

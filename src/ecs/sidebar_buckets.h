@@ -131,7 +131,10 @@ class SidebarBuckets {
         valid_ = true;
         folders_.clear();
         recent_.clear();
-        for (Bucket& b : buckets_) b.members.clear();
+        for (Bucket& b : buckets_) {
+            b.members.clear();
+            b.hidden = 0;
+        }
 
         for (const api::SessionSummary& s : sessions) {
             const bool archived = is_archived(s);
@@ -143,7 +146,10 @@ class SidebarBuckets {
             std::size_t idx = 0;
             if (!archived && named) idx = slot(s.folder);
             if (archived) continue;
-            if (hideAutomated && is_automated_title(s.title)) continue;
+            if (hideAutomated && is_automated_title(s.title)) {
+                if (named) ++buckets_[idx].hidden;
+                continue;
+            }
             if (!(title_matches(s.title, q) ||
                   (!q.empty() && contentMatch(s.id, q))))
                 continue;
@@ -172,12 +178,21 @@ class SidebarBuckets {
         return recent_;
     }
 
+    // Members of a folder the automated-thread filter kept out of `members`,
+    // so a header can say "3 hidden" rather than the false "empty".
+    int hidden(const std::string& key) const {
+        for (const Bucket& b : buckets_)
+            if (b.key == key) return b.hidden;
+        return 0;
+    }
+
     std::size_t rebuilds() const { return rebuilds_; }
 
    private:
     struct Bucket {
         std::string key;
         std::vector<const api::SessionSummary*> members;
+        int hidden = 0;
     };
 
     // Buckets outlive the frame so their vectors keep the capacity the catalog

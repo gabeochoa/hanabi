@@ -2618,6 +2618,9 @@ class MockClient : public Client {
             v[0].summary.folder = "/work/subscriptions";
             v[1].summary.folder = "/work/subscriptions";
             v[2].summary.folder = "/work/monetization";
+            for (Session& s : v)
+                if (s.summary.id == "r7")
+                    s.summary.folder = "/work/subscriptions";
         }
 
         // THE BRAKES AND THE TWO NEW MARKS, on demand.
