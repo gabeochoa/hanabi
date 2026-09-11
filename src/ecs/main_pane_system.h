@@ -3339,7 +3339,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // never displaces the conversation under it.
     void find_bar(UIContext<InputAction>& ctx, Entity& parent,
                   AppComponent& app, Pane& pane, float paneW, int matchCount,
-                  const find_ops::Query& q) {
+                  const find_ops::Query& q, float topOffset = 0.0f) {
         constexpr float kInputW = 176.0f;
         constexpr float kTallyW = 76.0f;
         constexpr float kButtonW = 26.0f;
@@ -3351,7 +3351,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(kBarW), pixels(kBarH)})
                 .with_absolute_position()
-                .with_translate(bx, 52.0f)
+                .with_translate(bx, 52.0f + topOffset)
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -3568,7 +3568,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // to the top of the scroll list, and they should keep reading "below
         // whatever the header is" rather than hard-coding 0.
         constexpr float kHeaderH = 0.0f;
-        float listH = paneH - kHeaderH - refusalH;
+        const float listTop = kHeaderH + refusalH;
+        float listH = paneH - listTop;
         if (listH < 20.0f) listH = 20.0f;
 
         // Modern-chat centering: the transcript reads best in a ~720px column
@@ -4239,7 +4240,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         {
             hanabi::prof::Scope _pm("transcript.minimap");
             minimap_rail(ctx, parent, scroll.ent(), items, msgs, subH, paneW,
-                         kHeaderH, listH, totalH, viewH, scrollY, s_follow,
+                         listTop, listH, totalH, viewH, scrollY, s_follow,
                          mem.minimapDrag, mem, itemView.rebuilt);
         }
 
@@ -4260,10 +4261,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // shift the scroll content / fight the anchor math. kHeaderH offsets it
         // below the title header.
         if (pane.loadingOlder) {
-            loading_older_pill(ctx, parent, paneW, kHeaderH + 6.0f);
+            loading_older_pill(ctx, parent, paneW, listTop + 6.0f);
         }
         if (pane.findOpen)
-            find_bar(ctx, parent, app, pane, paneW, pane.findCount, findQ);
+            find_bar(ctx, parent, app, pane, paneW, pane.findCount, findQ,
+                     refusalH);
         hanabi::text_select::end_frame(ctx.mouse.just_pressed);
         // (Composer is rendered once at the pane level — not here.)
         (void)canReply;

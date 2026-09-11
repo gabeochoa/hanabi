@@ -1866,7 +1866,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     std::future_status::ready) {
                 auto r = ls.future.get();
                 ls.pending = false;
+                if (r.refused) app.apply_attach_refusal(id, r.error);
                 if (r.ok) {
+                    app.clear_attach_refusal(id);
                     // Persist fresh transcript for ANY open tab (instant
                     // switch).
                     save_and_trim(app, r.value);
