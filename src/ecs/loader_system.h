@@ -162,8 +162,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             const std::string id = it->first;
             const std::uint64_t stamp = it->second.stamp;
             it = app.askRefreshes.erase(it);
-            if (r.ok && r.value.summary.id == id)
+            if (r.refused) {
+                app.apply_attach_refusal(id, r.error);
+                continue;
+            }
+            if (r.ok && r.value.summary.id == id) {
+                app.clear_attach_refusal(id);
                 adopt_attach_asks(app, r.value, /*authoritative=*/true, stamp);
+            }
         }
     }
     static bool park_ask_draft(AppComponent& app, const std::string& kept,
@@ -502,26 +508,21 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         if (pane.transcriptLoadingId == completedId)
                             pane.transcriptLoadingId.clear();
                     }
-                } else if (pane.selectedId == completedId) {
+                } else {
                     if (r.refused) app.apply_attach_refusal(completedId, r.error);
-                    // Network fetch failed. If we already painted a stale copy
-                    // from disk/LRU, KEEP it rather than blanking the pane on a
-                    // transient slow-network error; only surface the error when
-                    // there's nothing to show.
-                    pane.transcriptError = r.error;
-                    if (pane.openSession &&
-                        pane.openSession->summary.id == completedId) {
-                        pane.transcriptState = LoadState::Loaded;  // keep stale
-                    } else {
-                        pane.openSession.reset();
-                        pane.transcriptState = LoadState::Error;
+                    if (pane.selectedId == completedId) {
+                        pane.transcriptError = r.error;
+                        if (pane.openSession &&
+                            pane.openSession->summary.id == completedId) {
+                            pane.transcriptState = LoadState::Loaded;
+                        } else {
+                            pane.openSession.reset();
+                            pane.transcriptState = LoadState::Error;
+                        }
+                        if (pane.transcriptLoadingId == completedId &&
+                            !pane.diskReadPending)
+                            pane.transcriptLoadingId.clear();
                     }
-                    // Fetch resolved (success or fail) for this thread — stop
-                    // showing the spinner. A pending disk read (if any) may
-                    // still paint a stale copy afterwards.
-                    if (pane.transcriptLoadingId == completedId &&
-                        !pane.diskReadPending)
-                        pane.transcriptLoadingId.clear();
                 }
             }
         }
@@ -628,7 +629,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.liveListSeen = true;
                     // Persist the fresh list for the next launch's instant paint.
                     if (disk_cache_enabled(app))
-                        api::disk_cache::save_sessions(app.sessions);
+                        api::disk_cache::save_sessions(
+                            app.attachRefusals.empty()
+                                ? app.sessions
+                                : app.catalog_without_refusals());
                     // Auto-open the first session if nothing selected yet.
                     if (app.pane().selectedId.empty() && !app.sessions.empty())
                         app.pane().requestOpenId = app.sessions.front().id;
@@ -690,6 +694,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else if (r.ok) {
                 if (r.value.size() > AppComponent::kMaxSubagentSessions)
                     r.value.resize(AppComponent::kMaxSubagentSessions);
+                app.overlay_attach_refusals(r.value);
                 app.replace_subagent_sessions(std::move(r.value));
                 app.subagentListState = LoadState::Loaded;
                 app.subagentListError.clear();

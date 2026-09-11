@@ -617,6 +617,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    static float refusal_banner(UIContext<InputAction>& ctx, Entity& parent,
+                                const std::string& why, float paneW) {
+        constexpr float kBannerH = 40.0f;
+        constexpr float kBannerTop = 12.0f;
+        const float cardW = std::max(200.0f, paneW - 48.0f);
+        auto card = div(ctx, mk(parent, 82),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(cardW), pixels(kBannerH)})
+                .with_margin(Margin{.top = pixels(kBannerTop),
+                                    .right = pixels(24), .left = pixels(24)})
+                .with_padding(Padding{.top = pixels(10), .left = pixels(16),
+                                      .bottom = pixels(10), .right = pixels(16)})
+                .with_custom_background(hanabi::surface::destructive_surface())
+                .with_border(theme::destructive(), pixels(1.0f))
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("main_refusal_note"));
+        auto text = div(ctx, mk(card.ent(), 1),
+            ComponentConfig{}
+                .with_label(why + "  \xc2\xb7  showing the last copy hanabi saved")
+                .with_size(ComponentSize{percent(1.0f), pixels(20)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::destructive())
+                .with_font_size(theme::type::SM)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("main_refusal_note_text"));
+        hanabi::a11y::set_name(text.ent(), why, hanabi::a11y::Role::Row);
+        return kBannerH + kBannerTop;
+    }
+
     // A representative glyph (drawn shape) for a smart view's empty state.
     enum class EmptyGlyph { Check, Inbox, Star, Archive, None };
     static EmptyGlyph view_glyph(SmartView v) {
@@ -3522,6 +3552,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
+        float refusalH = 0.0f;
+        if (const std::string* why = app.attach_refusal_reason(pane.selectedId))
+            refusalH = refusal_banner(ctx, parent, *why, paneW);
+
         // The composer is rendered ONCE at the pane level; paneH here is
         // already the CONTENT height (pane minus composer), so the transcript
         // fills it directly — no local composer reservation.
@@ -3534,7 +3568,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // to the top of the scroll list, and they should keep reading "below
         // whatever the header is" rather than hard-coding 0.
         constexpr float kHeaderH = 0.0f;
-        float listH = paneH - kHeaderH;
+        float listH = paneH - kHeaderH - refusalH;
         if (listH < 20.0f) listH = 20.0f;
 
         // Modern-chat centering: the transcript reads best in a ~720px column

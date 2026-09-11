@@ -1408,44 +1408,121 @@ struct AppComponent : public afterhours::BaseComponent {
     // written through to the catalog row and every pane showing it, and it
     // outlives the next catalog replacement (the list poll knows nothing of
     // it). It lifts the moment an attach succeeds.
-    std::map<std::string, std::string> attachRefusals;
+    struct AttachRefusal {
+        std::string why;
+        bool shadowed = false;
+        api::ThreadTag tag = api::ThreadTag::None;
+        api::ThreadState state = api::ThreadState::Unknown;
+        std::string preview;
+    };
+    std::map<std::string, AttachRefusal> attachRefusals;
 
     static bool project_refusal(api::SessionSummary& s,
                                 const std::string& why) {
-        const bool changed = s.tag != api::ThreadTag::Failed ||
-                             s.state != api::ThreadState::Attention ||
-                             s.preview != why;
+        const bool changed = !wears_refusal(s, why);
         s.tag = api::ThreadTag::Failed;
         s.state = api::ThreadState::Attention;
         s.preview = why;
         return changed;
     }
 
+    static bool wears_refusal(const api::SessionSummary& s,
+                              const std::string& why) {
+        return s.tag == api::ThreadTag::Failed &&
+               s.state == api::ThreadState::Attention && s.preview == why;
+    }
+
+    static void shadow_row(AttachRefusal& refusal,
+                           const api::SessionSummary& s) {
+        refusal.shadowed = true;
+        refusal.tag = s.tag;
+        refusal.state = s.state;
+        refusal.preview = s.preview;
+    }
+
+    static bool restore_row(const AttachRefusal& refusal,
+                            api::SessionSummary& s) {
+        if (!refusal.shadowed || !wears_refusal(s, refusal.why)) return false;
+        s.tag = refusal.tag;
+        s.state = refusal.state;
+        s.preview = refusal.preview;
+        return true;
+    }
+
+    void bump_subagent_catalog_revision() {
+        ++subagentCatalogRevision;
+        if (subagentCatalogRevision == 0) subagentCatalogRevision = 1;
+    }
+
     void apply_attach_refusal(const std::string& id, const std::string& why) {
-        attachRefusals[id] = why;
+        AttachRefusal& refusal = attachRefusals[id];
+        refusal.why = why;
         bool changed = false;
+        bool subagentChanged = false;
         for (auto& s : sessions)
-            if (s.id == id && project_refusal(s, why)) changed = true;
+            if (s.id == id) {
+                if (!refusal.shadowed) shadow_row(refusal, s);
+                if (project_refusal(s, why)) changed = true;
+            }
+        for (auto& s : subagentSessions)
+            if (s.id == id) {
+                if (!refusal.shadowed) shadow_row(refusal, s);
+                if (project_refusal(s, why)) subagentChanged = true;
+            }
         for (Pane& p : panes)
-            if (p.openSession && p.openSession->summary.id == id)
+            if (p.openSession && p.openSession->summary.id == id) {
+                if (!refusal.shadowed) shadow_row(refusal, p.openSession->summary);
                 project_refusal(p.openSession->summary, why);
+            }
         if (changed) mark_session_catalog_changed();
+        if (subagentChanged) bump_subagent_catalog_revision();
     }
 
     void clear_attach_refusal(const std::string& id) {
-        attachRefusals.erase(id);
+        auto it = attachRefusals.find(id);
+        if (it == attachRefusals.end()) return;
+        const AttachRefusal lifted = std::move(it->second);
+        attachRefusals.erase(it);
+        bool changed = false;
+        bool subagentChanged = false;
+        for (auto& s : sessions)
+            if (s.id == id && restore_row(lifted, s)) changed = true;
+        for (auto& s : subagentSessions)
+            if (s.id == id && restore_row(lifted, s)) subagentChanged = true;
+        for (Pane& p : panes)
+            if (p.openSession && p.openSession->summary.id == id)
+                restore_row(lifted, p.openSession->summary);
+        if (changed) mark_session_catalog_changed();
+        if (subagentChanged) bump_subagent_catalog_revision();
     }
 
     bool is_refused(const std::string& id) const {
         return attachRefusals.count(id) != 0;
     }
 
-    void overlay_attach_refusals(std::vector<api::SessionSummary>& rows) const {
+    const std::string* attach_refusal_reason(const std::string& id) const {
+        auto it = attachRefusals.find(id);
+        return it == attachRefusals.end() ? nullptr : &it->second.why;
+    }
+
+    void overlay_attach_refusals(std::vector<api::SessionSummary>& rows) {
         if (attachRefusals.empty()) return;
         for (auto& s : rows) {
             auto it = attachRefusals.find(s.id);
-            if (it != attachRefusals.end()) project_refusal(s, it->second);
+            if (it == attachRefusals.end()) continue;
+            if (!wears_refusal(s, it->second.why)) shadow_row(it->second, s);
+            project_refusal(s, it->second.why);
         }
+    }
+
+    std::vector<api::SessionSummary> catalog_without_refusals() const {
+        std::vector<api::SessionSummary> rows = sessions;
+        if (attachRefusals.empty()) return rows;
+        for (auto& s : rows) {
+            auto it = attachRefusals.find(s.id);
+            if (it != attachRefusals.end()) restore_row(it->second, s);
+        }
+        return rows;
     }
 
     void apply_muted(const std::string& id, bool muted) {

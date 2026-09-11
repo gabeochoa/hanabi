@@ -165,7 +165,23 @@ class MockClient : public Client {
     // that is not yours or no longer exists answers a real attach.
     static bool injected_refusal(const std::string& id) {
         const char* v = std::getenv("HANABI_MOCK_REFUSE");
-        return v != nullptr && id == v;
+        if (v != nullptr && id == v) return true;
+        static std::mutex hookMu;
+        if (const char* after = std::getenv("HANABI_MOCK_REFUSE_AFTER_FIRST");
+            after != nullptr && id == after) {
+            static std::set<std::string> attachedOnce;
+            std::lock_guard<std::mutex> lock(hookMu);
+            return !attachedOnce.insert(id).second;
+        }
+        const char* once = std::getenv("HANABI_MOCK_REFUSE_ONCE");
+        if (once == nullptr || *once == '\0') return false;
+        const std::string spec(once);
+        if (id != spec.substr(0, spec.find(':'))) return false;
+        static std::string consumed;
+        std::lock_guard<std::mutex> lock(hookMu);
+        if (consumed == spec) return false;
+        consumed = spec;
+        return true;
     }
     static Result<Session> refusal_for(const std::string& id) {
         return Result<Session>::refusal("attach refused: session " + id +

@@ -1187,6 +1187,126 @@ static void test_a_refused_attach_reads_as_failed_in_the_list() {
           ecs::model::StatusGlyph::Done);
 }
 
+static api::SessionSummary refusal_fixture_row(const char* id,
+                                               api::ThreadTag tag,
+                                               const char* preview) {
+    api::SessionSummary row;
+    row.id = id;
+    row.title = "style guide written";
+    row.state = api::ThreadState::Unknown;
+    row.tag = tag;
+    row.preview = preview;
+    return row;
+}
+
+static void test_a_lifted_refusal_restores_the_row_before_the_next_poll() {
+    std::printf("test_a_lifted_refusal_restores_the_row_before_the_next_poll\n");
+    ecs::AppComponent app;
+    const api::SessionSummary row =
+        refusal_fixture_row("t3", api::ThreadTag::Done, "three variants");
+    app.replace_sessions({row});
+    api::Session open;
+    open.summary = row;
+    app.panes[0].selectedId = "t3";
+    app.panes[0].openSession = open;
+
+    app.apply_attach_refusal("t3", "attach refused: x");
+    CHECK(app.find_summary("t3")->tag == api::ThreadTag::Failed);
+    CHECK(app.find_summary("t3")->preview == "attach refused: x");
+    CHECK(app.panes[0].openSession->summary.tag == api::ThreadTag::Failed);
+    CHECK(*app.attach_refusal_reason("t3") == "attach refused: x");
+
+    const std::uint64_t before = app.sessionCatalogRevision;
+    app.clear_attach_refusal("t3");
+    CHECK(!app.is_refused("t3"));
+    CHECK(app.attach_refusal_reason("t3") == nullptr);
+    CHECK(app.sessionCatalogRevision != before);
+    const api::SessionSummary* s = app.find_summary("t3");
+    CHECK(s->tag == api::ThreadTag::Done);
+    CHECK(s->state == api::ThreadState::Unknown);
+    CHECK(s->preview == "three variants");
+    CHECK(ecs::model::status_glyph(*s) == ecs::model::StatusGlyph::Done);
+    CHECK(app.panes[0].openSession->summary.tag == api::ThreadTag::Done);
+    CHECK(app.panes[0].openSession->summary.preview == "three variants");
+
+    app.clear_attach_refusal("t3");
+    CHECK(app.find_summary("t3")->tag == api::ThreadTag::Done);
+}
+
+static void test_a_poll_under_a_refusal_refreshes_what_the_lift_restores() {
+    std::printf(
+        "test_a_poll_under_a_refusal_refreshes_what_the_lift_restores\n");
+    ecs::AppComponent app;
+    app.replace_sessions(
+        {refusal_fixture_row("t3", api::ThreadTag::Done, "three variants")});
+    app.apply_attach_refusal("t3", "attach refused: x");
+
+    std::vector<api::SessionSummary> poll{
+        refusal_fixture_row("t3", api::ThreadTag::Review, "now a review")};
+    app.overlay_attach_refusals(poll);
+    app.replace_sessions(std::move(poll));
+    CHECK(app.find_summary("t3")->tag == api::ThreadTag::Failed);
+    CHECK(app.find_summary("t3")->preview == "attach refused: x");
+
+    app.apply_attach_refusal("t3", "attach refused: y");
+    CHECK(app.find_summary("t3")->preview == "attach refused: y");
+
+    app.clear_attach_refusal("t3");
+    CHECK(app.find_summary("t3")->tag == api::ThreadTag::Review);
+    CHECK(app.find_summary("t3")->preview == "now a review");
+}
+
+static void test_a_refusal_reaches_a_child_row_and_survives_its_poll() {
+    std::printf("test_a_refusal_reaches_a_child_row_and_survives_its_poll\n");
+    ecs::AppComponent app;
+    app.replace_subagent_sessions(
+        {refusal_fixture_row("c1", api::ThreadTag::Done, "child done")});
+    const std::uint64_t seeded = app.subagentCatalogRevision;
+
+    app.apply_attach_refusal("c1", "attach refused: child");
+    CHECK(app.subagentCatalogRevision != seeded);
+    CHECK(app.find_summary("c1")->tag == api::ThreadTag::Failed);
+    CHECK(ecs::model::status_glyph(*app.find_summary("c1")) ==
+          ecs::model::StatusGlyph::Blocked);
+
+    std::vector<api::SessionSummary> poll{
+        refusal_fixture_row("c1", api::ThreadTag::Done, "child done")};
+    app.overlay_attach_refusals(poll);
+    app.replace_subagent_sessions(std::move(poll));
+    CHECK(app.find_summary("c1")->tag == api::ThreadTag::Failed);
+
+    const std::uint64_t projected = app.subagentCatalogRevision;
+    app.clear_attach_refusal("c1");
+    CHECK(app.subagentCatalogRevision != projected);
+    CHECK(app.find_summary("c1")->tag == api::ThreadTag::Done);
+    CHECK(app.find_summary("c1")->preview == "child done");
+}
+
+static void test_the_saved_catalog_never_carries_a_refusal() {
+    std::printf("test_the_saved_catalog_never_carries_a_refusal\n");
+    ecs::AppComponent app;
+    app.replace_sessions(
+        {refusal_fixture_row("t3", api::ThreadTag::Done, "three variants"),
+         refusal_fixture_row("t4", api::ThreadTag::Review, "untouched")});
+    app.apply_attach_refusal("t3", "attach refused: x");
+
+    const auto saved = app.catalog_without_refusals();
+    CHECK(saved.size() == 2);
+    CHECK(saved[0].tag == api::ThreadTag::Done);
+    CHECK(saved[0].state == api::ThreadState::Unknown);
+    CHECK(saved[0].preview == "three variants");
+    CHECK(saved[1].tag == api::ThreadTag::Review);
+    CHECK(saved[1].preview == "untouched");
+    CHECK(app.find_summary("t3")->tag == api::ThreadTag::Failed);
+
+    ecs::AppComponent restarted;
+    std::vector<api::SessionSummary> fromDisk = saved;
+    restarted.overlay_attach_refusals(fromDisk);
+    restarted.replace_sessions(std::move(fromDisk));
+    CHECK(restarted.find_summary("t3")->tag == api::ThreadTag::Done);
+    CHECK(!restarted.is_refused("t3"));
+}
+
 // COLD START, then a thaw that happened while the app was closed. The cache
 // remembers a freeze; the first live poll does not. The server wins: the mark
 // goes, the brake lifts, and the re-save must not write the freeze back --
@@ -1335,6 +1455,10 @@ int main() {
     test_an_attach_freeze_reaches_the_catalog_row();
     test_a_server_thaw_beats_a_cached_freeze();
     test_a_refused_attach_reads_as_failed_in_the_list();
+    test_a_lifted_refusal_restores_the_row_before_the_next_poll();
+    test_a_poll_under_a_refusal_refreshes_what_the_lift_restores();
+    test_a_refusal_reaches_a_child_row_and_survives_its_poll();
+    test_the_saved_catalog_never_carries_a_refusal();
     test_the_mock_catalog_cannot_carry_paused();
     test_cache_wipe_keeps_visible_panes_and_rejects_old_reads();
     test_message_queue_ordering();

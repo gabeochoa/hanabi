@@ -1,0 +1,21 @@
+# A refusal the next attach contradicts lifts on that attach, not on the next list poll.
+#
+# t3 is seeded Done. Its first attach is refused, so the row and its tab wear
+# Failed and the pane says why. Try again is answered, and in the frame the
+# transcript lands the tab's "Ready for review" tick is back and the refusal
+# text is gone -- no poll has run, and no ask refresh is due for 20 seconds.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t3"],"active_tab":"t3","theme":"dark"}
+# env: HANABI_MOCK_REFUSE_ONCE=t3:lift
+
+wait_frames 30
+expect_text "attach refused"
+expect_no_a11y "Ready for review"
+
+watch_ink refusal_lift text "Wrote the style guide up from those three."
+click_ui main_error_retry
+wait_frames 30
+expect_latency refusal_lift 8
+expect_text "Wrote the style guide up from those three."
+expect_no_text "attach refused"
+expect_a11y "Ready for review"

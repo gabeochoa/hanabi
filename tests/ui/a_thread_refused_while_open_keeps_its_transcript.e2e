@@ -1,0 +1,16 @@
+# A thread refused while it is open keeps its transcript under a banner that says why.
+#
+# t3 opens normally, so its transcript is on screen and in the LRU; the mock
+# answers every attach after that first one with a refusal, and the next one
+# is the periodic ask refresh. The refresh used to swallow that answer. Now the
+# tab drops its "Ready for review" tick, the row reads Failed, the transcript
+# stays on screen, and a banner above it names the refusal.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t3"],"active_tab":"t3","theme":"dark"}
+# env: HANABI_MOCK_REFUSE_AFTER_FIRST=t3 HANABI_ASK_REFRESH_SECS=0.2
+
+wait_frames 240
+expect_text "Wrote the style guide up from those three."
+expect_text "attach refused"
+expect_text "showing the last copy hanabi saved"
+expect_no_a11y "Ready for review"

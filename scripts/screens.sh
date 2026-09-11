@@ -576,6 +576,10 @@ capture_sized 72_attachments_narrow_dark "760 x 620" "$NARROW_DARK" \
 capture 73_attachments_split_dark "$PLAN_SPLIT_DARK" \
     "HANABI_DROP_TEST=$ROOT/tests/fixtures/attachments/sample.png;$ROOT/tests/fixtures/attachments/sample.pdf"
 
+capture 74_attach_refused_dark \
+    '{"window_width":1100,"window_height":760,"open_tabs":["t2","t3"],"active_tab":"t3","theme":"dark"}' \
+    HANABI_MOCK_REFUSE=t3
+
 listing && exit 0
 
 echo
