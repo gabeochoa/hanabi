@@ -425,6 +425,74 @@ static void test_an_unknown_event_draws_a_row_naming_its_tag() {
     CHECK(out[1].text == "still here");
 }
 
+static void test_progress_and_harness_config_events_fold_as_nothing() {
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":1,"event":{"type":"task_progress","task":"7","done":2,"total":5}},
+      {"seq":2,"event":{"type":"options.harness_config_set","key":"model"}},
+      {"seq":3,"event":{"type":"options.harness_config_resolved","key":"model"}},
+      {"seq":4,"event":{"type":"user_input","text":"still here"}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 1);
+    CHECK(out[0].text == "still here");
+}
+
+static bool has_control_bytes(const std::string& s) {
+    for (unsigned char c : s)
+        if (c < 0x20 || c == 0x7f) return true;
+    return false;
+}
+
+static void test_an_unknown_tag_reaches_the_row_bounded_and_clean() {
+    using api::agentcloud::kUntypedWireTag;
+    using api::agentcloud::kWireTagMaxBytes;
+    using api::agentcloud::sanitized_wire_tag;
+
+    CHECK(sanitized_wire_tag("quota_ledger_rebalanced") ==
+          "quota_ledger_rebalanced");
+    CHECK(sanitized_wire_tag("a\n\tb\x01\x7f  c") == "a b c");
+    CHECK(sanitized_wire_tag("  padded  ") == "padded");
+    CHECK(sanitized_wire_tag("") == kUntypedWireTag);
+    CHECK(sanitized_wire_tag(" \n\t\x1b") == kUntypedWireTag);
+
+    const std::string longTag(300, 'x');
+    const std::string bounded = sanitized_wire_tag(longTag);
+    CHECK(bounded.size() == kWireTagMaxBytes);
+    CHECK(bounded.compare(bounded.size() - 3, 3, "\xe2\x80\xa6") == 0);
+    CHECK(bounded.compare(0, kWireTagMaxBytes - 3,
+                          longTag.substr(0, kWireTagMaxBytes - 3)) == 0);
+
+    const std::string straddling =
+        std::string(kWireTagMaxBytes - 4, 'y') + "\xc3\xa9" + "zzzzzz";
+    const std::string cut = sanitized_wire_tag(straddling);
+    CHECK(cut == std::string(kWireTagMaxBytes - 4, 'y') + "\xe2\x80\xa6");
+
+    const std::string reply =
+        std::string(R"({"type":"page","frames":[
+      {"seq":3,"event":{"type":"weird)") +
+        "\\n\\t\\u0001tag\\u001b[31m" +
+        R"(","x":1}},
+      {"seq":4,"event":{"type":")" +
+        std::string(200, 'q') + R"("}},
+      {"seq":5,"event":{"x":1}},
+      {"seq":6},
+      {"seq":7,"event":{"type":"user_input","text":"still here"}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 5);
+    if (out.size() != 5) return;
+    CHECK(out[0].kind == api::EventKind::Unsupported);
+    CHECK(out[0].subtitle == "weird tag [31m");
+    CHECK(!has_control_bytes(out[0].subtitle));
+    CHECK(out[1].kind == api::EventKind::Unsupported);
+    CHECK(out[1].subtitle.size() == kWireTagMaxBytes);
+    CHECK(out[2].kind == api::EventKind::Unsupported);
+    CHECK(out[2].subtitle == kUntypedWireTag);
+    CHECK(out[3].kind == api::EventKind::Unsupported);
+    CHECK(out[3].subtitle == kUntypedWireTag);
+    CHECK(out[4].text == "still here");
+}
+
 static void test_bad_page_input_is_empty_not_a_crash() {
     CHECK(parse_page_frames("").empty());
     CHECK(parse_page_frames("not json").empty());
@@ -1614,6 +1682,8 @@ int main() {
     test_a_read_intent_headlines_its_file();
     test_known_bookkeeping_events_fold_as_nothing();
     test_an_unknown_event_draws_a_row_naming_its_tag();
+    test_progress_and_harness_config_events_fold_as_nothing();
+    test_an_unknown_tag_reaches_the_row_bounded_and_clean();
     test_bad_page_input_is_empty_not_a_crash();
     test_accumulated_text_becomes_an_increment();
     test_a_new_block_is_emitted_whole_not_diffed();

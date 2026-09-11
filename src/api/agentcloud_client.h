@@ -204,6 +204,10 @@ bool hello_has_capability(const std::string& hello_json,
 std::vector<Message> parse_page_frames(const std::string& msg_json);
 void install_paged_transcript(const std::string& page_json, Session& out);
 
+inline constexpr std::size_t kWireTagMaxBytes = 80;
+inline constexpr const char* kUntypedWireTag = "(untyped)";
+std::string sanitized_wire_tag(const std::string& raw);
+
 // The `tokens` bag on an attach greeting -> ContextUsage.
 //
 // Exposed for the test for the same reason parse_sessions_reply is: it is the

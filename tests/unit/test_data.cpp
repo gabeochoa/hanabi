@@ -924,6 +924,42 @@ static void test_disk_cache_round_trips_the_brakes() {
     api::disk_cache::wipe_all();
 }
 
+static void test_disk_cache_round_trips_an_unknown_event_row() {
+    std::printf("test_disk_cache_round_trips_an_unknown_event_row\n");
+    std::string dir = "/tmp/hanabi_test_unknown_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    api::Session s;
+    s.summary.id = "tag";
+    api::Message unknown;
+    unknown.id = "4471";
+    unknown.role = api::Role::System;
+    unknown.kind = api::EventKind::Unsupported;
+    unknown.subtitle = "quota_ledger_rebalanced";
+    unknown.created_at = 1700000000;
+    api::Message spoken;
+    spoken.id = "4472";
+    spoken.role = api::Role::Assistant;
+    spoken.text = "still here";
+    s.messages = {unknown, spoken};
+    api::disk_cache::save_transcript(s);
+
+    auto back = api::disk_cache::load_transcript("tag");
+    CHECK(back.has_value());
+    if (!back) return;
+    CHECK(back->messages.size() == 2);
+    CHECK(back->messages[0].id == "4471");
+    CHECK(back->messages[0].kind == api::EventKind::Unsupported);
+    CHECK(back->messages[0].role == api::Role::System);
+    CHECK(back->messages[0].subtitle == "quota_ledger_rebalanced");
+    CHECK(back->messages[0].created_at == 1700000000);
+    CHECK(back->messages[1].text == "still here");
+
+    api::disk_cache::wipe_all();
+}
+
 // A cache file written before these fields existed has none of the keys. It
 // must load as a thread with no brakes rather than failing to load.
 static void test_an_old_cache_file_still_loads() {
@@ -1293,6 +1329,7 @@ int main() {
     test_disk_cache_total_and_wipe();
     test_attachment_draft_retains_its_bytes();
     test_disk_cache_round_trips_the_brakes();
+    test_disk_cache_round_trips_an_unknown_event_row();
     test_an_old_cache_file_still_loads();
     test_paused_survives_restart_and_the_next_refresh();
     test_an_attach_freeze_reaches_the_catalog_row();

@@ -754,7 +754,8 @@ bool is_silent_wire_event(const std::string& type) {
         "admin_action", "refs_discovered", "container_changed",
         "session_archived", "session_unarchived",
         "legacy_archive_authority_consumed", "task_dispatched",
-        "halt_mark_arrived", "checkpoint_chunk",
+        "halt_mark_arrived", "checkpoint_chunk", "options.harness_config_set",
+        "options.harness_config_resolved", "task_progress",
     };
     return kSilent.count(type) > 0;
 }
@@ -1112,10 +1113,36 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             if (auto goal = goal_from_json(obj_at(e, "goal")))
                 push_event(EventKind::Goal, "", goal_line(*goal));
         } else if (!is_silent_wire_event(type)) {
-            push_event(EventKind::Unsupported, type, "");
+            push_event(EventKind::Unsupported, sanitized_wire_tag(type), "");
         }
     }
     return out;
+}
+
+std::string sanitized_wire_tag(const std::string& raw) {
+    std::string tag;
+    tag.reserve(std::min(raw.size(), kWireTagMaxBytes + 1));
+    bool pendingSpace = false;
+    for (unsigned char c : raw) {
+        if (c <= 0x20 || c == 0x7f) {
+            pendingSpace = !tag.empty();
+            continue;
+        }
+        if (pendingSpace) {
+            tag.push_back(' ');
+            pendingSpace = false;
+        }
+        tag.push_back(static_cast<char>(c));
+    }
+    while (!tag.empty() && tag.back() == ' ') tag.pop_back();
+    if (tag.empty()) return kUntypedWireTag;
+    if (tag.size() <= kWireTagMaxBytes) return tag;
+    std::size_t cut = kWireTagMaxBytes - 3;
+    while (cut > 0 && (static_cast<unsigned char>(tag[cut]) & 0xc0U) == 0x80U)
+        --cut;
+    tag.resize(cut);
+    tag += "\xe2\x80\xa6";
+    return tag;
 }
 
 void install_paged_transcript(const std::string& page_json, Session& out) {
