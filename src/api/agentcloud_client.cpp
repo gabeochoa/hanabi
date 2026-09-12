@@ -1284,8 +1284,17 @@ LiveFrame classify_live_frame_parsed(const json& root, LiveBlocks& blocks) {
         return lf;
     }
     if (type == "compacted") {
+        // The marker is a durable row with a seq, and the seq is the id the
+        // page parser gives every row (push_event), so the row the drain
+        // lands under this id is the row a later refetch finds and refreshes
+        // in place -- without it reconcile_transcript appends the server's
+        // copy at the tail and the divider stands twice.
+        json p = json::object();
+        if (const int64_t seq = int_or(root, "seq", 0); seq > 0)
+            p["id"] = std::to_string(seq);
+        p["summary"] = str_or(e, "summary", "");
         lf.kind = LiveFrame::Kind::Compacted;
-        lf.payload = str_or(e, "summary", "");
+        lf.payload = p.dump();
         return lf;
     }
     if (type == "elicitation_requested") {

@@ -260,7 +260,7 @@ struct LiveFrame {
         ModelPinned,
         // A summarization round in flight (payload = the Progress as JSON,
         // see compaction.h) and the durable marker that ends it (payload =
-        // the summary).
+        // JSON {"id": the frame's seq as the row id, "summary": text}).
         Compacting,
         Compacted,
         // The lane was retracted without a marker: the round was cancelled

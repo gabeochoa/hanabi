@@ -433,8 +433,10 @@ enum class StreamEventKind {
     ModelPinned,    // the session's model pin changed; payload = the pin or ""
     // A compaction round is in flight (payload = JSON
     // {"started_at_unix_ms":N,"output_tokens":N}; a missing field is one the
-    // wire has not carried yet), and the round finished (payload = the
-    // summary). Compacted also ends Compacting.
+    // wire has not carried yet), and the round finished (payload = JSON
+    // {"id":"<the marker row's id>","summary":"..."}; the id is what lets a
+    // later refetch find the row the drain landed instead of appending the
+    // server's copy). Compacted also ends Compacting.
     Compacting,
     Compacted,
     CompactionRetracted,  // the round ended with no summary (cancel/failure)

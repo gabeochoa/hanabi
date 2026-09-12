@@ -2106,7 +2106,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             transfer->compacting.store(true);
                         }
                         if (ev.kind == api::StreamEventKind::Compacted) {
-                            out.compactions.push_back(ev.payload);
+                            AppComponent::CompactionMarker marker;
+                            const auto p = nlohmann::json::parse(
+                                ev.payload, nullptr, false);
+                            if (p.is_object()) {
+                                if (p.contains("id") && p["id"].is_string())
+                                    marker.id = p["id"].get<std::string>();
+                                if (p.contains("summary") &&
+                                    p["summary"].is_string())
+                                    marker.summary =
+                                        p["summary"].get<std::string>();
+                            } else {
+                                marker.summary = ev.payload;
+                            }
+                            out.compactions.push_back(std::move(marker));
                             transfer->compacting.store(false);
                         }
                         if (ev.kind == api::StreamEventKind::CompactionRetracted)
@@ -2214,11 +2227,15 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 // The turn's compaction markers land between the echo and
                 // the reply, where the server journaled them: the summary
                 // stands in for what came BEFORE this reply.
-                for (const std::string& summary : got.compactions) {
+                // Under the server's own id, so the refetch that follows
+                // finds this row and refreshes it in place instead of
+                // appending its copy (transcript_reconcile.h keys on id).
+                for (const AppComponent::CompactionMarker& c : got.compactions) {
                     api::Message marker;
+                    marker.id = c.id;
                     marker.role = api::Role::System;
                     marker.kind = api::EventKind::Compaction;
-                    marker.text = summary;
+                    marker.text = c.summary;
                     marker.created_at = got.finalMsg.created_at;
                     streamPane.openSession->messages.push_back(std::move(marker));
                 }

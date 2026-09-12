@@ -19,6 +19,8 @@
 
 #include "../../src/api/http_client.h"
 #include "../../src/api/mock_client.h"
+#include "../../src/ecs/transcript_reconcile.h"
+#include "../../vendor/nlohmann/json.hpp"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -156,7 +158,17 @@ static void test_stream_compaction_round_precedes_the_reply() {
           order[1] == "compacted" && order[2] == "delta" && order[3] == "done");
     CHECK(running.find("\"output_tokens\":9900") != std::string::npos);
     CHECK(running.find("\"started_at_unix_ms\":") != std::string::npos);
-    CHECK(summary.find("folded into this summary") != std::string::npos);
+    // The marker payload is {"id","summary"}: the id names the row the
+    // session now holds, the summary is its text.
+    std::string markerId, markerText;
+    {
+        const auto p = nlohmann::json::parse(summary, nullptr, false);
+        CHECK(p.is_object());
+        markerId = p.value("id", std::string());
+        markerText = p.value("summary", std::string());
+    }
+    CHECK(!markerId.empty());
+    CHECK(markerText.find("folded into this summary") != std::string::npos);
 
     const auto s = m.get_session(id);
     CHECK(s.ok);
@@ -166,9 +178,51 @@ static void test_stream_compaction_round_precedes_the_reply() {
     if (msgs.size() >= 3) {
         const auto& marker = msgs[msgs.size() - 2];
         CHECK(marker.kind == api::EventKind::Compaction);
-        CHECK(marker.text == summary);
+        CHECK(marker.text == markerText);
+        CHECK(marker.id == markerId);
         CHECK(msgs[msgs.size() - 3].role == api::Role::User);
         CHECK(msgs.back().role == api::Role::Assistant);
+    }
+
+    // THE REFETCH CONTROL. What the loader lands after the drain, then what a
+    // re-open hands back through land_refetch -> reconcile_transcript, twice.
+    // With the id carried the marker is found in place and the divider stands
+    // once; with the id dropped (the first cut of this feature) the server's
+    // copy is appended at the tail and it stands twice.
+    const auto count_markers = [](const std::vector<api::Message>& v) {
+        std::size_t n = 0;
+        for (const auto& mm : v) if (mm.kind == api::EventKind::Compaction) ++n;
+        return n;
+    };
+    const auto landed_after_drain = [&](const std::string& idForMarker) {
+        std::vector<api::Message> v(msgs.begin(), msgs.end() - 3);  // before the turn
+        api::Message echo = msgs[msgs.size() - 3];
+        api::Message marker;
+        marker.id = idForMarker;
+        marker.role = api::Role::System;
+        marker.kind = api::EventKind::Compaction;
+        marker.text = markerText;
+        api::Message reply = msgs.back();
+        v.push_back(echo); v.push_back(marker); v.push_back(reply);
+        return v;
+    };
+    {
+        std::vector<api::Message> mine = landed_after_drain(markerId);
+        for (int pass = 0; pass < 2; ++pass) {
+            const auto out = ecs::model::reconcile_transcript(
+                mine, m.get_session(id).value.messages);
+            CHECK(out.kind != ecs::model::ReconcileOutcome::Kind::Appended);
+            CHECK(count_markers(mine) == 1);
+        }
+    }
+    {
+        std::vector<api::Message> dropped = landed_after_drain("");
+        const auto out = ecs::model::reconcile_transcript(
+            dropped, m.get_session(id).value.messages);
+        // The defect the id prevents, held as a negative control so the
+        // reconcile's own behaviour is on record.
+        CHECK(out.kind == ecs::model::ReconcileOutcome::Kind::Appended);
+        CHECK(count_markers(dropped) == 2);
     }
 
     // An ordinary prompt runs no round.

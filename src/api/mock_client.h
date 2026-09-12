@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <memory>
@@ -676,10 +677,20 @@ class MockClient : public Client {
             } else if (const int hold = compact_hold_ms(); hold > 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(hold));
             }
+            // The marker prepare_stream appended, by id, so the row the
+            // loader lands is the row get_session hands back on a refetch.
             const Session* s = find_mutable(session_id);
+            std::string markerId;
+            if (s != nullptr)
+                for (auto it = s->messages.rbegin(); it != s->messages.rend(); ++it)
+                    if (it->kind == EventKind::Compaction) {
+                        markerId = it->id;
+                        break;
+                    }
             sink.emit_event(StreamEvent{
                 StreamEventKind::Compacted,
-                s ? compaction_summary_of(*s) : std::string()});
+                compaction_marker_payload(
+                    markerId, s ? compaction_summary_of(*s) : std::string())});
         }
         for (const auto& c : plan.chunks) sink.emit_delta(c);
         sink.emit_done(plan.final);
@@ -906,6 +917,35 @@ class MockClient : public Client {
     static std::atomic<bool>& compact_release() {
         static std::atomic<bool> flag{false};
         return flag;
+    }
+
+    // The Compacted payload's shape, shared with the real adapter:
+    // {"id":"<row id>","summary":"..."} with the strings JSON-escaped.
+    static std::string json_string(const std::string& in) {
+        std::string out = "\"";
+        for (unsigned char c : in) {
+            switch (c) {
+                case '"': out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                default:
+                    if (c < 0x20) {
+                        char buf[8];
+                        std::snprintf(buf, sizeof buf, "\\u%04x", c);
+                        out += buf;
+                    } else {
+                        out += static_cast<char>(c);
+                    }
+            }
+        }
+        return out + "\"";
+    }
+    static std::string compaction_marker_payload(const std::string& id,
+                                                 const std::string& summary) {
+        return "{\"id\":" + json_string(id) + ",\"summary\":" +
+               json_string(summary) + "}";
     }
 
     // What a summarizer would keep of the thread so far: the first thing

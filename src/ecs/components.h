@@ -1063,6 +1063,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // ordered text chunks + the final Message; the loader polls it per frame
     // (non-blocking wait_for(0)) and only begins the visible drain once it is
     // ready. Mirrors the sendFuture/transcriptFuture async pattern.
+    struct CompactionMarker {
+        std::string id;       // the durable frame's seq; "" on a pre-seq mock
+        std::string summary;
+    };
     struct StreamCollected {
         std::vector<std::string> chunks;
         api::Message finalMsg;
@@ -1074,8 +1078,8 @@ struct AppComponent : public afterhours::BaseComponent {
         bool servingFallback = false;
         // Every compaction marker the turn journaled, in order: each lands as
         // its own divider row between the echo and the reply when the drain
-        // begins, the same place the server put it.
-        std::vector<std::string> compactions;
+        // begins, the same place the server put it, under the server's id.
+        std::vector<CompactionMarker> compactions;
     };
     // Read on the main frame, written by the collect worker: the one channel
     // a worker has to the screen while a reply is still being gathered. The

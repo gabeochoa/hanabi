@@ -833,7 +833,13 @@ static void test_a_compaction_round_is_reported_while_it_runs() {
     lf = classify_live_frame_parsed(
         nlohmann::json::parse(marker, nullptr, false), blocks);
     CHECK(lf.kind == LF::Kind::Compacted);
-    CHECK(lf.payload == "S");
+    // The marker carries its identity: the frame's seq, as the page parser
+    // would id the same row, so a refetch finds the landed row instead of
+    // appending the server's copy.
+    p = nlohmann::json::parse(lf.payload, nullptr, false);
+    CHECK(p.is_object());
+    CHECK(p.value("id", std::string()) == "12");
+    CHECK(p.value("summary", std::string()) == "S");
     const std::string retract =
         R"({"type":"frame","frame":"retract","key":{"Compaction":{"run":3}}})";
     lf = classify_live_frame_parsed(
@@ -852,7 +858,8 @@ static void test_a_compaction_round_is_reported_while_it_runs() {
     sink.on_event = [&](const api::StreamEvent& e) {
         if (e.kind == api::StreamEventKind::Compacting) seen.push_back("run");
         if (e.kind == api::StreamEventKind::Compacted)
-            seen.push_back("done:" + e.payload);
+            seen.push_back("done:" + nlohmann::json::parse(e.payload, nullptr, false)
+                                          .value("summary", std::string()));
         if (e.kind == api::StreamEventKind::CompactionRetracted)
             seen.push_back("gone");
     };
