@@ -63,6 +63,7 @@
 
 #include "../../vendor/afterhours/src/plugins/clipboard.h"
 #include "../api/disk_cache.h"
+#include "../api/mock_client.h"
 #include "../test_hooks.h"
 #include "../ui/link_detect.h"
 #include "../ui_context.h"
@@ -1422,6 +1423,31 @@ struct HandleExpectTooltipsCommand
     }
 };
 
+// `release_compaction`: let the mock's latched compaction round finish.
+//
+// The runner's only notion of time is the tick, three times over: `wait N` is
+// N seconds of the host's dt, `wait_frames N` is N ticks, the per-command
+// retry deadline is MAX_FRAMES = 30 ticks with only those two builtin names
+// exempt (`pending_command.h:60,70-72`, `command_handlers.h:874`), and the
+// whole-script deadline is 10 seconds of dt (`runner.h:630`, #223). A worker
+// thread holding a state for real seconds cannot be awaited by any of them
+// (afterhours_gaps.md #591), and holding the frame loop instead would stop
+// the very frames the running state is observed through. So the mock's round
+// waits on a latch (HANABI_MOCK_COMPACT_HOLD_MS=latch) and this command opens
+// it: the script looks at the running divider for as many frames as it likes,
+// releases, and watches the promotion land through the ordinary collect ->
+// drain path, frames, input and paint all running.
+struct HandleReleaseCompactionCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("release_compaction")) return;
+        api::MockClient::release_compaction();
+        cmd.consume();
+    }
+};
+
 // Registered BEFORE afterhours' builtins, so the resize handler above sees
 // `resize` first. Everything else hanabi owns goes in the function below.
 inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
@@ -1448,6 +1474,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectReplyDraftCommand>());
     sm.register_update_system(std::make_unique<HandleSubmitThenFocusCommand>());
     sm.register_update_system(std::make_unique<HandleSubmitThenRetargetCommand>());
+    sm.register_update_system(std::make_unique<HandleReleaseCompactionCommand>());
     sm.register_update_system(std::make_unique<HandleKickoffThenFocusCommand>());
     sm.register_update_system(std::make_unique<HandleExpectBackendMessageCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUploadCancelledCommand>());

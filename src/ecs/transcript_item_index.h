@@ -24,6 +24,7 @@ struct TranscriptItem {
         RunOutcome,
         Event,
         Delivery,
+        Compaction,
     } kind = Bubble;
     int lo = 0;
     int hi = 0;

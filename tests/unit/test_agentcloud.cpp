@@ -769,6 +769,102 @@ static void test_a_live_turn_is_only_what_the_agent_said() {
     CHECK(tool_events == 1);
 }
 
+static void test_a_compaction_marker_is_a_divider_not_a_message() {
+    // The durable `compacted` used to be silenced, so a compacted thread read
+    // exactly like one that had not been. Now it is its own row kind: the
+    // summary is the text, and nothing about it says anyone spoke.
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":1,"created_at_unix_ms":1700000000000,
+       "event":{"type":"user_input","text":"hello"}},
+      {"seq":7,"created_at_unix_ms":1700000900000,
+       "event":{"type":"compacted","summarized_up_to":6,
+                "summary":"The thread so far, in one paragraph.",
+                "metrics":{}}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 2);
+    CHECK(out[1].kind == api::EventKind::Compaction);
+    CHECK(out[1].role == Role::System);
+    CHECK(out[1].text == "The thread so far, in one paragraph.");
+    CHECK(out[1].created_at == 1700000900);
+    // A pre-spec marker with no summary still draws the divider.
+    const std::string bare = R"({"type":"page","frames":[
+      {"seq":7,"event":{"type":"compacted","summarized_up_to":6,"summary":""}}
+    ]})";
+    const auto out2 = parse_page_frames(bare);
+    CHECK(out2.size() == 1);
+    CHECK(out2[0].kind == api::EventKind::Compaction);
+    CHECK(out2[0].text.empty());
+}
+
+static void test_a_compaction_round_is_reported_while_it_runs() {
+    // The ephemeral carries the anchor on every re-stage and the reading only
+    // once the summarizer has one; a field the wire left out stays out of the
+    // payload, so "no reading yet" and "0 tokens" stay different facts.
+    api::agentcloud::LiveBlocks blocks;
+    const std::string first =
+        R"({"type":"frame","frame":"value","seq":9,"key":{"Compaction":{"run":3}},
+            "event":{"type":"compaction_started","run":3,
+                     "started_at_unix_ms":1700000000000}})";
+    LF lf = classify_live_frame_parsed(
+        nlohmann::json::parse(first, nullptr, false), blocks);
+    CHECK(lf.kind == LF::Kind::Compacting);
+    auto p = nlohmann::json::parse(lf.payload, nullptr, false);
+    CHECK(p.is_object());
+    CHECK(p.value("started_at_unix_ms", 0LL) == 1700000000000LL);
+    CHECK(!p.contains("output_tokens"));
+
+    const std::string restaged =
+        R"({"type":"frame","frame":"value","seq":9,"key":{"Compaction":{"run":3}},
+            "event":{"type":"compaction_started","run":3,
+                     "started_at_unix_ms":1700000000000,
+                     "usage":{"input":120,"output":9900}}})";
+    lf = classify_live_frame_parsed(
+        nlohmann::json::parse(restaged, nullptr, false), blocks);
+    CHECK(lf.kind == LF::Kind::Compacting);
+    p = nlohmann::json::parse(lf.payload, nullptr, false);
+    CHECK(p.value("output_tokens", -1LL) == 9900LL);
+
+    // The marker ends it, with the summary; a retract of the lane ends it
+    // with nothing (a cancelled or failed round).
+    const std::string marker =
+        R"({"type":"frame","frame":"durable","seq":12,
+            "event":{"type":"compacted","summarized_up_to":8,"summary":"S"}})";
+    lf = classify_live_frame_parsed(
+        nlohmann::json::parse(marker, nullptr, false), blocks);
+    CHECK(lf.kind == LF::Kind::Compacted);
+    CHECK(lf.payload == "S");
+    const std::string retract =
+        R"({"type":"frame","frame":"retract","key":{"Compaction":{"run":3}}})";
+    lf = classify_live_frame_parsed(
+        nlohmann::json::parse(retract, nullptr, false), blocks);
+    CHECK(lf.kind == LF::Kind::CompactionRetracted);
+    // A retract of any OTHER lane is still nothing to show.
+    const std::string other =
+        R"({"type":"frame","frame":"retract","key":{"Block":{"run":3,"index":0}}})";
+    lf = classify_live_frame_parsed(
+        nlohmann::json::parse(other, nullptr, false), blocks);
+    CHECK(lf.kind == LF::Kind::Ignore);
+
+    // And the turn hands all three to the sink as stream events, in order.
+    api::StreamSink sink;
+    std::vector<std::string> seen;
+    sink.on_event = [&](const api::StreamEvent& e) {
+        if (e.kind == api::StreamEventKind::Compacting) seen.push_back("run");
+        if (e.kind == api::StreamEventKind::Compacted)
+            seen.push_back("done:" + e.payload);
+        if (e.kind == api::StreamEventKind::CompactionRetracted)
+            seen.push_back("gone");
+    };
+    api::agentcloud::LiveTurn turn;
+    turn.feed(nlohmann::json::parse(first, nullptr, false), sink);
+    turn.feed(nlohmann::json::parse(marker, nullptr, false), sink);
+    turn.feed(nlohmann::json::parse(retract, nullptr, false), sink);
+    CHECK(seen.size() == 3);
+    CHECK(seen.size() == 3 && seen[0] == "run" && seen[1] == "done:S" &&
+          seen[2] == "gone");
+}
+
 static void test_an_unattributed_increment_is_still_shown() {
     // Attaching mid-block means the `start` that named the kind is already
     // past. Dropping the append would lose real reply text, so an increment
@@ -1689,6 +1785,8 @@ int main() {
     test_a_new_block_is_emitted_whole_not_diffed();
     test_live_text_and_thinking_are_told_apart();
     test_live_tool_call_and_finish();
+    test_a_compaction_marker_is_a_divider_not_a_message();
+    test_a_compaction_round_is_reported_while_it_runs();
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();
     test_block_delta_append_is_a_true_increment();

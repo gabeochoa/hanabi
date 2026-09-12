@@ -23,6 +23,7 @@
 // Nothing here names or encodes any real service, product, or company.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <memory>
@@ -30,9 +31,12 @@
 #include <atomic>
 #include <set>
 #include <string>
+#include <string_view>
+#include <thread>
 #include <vector>
 
 #include "client.h"
+#include "compaction.h"
 #include "elicitation.h"
 
 namespace api {
@@ -597,6 +601,16 @@ class MockClient : public Client {
         user.created_at = now;
         target->messages.push_back(user);
 
+        if (compacts(prompt)) {
+            Message marker;
+            marker.id = session_id + "-c" + std::to_string(turn + 2);
+            marker.role = Role::System;
+            marker.kind = EventKind::Compaction;
+            marker.text = compaction_summary_of(*target);
+            marker.created_at = now + 1;
+            target->messages.push_back(std::move(marker));
+        }
+
         Message reply;
         reply.id = session_id + "-a" + std::to_string(turn + 2);
         reply.role = Role::Assistant;
@@ -635,6 +649,38 @@ class MockClient : public Client {
             ask != nullptr && std::string_view(ask) == "child")
             sink.emit_event(
                 StreamEvent{StreamEventKind::AsksChanged, child_ask_state()});
+        if (compacts(prompt)) {
+            // A summarization round in flight before the reply: the anchor
+            // 3m 01s before the fixture clock, the summarizer's reading at
+            // 9,900 tokens, so the running divider reads "3m 01s · 9.9k
+            // tokens" on a pinned capture. Held open for
+            // HANABI_MOCK_COMPACT_HOLD_MS (default 1500) so a reader, or a
+            // scripted test, can see the round run; 0 makes it instant.
+            sink.emit_event(StreamEvent{
+                StreamEventKind::Compacting,
+                "{\"started_at_unix_ms\":" +
+                    std::to_string(mock_now() * 1000 - 181000) +
+                    ",\"output_tokens\":9900}"});
+            if (compact_hold_is_latch()) {
+                // Held until the test releases it (release_compaction), so a
+                // script can look at the running divider for as many frames
+                // as it likes and then watch the promotion, with no clock in
+                // the loop. Bounded: a latch nobody opens lets go after 30 s
+                // so a broken script fails on its assertions, not on a hang.
+                const auto deadline = std::chrono::steady_clock::now() +
+                                      std::chrono::seconds(30);
+                while (!compact_release().load() &&
+                       std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                compact_release().store(false);
+            } else if (const int hold = compact_hold_ms(); hold > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(hold));
+            }
+            const Session* s = find_mutable(session_id);
+            sink.emit_event(StreamEvent{
+                StreamEventKind::Compacted,
+                s ? compaction_summary_of(*s) : std::string()});
+        }
         for (const auto& c : plan.chunks) sink.emit_delta(c);
         sink.emit_done(plan.final);
     }
@@ -795,6 +841,10 @@ class MockClient : public Client {
         return Result<std::string>::success(settled);
     }
 
+    // Test seam: let a latched compaction round (HANABI_MOCK_COMPACT_HOLD_MS=
+    // latch) finish. Safe to call when none is held.
+    static void release_compaction() { compact_release().store(true); }
+
   private:
     static std::vector<Attachment> accepted_attachments(
         const OutgoingMessage& message) {
@@ -814,6 +864,64 @@ class MockClient : public Client {
         while (b < e && is_space(static_cast<unsigned char>(s[b]))) ++b;
         while (e > b && is_space(static_cast<unsigned char>(s[e - 1]))) --e;
         return s.substr(b, e - b);
+    }
+
+    // The t1 fixture's summary: a digest of the four rows above the marker.
+    static constexpr const char* kCompactDemoSummary =
+        "Task: land the multi-tier pricing config once CI is green. The config "
+        "diff D948120 adds Tier 1/2/3 price points; the shadow comparison over "
+        "4,812 accounts matched within tolerance (max delta 0.3%). CI is green "
+        "and nothing else blocks; landing waits on approval.";
+
+    // A prompt that begins "compact" asks the mock for a compaction round
+    // before its reply -- the one way to see the running divider offline.
+    static bool compacts(const std::string& prompt) {
+        std::string p = trimmed(prompt);
+        std::transform(p.begin(), p.end(), p.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        return p.rfind("compact", 0) == 0;
+    }
+    // HANABI_MOCK_COMPACT_HOLD_MS: how long the round stays open. A number is
+    // milliseconds on the worker's own clock (1500 unset, 0 instant);
+    // `latch` holds it until release_compaction() -- the e2e command of the
+    // same name -- flips the flag, which is how a scripted test observes the
+    // running row and then the promotion without a clock in the loop.
+    static int compact_hold_ms() {
+        static const int hold = [] {
+            const char* v = std::getenv("HANABI_MOCK_COMPACT_HOLD_MS");
+            if (v == nullptr || *v == '\0') return 1500;
+            if (std::string_view(v) == "latch") return 0;
+            const int n = std::atoi(v);
+            return n < 0 ? 0 : n;
+        }();
+        return hold;
+    }
+    static bool compact_hold_is_latch() {
+        static const bool latch = [] {
+            const char* v = std::getenv("HANABI_MOCK_COMPACT_HOLD_MS");
+            return v != nullptr && std::string_view(v) == "latch";
+        }();
+        return latch;
+    }
+    static std::atomic<bool>& compact_release() {
+        static std::atomic<bool> flag{false};
+        return flag;
+    }
+
+    // What a summarizer would keep of the thread so far: the first thing
+    // anyone said, because that is the task, cut to one line.
+    static std::string compaction_summary_of(const Session& s) {
+        std::string first;
+        for (const Message& m : s.messages)
+            if (m.kind == EventKind::Text && !m.text.empty()) {
+                first = one_line(m.text);
+                break;
+            }
+        if (first.size() > 160) first = first.substr(0, 157) + "...";
+        return first.empty()
+                   ? "Earlier messages are folded into this summary."
+                   : "Earlier messages are folded into this summary. The "
+                     "thread opened with: " + first;
     }
 
     // A short, generic acknowledgement. No company/product/service names.
@@ -1061,7 +1169,7 @@ class MockClient : public Client {
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
-        "HANABI_MODEL_DEMO",
+        "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
     //
@@ -1601,6 +1709,21 @@ class MockClient : public Client {
                  "need your approval to land.",
                  mins_ago(11), ""},
             };
+            // HANABI_COMPACT_DEMO=1: the thread's earlier messages were
+            // summarized, so the divider can be photographed in its complete
+            // state. Off by default, so the scenes that open t1 keep their
+            // pixels; the summary is a faithful digest of the four rows above
+            // it, because a fixture that summarizes something else teaches
+            // the reader the divider lies.
+            if (std::getenv("HANABI_COMPACT_DEMO") != nullptr) {
+                Message c;
+                c.id = "m5";
+                c.role = Role::System;
+                c.kind = EventKind::Compaction;
+                c.text = kCompactDemoSummary;
+                c.created_at = mins_ago(11);
+                s.messages.push_back(std::move(c));
+            }
             v.push_back(std::move(s));
         }
         {

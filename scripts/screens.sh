@@ -580,6 +580,24 @@ capture 74_attach_refused_dark \
     '{"window_width":1100,"window_height":760,"open_tabs":["t2","t3"],"active_tab":"t3","theme":"dark"}' \
     HANABI_MOCK_REFUSE=t3
 
+# --- 75-79: the compaction divider ------------------------------------------
+# t1 with its earlier messages summarized (HANABI_COMPACT_DEMO=1): the marker
+# is a rule–label–rule below the last bubble, folded; `open` shows the summary
+# behind it. 78 is the round IN FLIGHT: the stream demo sends a prompt the mock
+# answers with a compaction round held open (anchored 3m 01s before the pinned
+# clock, at 9,900 tokens), so the divider counts against the frozen epoch and
+# photographs "3m 01s · 9.9k tokens".
+COMPACT_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t1","theme":"dark"}'
+COMPACT_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t1","theme":"light"}'
+COMPACT_NARROW_DARK='{"window_width":760,"window_height":620,"open_tabs":["t2","t6","t1"],"active_tab":"t1","theme":"dark"}'
+capture 75_compaction_divider_dark  "$COMPACT_DARK"  HANABI_COMPACT_DEMO=1
+capture 76_compaction_divider_light "$COMPACT_LIGHT" HANABI_COMPACT_DEMO=1
+capture 77_compaction_summary_open_dark "$COMPACT_DARK" HANABI_COMPACT_DEMO=open
+capture 78_compaction_running_dark "$TABS_DARK" \
+    HANABI_STREAM_DEMO="compact the context" HANABI_MOCK_COMPACT_HOLD_MS=8000
+capture_sized 79_compaction_summary_open_narrow_dark "760 x 620" "$COMPACT_NARROW_DARK" \
+    HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_COMPACT_DEMO=open
+
 listing && exit 0
 
 echo

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "../api/attachments.h"
+#include "../api/compaction.h"
 #include "../api/tool_kinds.h"
 #include "../api/disk_cache.h"
 #include "../test_hooks.h"
@@ -3684,6 +3685,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.streamSessionId == pane.openSession->summary.id &&
             app.streamPhase != AppComponent::StreamPhase::Done;
         const size_t liveIdx = app.streamMsgIndex;
+        // A summarization round the collect worker has seen and not yet seen
+        // end, for THIS thread. Read off the shared atomics every frame; the
+        // divider it draws counts up from the server's anchor.
+        const bool compactingHere =
+            app.streamCollecting && app.transfer &&
+            app.streamPendingSession == pane.openSession->summary.id &&
+            app.transfer->compacting.load();
 
         const auto& msgs = pane.openSession->messages;
         const int n = static_cast<int>(msgs.size());
@@ -3794,6 +3802,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             ++i;
                             continue;
                         }
+                        if (is_compaction(m)) {
+                            Item it;
+                            it.kind = Item::Compaction;
+                            it.lo = i;
+                            it.height = compaction_height(app, m, i, colW);
+                            built.push_back(it);
+                            ++i;
+                            continue;
+                        }
                         if (is_one_line_event(m)) {
                             Item it;
                             it.kind = Item::Event;
@@ -3864,6 +3881,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         const std::vector<Item>& items = *itemView.items;
         float totalH = subH + itemView.height;
+        if (compactingHere) totalH += compaction_row_height();
         hanabi::prof::tick("transcript.item_messages_visited",
                            itemView.messages_visited);
         hanabi::prof::tick(itemView.rebuilt ? "transcript.item_index_rebuild"
@@ -4180,9 +4198,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     render_delivery_row(ctx, col, it.lo, msgs[it.lo], app,
                                         colW);
                     break;
+                case Item::Compaction:
+                    render_compaction_divider(ctx, col, it.lo, msgs[it.lo],
+                                              app, colW);
+                    break;
             }
         }
         flush_spacer(99999);
+        // The round in flight, at the end of everything durable: the reply it
+        // precedes has not begun, so this is where the server's own row would
+        // stand. Not an item -- it is not a message and the index must not
+        // cache it -- but it is real height, counted into totalH above.
+        if (compactingHere)
+            render_compacting_divider(ctx, col, n, *app.transfer, colW);
         }
 
         // Mark the thread read once the newest message is actually on screen.
@@ -11878,6 +11906,252 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (words == 0) return "Thought for a moment";
         return "Thought for a moment  \xc2\xb7  " + std::to_string(words) +
                (words == 1 ? " word" : " words");
+    }
+
+    // ---- The compaction divider ------------------------------------------
+    // A full-width rule–label–rule at the point in the transcript where
+    // earlier messages are being, or were, summarized. Two states of one row:
+    // RUNNING ("Summarizing earlier messages… 3m 01s · 9.9k tokens", the
+    // elapsed counted from the server's anchor) and COMPLETE ("Earlier
+    // messages summarized", the summary behind the row's own disclosure).
+    // The rule is drawn and the word is a real text element, for the reasons
+    // run_outcome_divider gives.
+    static bool is_compaction(const api::Message& m) {
+        return m.kind == api::EventKind::Compaction;
+    }
+    static std::string compaction_key(const api::Message& m, int index) {
+        return m.id.empty() ? ("compaction" + std::to_string(index)) : m.id;
+    }
+    static constexpr float kCompactionRowH = 22.0f;
+    static constexpr float kCompactionGapTop = 3.0f;
+    // The summary sits 12px in from the rules, as the reference's own does,
+    // and breathes below so the next bubble does not sit on its last line.
+    static constexpr float kCompactionSummaryInset = 12.0f;
+    static constexpr float kCompactionSummaryPadBot = 6.0f;
+    static constexpr float kCompactionLabelGap = 8.0f;  // rule -> label -> rule
+    static constexpr float kCompactionGlyphW = 14.0f;
+
+    static float compaction_row_height() {
+        return kCompactionGapTop + kCompactionRowH;
+    }
+    static float compaction_summary_width(float colW) {
+        return colW - kCompactionSummaryInset;
+    }
+    // Measured with the library's own wrapper at the width the label will be
+    // drawn in, less the 10px the renderer insets text by (gap #85), so the
+    // spacer the index reserves is the height the block paints.
+    static float compaction_summary_height(const std::string& summary,
+                                           float colW) {
+        if (summary.empty()) return 0.0f;
+        const auto m = afterhours::ui::measure_text_wrapped(
+            summary, text_wrap_width(compaction_summary_width(colW)),
+            afterhours::ui::UIComponent::DEFAULT_FONT, theme::type::XS);
+        return m.height + kCompactionSummaryPadBot;
+    }
+    // Measure and draw read this one function, so a fold cannot desync the
+    // virtualization spacers from what is painted.
+    static float compaction_height(AppComponent& app, const api::Message& m,
+                                   int index, float colW) {
+        float h = compaction_row_height();
+        if (!m.text.empty() &&
+            app.expandedCompaction.count(compaction_key(m, index)) != 0)
+            h += compaction_summary_height(m.text, colW);
+        return h;
+    }
+
+    // The row itself: rule, [glyph] label, rule. `open` is a tri-state for the
+    // glyph -- <0 none (running, or nothing to open), 0 a closed chevron,
+    // 1 an open one. Returns the label group so a caller can hang a click on
+    // it; the rules are slack and never a target.
+    template <typename Glyph>
+    static afterhours::ui::imm::ElementResult compaction_divider_row(UIContext<InputAction>& ctx,
+                                                Entity& parent, int id,
+                                                const std::string& label,
+                                                theme::Color ink, float rowW,
+                                                bool showGlyph, Glyph&& glyph,
+                                                const char* debugName) {
+        float lw = 30.0f;
+        if (auto* fm = afterhours::EntityHelper::get_singleton_cmp<
+                afterhours::ui::FontManager>())
+            lw = afterhours::measure_text(fm->get_active_font(), label.c_str(),
+                                          theme::type::MICRO, 1.0f)
+                     .x;
+        // The renderer insets a label 5px each side (gap #85); the label box
+        // is sized to the words plus that inset so the rules meet it at the
+        // reference's 8px gap rather than at the box's dead margin.
+        const float labelBoxW = lw + 10.0f;
+        const float groupW = labelBoxW + (showGlyph ? kCompactionGlyphW : 0.0f);
+        auto row = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kCompactionRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_margin(Margin{.top = pixels(kCompactionGapTop)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(debugName));
+        // Explicit widths, never percent(1.0): a percent child in a NoWrap row
+        // resolves against the whole ROW and shoves its siblings out (gap #53).
+        float ruleW = (rowW - groupW - 2.0f * kCompactionLabelGap) * 0.5f;
+        if (ruleW < 8.0f) ruleW = 8.0f;
+        const auto rule = [&](int childId) {
+            div(ctx, mk(row.ent(), childId),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(ruleW),
+                                             pixels(kCompactionRowH)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([](RectangleType r) {
+                        const float cy = r.y + r.height * 0.5f;
+                        afterhours::draw_line_ex(
+                            afterhours::vec2{r.x, cy},
+                            afterhours::vec2{r.x + r.width, cy}, 1.0f,
+                            transcript_rule());
+                    })
+                    .with_debug_name("compaction_rule"));
+        };
+        rule(1);
+        auto group = div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(groupW + 2.0f * kCompactionLabelGap),
+                                         pixels(kCompactionRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("compaction_group"));
+        if (showGlyph)
+            div(ctx, mk(group.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(kCompactionGlyphW),
+                                             pixels(kCompactionRowH)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg(std::forward<Glyph>(glyph))
+                    .with_debug_name("compaction_glyph"));
+        div(ctx, mk(group.ent(), 2),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(labelBoxW),
+                                         pixels(kCompactionRowH)})
+                .with_transparent_bg()
+                .with_custom_text_color(ink)
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.0f)
+                .with_debug_name("compaction_label"));
+        rule(3);
+        return group;
+    }
+
+    // COMPLETE: the durable marker. A click on the words opens the summary
+    // that stands in for the earlier messages; the rules are not a target.
+    void render_compaction_divider(UIContext<InputAction>& ctx, Entity& parent,
+                                   int index, const api::Message& m,
+                                   AppComponent& app, float colW) {
+        const std::string key = compaction_key(m, index);
+        const bool hasSummary = !m.text.empty();
+        // Screenshot affordance: HANABI_COMPACT_DEMO=open photographs the
+        // fixture's marker with its summary shown, which a headless capture
+        // has no click to reach. Once, for the first marker drawn; a real
+        // run never sets it.
+        static const bool kOpenDemo = [] {
+            const char* v = std::getenv("HANABI_COMPACT_DEMO");
+            return v != nullptr && std::string_view(v) == "open";
+        }();
+        static bool openDemoSeeded = false;
+        if (kOpenDemo && hasSummary && !openDemoSeeded) {
+            openDemoSeeded = true;
+            app.expandedCompaction.insert(key);
+            invalidate_item_geometry(index);
+        }
+        const bool open = hasSummary && app.expandedCompaction.count(key) != 0;
+
+        auto wrap = div(ctx, mk(parent, 3700 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("compaction_block"));
+
+        auto group = compaction_divider_row(
+            ctx, wrap.ent(), 1, api::compaction::kCompleteLabel,
+            theme::text_faint(), colW, hasSummary,
+            [open](RectangleType r) {
+                hanabi::glyph::chevron(r, !open, theme::text_faint(), 3.2f);
+            },
+            "compaction_divider");
+        if (hasSummary) {
+            group.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            group.ent().addComponentIfMissing<afterhours::ui::HasCursor>(
+                afterhours::ui::CursorType::Pointer);
+            if (group.ent().get<afterhours::ui::HasClickListener>().down) {
+                if (open) app.expandedCompaction.erase(key);
+                else app.expandedCompaction.insert(key);
+                invalidate_item_geometry(index);
+                // The click has already moved the keyboard onto these words:
+                // every HasClickListener takes focus on a mouse press
+                // (afterhours_gaps.md #592). A disclosure is not a place to
+                // type, so the caret goes back to the composer, the way the
+                // find bar's close does.
+                app.refocusComposer = true;
+            }
+        }
+        if (!open) return;
+
+        const float bodyW = compaction_summary_width(colW);
+        div(ctx, mk(wrap.ent(), 2),
+            ComponentConfig{}
+                .with_label(m.text)
+                .with_size(ComponentSize{
+                    pixels(bodyW),
+                    pixels(compaction_summary_height(m.text, colW) -
+                           kCompactionSummaryPadBot)})
+                .with_margin(Margin{.left = pixels(kCompactionSummaryInset),
+                                    .bottom = pixels(kCompactionSummaryPadBot)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::XS)
+                .with_text_overflow(TextOverflow::Wrap)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("compaction_summary"));
+    }
+
+    // RUNNING: the ephemeral, read off the worker's atomics this frame. The
+    // clock is the capture clock so a frozen screenshot photographs the
+    // number the fixture asked for; unpinned it is the wall clock, in whole
+    // seconds, which is the resolution the label prints.
+    void render_compacting_divider(UIContext<InputAction>& ctx, Entity& parent,
+                                   int index,
+                                   const AppComponent::TransferShared& t,
+                                   float colW) {
+        api::compaction::Progress p;
+        p.started_at_unix_ms = t.compactStartedAtMs.load();
+        p.output_tokens = t.compactOutputTokens.load();
+        const int64_t nowMs = capture_clock::now() * 1000;
+        const theme::Color ink = theme::accent();
+        compaction_divider_row(
+            ctx, parent, 3700 + index * 10 + 5,
+            api::compaction::running_label(p, nowMs), ink, colW, true,
+            [ink](RectangleType r) {
+                // Two chevrons pointing at each other: the earlier messages
+                // being pressed into a summary.
+                RectangleType top{r.x, r.y + r.height * 0.5f - 6.0f, r.width, 6.0f};
+                RectangleType bot{r.x, r.y + r.height * 0.5f, r.width, 6.0f};
+                hanabi::glyph::chevron(top, false, ink, 2.6f);
+                hanabi::glyph::chevron(bot, true, ink, 2.6f);
+            },
+            "compacting_divider");
     }
 
     static std::string thinking_key(const api::Message& m, int index) {

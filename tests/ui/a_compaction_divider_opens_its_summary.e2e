@@ -1,0 +1,46 @@
+# Earlier messages summarized: the divider stands where the marker stood, and
+# the summary is behind it.
+#
+# The durable `compacted` marker used to be silenced -- a thread that had been
+# compacted read exactly like one that had not, and the reader had no way to
+# know the model was answering from a summary rather than from the rows on
+# screen. The row is a rule–label–rule, like the run-outcome divider, and the
+# summary standing in for the earlier messages opens on the label and folds
+# again on it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_COMPACT_DEMO=1 HANABI_OPEN=t1
+
+require_thread t1
+
+# The rows the summary stands in for are still there; the marker is a divider.
+expect_text "All CI green, shadow matched."
+expect_text "Earlier messages summarized"
+# The summary itself is not on screen until asked for.
+expect_no_text "landing waits on approval"
+
+# A draft in the composer, so the disclosure can be shown to leave it alone.
+click_ui composer_reply_input
+type "a draft that the divider must not eat"
+wait_frames 6
+
+click_ui compaction_group
+wait_frames 8
+expect_text "landing waits on approval"
+expect_text "4,812 accounts matched within tolerance"
+expect_input_text composer_reply_input "a draft that the divider must not eat"
+# The words are not a place to type: the caret is back in the composer, where
+# it was (the library moved it onto the group on the press -- afterhours_gaps.md
+# #592 -- and the app puts it back the frame after).
+expect_focused composer_reply_input
+type " still"
+wait_frames 4
+expect_input_text composer_reply_input "a draft that the divider must not eat still"
+
+# And it folds again, with the draft still there.
+click_ui compaction_group
+wait_frames 8
+expect_no_text "landing waits on approval"
+expect_text "Earlier messages summarized"
+expect_input_text composer_reply_input "a draft that the divider must not eat still"
+expect_focused composer_reply_input

@@ -13,6 +13,7 @@
 
 #include "../settings.h"
 #include "../api/attachments.h"
+#include "../api/compaction.h"
 #include "../api/create_outcome.h"
 #include "../api/disk_cache.h"
 #include "load_older_model.h"
@@ -2073,7 +2074,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         out.acceptedInput = input;
                     };
                     sink.is_cancelled = [transfer] { return transfer->cancel.load(); };
-                    sink.on_event = [&out](const api::StreamEvent& ev) {
+                    sink.on_event = [&out, transfer](const api::StreamEvent& ev) {
                         if (ev.kind == api::StreamEventKind::AsksChanged)
                             out.asksJson = ev.payload;
                         if (ev.kind == api::StreamEventKind::ModelFallback) {
@@ -2084,6 +2085,32 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             out.servingModel = ev.payload;
                             out.servingFallback = false;
                         }
+                        // The summarizer's liveness signal goes straight to
+                        // the shared atomics: the frame reads them while this
+                        // collect is still open, which is the only time the
+                        // running divider means anything. A re-stage keeps
+                        // the fields it omits.
+                        if (ev.kind == api::StreamEventKind::Compacting) {
+                            const auto p = nlohmann::json::parse(
+                                ev.payload, nullptr, false);
+                            if (p.is_object()) {
+                                if (p.contains("started_at_unix_ms") &&
+                                    p["started_at_unix_ms"].is_number_integer())
+                                    transfer->compactStartedAtMs.store(
+                                        p["started_at_unix_ms"].get<std::int64_t>());
+                                if (p.contains("output_tokens") &&
+                                    p["output_tokens"].is_number_integer())
+                                    transfer->compactOutputTokens.store(
+                                        p["output_tokens"].get<std::int64_t>());
+                            }
+                            transfer->compacting.store(true);
+                        }
+                        if (ev.kind == api::StreamEventKind::Compacted) {
+                            out.compactions.push_back(ev.payload);
+                            transfer->compacting.store(false);
+                        }
+                        if (ev.kind == api::StreamEventKind::CompactionRetracted)
+                            transfer->compacting.store(false);
                     };
                     c->send_message_streaming(id, message, sink);
                     return out;
@@ -2184,10 +2211,23 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     streamPane.openSession->messages.size();
                 streamPane.openSession->messages.push_back(std::move(um));
 
+                // The turn's compaction markers land between the echo and
+                // the reply, where the server journaled them: the summary
+                // stands in for what came BEFORE this reply.
+                for (const std::string& summary : got.compactions) {
+                    api::Message marker;
+                    marker.role = api::Role::System;
+                    marker.kind = api::EventKind::Compaction;
+                    marker.text = summary;
+                    marker.created_at = got.finalMsg.created_at;
+                    streamPane.openSession->messages.push_back(std::move(marker));
+                }
+
                 api::Message assistant = got.finalMsg;
                 assistant.text.clear();  // starts empty; fills as we drain.
                 streamPane.openSession->messages.push_back(assistant);
-                streamPane.note_transcript_append(first, 2);
+                streamPane.note_transcript_append(first,
+                                                  2 + got.compactions.size());
                 app.streamMsgIndex = streamPane.openSession->messages.size() - 1;
                 sync_stream_transcript(app, ownerIndex);
 

@@ -593,6 +593,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // real content but it is not the answer, so it arrives folded and is
     // keyed by message id (index as a fallback for an id-less message).
     std::set<std::string> expandedThinking;
+    // Transcript: which compaction dividers the reader has opened to read the
+    // summary standing in for the earlier messages. Same key rule.
+    std::set<std::string> expandedCompaction;
 
     // Home: which shelves are folded shut, by shelf KEY (not label). Seeded
     // from settings at startup and written back on every toggle, so a folded
@@ -1069,7 +1072,16 @@ struct AppComponent : public afterhours::BaseComponent {
         std::string asksJson;
         std::optional<std::string> servingModel;
         bool servingFallback = false;
+        // Every compaction marker the turn journaled, in order: each lands as
+        // its own divider row between the echo and the reply when the drain
+        // begins, the same place the server put it.
+        std::vector<std::string> compactions;
     };
+    // Read on the main frame, written by the collect worker: the one channel
+    // a worker has to the screen while a reply is still being gathered. The
+    // compaction trio is the summarizer's liveness signal -- the anchor and
+    // the reading are the server's, `compacting` says whether the lane is
+    // live -- so the divider can count up while the collect is still open.
     struct TransferShared {
         std::atomic<int> phase{-1};
         std::atomic<std::size_t> fileIndex{0};
@@ -1077,6 +1089,9 @@ struct AppComponent : public afterhours::BaseComponent {
         std::atomic<std::uint64_t> sentBytes{0};
         std::atomic<std::uint64_t> totalBytes{0};
         std::atomic<bool> cancel{false};
+        std::atomic<bool> compacting{false};
+        std::atomic<std::int64_t> compactStartedAtMs{0};   // 0 = no anchor
+        std::atomic<std::int64_t> compactOutputTokens{-1}; // -1 = no reading
     };
     std::shared_ptr<TransferShared> transfer;
     std::future<StreamCollected> streamCollectFuture;

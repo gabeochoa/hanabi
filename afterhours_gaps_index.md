@@ -26,11 +26,11 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **258** |
-| Distinct numeric gap numbers | **253** (several numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **260** |
+| Distinct numeric gap numbers | **255** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **262** rows, **262** unique identifiers — includes index-only ids with no detailed entry |
-| Standalone live asks | **150** |
+| **Rows in the triage table (§6)** | **264** rows, **264** unique identifiers — includes index-only ids with no detailed entry |
+| Standalone live asks | **152** |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **24** (closed at pin 9ff9079 and REMOVED from the ledger — see the closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
@@ -399,7 +399,7 @@ to fix.
 | **Widget lifetime** | **#171** | #162, #163, #146, #160, AN-9 | Retirement itself landed upstream (`2393fe3`, `c682382`) and hanabi uses the library sweep. What remains: the library's own entities are invisible to a consumer, a scroll view clamps against children that are not there, and an exit animation has nothing to animate. #160 is the *cost* of the sweep; #146 is how you would gate it. |
 | **Text measurement and wrap** | **#136** | #135, #116, #137, #191, #103, #82, #190, #69, #87, #79, #340, #435, #436, #437, #450, #570, #574, #575, #576, #579 | No content sizing and no reusable draw-layout artifact, plus no point-size contract or font generation. Apps otherwise re-derive metrics and can measure the backend-global face after drawing another. |
 | **The 5px label inset** | **#85** | #75, #277, #84, #91, #100, #109 | One literal `Vector2Type{5.f, 5.f}` in `rendering.h`, unexposed and unqueryable, that also swallows the element's own padding in silence. #91 is the fuller statement, #85 carries the byte-identical-frames proof, #109 is the second time it cost a region. |
-| **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263 | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
+| **Focus ring** | **#83** | #46, #72, #265, #266, #267, #263, (#592 sideways: where a click PUTS focus) | One `focus_ring_for`, and no `:focus-visible`, no per-widget offset, no independent contrast edges, no check that focus can move. #263 (`text_area` draws no ring at all) is the same code path from the other end. |
 | **Virtualization** | **#326 / #420** | #23, #170, #31a, #224, #147, #455 | `virtual_list` divides by one row height and has no retained prefix-height index or range invalidation. Everything else here is a consumer working around that: windowing by hand against state the library writes after the build. #455 carries the current busy-event CPU and allocation measurements; #420 carries the retained index workaround and range-invalidation ask. |
 | **Alpha and antialiasing** | **#92** | #13, #15, #106, #96, #481 | `sample_count` is pinned at 1 and the sokol_gl default pipeline has blending off, so nothing small or translucent can be drawn correctly. #96 is the **negative** result that limits the family (see §4); #481 is the status-pill instance and current measured workaround. |
 | **Text input vs text area** | **#67** | #29b, #33b, #34b, #35b, #57, #65, #105, #261, #262, #263, #260, #258 | Multi-line is a different widget, not a mode, so every property `text_input` grew has to be grown again on `text_area`: placeholder, background, focus ring, selection-collapsing word motion, and the harness assertion that can see it. Thirteen entries; most of them are four lines each. |
@@ -698,7 +698,7 @@ correction narrows them rather than closing them.
 | 212 | Destroying a GPU object does not free it until next frame | SURPRISING | MED | XS | live |
 | 221 | `with_label` takes `const std::string&` | TEDIOUS | MED | XS | dup→#181 |
 | 222 | An absolute child is still counted in its parent's flow | SHARP EDGE | MED | XS | live |
-| 223 | The retry budget is seconds fed by the host's `dt` | SHARP EDGE | MED | XS | live |
+| 223 | The retry budget is seconds fed by the host's `dt` | SHARP EDGE | MED | XS | live · #591 is the wall-clock half |
 | 224 | Nothing says how tall a child WOULD be | — | HIGH | M | **live — top 10** |
 | 230 | `mouse.pos` is NaN until the first mouse event | FOOTGUN | MED | XS | live |
 | 232 | A coordinate test cannot state its own precondition | TEDIOUS | MED | S | live |
@@ -821,6 +821,8 @@ correction narrows them rather than closing them.
 | 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
 | 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
 | 590 | Button variants drop per-widget text inset | FOOTGUN | HIGH | XS | app workaround |
+| 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited | MISSING | MED | XS | live · extends #223; app workaround: latch + `release_compaction` |
+| 592 | Every click on a `HasClickListener` moves keyboard focus to it; no activate-without-focus | FOOTGUN | HIGH | XS | live · app workaround (refocus) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

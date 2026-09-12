@@ -734,7 +734,7 @@ bool is_silent_wire_event(const std::string& type) {
         "model_call_superseded", "model_call_fallback",
         "tool_approval_requested", "tool_approval_resolved", "task_detached",
         "task_retagged", "task_cancel_requested", "context_contributed",
-        "mcp_tool_enabled", "mcp_tool_disabled", "compacted",
+        "mcp_tool_enabled", "mcp_tool_disabled",
         "working_context_changed", "node_lease_renewed", "node_lease_expiring",
         "node_lease_close_noticed", "node_grant_issued", "harness_bound",
         "harness_unbound", "harness_tuning_delivered", "harness_transcript",
@@ -1112,6 +1112,12 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
         } else if (type == "goal_updated") {
             if (auto goal = goal_from_json(obj_at(e, "goal")))
                 push_event(EventKind::Goal, "", goal_line(*goal));
+        } else if (type == "compacted") {
+            // The marker stays where it stood; the summary is the row's text
+            // and the renderer keeps it behind a disclosure. An empty summary
+            // still draws the divider -- the fact that earlier messages were
+            // folded is the information, the text is the detail.
+            push_event(EventKind::Compaction, "", str_or(e, "summary", ""));
         } else if (!is_silent_wire_event(type)) {
             push_event(EventKind::Unsupported, sanitized_wire_tag(type), "");
         }
@@ -1183,9 +1189,17 @@ std::string delta_from_accumulated(const std::string& emitted,
 LiveFrame classify_live_frame_parsed(const json& root, LiveBlocks& blocks) {
     LiveFrame lf;
     if (root.is_discarded() || !root.is_object()) return lf;
-    // A retract says a live partial is gone; there is nothing to show for it.
+    // A retract says a live partial is gone; there is nothing to show for it
+    // -- except the compaction lane, where "gone" is the only word a
+    // cancelled or failed round ever says (a finished one promotes into the
+    // durable `compacted` instead).
     const std::string frame = str_or(root, "frame", "");
-    if (frame == "retract") return lf;
+    if (frame == "retract") {
+        const json& key = obj_at(root, "key");
+        if (key.is_object() && key.contains("Compaction"))
+            lf.kind = LiveFrame::Kind::CompactionRetracted;
+        return lf;
+    }
 
     const json& e = obj_at(root, "event");
     const std::string type = str_or(e, "type", "");
@@ -1252,6 +1266,26 @@ LiveFrame classify_live_frame_parsed(const json& root, LiveBlocks& blocks) {
     }
     if (type == "run_finished") {
         lf.kind = LiveFrame::Kind::Finished;
+        return lf;
+    }
+    if (type == "compaction_started") {
+        // Re-staged on the same key each time the summarizer reports usage;
+        // the anchor rides every re-stage, the usage only once it exists.
+        // Missing fields are LEFT OUT of the payload rather than zeroed, so
+        // the consumer can tell "no reading yet" from "0 tokens".
+        json p = json::object();
+        if (const int64_t at = int_or(e, "started_at_unix_ms", 0); at > 0)
+            p["started_at_unix_ms"] = at;
+        const json& usage = obj_at(e, "usage");
+        if (usage.is_object() && usage.contains("output"))
+            p["output_tokens"] = int_or(usage, "output", 0);
+        lf.kind = LiveFrame::Kind::Compacting;
+        lf.payload = p.dump();
+        return lf;
+    }
+    if (type == "compacted") {
+        lf.kind = LiveFrame::Kind::Compacted;
+        lf.payload = str_or(e, "summary", "");
         return lf;
     }
     if (type == "elicitation_requested") {
@@ -1341,6 +1375,15 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
             break;
         case LiveFrame::Kind::ModelPinned:
             sink.emit_event({StreamEventKind::ModelPinned, lf.payload});
+            break;
+        case LiveFrame::Kind::Compacting:
+            sink.emit_event({StreamEventKind::Compacting, lf.payload});
+            break;
+        case LiveFrame::Kind::Compacted:
+            sink.emit_event({StreamEventKind::Compacted, lf.payload});
+            break;
+        case LiveFrame::Kind::CompactionRetracted:
+            sink.emit_event({StreamEventKind::CompactionRetracted, ""});
             break;
         case LiveFrame::Kind::Finished:
             return false;

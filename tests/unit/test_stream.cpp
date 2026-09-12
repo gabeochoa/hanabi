@@ -13,6 +13,7 @@
 //      event kinds from docs/api-parity.md — drives the sink correctly and
 //      reports done.
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -121,6 +122,61 @@ static void test_stream_drains_across_ticks() {
 }
 
 // --- Determinism: same prompt -> identical chunks + final, every time. ------
+// --- a prompt that begins "compact" runs a compaction round before the reply:
+//     Compacting (anchor + reading), then Compacted (the summary), then the
+//     reply's chunks; and the session's transcript carries the marker between
+//     the echo and the reply, where a re-read would find it. -----------------
+static void test_stream_compaction_round_precedes_the_reply() {
+    std::printf("test_stream_compaction_round_precedes_the_reply\n");
+    setenv("HANABI_MOCK_COMPACT_HOLD_MS", "0", 1);  // no real-time hold in a test
+    api::MockClient m;
+    const std::string id = m.create_session("fold the thread").value;
+
+    std::vector<std::string> order;
+    std::string running, summary;
+    api::StreamSink sink;
+    sink.on_delta = [&](const std::string&) {
+        if (order.empty() || order.back() != "delta") order.push_back("delta");
+    };
+    sink.on_event = [&](const api::StreamEvent& e) {
+        if (e.kind == api::StreamEventKind::Compacting) {
+            order.push_back("compacting");
+            running = e.payload;
+        }
+        if (e.kind == api::StreamEventKind::Compacted) {
+            order.push_back("compacted");
+            summary = e.payload;
+        }
+    };
+    sink.on_done = [&](const api::Message&) { order.push_back("done"); };
+
+    m.send_message_streaming(id, "Compact the context now", sink);
+    CHECK(order.size() == 4);
+    CHECK(order.size() == 4 && order[0] == "compacting" &&
+          order[1] == "compacted" && order[2] == "delta" && order[3] == "done");
+    CHECK(running.find("\"output_tokens\":9900") != std::string::npos);
+    CHECK(running.find("\"started_at_unix_ms\":") != std::string::npos);
+    CHECK(summary.find("folded into this summary") != std::string::npos);
+
+    const auto s = m.get_session(id);
+    CHECK(s.ok);
+    const auto& msgs = s.value.messages;
+    // ... the seed row(s), then echo, marker, reply.
+    CHECK(msgs.size() >= 3);
+    if (msgs.size() >= 3) {
+        const auto& marker = msgs[msgs.size() - 2];
+        CHECK(marker.kind == api::EventKind::Compaction);
+        CHECK(marker.text == summary);
+        CHECK(msgs[msgs.size() - 3].role == api::Role::User);
+        CHECK(msgs.back().role == api::Role::Assistant);
+    }
+
+    // An ordinary prompt runs no round.
+    order.clear();
+    m.send_message_streaming(id, "and now something else", sink);
+    CHECK(order.size() == 2 && order[0] == "delta" && order[1] == "done");
+}
+
 static void test_stream_is_deterministic() {
     std::printf("test_stream_is_deterministic\n");
     api::MockClient a, b;
@@ -266,6 +322,7 @@ int main() {
     test_mock_supports_stream();
     test_stream_sink_reassembles();
     test_stream_drains_across_ticks();
+    test_stream_compaction_round_precedes_the_reply();
     test_stream_is_deterministic();
     test_stream_unknown_session();
     test_sse_parser_basic();

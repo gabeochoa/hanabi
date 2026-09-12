@@ -1,0 +1,52 @@
+# A compaction round in flight is a divider that counts, and it promotes into
+# the marker when the round ends.
+#
+# The `compaction_started` ephemeral is the summarizer's liveness signal: it
+# carries the server's start anchor and the summarizer's latest token reading,
+# and is re-staged as the reading grows. Until this wave both it and the
+# durable `compacted` were silenced, so a turn that spent three minutes
+# summarizing looked exactly like one that had stalled.
+#
+# The mock stages a round before its reply for any prompt that begins
+# "compact", anchored 3m 01s ago at 9,900 tokens. With
+# HANABI_MOCK_COMPACT_HOLD_MS=latch the round stays open until the script says
+# `release_compaction`, so the running row is looked at over real frames and
+# the promotion is watched landing through the ordinary collect -> drain path;
+# no clock is in the loop (the runner has no wall-clock wait -- afterhours_gaps.md
+# #591). The elapsed is measured against the wall clock here (only the
+# screenshot path freezes it), so this script asserts the sentence and the
+# reading, not the minutes.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_MOCK_COMPACT_HOLD_MS=latch
+
+require_thread t2
+expect_text "needs a decision"
+expect_no_text "Summarizing earlier messages"
+
+click_ui composer_reply_input
+type "compact the context"
+enter
+wait_frames 20
+
+# The round is live: the divider is on screen, with the reading it carried,
+# and it stays while frames pass -- the reply has not begun.
+expect_text "Summarizing earlier messages"
+expect_text "9.9k tokens"
+expect_no_text "Earlier messages summarized"
+wait_frames 60
+expect_text "Summarizing earlier messages"
+expect_no_text "working on: compact the context"
+
+# The round ends: the running row comes down, the marker stands in its place,
+# and the reply the round preceded arrives after it.
+release_compaction
+wait_frames 90
+expect_no_text "Summarizing earlier messages"
+expect_text "Earlier messages summarized"
+expect_text "working on: compact the context"
+
+# The marker opens like any other.
+click_ui compaction_group
+wait_frames 8
+expect_text "Earlier messages are folded into this summary"

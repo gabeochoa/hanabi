@@ -13155,3 +13155,139 @@ in the screenshot suite, so there is no accent edge in those images to sample.
 inset the field's children by the border width so the top row is not cut.
 
 CLASS: VISUAL DEFECT
+
+---
+
+### #591 — The e2e runner has no wall-clock wait, so a worker thread holding a state for real seconds cannot be awaited
+
+**What was wanted.** A scripted test of the compaction divider's running state:
+send a prompt the mock answers with a summarization round held open for
+1.5 real seconds on the collect worker, assert the running divider, then
+assert that it promoted into the durable marker once the round ended.
+
+**Expected.** Some spelling of "wait N real seconds" — the state under test is
+produced by a thread the frame loop does not drive.
+
+**Observed.** The runner's only notion of time is the tick. `wait N` is N
+seconds of the HOST's `dt` (`runner.h:146-151`, `cmd.wait_seconds = seconds`),
+`wait_frames N` is N ticks (`runner.h:152-158`, `cmd.wait_ticks = frames`), and
+the per-command retry deadline is `MAX_FRAMES = 30` ticks
+(`pending_command.h:60`, `tick_frame()` at `:64-67`) from which only the two
+builtin names are exempt (`is_wait_command()` at `:70-72`, read by the cleanup
+system at `command_handlers.h:874`). Hanabi's headless runner ticks as fast as
+it can at a synthetic `kDt = 1/60`, so all three are frame time, and a custom
+command that retries until a wall-clock deadline is timed out by the cleanup
+system after 30 ticks — about 50 ms at that tick rate — and the whole-script
+deadline is 10 seconds of `dt` (`runner.h:630`, the #223 clock), 600 fast
+ticks, about a second of wall time. Measured on the first run
+of `tests/ui/a_compaction_round_counts_in_the_transcript.e2e` with
+`wait_frames 420` where `release_compaction` now stands: the whole script finished in
+0.78 s (`[INFO] E2E finished in 0.78 seconds`), the worker's 1.5 s hold had not
+elapsed, and the assertion read
+`expect_no_text failed: 'Summarizing earlier messages' IS visible but should not
+be (matched label 'Summarizing earlier messages… 2142h 41m · 9.9k tokens')`.
+The per-command retry budget (`MAX_FRAMES`, see #223) is frame based too, so
+`expect_text` cannot outwait the thread either.
+
+**Smallest reproducer.** Any script that sends a prompt beginning `compact`
+against the mock with `HANABI_MOCK_COMPACT_HOLD_MS=1500`, then `wait_frames 420`
+(or `wait 7`), then `expect_text "Earlier messages summarized"`: the expect
+times out while the divider still reads "Summarizing".
+
+**The workaround.** No clock at all: the mock's round waits on a latch
+(`HANABI_MOCK_COMPACT_HOLD_MS=latch`) and a hanabi-owned `release_compaction`
+command opens it, so the script looks at the running row over as many frames
+as it likes, releases, and watches the promotion land through the ordinary
+collect -> drain path with frames, input and paint all running. Cost: a
+fixture-specific command and a fixture-specific env value — every worker
+state a script wants to hold needs its own pair — and a 30 s bound on the
+latch so a script that forgets to release fails on its assertions rather than
+hanging.
+
+**Rejected, both measured.** (1) A `sleep_ms N` that blocked the main thread
+with `std::this_thread::sleep_for`: it passes, because no synthetic time
+passes while it waits, but it also stops the frames the hold is meant to be
+observed through, so the test proved the promotion and not the running state.
+(2) The non-blocking spelling — retry until a `steady_clock` deadline, frames
+running, `cmd.frames_alive` zeroed on every retry to survive the 30-tick
+cleanup — ran 600 frames in about one second of wall time and the SCRIPT
+deadline ended the run (`[INFO] E2E finished in 10.00 seconds`, synthetic),
+leaving the divider still "Summarizing" for the assertions after it. Raising
+hanabi's whole-script budget for every script to buy one wall wait was not
+taken.
+
+**Hanabi reference.** `src/ecs/e2e_commands.h` (`HandleReleaseCompactionCommand`),
+`src/api/mock_client.h` (`release_compaction`, `compact_hold_is_latch`);
+`tests/ui/a_compaction_round_counts_in_the_transcript.e2e` holds the row for
+60 frames, releases, and asserts the marker and the reply.
+
+**What API would remove this workaround.** The missing contract is
+frame time vs wall time: the runner needs one word that means the latter.
+`wait_wall N` in `runner.h` beside `wait`/`wait_frames`,
+exempt from the tick deadline the way those two are, and an optional
+wall-clock retry budget for the `expect_*` family (or a per-command
+`deadline_ms`) so an assertion can outwait a thread. Acceptance: a script
+against a host whose worker sleeps 300 ms passes with `wait_wall 1` and fails
+with `wait 1` under a fast headless tick; a custom command that calls `retry()`
+past 30 ticks inside a declared wall budget is not failed as a hang;
+`wait_frames` keeps its tick semantics.
+
+**Status.** Proposal with a measured reproducer; not a defect in what the
+runner promises, a capability it lacks. Extends #223.
+
+CLASS: MISSING
+
+---
+
+### #592 — Every mouse click on a `HasClickListener` moves keyboard focus to it; there is no "activate without taking focus"
+
+**What was wanted.** A disclosure — the compaction divider's label, which opens
+the summary standing in for the earlier messages — that a reader clicks while
+typing, without the caret leaving the composer. The reference client's tap
+gesture on the same row does not change first responder.
+
+**Expected.** A way to say a clickable is not a place the keyboard should land:
+a config flag, or a component the click handler respects.
+
+**Observed.** `HandleClicks::for_each_with` calls `context->set_focus(entity.id)`
+before every `hasClickListener.cb(entity)` — both on the keyboard press path
+and on `mouse_activates` (`vendor/afterhours/src/plugins/ui/systems.h:827-837`).
+`SkipWhenTabbing` is keyboard order only (`systems.h:986-993`, and the
+`components.h:99` comment says so). Probe, pinned at `9ff9079`: a script that
+types into `composer_reply_input`, clicks `compaction_group`, then
+`expect_focused composer_reply_input` fails with
+`'composer_reply_input' is not focused, 'compaction_group' is. Focus set by Grab
+at systems.h:836`. The same path moves the caret onto the thinking block's
+head and onto the find bar's × (the latter is already described in prose at
+`src/ecs/main_pane_system.h` beside `refocusComposer`).
+
+**Smallest reproducer.** Any `div` given `HasClickListener` through
+`addComponentIfMissing`, a focused `text_input` elsewhere in the tree,
+`click_ui <the div>`, `expect_focused <the input>`.
+
+**The workaround.** The toggle sets `app.refocusComposer = true`, and the
+composer takes the caret back the frame after — the mechanism the find bar's
+close already uses. Cost: one frame in which the focus ring sits on the divider
+(#83 family: a ring painted at rest), and a policy decision the app has to make
+per clickable instead of once; a disclosure clicked while NOTHING held the
+keyboard now hands it to the composer, which is the reference's resting place
+but not a "leave it alone".
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`render_compaction_divider`)
+sets `refocusComposer`; `tests/ui/a_compaction_divider_opens_its_summary.e2e`
+asserts `expect_focused composer_reply_input` after both clicks and that typing
+continues the draft.
+
+**What API would remove this workaround.** A `ComponentConfig::with_takes_focus(false)`
+(or a `ClickWithoutFocus` component) that `HandleClicks` honours by running the
+callback without `set_focus`; `SkipWhenTabbing` could imply it, but it is
+documented as order-only, so a new word is safer than widening an old one.
+Acceptance: with the flag, the probe above passes and the ring never moves; the
+keyboard press path (`WidgetPress` on an already-focused element) still fires
+the callback; without the flag, behaviour is unchanged.
+
+**Status.** Confirmed at the pin by source and probe; the workaround ships.
+Sideways of the #83 focus family (a ring where nobody looked) — this entry is
+about WHERE focus goes, not how it is painted.
+
+CLASS: FOOTGUN

@@ -72,6 +72,10 @@ enum class EventKind {
     Unsupported,
     Plan,
     Goal,
+    // A compaction marker: earlier messages were summarized and the stored
+    // summary (the row's text) stands in for them. Drawn as a divider with the
+    // summary behind a disclosure, never as a message, because nobody said it.
+    Compaction,
 };
 
 // High-signal attention state of a thread. This is the single notion the UI

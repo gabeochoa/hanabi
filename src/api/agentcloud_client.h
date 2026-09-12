@@ -258,6 +258,14 @@ struct LiveFrame {
         // empty when unset).
         ModelFallback,
         ModelPinned,
+        // A summarization round in flight (payload = the Progress as JSON,
+        // see compaction.h) and the durable marker that ends it (payload =
+        // the summary).
+        Compacting,
+        Compacted,
+        // The lane was retracted without a marker: the round was cancelled
+        // or failed, and the running divider comes down with nothing to show.
+        CompactionRetracted,
     };
     Kind kind = Kind::Ignore;
     // TextAppend/ThinkingAppend: the new text only. Text/Thinking: the whole

@@ -431,6 +431,13 @@ enum class StreamEventKind {
     AsksChanged,
     ModelFallback,  // a refusal handoff; payload = the model now answering
     ModelPinned,    // the session's model pin changed; payload = the pin or ""
+    // A compaction round is in flight (payload = JSON
+    // {"started_at_unix_ms":N,"output_tokens":N}; a missing field is one the
+    // wire has not carried yet), and the round finished (payload = the
+    // summary). Compacted also ends Compacting.
+    Compacting,
+    Compacted,
+    CompactionRetracted,  // the round ended with no summary (cancel/failure)
 };
 
 // One streaming event: a kind plus an optional string payload whose meaning
