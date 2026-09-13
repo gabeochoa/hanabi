@@ -742,8 +742,17 @@ fn brandingField(b: *std.Build, field: []const u8) []const u8 {
 }
 
 var app_name_override: ?[]const u8 = null;
+// Read once per configure. The name is asked for by every bundle-shaped step
+// (package, register, verify, open, the bundle's own description) and the
+// answer cannot change within one `zig build`: it is the -Dapp-name override
+// or a field of resources/macos/branding.json, which is read before any step
+// runs. Twelve identical python runs were ~0.9 s of every no-op build.
+var app_name_cached: ?[]const u8 = null;
 fn appName(b: *std.Build) []const u8 {
-    return app_name_override orelse brandingField(b, "app_name");
+    if (app_name_override) |name| return name;
+    if (app_name_cached) |name| return name;
+    app_name_cached = brandingField(b, "app_name");
+    return app_name_cached.?;
 }
 
 fn appVersion(b: *std.Build) []const u8 {
