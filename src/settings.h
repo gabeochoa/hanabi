@@ -15,6 +15,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "ui/saved_views_codec.h"
+
 // Minimal persisted settings: window geometry, theme mode, and the open-tab
 // set (session ids + which one is active) so a launch restores exactly where
 // the user left off. Stored as JSON next to the platform config dir.
@@ -201,7 +203,21 @@ struct Settings {
     // this (its text and any files stay in the outbox record); this is only
     // "do not raise that one at me again", and it survives a restart so a
     // notice cannot come back forever. Auto-persists.
-    const std::vector<std::string>& get_acknowledged_blocked() const;
+    // The shelf: the built-in views plus any the person saved from a
+    // filter, in their order, with deleted built-ins remembered so they can
+    // be restored. The model lives in ui/saved_views.h; Settings owns only
+    // the bytes. `saved_views_mut` marks the file dirty -- call `save_views`
+    // after changing the store, or the change is lost at quit.
+    // Parents whose children are showing beneath them in the sidebar, by
+    // the parent's id -- the reference remembers the fold per thread, so a
+    // relaunch finds it as it was left. Auto-persists.
+    const std::vector<std::string>& get_expanded_parents() const;
+    void set_expanded_parents(std::vector<std::string> ids);
+
+    const hanabi::views::Store& saved_views() const;
+    hanabi::views::Store& saved_views_mut();
+    void save_views();
+
     bool is_blocked_acknowledged(const std::string& localId) const;
     void set_blocked_acknowledged(const std::string& localId);
 
@@ -471,6 +487,9 @@ struct Settings {
     std::map<std::string, std::vector<std::string>> row_order_;
     std::vector<std::string> collapsed_shelves_;
     std::vector<std::string> acknowledged_blocked_;
+    std::vector<std::string> expanded_parents_;
+    hanabi::views::Store saved_views_;
+    std::optional<std::string> saved_views_unreadable_;
     std::map<std::string, int64_t> last_read_;
     // Drop the oldest stamps down to kMaxLastRead. Called after an insert and
     // after a load, so a file written by an older build shrinks on first run.

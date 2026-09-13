@@ -73,7 +73,18 @@ ICONS = [
     ("node",         "server"),           # the attached-nodes chip
     ("skills",       "wand-sparkles"),    # wand.and.stars
     ("checklist",    "list-checks"),      # checklist
-    ("paperclip",    "paperclip"),        # attachments
+    ("paperclip",    "paperclip"),
+    # The settings pane list, as the reference draws it (SettingsView.icon at
+    # bffecaf6): every row carries a glyph. SF name -> the Lucide drawing.
+    ("paintbrush",   "paintbrush"),       # Appearance   (SF: paintbrush)
+    ("chat_bubbles", "messages-square"),  # Chat         (SF: bubble.left.and.bubble.right)
+    ("bell",         "bell"),             # Notifications(SF: bell)
+    ("drive",        "hard-drive"),       # Storage      (SF: internaldrive)
+    ("network",      "network"),          # Connection   (SF: network)
+    ("cpu",          "cpu"),              # Model        (SF: cpu)
+    ("keyboard",     "keyboard"),         # Shortcuts    (SF: keyboard)
+    ("list_plus",    "list-plus"),        # Commands     (SF: text.badge.plus)
+    ("info",         "info"),             # About        (SF: info.circle)        # attachments
 ]
 
 CELL = 32          # px per cell. Icons draw at ~14-16px logical (up to ~32px on

@@ -1,0 +1,57 @@
+# A settings switch is ONE control that always shows the setting it stands
+# for, however the setting last changed.
+#
+# The failure this guards: the library seeds its switch state once, on
+# creation, and after that treats the bound value as an output -- so a
+# change that did not come from a track press (Space/Enter on the focused
+# row, a reload) left the knob on the wrong side, and the next click flipped
+# the STALE state to the CURRENT value, which read as a dead click. Each
+# step below changes the setting exactly once and the next click still
+# works.
+#
+# env: HANABI_MOCK_NOW=0
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t4"],"active_tab":"t4","theme":"dark","show_timestamps":true}
+require_thread t4
+wait_frames 10
+# Timestamps are ON to begin with: the line carries its age.
+expect_text "proration.   ·   4h"
+click_ui sb_settings
+wait_frames 16
+click_ui sb_settings_nav_general
+wait_frames 10
+expect_text "Show timestamps"
+
+# Mouse: on -> off.
+click_ui settings_timestamps
+wait_frames 8
+click_ui tab_close
+wait_frames 10
+expect_text "proration."
+expect_no_text "proration.   ·   4h"
+
+# Keyboard: off -> on, through the focused row's Space.
+# Reach the row the way the keyboard does: Shift+Tab from the search field
+# walks BACKWARDS through the content rows (timestamps is the last General
+# row, so it is the first stop), the same path settings_enter_and_space_activate
+# takes to the first row.
+click_ui sb_settings
+wait_frames 16
+expect_focused settings_search
+shift_tab
+wait_frames 6
+expect_focused settings_timestamps_track
+key SPACE
+wait_frames 8
+click_ui tab_close
+wait_frames 10
+expect_text "proration.   ·   4h"
+
+# Mouse again, right after a keyboard change: on -> off, in ONE click. (The
+# stale-state bug made this first click a no-op.)
+click_ui sb_settings
+wait_frames 16
+click_ui settings_timestamps
+wait_frames 8
+click_ui tab_close
+wait_frames 10
+expect_no_text "proration.   ·   4h"

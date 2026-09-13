@@ -13,7 +13,7 @@
 
 #include <string>
 
-#include <afterhours/src/plugins/clipboard.h>
+#include "../util/clipboard.h"
 #include "../api/disk_cache.h"
 #include "../settings.h"
 #include "../ui/secondary_surface.h"
@@ -91,7 +91,7 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_debug_name("toast_copy"));
             if (copy) {
-                afterhours::clipboard::set_text(app->toastCopyText);
+                hanabi::clipboard::set_text(app->toastCopyText);
                 // Nothing is removed here, ever. Copy takes the words and
                 // the NAMES of any files that were staged -- not the files
                 // themselves -- so retiring the record would trade a

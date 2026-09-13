@@ -90,6 +90,17 @@ inline afterhours::EntityID& hosted_focus_anchor() {
     return id;
 }
 
+// The search FIELD, when the sidebar draws it. The reference puts "Search
+// settings" in the sidebar under the shelf, above the pane list -- not in
+// the content pane -- so hosted, the sidebar owns the field and the sheet
+// only needs its focusable id to keep the caret and to route Down/Enter.
+// 0 when the sidebar did not draw one this frame (sheet path, or too
+// narrow to host), in which case the sheet draws its own row as before.
+inline afterhours::EntityID& hosted_search_field() {
+    static afterhours::EntityID id = 0;
+    return id;
+}
+
 void render_settings_pane_list(UIContext<InputAction>& ctx, Entity& parent,
                                AppComponent& app, float width, bool rail);
 
@@ -194,8 +205,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                               app->settingsHostH};
         active_panel_w_ = panelRect.width;
         const float ph = panelRect.height;
+        // Hosted in a tab there is no title block and no search row in the
+        // pane (the sidebar owns the search), so the body gets that height.
+        // Decided by the SAME predicate the sidebar uses to host the pane
+        // list (the column beside it fits a sheet), not by whether the
+        // sidebar has published a field id yet: on the first frame the
+        // order of systems left that id unset, the sheet drew its own row,
+        // and a stale twin named "settings_search" lived on in the
+        // collection to be found first by every script asking for it.
+        const bool sidebarOwnsSearch = hostedInTab && besideFits;
         const float bodyViewH = std::max(
-            40.0f, ph - kPadV * 2.0f - kHeaderH - kSearchRowH);
+            40.0f, ph - kPadV * 2.0f - (hostedInTab ? 0.0f : kHeaderH) -
+                       (sidebarOwnsSearch ? 0.0f : kSearchRowH));
         const float px = panelRect.x;
         const float py = panelRect.y;
 
@@ -249,7 +270,15 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         render_header(ctx, panel.ent(), *app);
         const float bodyW = std::max(120.0f, panelRect.width - kPadH * 2.0f);
-        render_search_field(ctx, panel.ent(), *app, navW, bodyW);
+        // Hosted: the sidebar drew the search field this frame (the
+        // reference's placement); the sheet keeps only its id. Otherwise
+        // the row is the sheet's, as it always was.
+        if (sidebarOwnsSearch) {
+            if (hosted_search_field() != 0) searchFieldId_ = hosted_search_field();
+            hosted_search_field() = 0;
+        } else {
+            render_search_field(ctx, panel.ent(), *app, navW, bodyW);
+        }
 
         auto body = div(ctx, mk(panel.ent(), 500),
             ComponentConfig{}
@@ -775,25 +804,56 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             const bool isSelected = info.pane == selected;
             const bool isFocused = focus.zone == cat::Zone::Nav &&
                                    focus.index == static_cast<int>(i);
+            // Hosted, the rows sit on the sidebar; in the sheet, on the panel.
+            const theme::Color rowSurface =
+                hosted ? theme::chrome::sidebar() : theme::panel_bg();
+            // The row's text is drawn by hand beside its glyph (below):
+            // a button's own label ignores padding (gap #75), so the label
+            // and the glyph landed on the same pixels. The button keeps a
+            // blank label for its hit box, focus and activation.
+            const theme::Color rowInk =
+                isSelected ? theme::text_primary() : theme::text_secondary();
+            const std::string rowText = info.label;
+            const std::string rowIcon = info.icon;
             auto cfg =
                 ComponentConfig{}
-                    .with_label(info.label)
+                    .with_label(" ")
                     .with_size(ComponentSize{pixels(navW - kNavGutter),
                                              pixels(kNavRowH)})
                     .with_margin(Margin{.bottom = pixels(2), .left = pixels(4)})
+                    // The selected row is a WASH, not a filled button: the
+                    // reference lays its accent at 25% over the surface
+                    // (HoverHighlight.selectedOpacity) and lifts the text
+                    // to full, so the row reads as "you are here" without
+                    // shouting over the pane it names. `selected_on` is
+                    // that rule already -- the shelf uses it -- and the
+                    // pane list now says the same thing the same way.
                     .with_custom_background(
-                        isSelected ? theme::button_primary()
+                        isSelected ? theme::chrome::selected_on(rowSurface)
                                    : (isFocused ? theme::hover_bg()
-                                                : theme::panel_bg()))
+                                                : rowSurface))
                     .with_custom_hover_bg(isSelected
-                                              ? theme::button_primary()
+                                              ? theme::chrome::selected_on(rowSurface)
                                               : theme::hover_bg())
-                    .with_custom_text_color(isSelected ? theme::window_bg()
-                                                       : theme::text_primary())
+                    .with_custom_text_color(isSelected ? theme::text_primary()
+                                                       : theme::text_secondary())
                     .with_font_size(theme::type::MD)
                     .with_alignment(TextAlignment::Left)
                     .with_align_items(AlignItems::Center)
-                    .with_padding(Padding{.left = pixels(10)})
+                    // Room for the leading glyph: 10 in, a 16 glyph, 8 gap.
+                    // The reference's pane rows all carry one
+                    // (SettingsView.icon, captured at bffecaf6); a list of
+                    // bare words is not that list.
+                    .with_on_draw_fg([rowIcon, rowText, rowInk](RectangleType rc) {
+                        // Glyph 10 in, 16 square; text 8 past it. The
+                        // reference's pane rows carry both (SettingsView.icon).
+                        hanabi::icons::draw_fg(rowIcon, "", rowInk, 16.0f, 0.0f,
+                                               /*x_anchor=*/10.0f)(rc);
+                        const float px = hanabi::viewport::px(theme::type::MD);
+                        afterhours::draw_text(
+                            rowText.c_str(), rc.x + hanabi::viewport::px(34.0f),
+                            rc.y + (rc.height - px) * 0.5f, px, rowInk);
+                    })
                     .with_text_overflow(TextOverflow::Ellipsis)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
@@ -969,14 +1029,40 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         render_origin_legend(ctx, p, rows, inner);
 
-        active_col_w_ = inner;
+        // The rows sit in a CARD: rounded, hairline border, a raised fill,
+        // the pane's title outside and above it. That is how the reference
+        // draws a settings pane (a grouped Form -- every Section is a card;
+        // captured at bffecaf6). hanabi drew the rows flat on the pane,
+        // which reads as one long list rather than a form. One card per
+        // pane here: the reference splits a pane into several titled
+        // sections, and hanabi's catalog has no section field yet -- adding
+        // one means deciding groupings the reference does not have for
+        // hanabi's own rows, so that is its own change, not a guess here.
+        constexpr float kCardPad = 12.0f;
+        constexpr float kCardRadius = 10.0f;
+        auto card = div(ctx, mk(p, 7),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(inner), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(kCardPad - 4.0f),
+                                      .right = pixels(kCardPad),
+                                      .bottom = pixels(kCardPad - 4.0f),
+                                      .left = pixels(kCardPad)})
+                .with_margin(Margin{.bottom = pixels(10)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_corner_radius(kCardRadius)
+                .with_debug_name("settings_card"));
+
+        active_col_w_ = inner - kCardPad * 2.0f;
         for (size_t i = 0; i < rows.size(); ++i) {
             const cat::Row& row = *rows[i];
             const bool isFocused = !searching &&
                                    focus.zone == cat::Zone::Content &&
                                    focus.index == static_cast<int>(i);
             const bool activate = pendingActivate_ == row.id;
-            render_row(ctx, p, app, row, isFocused, activate);
+            render_row(ctx, card.ent(), app, row, isFocused, activate);
         }
         pendingActivate_.clear();
         render_pane_extras(ctx, p, app, pane);
@@ -2263,6 +2349,104 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // reads Settings::get_yap_level(), writes on click (auto-persists locally +
     // marks the sync-dirty flag so the loader pushes it to the backend). Maps
     // onto the web preferences yapLevel field.
+    // A BOOLEAN is a switch, not a pair of buttons. The reference draws every
+    // on/off setting as a switch at the right of its row (captured at
+    // bffecaf6); hanabi drew "Off" / "On" as a two-button segmented control
+    // filling the row's right half, which reads as a choice between two named
+    // options rather than a thing that is on or off. This is the library's
+    // own toggle_switch -- ONE control: a click anywhere on the track or
+    // knob toggles, keyboard activation toggles, and it carries one checked
+    // state -- sized to the row's right edge. Its debug name is `dbg` (the
+    // row is `dbg_row`); the old `_0` / `_1` halves are gone, because two
+    // targets that set false and true independently are a segmented control
+    // painted as a switch.
+    template <typename Fn>
+    void real_switch(UIContext<InputAction>& ctx, Entity& parent, int baseId,
+                     bool on, const std::string& dbg, Fn onSet) {
+        auto row = div(ctx, mk(parent, baseId),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::FlexEnd)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_row"));
+        // No anchor_control on the ROW: that would give a listener-less
+        // wrapper a no-op click, a "control" that says nothing and does
+        // nothing. The TRACK is the pressable, so the track is the focus
+        // anchor (set once it exists, below).
+        // The SETTING is the truth; the widget only draws it. toggle_switch
+        // seeds its HasToggleSwitchState from `value` once, on creation, and
+        // after that treats `value` as an OUTPUT -- so a change that did not
+        // come from a track press (Space/Enter through activated_index, a
+        // settings reload, reset to defaults) would leave the widget's state
+        // stale: the knob on the wrong side, and the next click flipping the
+        // stale state to the CURRENT value, which reads as a dead click.
+        // Resync BEFORE the call: HandleClicks has already set the track's
+        // `down` for this frame, and toggle_switch reads it inside the call,
+        // so a press cannot be erased by this -- it flips FROM the setting's
+        // value, which is what a switch does. (After the call would undo the
+        // press before `res` is acted on.) animation_progress goes with it
+        // so the knob does not slide in from a stale side on a reload.
+        // afterhours_gaps.md #H2 records the library shape this works around.
+        auto ep = mk(row.ent(), 1);
+        {
+            auto [sw, ignored] = afterhours::ui::imm::deref(ep);
+            (void)ignored;
+            if (sw.has<afterhours::ui::HasToggleSwitchState>()) {
+                auto& st = sw.get<afterhours::ui::HasToggleSwitchState>();
+                if (st.on != on) {
+                    st.on = on;
+                    st.animation_progress = on ? 1.0f : 0.0f;
+                }
+            }
+        }
+        bool value = on;
+        auto res = afterhours::ui::imm::toggle_switch(
+            ctx, ep, value,
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(52.0f), pixels(28.0f)})
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_debug_name(dbg));
+        // The accessible name, role and state go on the TRACK -- the child
+        // that carries the click listener -- not on the wrapper row the
+        // library hands back: the screen-reader press path refuses an
+        // entity with no listener, so naming the wrapper made "On"/"Off"
+        // announce and do nothing. Checkbox is the role a two-state control
+        // has; the name carries the state until the bridge grows a checked
+        // attribute.
+        if (res.ent().has<afterhours::ui::UIComponent>()) {
+            for (afterhours::EntityID cid :
+                 res.ent().get<afterhours::ui::UIComponent>().children) {
+                auto child = afterhours::EntityHelper::getEntityForID(cid);
+                if (child.valid() &&
+                    child->has<afterhours::ui::HasClickListener>()) {
+                    hanabi::a11y::set_name(child.asE(),
+                                           rowTitle_ + (value ? ", on" : ", off"),
+                                           hanabi::a11y::Role::Checkbox);
+                    if (rowFocused_) focusAnchor_ = cid;
+                    // Named per setting, so a script (and a person reading
+                    // a focus dump) can tell one switch's track from
+                    // another's: every track the library makes is
+                    // "toggle_track".
+                    if (child->has<afterhours::ui::UIComponentDebug>())
+                        child->get<afterhours::ui::UIComponentDebug>().set(
+                            dbg + "_track");
+                    break;
+                }
+            }
+        }
+        if (res) onSet(value);
+        // Space / Enter on the focused row, the way every other settings
+        // control activates from the keyboard. Exactly one of the two paths
+        // fires in a frame: a press reports through `res`, a key through
+        // `stepped`, and the resync above brings the widget along next frame.
+        const int stepped = activated_index(on ? 1 : 0, 2);
+        if (stepped >= 0 && !res) onSet(stepped == 1);
+    }
+
     void render_yap_row(UIContext<InputAction>& ctx, Entity& parent,
                         AppComponent& app) {
         (void)app;
@@ -2459,11 +2643,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         (void)app;
         row_name(ctx, parent, 136, "Timestamps", "settings_timestamps_label");
         const bool on = Settings::get().get_show_timestamps();
-        real_segmented(ctx, parent, 137, {"Off", "On"}, on ? 1 : 0,
-                       "settings_timestamps",
-                       [](int i) {
-                           Settings::get().set_show_timestamps(i == 1);
-                       });
+        real_switch(ctx, parent, 137, on,
+                    "settings_timestamps",
+                    [](bool v) { Settings::get().set_show_timestamps(v); });
     }
 
     // Which key sends. Return by default; Cmd+Return for people who would
@@ -2534,11 +2716,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         (void)app;
         row_name(ctx, parent, 144, "Date dividers", "settings_dates_label");
         const bool on = Settings::get().get_show_date_dividers();
-        real_segmented(ctx, parent, 145, {"Off", "On"}, on ? 1 : 0,
-                       "settings_dates",
-                       [](int i) {
-                           Settings::get().set_show_date_dividers(i == 1);
-                       });
+        real_switch(ctx, parent, 145, on,
+                    "settings_dates",
+                    [](bool v) { Settings::get().set_show_date_dividers(v); });
     }
 
     // Reasoning blocks. Hidden drops the "Thought for a moment" rows from the
@@ -2917,9 +3097,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         row_name(ctx, parent, 154, "Restore open tabs on restart",
                  "settings_restore_tabs");
         const bool on = Settings::get().get_restore_tabs();
-        real_segmented(ctx, parent, 155, {"Off", "On"}, on ? 1 : 0,
-                       "settings_restore_tabs",
-                       [](int i) { Settings::get().set_restore_tabs(i == 1); });
+        real_switch(ctx, parent, 155, on, "settings_restore_tabs",
+                    [](bool v) { Settings::get().set_restore_tabs(v); });
     }
 
     void render_jump_latest_row(UIContext<InputAction>& ctx, Entity& parent,
@@ -2949,10 +3128,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         row_name(ctx, parent, 134, "Show notifications",
                  "settings_notify_show");
         const bool on = Settings::get().get_notifications_enabled();
-        real_segmented(ctx, parent, 135, {"Off", "On"}, on ? 1 : 0,
-                       "settings_notify_show", [](int i) {
-                           Settings::get().set_notifications_enabled(i == 1);
-                       });
+        real_switch(ctx, parent, 135, on, "settings_notify_show",
+                    [](bool v) { Settings::get().set_notifications_enabled(v); });
     }
 
     void render_run_chime_row(UIContext<InputAction>& ctx, Entity& parent,
@@ -2961,9 +3138,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         row_name(ctx, parent, 174, "Chime when a run finishes",
                  "settings_run_chime");
         const bool on = Settings::get().get_run_chime();
-        real_segmented(ctx, parent, 175, {"Off", "On"}, on ? 1 : 0,
-                       "settings_run_chime",
-                       [](int i) { Settings::get().set_run_chime(i == 1); });
+        real_switch(ctx, parent, 175, on, "settings_run_chime",
+                    [](bool v) { Settings::get().set_run_chime(v); });
     }
 
     void render_notify_subagents_row(UIContext<InputAction>& ctx,
@@ -2972,10 +3148,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         row_name(ctx, parent, 176, "Notify me about sub-agents",
                  "settings_notify_subagents");
         const bool on = Settings::get().get_notify_subagents();
-        real_segmented(ctx, parent, 177, {"Off", "On"}, on ? 1 : 0,
-                       "settings_notify_subagents", [](int i) {
-                           Settings::get().set_notify_subagents(i == 1);
-                       });
+        real_switch(ctx, parent, 177, on, "settings_notify_subagents",
+                    [](bool v) { Settings::get().set_notify_subagents(v); });
     }
 
     void render_usage_data_row(UIContext<InputAction>& ctx, Entity& parent,
@@ -2984,10 +3158,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         row_name(ctx, parent, 178, "Send settings to your account",
                  "settings_usage_data");
         const bool on = Settings::get().get_send_usage_data();
-        real_segmented(ctx, parent, 179, {"Off", "On"}, on ? 1 : 0,
-                       "settings_usage_data", [](int i) {
-                           Settings::get().set_send_usage_data(i == 1);
-                       });
+        real_switch(ctx, parent, 179, on, "settings_usage_data",
+                    [](bool v) { Settings::get().set_send_usage_data(v); });
     }
 
     // The named palettes, each drawing its own colour beside its name. A row

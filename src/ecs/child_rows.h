@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -108,6 +109,61 @@ inline void toggle_children(std::vector<std::string>& expanded,
             return;
         }
     expanded.push_back(parentId);
+}
+
+// One entry of the list AS DRAWN: a parent, or one of its children while the
+// parent is unfolded. Everything that reasons about rows -- the virtual
+// window, the spacers, the scroll extent, where a drop lands -- reads THIS
+// sequence, so a child is a row to all of them at once rather than a
+// surprise to each in turn.
+struct VisibleRow {
+    const api::SessionSummary* s = nullptr;
+    bool child = false;
+    // For a parent: its index in the folder's member order (the thing a
+    // drag reorders). For a child: the parent's.
+    int parentIndex = 0;
+};
+
+// Parents [0, limit) with their unfolded children beneath them. A child
+// that is ALSO a member of this folder (a sub-agent the catalog lists in
+// its own right) is drawn once, as the member, never twice. O(limit +
+// children of unfolded parents); the caller caches by revision.
+inline void flatten_visible(
+    const std::vector<const api::SessionSummary*>& members, int limit,
+    const ChildIndex& index, const std::vector<std::string>& expanded,
+    std::vector<VisibleRow>& out) {
+    out.clear();
+    if (limit > static_cast<int>(members.size()))
+        limit = static_cast<int>(members.size());
+    std::unordered_map<std::string_view, bool> memberIds;
+    memberIds.reserve(static_cast<std::size_t>(limit));
+    for (int i = 0; i < limit; ++i) memberIds.emplace(members[i]->id, true);
+    for (int i = 0; i < limit; ++i) {
+        const api::SessionSummary* p = members[static_cast<std::size_t>(i)];
+        out.push_back(VisibleRow{p, false, i});
+        if (!children_shown(expanded, p->id)) continue;
+        const auto* kids = index.find(p->id);
+        if (kids == nullptr) continue;
+        for (const api::SessionSummary* c : *kids) {
+            if (memberIds.count(c->id)) continue;
+            out.push_back(VisibleRow{c, true, i});
+        }
+    }
+}
+
+// A drop between two VISIBLE rows, as an index into the PARENT order. Rows
+// above the gap that are parents count; children do not -- they are not
+// members, and a folder is never reordered by a child's id. A gap inside a
+// parent's open children lands after that parent.
+[[nodiscard]] inline int parent_drop_index(const std::vector<VisibleRow>& visible,
+                                           int visualGap) {
+    if (visualGap < 0) visualGap = 0;
+    if (visualGap > static_cast<int>(visible.size()))
+        visualGap = static_cast<int>(visible.size());
+    int parents = 0;
+    for (int i = 0; i < visualGap; ++i)
+        if (!visible[static_cast<std::size_t>(i)].child) ++parents;
+    return parents;
 }
 
 }  // namespace ecs::model

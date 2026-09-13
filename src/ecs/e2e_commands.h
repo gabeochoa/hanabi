@@ -62,6 +62,7 @@
 #include <unordered_map>
 
 #include <afterhours/src/plugins/clipboard.h>
+#include "../api/attachments.h"
 #include "../api/disk_cache.h"
 #include "../api/mock_client.h"
 #include "../resize_drive.h"
@@ -255,7 +256,12 @@ struct HandleExpectClipboardCommand
     void for_each_with(afterhours::Entity&,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
-        if (cmd.is_consumed() || !cmd.is("expect_clipboard")) return;
+        // expect_clipboard_contains <text>: the same read, matched as a
+        // substring, for a copy whose full text the script cannot spell
+        // (the kept-message notice copies a line break the runner has no
+        // escape for).
+        const bool contains = cmd.is("expect_clipboard_contains");
+        if (cmd.is_consumed() || (!cmd.is("expect_clipboard") && !contains)) return;
         if (!cmd.has_args(1)) {
             cmd.fail("expect_clipboard requires text");
             return;
@@ -270,7 +276,8 @@ struct HandleExpectClipboardCommand
             actual = std::string(hanabi::test_hooks::recorded_clipboard_text());
             if (actual.empty()) actual = afterhours::clipboard::get_text();
         }
-        if (actual == expected) {
+        if (contains ? actual.find(expected) != std::string::npos
+                     : actual == expected) {
             cmd.consume();
             return;
         }
@@ -1905,6 +1912,234 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<LatencyInputEventSystem>());
 }
 
+// ---------------------------------------------------------------------------
+// The surface-target refusal contract, driven from a script.
+//
+// composer_target_for refuses a surface id, so no script can make the
+// composer build one; these commands make the MALFORMED request the loader's
+// backstop exists for -- a persisted or replayed message whose target names a
+// surface -- and read the state the contract promises: never sent, never
+// retried, text and attachments kept, the notice held until acknowledged and
+// raised again from the retained record at the next restore pass.
+//
+//   force_send <session_id> <text...>         set requestSend with that target,
+//                                             one attachment named forced.png
+//   seed_outbox <session_id> <text...>        write a kept record (with the same
+//                                             attachment) straight to disk, the
+//                                             way a previous run would have
+//   outbox_restore_again                      run the launch-time restore pass
+//                                             again (the path a restart takes)
+//   expect_toast_holds <text...>              the toast is up, holding, and its
+//                                             message contains <text>
+//   expect_no_toast                           no toast is showing
+//   expect_outbox_attachment <id> <name>      a kept record under <id> carries
+//                                             an attachment called <name>
+//   expect_outbox_retry_count <id> <n>        the retry queue holds <n> entries
+//                                             for <id>
+//   expect_mock_outbound_calls <n>            the mock has been asked to
+//                                             send/steer/create <n> times
+// ---------------------------------------------------------------------------
+inline api::OutgoingMessage forced_surface_message(const std::string& sessionId,
+                                                   std::string text, int pane) {
+    api::OutgoingMessage m;
+    m.local_id = api::attachments::make_local_id();
+    m.text = std::move(text);
+    api::Attachment a;
+    a.path = "/nonexistent/forced.png";
+    a.name = "forced.png";
+    a.media_type = "image/png";
+    a.size_bytes = 3;
+    m.attachments.push_back(a);
+    m.target.pane_index = pane;
+    m.target.session_id = sessionId;
+    m.target.draft_key = sessionId;
+    return m;
+}
+
+struct HandleForceSendCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("force_send")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("force_send requires <session_id> <text>");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr) {
+            cmd.fail("force_send: no app");
+            return;
+        }
+        app->requestSend = forced_surface_message(
+            cmd.arg(0), joined_args(cmd, 1), std::clamp(app->focusedPane, 0, 1));
+        cmd.consume();
+    }
+};
+
+struct HandleSeedOutboxCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("seed_outbox")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("seed_outbox requires <session_id> <text>");
+            return;
+        }
+        api::disk_cache::outbox_add(
+            cmd.arg(0), forced_surface_message(cmd.arg(0), joined_args(cmd, 1), 0));
+        cmd.consume();
+    }
+};
+
+struct HandleOutboxRestoreAgainCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("outbox_restore_again")) return;
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr) {
+            cmd.fail("outbox_restore_again: no app");
+            return;
+        }
+        // The same flag a fresh process starts with; the loader's next tick
+        // runs the launch-time pass over whatever the disk holds now.
+        app->outboxRestored = false;
+        cmd.consume();
+    }
+};
+
+struct HandleExpectToastCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        const bool holds = cmd.is("expect_toast_holds");
+        const bool none = cmd.is("expect_no_toast");
+        if (cmd.is_consumed() || (!holds && !none)) return;
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr) {
+            cmd.fail("toast assertion: no app");
+            return;
+        }
+        bool ok = false;
+        std::string actual = app->toastMessage.empty() ? "(no toast)" : app->toastMessage;
+        if (none) {
+            ok = app->toastMessage.empty();
+        } else {
+            if (!cmd.has_args(1)) {
+                cmd.fail("expect_toast_holds requires <text>");
+                return;
+            }
+            // Matches the notice OR the words it offers to copy, so a script
+            // can tell WHICH kept record the one toast is speaking for.
+            const std::string want = joined_args(cmd, 0);
+            ok = app->toastHolds &&
+                 (app->toastMessage.find(want) != std::string::npos ||
+                  app->toastCopyText.find(want) != std::string::npos);
+        }
+        if (ok) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("{}: toast is \"{}\" (holds={})", cmd.name, actual,
+                             app->toastHolds ? 1 : 0));
+    }
+};
+
+struct HandleExpectOutboxAttachmentCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_outbox_attachment")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_outbox_attachment requires <id> <name>");
+            return;
+        }
+        for (const auto& kept : api::disk_cache::outbox_messages(cmd.arg(0)))
+            for (const auto& a : kept.attachments)
+                if (a.name == cmd.arg(1)) {
+                    cmd.consume();
+                    return;
+                }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("outbox for '{}' has no attachment named '{}'",
+                             cmd.arg(0), cmd.arg(1)));
+    }
+};
+
+// expect_mock_outbound_calls <n>: the mock backend has been asked to send,
+// steer or create exactly <n> times since launch. Direct evidence that a
+// refused request never reached the client, independent of any state the
+// app keeps about it (the retry queue is a consequence, not the call).
+struct HandleExpectMockOutboundCallsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_outbound_calls")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_mock_outbound_calls requires <n>");
+            return;
+        }
+        const int have = api::MockClient::outbound_calls().load();
+        const int want = std::atoi(cmd.arg(0).c_str());
+        if (have == want) {
+            cmd.consume();
+            return;
+        }
+        if (have < want && cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("mock backend saw {} outbound call(s), expected {}",
+                             have, want));
+    }
+};
+
+struct HandleExpectOutboxRetryCountCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_outbox_retry_count")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_outbox_retry_count requires <id> <n>");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr) {
+            cmd.fail("expect_outbox_retry_count: no app");
+            return;
+        }
+        const auto have = app->outboxRetry.count_for(cmd.arg(0));
+        const auto want = static_cast<std::size_t>(std::atoi(cmd.arg(1).c_str()));
+        if (have == want) {
+            cmd.consume();
+            return;
+        }
+        // A retry that WOULD be scheduled is scheduled on the loader's tick
+        // that consumes the request; give it the same grace every other
+        // assertion gets before calling the count wrong.
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("retry queue holds {} for '{}', expected {}", have,
+                             cmd.arg(0), want));
+    }
+};
+
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleWatchInkCommand>());
     sm.register_update_system(std::make_unique<HandleExpectLatencyCommand>());
@@ -1917,6 +2152,13 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxCommand>());
     sm.register_update_system(std::make_unique<HandleSeedCacheCommand>());
+    sm.register_update_system(std::make_unique<HandleForceSendCommand>());
+    sm.register_update_system(std::make_unique<HandleSeedOutboxCommand>());
+    sm.register_update_system(std::make_unique<HandleOutboxRestoreAgainCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectToastCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectOutboxAttachmentCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectOutboxRetryCountCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleSeedReplyDraftCommand>());
     sm.register_update_system(std::make_unique<HandleExpectReplyDraftCommand>());

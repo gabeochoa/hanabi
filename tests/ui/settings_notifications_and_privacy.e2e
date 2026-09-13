@@ -8,11 +8,12 @@ expect_text "Chime when a run finishes"
 expect_text "Notify me about sub-agents"
 expect_text "Quiet hours"
 
-click_ui settings_notify_show_0
+# One switch: a click toggles it off, a second click toggles it back on.
+click_ui settings_notify_show
 wait_frames 10
 expect_text "notifications are off"
 
-click_ui settings_notify_show_1
+click_ui settings_notify_show
 wait_frames 10
 expect_no_text "notifications are off"
 

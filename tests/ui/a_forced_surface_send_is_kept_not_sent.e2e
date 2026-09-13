@@ -1,0 +1,63 @@
+# A message whose target names a SURFACE is never sent, never retried, and
+# never lost -- and nobody else's draft pays for it.
+#
+# composer_target_for refuses a surface id, so no script can make the composer
+# build this request; `force_send` makes the malformed one the loader's
+# backstop exists for (a replayed or persisted message aimed at
+# "hanabi:surface/settings"). What the contract promises, each asserted:
+#   - the client is never asked: the mock's outbound-call counter does not
+#     move (direct evidence), nothing lands on any thread, and the retry queue
+#     holds nothing for the surface id (the consequence a reached-and-failed
+#     send would have left behind)
+#   - the text and the attachment are kept on disk under the id they carried
+#   - the notice holds (no ten-second timeout) and says it was not sent
+#   - both panes' half-written drafts are exactly as they were
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+require_thread t2
+require_thread t9
+wait_frames 10
+expect_panes t2 t9 0
+
+# A draft in each pane, typed the way a person would.
+click_ui composer_reply_input_other
+wait_frames 8
+expect_panes t2 t9 1
+type "right pane draft stays"
+wait_frames 6
+expect_input_text composer_reply_input "right pane draft stays"
+click_ui composer_reply_input_other
+wait_frames 8
+expect_panes t2 t9 0
+type "left pane draft stays"
+wait_frames 6
+expect_input_text composer_reply_input "left pane draft stays"
+
+# Nothing has been sent yet in this run; the counter starts the proof.
+expect_mock_outbound_calls 0
+
+# The malformed request, from the focused (left) pane.
+force_send hanabi:surface/settings kept words that had no thread
+wait_frames 12
+expect_mock_outbound_calls 0
+expect_toast_holds "not sent"
+expect_toast_holds "kept words that had no thread"
+expect_outbox hanabi:surface/settings kept words that had no thread
+expect_outbox_attachment hanabi:surface/settings forced.png
+expect_outbox_retry_count hanabi:surface/settings 0
+expect_backend_no_message t2 kept words that had no thread
+expect_backend_no_message t9 kept words that had no thread
+expect_backend_state t9 running
+
+# Nobody's draft moved.
+expect_input_text composer_reply_input "left pane draft stays"
+expect_input_text composer_reply_input_other "right pane draft stays"
+
+# Two seconds later: still not retried, still held, still nowhere.
+wait_frames 120
+expect_toast_holds "not sent"
+expect_mock_outbound_calls 0
+expect_outbox_retry_count hanabi:surface/settings 0
+expect_backend_no_message t2 kept words that had no thread
+expect_backend_no_message t9 kept words that had no thread
+expect_outbox hanabi:surface/settings kept words that had no thread

@@ -56,6 +56,7 @@
 #include "thread_model.h"
 #include "tab_model.h"
 #include "sidebar_footer_status.h"
+#include "child_rows.h"
 #include "settings_system.h"
 #include "../keys.h"
 #include "ui_imports.h"
@@ -161,12 +162,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!app->rowOrderSeeded) {
             app->rowOrder = Settings::get().get_all_row_order();
             app->rowOrderSeeded = true;
+            ++app->rowOrderRevision;
         }
 
         // Forget a folder's manual order (row menu -> "Reset order"): the rows
         // fall back to activity order on the very next render.
         if (!app->requestResetRowOrder.empty()) {
             app->rowOrder.erase(app->requestResetRowOrder);
+            ++app->rowOrderRevision;
             Settings::get().set_row_order(app->requestResetRowOrder, {});
             app->requestResetRowOrder.clear();
         }
@@ -198,6 +201,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sidebar"));
 
         render_header(ctx, panel.ent(), *layout, folded);
+        // Children by parent, rebuilt only when the sub-agent catalog's
+        // revision moves -- no pass over the main catalog is added.
+        childIndex_.sync(app->subagentSessions, app->subagentCatalogRevision);
 
         render_rail_divider(ctx, uiRoot, *layout);
 
@@ -226,7 +232,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // beside an open Settings tab, with Settings marked as the current
         // view.
         if (app->showSettings && hosts_settings(r.width)) {
-            settings_header(ctx, panel.ent(), r.width);
+            render_settings_search(ctx, panel.ent(), *app, r.width);
+            spacer(ctx, panel.ent(), 9, kSbListGap);
             render_settings_pane_list(ctx, panel.ent(), *app, r.width, false);
             render_footer(ctx, panel.ent(), *app, r);
             render_row_menu(ctx, uiRoot, *app);
@@ -1334,6 +1341,96 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                              hanabi::surface::kWindowMargin * 2.0f;
     }
 
+    // "Search settings", in the sidebar under the shelf and above the pane
+    // list -- where the reference draws it (SidebarColumn, captured at
+    // bffecaf6) -- rather than at the top of the content pane. Same chrome
+    // as the conversation search below it in the normal column, bound to
+    // the settings query; the sheet learns the field's id through
+    // hosted_search_field() and keeps routing Down/Enter as before.
+    void render_settings_search(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app, float panelW) {
+        auto wrap = div(ctx, mk(parent, 4),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSbSearchH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::FlexEnd)
+                .with_padding(Padding{
+                    .top = pixels(kSbSearchH - kSbFieldH - 1.0f),
+                    .right = pixels(kSbInset),
+                    .bottom = pixels(0),
+                    .left = pixels(kSbInset)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_search_row"));
+        static afterhours::EntityID s_inputId =
+            std::numeric_limits<afterhours::EntityID>::max();
+        const bool focused =
+            s_inputId != std::numeric_limits<afterhours::EntityID>::max() &&
+            ctx.has_focus(s_inputId);
+        const theme::Color fieldFill = theme::chrome::raised();
+        float fieldW = panelW - 2.0f * kSbInset;
+        if (fieldW < 60.0f) fieldW = 60.0f;
+        auto field = div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(fieldW), pixels(kSbFieldH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(3), .right = pixels(4),
+                                      .bottom = pixels(3), .left = pixels(4)})
+                .with_custom_background(fieldFill)
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::raised()))
+                .with_border(focused ? theme::focus_ring() : fieldFill,
+                             pixels(focused ? 1.5f : 1.0f))
+                .with_corner_radius(theme::chrome::RADIUS)
+                .with_debug_name("settings_search_wrap"));
+        spacer_x(ctx, field.ent(), 3, 6.0f);
+        div(ctx, mk(field.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(7), pixels(18)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "search", "\xf0\x9f\x94\x8d", theme::text_faint(), 12.0f,
+                    -1.0f))
+                .with_debug_name("settings_search_icon"));
+        spacer_x(ctx, field.ent(), 4, 6.0f);
+        const bool hasQuery = !app.settingsQuery.empty();
+        const float textW = std::max(40.0f, fieldW - 8.0f - 20.0f - 12.0f);
+        // The same imm::text_input the sheet's field was, so the focusable
+        // child carries the same name and every script that says
+        // `expect_focused settings_search` still names the same thing.
+        auto res = afterhours::ui::imm::text_input(
+            ctx, mk(field.ent(), 2), app.settingsQuery,
+            ComponentConfig{}
+                .with_size(ComponentSize{
+                    pixels(textW), pixels(hanabi::control::kMinHitTarget)})
+                .with_transparent_bg()
+                .with_custom_text_color(hasQuery ? theme::text_primary()
+                                                 : theme::text_secondary())
+                .with_font_size(search_px())
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_placeholder("Search settings")
+                .with_debug_name("settings_search"));
+        hanabi::a11y::set_name(res.ent(), "Search settings");
+        s_inputId = res.ent().id;
+        hosted_search_field() = focusable_field(res.ent());
+        const bool pressedInField =
+            ctx.mouse.just_pressed &&
+            res.ent().has<afterhours::ui::UIComponent>() &&
+            afterhours::ui::is_mouse_inside(
+                ctx.mouse.pos,
+                res.ent().get<afterhours::ui::UIComponent>().rect());
+        if (pressedInField &&
+            app.settingsFocusZone != static_cast<int>(cat::Zone::Search)) {
+            app.settingsFocusZone = static_cast<int>(cat::Zone::Search);
+            app.settingsFocusIndex = 0;
+        }
+    }
+
     void settings_header(UIContext<InputAction>& ctx, Entity& parent,
                          float width) {
         div(ctx, mk(parent, 2),
@@ -1442,7 +1539,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.subagentSidebarOpen = !app.subagentSidebarOpen;
             Settings::get().set_subagent_sidebar_open(app.subagentSidebarOpen);
             app.requestSubagentRefresh = app.subagentSidebarOpen;
-            if (!app.subagentSidebarOpen) app.clear_subagent_sessions();
+            // The catalog stays when the mode closes: the children folded
+            // under their parents in the main list read it too.
         }
         // Panel toggle: the collapse affordance the removed brand row carried.
         auto collapseBtn = button(
@@ -2028,6 +2126,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     std::vector<const api::SessionSummary*> pinnedMembers_;
     std::vector<const api::SessionSummary*> recentMembers_;
     model::SidebarBuckets buckets_;
+    model::ChildIndex childIndex_;
     std::vector<const api::SessionSummary*> subagentMembers_;
     model::SubagentParentIndex parentIndex_;
     std::vector<std::string> folderNames_;
@@ -2675,10 +2774,54 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (it != app.rowOrder.end())
                 model::apply_row_order(members, it->second);
         }
+        // The list AS DRAWN: parents [0, limit) with their unfolded children
+        // beneath them. The virtual window, the spacers, the scroll extent
+        // and the drop mapping all read this sequence, so a child is a row to
+        // every one of them at once. Rebuilt only when something it depends
+        // on moved -- the folder's members, the sub-agent catalog, or which
+        // parents are open -- never per frame.
+        const VisibleKey vk{key, buckets_.rebuilds(), app.subagentCatalogRevision,
+                            app.expandedRevision, app.rowOrderRevision, limit,
+                            static_cast<int>(members.size()), q};
+        // One cache per folder: PINNED and RECENTS both draw every frame,
+        // and a single slot would rebuild on every alternation.
+        VisibleCache& vc = visibleByFolder_[key];
+        if (!(vk == vc.key)) {
+            model::flatten_visible(members, limit, childIndex_,
+                                   app.expandedParents, vc.rows);
+            vc.key = vk;
+        }
+        visible_ = &vc.rows;
         return render_group(ctx, parent, base, name, key, members, app, q,
                             panelW, archivedStyle, headerless, cap, limit,
-                            row_window(parent, limit, q.empty()), folderState);
+                            row_window(parent, static_cast<int>(vc.rows.size()),
+                                       q.empty()),
+                            folderState);
     }
+
+    struct VisibleKey {
+        std::string folder;
+        std::size_t bucketsRev = 0;
+        std::uint64_t subagentRev = 0;
+        std::uint64_t expandedRev = 0;
+        std::uint64_t orderRev = 0;
+        int limit = -1;
+        int members = -1;
+        std::string query;
+        bool operator==(const VisibleKey& o) const {
+            return folder == o.folder && bucketsRev == o.bucketsRev &&
+                   subagentRev == o.subagentRev && expandedRev == o.expandedRev &&
+                   orderRev == o.orderRev && limit == o.limit &&
+                   members == o.members && query == o.query;
+        }
+    };
+    struct VisibleCache {
+        VisibleKey key;
+        std::vector<model::VisibleRow> rows;
+    };
+    std::unordered_map<std::string, VisibleCache> visibleByFolder_;
+    // The folder being drawn right now; set by render_folder for render_group.
+    const std::vector<model::VisibleRow>* visible_ = nullptr;
 
     // ---- collapsible group header (shared by folders + time-groups) ----
     // Renders the chevron + name + right-aligned count header for a group and
@@ -2892,8 +3035,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         render_row_spacer(ctx, parent, base + kSpacerAboveIdOffset, win.above);
 
+        int lastVisual = win.first;
         for (int idx = win.first; idx < win.last; ++idx) {
-            const auto* s = members[static_cast<size_t>(idx)];
+            const model::VisibleRow& vr = (*visible_)[static_cast<size_t>(idx)];
+            const auto* s = vr.s;
+            lastVisual = idx + 1;
             // The DRAG slot is the row's place in the list; the widget ID is
             // its place in the WINDOW. They have to be different numbers. A
             // reorder records where a row sits among its peers, so it needs
@@ -2906,6 +3052,31 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // an immediate-mode row is.
             const int slot = idx;
             const int rowId = base + 1 + (++i);
+            if (vr.child) {
+                // A child is a full row, indented so its glyph sits under
+                // the parent's title; never a folder member, never a drop
+                // target, never a drag source.
+                auto wrap = div(ctx, mk(parent, rowId),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{percent(1.0f), pixels(kRowHeight)})
+                        .with_flex_direction(FlexDirection::Row)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_padding(Padding{.left = pixels(kChildIndent)})
+                        .with_transparent_bg()
+                        .with_roundness(0.0f)
+                        .with_debug_name("child_row_wrap"));
+                const afterhours::EntityID childEnt = render_chat_row(
+                    ctx, wrap.ent(), 1, *s, app, archived, panelW - kChildIndent);
+                if (!haveBand) {
+                    auto opt = EntityHelper::getEntityForID(childEnt);
+                    if (opt.valid() && opt->has<afterhours::ui::UIComponent>()) {
+                        bandY = opt->get<afterhours::ui::UIComponent>().rect().y;
+                        haveBand = true;
+                    }
+                }
+                (void)slot;
+                continue;
+            }
             // While searching, a row carries the line it matched on, with the
             // matched words lit. Without it the list says WHICH threads
             // matched and never WHY, which for a content match is the whole
@@ -2953,7 +3124,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     drag = AppComponent::RowDrag{};
                     drag.sessionId = s->id;
                     drag.folderKey = key;
-                    drag.fromIndex = static_cast<size_t>(slot);
+                    // PARENT space, not the visible sequence: a reorder
+                    // moves the row among its peers, and the children
+                    // above it on screen are not peers.
+                    drag.fromIndex = static_cast<size_t>(vr.parentIndex);
+                    (void)slot;
                 }
                 // afterhours has already decided this press moved far enough to
                 // stop being a click (MousePointerState::press_moved), and it
@@ -2967,12 +3142,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         if (drag.folderKey == key && !drag.sessionId.empty() && haveBand &&
             !renderedIds.empty()) {
+            // The gap under the pointer is a VISUAL gap (children are rows
+            // on screen); the folder is reordered by PARENTS only, so the
+            // visual gap maps to a parent index -- a gap inside a parent's
+            // open children lands after that parent -- and the line is
+            // drawn at the visual gap.
             drag.visibleIds = renderedIds;
-            drag.dropIndex = model::compute_row_drop_index(
-                ctx.mouse.pos.y, bandY, kRowHeight, renderedIds.size());
+            const int visualGap = static_cast<int>(model::compute_row_drop_index(
+                ctx.mouse.pos.y, bandY, kRowHeight,
+                static_cast<std::size_t>(lastVisual - win.first)));
+            const std::vector<model::VisibleRow> window(
+                visible_->begin() + win.first, visible_->begin() + lastVisual);
+            drag.dropIndex = static_cast<decltype(drag.dropIndex)>(
+                model::parent_drop_index(window, visualGap));
             // The line sits on the leading edge of the slot being dropped into,
             // which is where the row will actually come to rest.
-            drag.lineY = bandY + kRowHeight * static_cast<float>(drag.dropIndex);
+            drag.lineY = bandY + kRowHeight * static_cast<float>(visualGap);
         }
 
         // Drop. The manual order is sidebar-owned state (not the shared
@@ -2982,6 +3167,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             auto next = model::reorder_rows(drag.visibleIds, drag.sessionId,
                                             drag.dropIndex);
             app.rowOrder[key] = next;
+            ++app.rowOrderRevision;
             Settings::get().set_row_order(key, std::move(next));
             drag = AppComponent::RowDrag{};
         }
@@ -3162,20 +3348,83 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // open below IF the star wasn't the thing clicked this frame.
         bool rowClicked = pointer_click(ctx, row.ent());
         bool starClicked = false;
+        // The row announces its children too, for a reader who never
+        // reaches the small chevron: "<title>, 3 sub-agents, collapsed".
+        {
+            const std::size_t kids = childIndex_.count_for(s.id);
+            std::string spoken = std::string(display_title_view(s.title));
+            if (kids > 0) {
+                spoken += ", " + std::to_string(kids) +
+                          (kids == 1 ? " sub-agent, " : " sub-agents, ") +
+                          (model::children_shown(app.expandedParents, s.id)
+                               ? "expanded"
+                               : "collapsed");
+            }
+            hanabi::a11y::set_name(row.ent(), spoken, hanabi::a11y::Role::Row);
+        }
 
-        div(ctx, mk(row.ent(), 1),
-            ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(kGlyphW), pixels(20)})
-                .with_transparent_bg()
-                .with_font_size(FontSize::Small)
-                .with_roundness(0.0f)
-                .with_on_draw_fg([mark, rowHot](RectangleType rect) {
-                    draw_mark(rect, mark,
-                              rowHot ? theme::hover_over(theme::chrome::sidebar())
-                                     : theme::chrome::sidebar());
-                })
-                .with_debug_name("row_glyph"));
+        // The glyph slot is the FOLD when the row has children: a chevron
+        // that turns to show them beneath, keeping its mark when the thread
+        // wants something (the reference's SessionRowView.leadingGlyph:
+        // `.fold` for quiet parents, `.foldMark(state)` for the rest). A
+        // click on the slot folds; a click anywhere else on the row opens
+        // the thread, as ever -- the two are different targets.
+        const bool hasChildren = childIndex_.count_for(s.id) > 0;
+        const bool wantsAttention =
+            mark != SidebarGlyph::Idle && mark != SidebarGlyph::Done;
+        const model::RowGlyphRole glyphRole =
+            model::row_glyph_role(hasChildren, wantsAttention);
+        const bool childrenOpen =
+            hasChildren && model::children_shown(app.expandedParents, s.id);
+        bool foldClicked = false;
+        if (glyphRole == model::RowGlyphRole::Status) {
+            div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(kGlyphW), pixels(20)})
+                    .with_transparent_bg()
+                    .with_font_size(FontSize::Small)
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([mark, rowHot](RectangleType rect) {
+                        draw_mark(rect, mark,
+                                  rowHot ? theme::hover_over(theme::chrome::sidebar())
+                                         : theme::chrome::sidebar());
+                    })
+                    .with_debug_name("row_glyph"));
+        } else {
+            const bool marked = glyphRole == model::RowGlyphRole::MarkedFold;
+            const theme::Color ink = marked ? mark_color(mark)
+                                            : theme::text_secondary();
+            // The chevron is PAINT in the glyph slot (10 wide, the
+            // reference's measure); the fold's HIT TARGET is the row's
+            // leading 28 px, full row height -- a real 28-pt target, not a
+            // 13x20 sliver, and the same press-on-the-glyph gesture. A
+            // press there folds; a press anywhere else on the row opens.
+            div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(kGlyphW), pixels(20)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([childrenOpen, ink](RectangleType rect) {
+                        draw_chevron(rect, /*collapsed=*/!childrenOpen, ink);
+                    })
+                    // Per parent, like the tab close glyphs: every folded
+                    // parent sharing one name made "click the fold" hit
+                    // whichever row came first.
+                    .with_debug_name((childrenOpen ? "row_fold_open_"
+                                                   : "row_fold_") + s.id));
+            if (rowClicked && row.ent().has<afterhours::ui::UIComponent>()) {
+                const RectangleType rr =
+                    row.ent().get<afterhours::ui::UIComponent>().rect();
+                if (ctx.mouse.pos.x < rr.x + hanabi::viewport::px(kFoldHitW)) {
+                    model::toggle_children(app.expandedParents, s.id);
+                    ++app.expandedRevision;
+                    Settings::get().set_expanded_parents(app.expandedParents);
+                    foldClicked = true;
+                }
+            }
+        }
 
         // Title colour: ONE near-white for every live row. Puffin does not
         // encode attention in a title's brightness — measured, every row in the
@@ -3447,11 +3696,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Apply the deferred row-open: open the thread on a row click UNLESS the
         // star was what got clicked (starring must not also open the thread).
-        if (rowClicked && !starClicked && !bellClicked) {
+        if (rowClicked && !starClicked && !bellClicked && !foldClicked) {
             app.requestOpenTab = s.id;
         }
         return row.ent().id;
     }
+
+    // The indent of a child row under its parent: the parent's glyph slot
+    // plus the gap, so the child's own glyph lines up under the parent's
+    // title.
+    static constexpr float kChildIndent = kGlyphW + 6.0f;
+    // The leading strip of a parent row that folds instead of opening.
+    static constexpr float kFoldHitW = 28.0f;
 };
 
 }  // namespace ecs

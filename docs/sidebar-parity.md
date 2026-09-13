@@ -88,12 +88,12 @@ scroll position.
 |---|---|---|---|
 | S1 | The shelf stays: Home / Settings / Blocked / Review / Pinned / Archived above the settings pane list, Settings shown as the selected view | **matches now** (was: the whole column was replaced) | `src/ecs/sidebar_system.h` |
 | S2 | The pane has no title, no subtitle and no close of its own | **matches now** (was: "Settings" + subtitle + x inside the pane) | `src/ecs/settings_system.h` |
-| S3 | "Search settings" sits in the SIDEBAR, under Archived, with a magnifier | hanabi puts it at the top of the CONTENT pane | `src/ecs/sidebar_system.h`, `src/ecs/settings_system.h` |
-| S4 | Every settings-pane row carries a leading glyph (gear, paintbrush, speech bubble, bell, ...) | rows are text only | `src/ecs/settings_system.h` |
-| S5 | Content is a stack of CARDS: rounded, bordered, the section title outside and above, each row title + description inside | flat rows, headings inline, no card | `src/ecs/settings_system.h` |
-| S6 | A boolean is a SWITCH at the right of its row | a two-button segmented control ("Off" / "On") filling the row's right half | `src/ecs/settings_system.h` |
-| S7 | The selected pane row is a restrained fill | a saturated accent fill across the full row | `src/ecs/settings_system.h` |
-| S8 | Tab chips carry a leading glyph (a gear on Settings) | the Settings chip has no glyph | `src/ecs/tab_bar_system.h` |
+| S3 | "Search settings" sits in the SIDEBAR, under Archived, with a magnifier | **now in the sidebar when hosted** (same field chrome as the conversation search; the sheet keeps its own row when it is a sheet) — unbuilt, uncaptured | `src/ecs/sidebar_system.h`, `src/ecs/settings_system.h` |
+| S4 | Every settings-pane row carries a leading glyph (gear, paintbrush, speech bubble, bell, ...) | **now a glyph per row**, the Lucide drawing of each of the reference's SF symbols (SettingsView.icon → ten new atlas sprites) — unbuilt, uncaptured | `src/ui/settings_catalog.h`, `src/ecs/settings_system.h`, `scripts/gen_icons.py` |
+| S5 | Content is a stack of CARDS: rounded, bordered, the section title outside and above, each row title + description inside | **now one card per pane** (rounded 10, hairline border, raised fill, title above); the reference's per-SECTION split within a pane needs a section field in hanabi's catalog and is its own change — unbuilt, uncaptured | `src/ecs/settings_system.h` |
+| S6 | A boolean is a SWITCH at the right of its row | **now the library's toggle_switch** — one control, one checked state, click or keyboard toggles — on all seven on/off settings; the two-button pairs are gone (the "Off / Ping" desktop-alert control is a real three-way and stays segmented) — unbuilt, uncaptured | `src/ecs/settings_system.h` |
+| S7 | The selected pane row is a restrained fill — accent at 25% over the surface, text lifted to full (HoverHighlight.selectedOpacity) | **now the same wash** (`theme::chrome::selected_on`, the rule the shelf already uses) with primary text; the filled accent button is gone — unbuilt, uncaptured | `src/ecs/settings_system.h` |
+| S8 | Tab chips carry a leading glyph (a gear on Settings) | **now a gear in the status-mark slot** on the Settings chip (PuffinSurface.icon) — unbuilt, uncaptured | `src/ecs/tab_bar_system.h` |
 
 S1 and S2 came out of these captures and are fixed. S3-S8 are open, each
 with a visible difference and an owning file; none is guessed from the old

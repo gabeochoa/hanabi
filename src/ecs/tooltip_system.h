@@ -38,7 +38,11 @@ inline std::string tooltip_text_for(const std::string& control,
     if (!curated.empty()) return std::string(curated);
     if (!e.has<hanabi::a11y::AccessibleName>()) return {};
     const auto& named = e.get<hanabi::a11y::AccessibleName>();
-    if (named.role != hanabi::a11y::Role::Button) return {};
+    // A named button OR checkbox says what it does; a row or a tab does
+    // not carry a tooltip.
+    if (named.role != hanabi::a11y::Role::Button &&
+        named.role != hanabi::a11y::Role::Checkbox)
+        return {};
     if (control_says_words(e)) return {};
     return named.value;
 }

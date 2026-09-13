@@ -30,7 +30,8 @@ expect_text "proration.   ·   4h"
 click_ui sb_settings
 wait_frames 8
 expect_text "Show timestamps"
-click_ui settings_timestamps_0
+# The switch is on to begin with (timestamps show); one click turns it off.
+click_ui settings_timestamps
 wait_frames 8
 click_ui tab_close
 wait_frames 10

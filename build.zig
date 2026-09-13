@@ -87,6 +87,7 @@ const tests = [_]TestSpec{
     .{ .name = "test_transcript_ledger", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_transcript_ledger.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_composer_strip", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_composer_strip.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_surface_tabs", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_surface_tabs.cpp" }, .frameworks = &.{  } },
+    .{ .name = "test_saved_views", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_saved_views.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_surface_never_sends", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_surface_never_sends.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_child_rows", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_child_rows.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_blocked_recovery", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_blocked_recovery.cpp" }, .frameworks = &.{  } },

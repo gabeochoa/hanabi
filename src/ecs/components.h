@@ -527,6 +527,21 @@ struct AppComponent : public afterhours::BaseComponent {
     // a global fold-all flag, and the live search query. The sidebar system
     // reads/writes these; empty query = show everything.
     std::set<std::string> collapsedFolders;
+    // Parents whose children are showing beneath them in the list, by the
+    // PARENT'S id -- the list reorders on every message, so a position would
+    // fold a different thread than the one the reader opened.
+    std::vector<std::string> expandedParents;
+    // Bumped whenever expandedParents changes, so the drawn-row sequence
+    // (parents plus unfolded children) is rebuilt only then.
+    std::uint64_t expandedRevision = 1;
+    // The saved view the shelf has lit, by the store's id ("" = home). The
+    // five built-in views map onto SmartView; a user-saved view is only
+    // reachable through this.
+    std::string savedViewId;
+    // The workspace folder a saved view is made against ("" = any). hanabi
+    // has no workspace picker yet, so this is empty until one exists; kept
+    // as the seam the saved-view model expects.
+    std::string currentWorkspace;
     // One-time guard: folders start COLLAPSED by default (Gabe — subthreads
     // hidden until you expand a folder). The first render that sees folders
     // seeds every folder key into collapsedFolders, then sets this so the
@@ -555,6 +570,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // in the same way mute and star are.
     std::map<std::string, std::vector<std::string>> rowOrder;
     bool rowOrderSeeded = false;
+    // Bumped whenever rowOrder changes, so the drawn-row sequence (which
+    // follows the manual order) is rebuilt then and only then.
+    std::uint64_t rowOrderRevision = 1;
     // One-shot: forget a folder's manual order (the row menu's "Reset order").
     std::string requestResetRowOrder;
 

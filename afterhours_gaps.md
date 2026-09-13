@@ -13948,6 +13948,58 @@ are gone. Tests: `tests/ui/composer_effort_picker.e2e`,
 d90db15 before the change, pass after).
 
 CLASS: SHARP EDGE (behaviour change in the range)
+### #H2 — `toggle_switch` is uncontrolled after creation: the bound bool is an output, so an external change to the setting leaves the widget stale
+
+**Class:** library API shape (afterhours `ui::imm::toggle_switch`,
+`plugins/ui/imm_components.h`, byte-identical between 1ac6db2 and d90db15).
+Not a defect in what it does; a defect in what it cannot be told.
+
+**Reproducer.** Bind a switch to a setting. Change the setting any way
+other than pressing the track -- Space/Enter through hanabi's own
+`activated_index` path, a settings reload, reset-to-defaults. The knob
+stays on the old side. Press the track: the widget flips its STALE state
+to the value the setting already had, reports "changed", and the press
+looks dead once.
+
+**Why.** `toggle_switch(ctx, ep, bool& value, cfg)` seeds
+`HasToggleSwitchState.on` from `value` only when the component is first
+created (`init_state`'s callback is empty); every frame after, it writes
+`value = state.on`. There is no way to say "the truth is over here now".
+
+**Cost.** Every boolean setting in the app (seven today) would need to be
+pressed twice after a keyboard change or a reload.
+
+**Workaround (hanabi, `SettingsSystem::real_switch`).** Before the call,
+resolve the child entity (`imm::deref(mk(row, 1))`) and, if its
+`HasToggleSwitchState.on` differs from the setting, assign `on` and
+`animation_progress` from the setting. Before, not after: `HandleClicks`
+has already set the track's `down` for the frame and `toggle_switch` reads
+it inside the call, so a press flips from the setting's value -- which is
+what a switch does -- and a resync after the call would undo the press
+before `res` is acted on. Covered by
+`tests/ui/a_switch_stays_in_step_with_its_setting.e2e`
+(mouse -> keyboard -> mouse, one change each, next click works).
+
+**Also here, same widget, different seam:** the `ElementResult` it hands
+back names the WRAPPER row, which has no `HasClickListener`, so an
+accessible name set on it announces and does nothing under a screen-reader
+press (the a11y press path refuses listener-less entities). hanabi names the
+TRACK -- the child carrying the listener -- with role `checkbox` and the
+state in the name.
+
+**Minimal upstream fix.** Either a `controlled` flag / `with_value(bool)`
+that resyncs `state.on` from the argument each frame when the caller says
+the value is authoritative, or a `toggle_switch_state(ep)` accessor with
+that contract documented; and return the track's entity (or expose it) so
+callers can attach accessibility to the thing that is pressed.
+
+**Acceptance.** A switch bound to a value that changes externally repaints
+to the new value the same frame, and the next press changes the value
+exactly once. `a11y::set_name` on the returned entity reaches the pressable
+element.
+
+---
+
 ### APP #H1 — Hanabi-only parity limitation: no saved-filter store, so the reference's "save this filter as a view" has nothing behind it
 
 NOT an afterhours gap. Filed here because this file is where the project's

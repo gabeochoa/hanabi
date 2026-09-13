@@ -493,6 +493,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             const bool showStatus =
                 statusOf != nullptr && !clipped &&
                 ecs::model::status_shows_on_tab(status);
+            // A SURFACE tab carries the surface's own glyph where a
+            // conversation carries its status mark -- the reference's
+            // Settings chip wears a gear (PuffinSurface.icon, captured at
+            // bffecaf6). Same slot, same inset, so the title starts where it
+            // would with a mark.
+            const bool showSurfaceGlyph =
+                !clipped && model::is_settings_tab(tab.sessionId);
             constexpr float kStatusSlotPx = 14.0f;
             // A pinned tab spends its left gutter on the pin, so the title
             // starts further in. Both numbers are measured off the reference:
@@ -506,7 +513,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // `## The tab strip, round four`. Moving both to Puffin's own
             // constants took 01 2.81% -> 2.82% and 02 1.91% -> 1.97%.
             const float padL = (tab.pinned ? 26.0f : 12.0f) - kTextMarginPx +
-                               (showStatus ? kStatusSlotPx : 0.0f);
+                               ((showStatus || showSurfaceGlyph) ? kStatusSlotPx : 0.0f);
             // Ellipsize the title to the room the tab actually has: ~7px/char
             // at ROW size, minus left pad + (× reserve when shown).
             float rightReserve =
@@ -637,6 +644,26 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // same renderer as the sidebar's row glyph; `bg` is passed because
             // the bang composites its own fringe against what it sits on and
             // the tab's fill differs from the sidebar's.
+            if (showSurfaceGlyph) {
+                auto sglyph =
+                    div(ctx, mk(uiRoot, 980 + static_cast<int>(i)),
+                        ComponentConfig{}
+                            .with_label(" ")
+                            .with_size(ComponentSize{pixels(12), pixels(16)})
+                            .with_absolute_position()
+                            .with_translate(tabX + (tab.pinned ? 25.0f : 11.0f),
+                                            tabY + (tabH - 16.0f) * 0.5f)
+                            .with_transparent_bg()
+                            .with_roundness(0.0f)
+                            .with_render_layer(baseLayer + 1)
+                            .with_on_draw_fg(hanabi::icons::draw_fg(
+                                "gear", "", isActive ? tab_colors::tab_text_act()
+                                                     : tab_colors::close_ink(),
+                                12.0f))
+                            .with_debug_name("tab_glyph_settings"));
+                hanabi::a11y::set_name(sglyph.ent(), "Settings");
+            }
+
             if (showStatus) {
                 // The loop index alone. A widget's identity is (parent, this
                 // index, CALL SITE) -- `hanabi::ui::widget_key` mixes the

@@ -758,12 +758,17 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
-        if (!app.subagentSidebarOpen) {
-            app.requestSubagentRefresh = false;
-            app.clear_subagent_sessions();
-            app.subagentListState = LoadState::Idle;
-            app.subagentListError.clear();
-        } else if (app.requestSubagentRefresh && !app.subagentListPending) {
+        // The sub-agent catalog feeds TWO views now: the sub-agent mode,
+        // and the children folded under their parents in the main list. So
+        // it is fetched once the main catalog has loaded, whether or not
+        // the mode is on, and it is no longer thrown away when the mode
+        // closes. A backend without sub-agents leaves it empty and the
+        // list simply has no folds.
+        if (!app.subagentSidebarOpen && app.subagentListState == LoadState::Idle &&
+            app.listState == LoadState::Loaded && !app.subagentListPending &&
+            app.client->supports_subagents())
+            app.requestSubagentRefresh = true;
+        if (app.requestSubagentRefresh && !app.subagentListPending) {
             app.requestSubagentRefresh = false;
             if (!app.client->supports_subagents()) {
                 app.subagentListState = LoadState::Error;
@@ -784,10 +789,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 std::future_status::ready) {
             auto r = app.subagentListFuture.get();
             app.subagentListPending = false;
-            if (!app.subagentSidebarOpen) {
-                app.clear_subagent_sessions();
-                app.subagentListState = LoadState::Idle;
-            } else if (r.ok) {
+            // Kept whether or not the sub-agent MODE is open: the children
+            // folded under their parents in the main list read this catalog
+            // too, so a result that arrives with the mode closed is not
+            // thrown away any more.
+            if (r.ok) {
                 if (r.value.size() > AppComponent::kMaxSubagentSessions)
                     r.value.resize(AppComponent::kMaxSubagentSessions);
                 app.overlay_attach_refusals(r.value);

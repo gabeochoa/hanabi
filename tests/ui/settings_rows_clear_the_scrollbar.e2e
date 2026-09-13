@@ -14,8 +14,9 @@ assert_ui settings_pane_scroll hidden=false
 # Label and row are the SAME width -- the label never runs past its row
 # into the scrollbar's lane. The absolute number was the sheet's; hosted,
 # the pane's width is the window's business.
-assert_ui settings_reasoning_label_line w=268
-assert_ui settings_reasoning_row w=268
+# (244 at 760 wide: the pane's inner width less the card's 12+12 padding.)
+assert_ui settings_reasoning_label_line w=244
+assert_ui settings_reasoning_row w=244
 
 expect_text "Reasoning blocks"
 expect_text "This Mac"
@@ -23,5 +24,5 @@ expect_text "Your account"
 
 resize 1100 760
 wait_frames 10
-assert_ui settings_reasoning_label_line w=734
-assert_ui settings_reasoning_row w=734
+assert_ui settings_reasoning_label_line w=710
+assert_ui settings_reasoning_row w=710

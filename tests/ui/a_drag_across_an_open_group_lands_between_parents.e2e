@@ -1,0 +1,49 @@
+# A parent dragged into the gap between an unfolded parent and its first
+# child lands AFTER that parent, in the folder's own order; the children
+# stay under their parent, and the folder is never reordered by a child.
+#
+# Row centres at the 34 pitch under the drawn section header, with t7
+# ("coordinating 3 shard workers", parent index 3) unfolded: labels sit at
+# 345 + 34k and a row's rect starts at its label. t7's label is 447; its
+# three children 481/515/549; the parent after them 583; "SKU backfill"
+# (parent index 5) 617. A drop means "at the row under the pointer", so
+# the pointer over t7's FIRST CHILD (y in 481..515) is the gap right after
+# t7 -- and that gap is a place between PARENTS, not among the children.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+wait_frames 30
+click_ui row_fold_t7
+wait_frames 12
+assert_ui_text "coordinating 3 shard workers" y=447
+assert_ui_text "shard 1/3 — legacy tenants" y=481
+assert_ui_text "SKU backfill — my name for it" y=617
+
+# Pick up SKU (row 617..651) and drop it over t7's first child.
+click 650 300
+wait_frames 4
+mouse_down 140 625
+wait_frames 2
+mouse_move 140 580
+wait_frames 2
+mouse_move 140 520
+wait_frames 2
+mouse_move 140 490
+wait_frames 3
+mouse_up 140 490
+wait_frames 12
+mouse_move 650 400
+wait_frames 8
+
+# SKU is the parent right after t7 -- BELOW t7's children, which did not
+# move -- and t7 is where it was.
+assert_ui_text "coordinating 3 shard workers" y=447
+assert_ui_text "shard 1/3 — legacy tenants" y=481
+assert_ui_text "shard 3/3 — canary cohort" y=549
+assert_ui_text "SKU backfill — my name for it" y=583
+expect_no_text "Backfill in progress"
+
+# Folding t7 shows the order the folder actually holds: t7, then SKU.
+click_ui row_fold_open_t7
+wait_frames 10
+assert_ui_text "coordinating 3 shard workers" y=447
+assert_ui_text "SKU backfill — my name for it" y=481

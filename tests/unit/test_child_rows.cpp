@@ -63,6 +63,34 @@ int main() {
     CHECK(!M::children_shown(expanded, "p1"));
     CHECK(M::children_shown(expanded, "p2"));
 
+    // The list as drawn: parents in order, an unfolded parent's children
+    // beneath it, a child that is also a member drawn once, and the drop
+    // index counting parents only.
+    api::SessionSummary p1; p1.id = "p1";
+    api::SessionSummary p2; p2.id = "p2";
+    api::SessionSummary c1m; c1m.id = "c1";  // c1 is ALSO a member row
+    std::vector<const api::SessionSummary*> members = {&p1, &c1m, &p2};
+    std::vector<std::string> open = {"p1", "p2"};
+    std::vector<M::VisibleRow> vis;
+    M::flatten_visible(members, 3, index, open, vis);
+    // p1, (c1 skipped: it is a member), c2, c1(member), p2, c3
+    CHECK(vis.size() == 5);
+    CHECK(vis[0].s->id == "p1" && !vis[0].child);
+    CHECK(vis[1].s->id == "c2" && vis[1].child && vis[1].parentIndex == 0);
+    CHECK(vis[2].s->id == "c1" && !vis[2].child);
+    CHECK(vis[3].s->id == "p2" && !vis[3].child && vis[3].parentIndex == 2);
+    CHECK(vis[4].s->id == "c3" && vis[4].child);
+    // Drop gaps: before p1 = 0; between p1 and its child c2 = 1; between c2
+    // and c1 = 1 (a child adds nothing); after everything = 3 parents.
+    CHECK(M::parent_drop_index(vis, 0) == 0);
+    CHECK(M::parent_drop_index(vis, 1) == 1);
+    CHECK(M::parent_drop_index(vis, 2) == 1);
+    CHECK(M::parent_drop_index(vis, 5) == 3);
+    CHECK(M::parent_drop_index(vis, 99) == 3);
+    // A limit shorter than the members cuts parents AND their children.
+    M::flatten_visible(members, 1, index, open, vis);
+    CHECK(vis.size() == 3);  // p1, c1 (not a member within the limit), c2
+
     if (failures == 0) std::printf("OK\n");
     return failures == 0 ? 0 : 1;
 }

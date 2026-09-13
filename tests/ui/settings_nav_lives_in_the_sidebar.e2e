@@ -1,11 +1,13 @@
+# The sidebar caption "SETTINGS" is gone: the reference puts the settings
+# search field there instead, so the field is the anchor for "Settings is up".
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 
 expect_text "VIEWS"
-expect_no_text "SETTINGS"
+expect_no_ui settings_search_row
 
 click_ui sb_settings
 wait_frames 10
-expect_text "SETTINGS"
+assert_ui settings_search_row hidden=false
 # The shelf STAYS now -- Settings swaps the lower half of the column only,
 # which is how you get back to a conversation (the reference's own rule,
 # confirmed against its capture). What must not be there is the
@@ -23,13 +25,13 @@ expect_no_text "Send message with"
 click_ui tab_close
 wait_frames 10
 expect_text "VIEWS"
-expect_no_text "SETTINGS"
+expect_no_ui settings_search_row
 expect_no_text "Keep at most on disk"
 
 click_ui sb_settings
 wait_frames 10
 expect_text "Keep at most on disk"
-expect_text "SETTINGS"
+assert_ui settings_search_row hidden=false
 
 key ESCAPE
 wait_frames 10

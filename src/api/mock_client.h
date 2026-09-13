@@ -259,6 +259,15 @@ class MockClient : public Client {
         return n;
     }
 
+    // Every OUTBOUND call a test can count: a send, a steer, a create. The
+    // proof that a refused request never reached the client is this number
+    // not moving -- read by the e2e `expect_mock_outbound_calls` command --
+    // rather than any state the app keeps about the request.
+    static std::atomic<int>& outbound_calls() {
+        static std::atomic<int> n{0};
+        return n;
+    }
+
     Result<Session> get_session(const std::string& id, int limit) override {
         auto r = get_session(id);
         if (!r.ok || limit <= 0) return r;
@@ -280,6 +289,7 @@ class MockClient : public Client {
     // process run (the mock is otherwise stateless) — enough to drive the
     // composer end to end without any backend.
     Result<std::string> create_session(const std::string& prompt) override {
+        outbound_calls().fetch_add(1);
         std::string title = prompt.empty() ? "New task" : prompt;
         if (title.size() > 60) title = title.substr(0, 57) + "...";
         std::string id = "new" + std::to_string(created_.size() + 1);
@@ -732,6 +742,7 @@ class MockClient : public Client {
     // appended turn persists for this run).
     Result<Message> send_message(const std::string& session_id,
                                  const std::string& prompt) override {
+        outbound_calls().fetch_add(1);
         if (const std::string why = injected_send_failure(); !why.empty())
             return Result<Message>::failure(why);
         Session* target = find_mutable(session_id);
@@ -784,6 +795,7 @@ class MockClient : public Client {
     // company/product names. Mirrors send_message's mutation + preview refresh.
     Result<Message> steer(const std::string& session_id,
                           const std::string& prompt) override {
+        outbound_calls().fetch_add(1);
         Session* target = find_mutable(session_id);
         if (!target)
             return Result<Message>::failure("no such session: " + session_id);

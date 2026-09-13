@@ -1,3 +1,5 @@
+# The sidebar caption "SETTINGS" is gone: the reference puts the settings
+# search field there instead, so the field is the anchor for "Settings is up".
 # settings: {"window_width":600,"window_height":500,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_TEST_OVERLAY=settings
 
@@ -29,7 +31,7 @@ expect_no_text "Send message with"
 resize 1100 760
 wait_frames 10
 assert_ui sb_settings_nav w=280
-expect_text "SETTINGS"
+assert_ui settings_search_row hidden=false
 expect_text "Rotate theme"
 
 click_ui sb_settings_nav_general
@@ -40,5 +42,5 @@ expect_text "Send message with"
 resize 600 500
 wait_frames 10
 assert_ui settings_nav w=96
-expect_no_text "SETTINGS"
+expect_no_ui sb_settings_nav
 expect_text "Send message with"

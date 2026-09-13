@@ -204,6 +204,16 @@ bool Settings::load_save_file() {
                 if (e.is_string()) muted_ids_.push_back(e.get<std::string>());
             muted_set_ = {muted_ids_.begin(), muted_ids_.end()};
         }
+        {
+            hanabi::views::Loaded l = hanabi::views::load(j);
+            saved_views_ = std::move(l.store);
+            saved_views_unreadable_ = std::move(l.unreadable);
+        }
+        expanded_parents_.clear();
+        if (j.contains("expanded_parents") && j["expanded_parents"].is_array()) {
+            for (const auto& e : j["expanded_parents"])
+                if (e.is_string()) expanded_parents_.push_back(e.get<std::string>());
+        }
         acknowledged_blocked_.clear();
         if (j.contains("acknowledged_blocked") &&
             j["acknowledged_blocked"].is_array()) {
@@ -315,6 +325,8 @@ void Settings::write_save_file() {
     j["muted"] = muted_ids_;
     j["collapsed_shelves"] = collapsed_shelves_;
     j["acknowledged_blocked"] = acknowledged_blocked_;
+    j["expanded_parents"] = expanded_parents_;
+    hanabi::views::save(j, saved_views_, saved_views_unreadable_);
     j["row_order"] = row_order_;
     j["last_read"] = last_read_;
     j["tool_fold"] = tool_fold_;
@@ -599,8 +611,19 @@ void Settings::set_row_order(const std::string& folder,
     if (auto_save_enabled) write_save_file();
 }
 
-const std::vector<std::string>& Settings::get_acknowledged_blocked() const {
-    return acknowledged_blocked_;
+const std::vector<std::string>& Settings::get_expanded_parents() const {
+    return expanded_parents_;
+}
+void Settings::set_expanded_parents(std::vector<std::string> ids) {
+    if (ids == expanded_parents_) return;
+    expanded_parents_ = std::move(ids);
+    if (auto_save_enabled) write_save_file();
+}
+
+const hanabi::views::Store& Settings::saved_views() const { return saved_views_; }
+hanabi::views::Store& Settings::saved_views_mut() { return saved_views_; }
+void Settings::save_views() {
+    if (auto_save_enabled) write_save_file();
 }
 
 bool Settings::is_blocked_acknowledged(const std::string& localId) const {

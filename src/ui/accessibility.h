@@ -23,6 +23,7 @@ enum class Role {
     Tab,
     Row,
     Field,
+    Checkbox,
 };
 
 inline const char* role_name(Role r) {
@@ -35,6 +36,7 @@ inline const char* role_name(Role r) {
         case Role::Tab: return "tab";
         case Role::Row: return "row";
         case Role::Field: return "field";
+        case Role::Checkbox: return "checkbox";
     }
     return "";
 }

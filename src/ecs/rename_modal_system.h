@@ -72,7 +72,8 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("rename_header"));
         div(ctx, mk(header.ent(), 1),
             ComponentConfig{}
-                .with_label("Rename session")
+                .with_label(saving_view(*app) ? "Save this filter as a view"
+                                              : "Rename session")
                 .with_size(ComponentSize{percent(1.0f),
                                          pixels(hanabi::surface::kTitleH)})
                 .with_transparent_bg()
@@ -190,7 +191,7 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
 
         auto confirmBtn = button(ctx, mk(row.ent(), 3),
             hanabi::surface::action_button(92.0f, true, 13)
-                .with_label("Rename")
+                .with_label(saving_view(app) ? "Save" : "Rename")
                 .with_font_size(FontSize::Medium)
                 .with_justify_content(JustifyContent::Center)
                 .with_debug_name("rename_confirm"));
@@ -199,9 +200,42 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
 
     // Hand the title to the loader. The modal keeps the text and stays up: the
     // sidebar row and the tab change only once the echo comes back.
+    // The same prompt serves two asks: a conversation's new title, and the
+    // name of a view saved from the current filter (the reference's "Save
+    // this filter as a view", SidebarColumn.saveCurrentAsView). The second
+    // is marked by a reserved id in the slot the first uses for its session.
+    static constexpr const char* kSaveViewMarker = "hanabi:view/new";
+    static bool saving_view(const AppComponent& app) {
+        return app.renameSessionId == kSaveViewMarker;
+    }
+
     static void confirm(AppComponent& app) {
         if (app.renamePending) return;
         app.renameError.clear();
+        if (saving_view(app)) {
+            // Build the view from what the reader is looking at NOW -- the
+            // lit shelf, the workspace, the words in the search box -- add
+            // it, select it, and clear the search: the query is in the
+            // shelf, and leaving it in the box would narrow the new shelf a
+            // second time by the same words. A refused name (empty, or a
+            // duplicate id) keeps the prompt up with a reason.
+            auto& store = Settings::get().saved_views_mut();
+            const hanabi::views::SavedView& current =
+                store.resolve(app.savedViewId.empty()
+                                  ? std::optional<std::string>{}
+                                  : std::optional<std::string>{app.savedViewId});
+            hanabi::views::SavedView made = hanabi::views::make_from(
+                current, app.currentWorkspace, app.searchQuery, app.renameDraft);
+            if (!store.add(made)) {
+                app.renameError = "That name cannot be used.";
+                return;
+            }
+            Settings::get().save_views();
+            app.savedViewId = made.id;
+            app.searchQuery.clear();
+            close(app);
+            return;
+        }
         app.requestRenameId = app.renameSessionId;
         app.requestRenameTitle = app.renameDraft;
         app.renamePending = true;

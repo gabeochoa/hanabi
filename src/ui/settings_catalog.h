@@ -33,29 +33,40 @@ struct PaneInfo {
     const char* label;    // what the navigation row reads
     const char* slug;     // stable id: persisted, and the deep-link target
     const char* summary;  // the line under the pane's own title
+    const char* icon;     // atlas sprite for the row's leading glyph
 };
 
 inline constexpr std::array<PaneInfo, kPaneCount> kPanes{{
     {Pane::General, Group::App, "General", "general",
-     "Sending, timestamps, and what comes back on restart"},
+     "Sending, timestamps, and what comes back on restart",
+     "gear"},
     {Pane::Appearance, Group::App, "Appearance", "appearance",
-     "Theme, typeface, and the two colours you can name"},
+     "Theme, typeface, and the two colours you can name",
+     "paintbrush"},
     {Pane::Chat, Group::App, "Chat", "chat",
-     "What a transcript shows you, and how much of it"},
+     "What a transcript shows you, and how much of it",
+     "chat_bubbles"},
     {Pane::Notifications, Group::App, "Notifications", "notifications",
-     "When this Mac may interrupt you, and when it may not"},
+     "When this Mac may interrupt you, and when it may not",
+     "bell"},
     {Pane::Storage, Group::Backend, "Storage", "storage",
-     "What is kept on this disk, and your own copies of it"},
+     "What is kept on this disk, and your own copies of it",
+     "drive"},
     {Pane::Connection, Group::Backend, "Connection", "connection",
-     "Which backend this window talks to, and who it thinks you are"},
+     "Which backend this window talks to, and who it thinks you are",
+     "network"},
     {Pane::Model, Group::Backend, "Model", "model",
-     "Which model a new conversation starts on, and how hard it thinks"},
+     "Which model a new conversation starts on, and how hard it thinks",
+     "cpu"},
     {Pane::Shortcuts, Group::Input, "Shortcuts", "shortcuts",
-     "Chords you can rebind, and the ones the system owns"},
+     "Chords you can rebind, and the ones the system owns",
+     "keyboard"},
     {Pane::Commands, Group::Input, "Commands", "commands",
-     "What a slash in the composer can do here, and what it cannot yet"},
+     "What a slash in the composer can do here, and what it cannot yet",
+     "list_plus"},
     {Pane::About, Group::System, "About", "about",
-     "Version, and what this build carries"},
+     "Version, and what this build carries",
+     "info"},
 }};
 
 inline constexpr const char* group_heading(Group g) {

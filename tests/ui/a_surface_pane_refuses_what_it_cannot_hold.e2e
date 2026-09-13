@@ -6,6 +6,8 @@
 # where the reader finds it later in a box they never typed into. And in a
 # split, the other pane must still take its own input normally.
 #
+# The sidebar caption "SETTINGS" is gone: the reference puts the settings
+# search field there instead, so the field is the anchor for "Settings is up".
 # settings: {"window_width":1440,"window_height":900,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
 # env: HANABI_WIN_W=1440 HANABI_WIN_H=900 HANABI_OPEN=t2 HANABI_SPLIT=t6
 require_thread t2
@@ -27,7 +29,7 @@ wait_frames 10
 expect_panes t2 t6 1
 click_ui sb_settings
 wait_frames 24
-expect_text "SETTINGS"
+assert_ui settings_search_row hidden=false
 
 # Typing with no field focused, which normally SEEDS the composer: on a
 # surface pane it must go nowhere at all -- not into the new-thread

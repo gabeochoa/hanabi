@@ -289,6 +289,36 @@ static void test_archive_overlay_round_trips() {
     CHECK(!s.get_archived("r4").value_or(true));
 }
 
+// --- A blocked-message acknowledgement survives a reload ------------------
+// The x on a kept-message notice records the record's local_id here; a
+// restart must then NOT raise that notice again while every other kept
+// record still is. An acknowledgement that lived only in memory would make
+// the x a lie one launch later. The record itself is the outbox's, not this
+// file's: acknowledging never deletes it (tests/ui/a_blocked_notice_comes_back
+// _until_acknowledged.e2e holds that half).
+static void test_blocked_acknowledgement_round_trips() {
+    std::printf("test_blocked_acknowledgement_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+
+    CHECK(!s.is_blocked_acknowledged("m-first"));
+    CHECK(!s.is_blocked_acknowledged(""));
+    s.set_blocked_acknowledged("m-first");
+    CHECK(s.is_blocked_acknowledged("m-first"));
+    CHECK(!s.is_blocked_acknowledged("m-second"));
+
+    s.load_save_file();
+    CHECK(s.is_blocked_acknowledged("m-first"));
+    CHECK(!s.is_blocked_acknowledged("m-second"));
+
+    // Acknowledging twice is one entry, and an empty id is never "seen":
+    // a record with no local_id fails open toward being shown.
+    s.set_blocked_acknowledged("m-first");
+    s.load_save_file();
+    CHECK(s.is_blocked_acknowledged("m-first"));
+    CHECK(!s.is_blocked_acknowledged(""));
+}
+
 // --- A mute survives a reload, and unmuting removes it -------------------
 static void test_mute_round_trips() {
     std::printf("test_mute_round_trips\n");
@@ -673,6 +703,7 @@ int main() {
     test_a_switched_off_chord_survives_a_reload();
     test_quiet_hours_window();
     test_quiet_hours_persist();
+    test_blocked_acknowledgement_round_trips();
     test_archive_overlay_round_trips();
     test_mute_round_trips();
     test_finished_subagents_round_trips();

@@ -145,12 +145,16 @@ struct AtlasTexture {
 //
 // Usage: attach via .with_on_draw_fg(icons::draw_fg("gear", "\xe2\x9a\x99",
 //        theme::text_secondary(), 16.f));
+// `x_anchor` < 0 centres the glyph (the default). >= 0 pins its LEFT edge
+// that many logical px in from the widget's left, for a glyph that leads a
+// labelled row (the settings pane list, the way the reference draws it)
+// rather than filling a square button of its own.
 inline std::function<void(RectangleType)>
 draw_fg(std::string name, std::string fallback_glyph, theme::Color color,
-        float draw_px = 16.0f, float y_bias = 0.0f) {
+        float draw_px = 16.0f, float y_bias = 0.0f, float x_anchor = -1.0f) {
     auto rect = src_rect(name);
     return [name = std::move(name), fallback_glyph = std::move(fallback_glyph),
-            color, draw_px, y_bias, rect](RectangleType widget) {
+            color, draw_px, y_bias, x_anchor, rect](RectangleType widget) {
         TextureType* atlas = AtlasTexture::get().ensure();
         if (atlas != nullptr && rect.has_value()) {
             // Center a draw_px x draw_px blit inside the widget rect. The
@@ -159,7 +163,8 @@ draw_fg(std::string name, std::string fallback_glyph, theme::Color color,
             // here (viewport::px, a no-op at ui_scale 1).
             const float d = viewport::px(draw_px);
             RectangleType dest{
-                widget.x + (widget.width - d) * 0.5f,
+                x_anchor < 0.0f ? widget.x + (widget.width - d) * 0.5f
+                                : widget.x + viewport::px(x_anchor),
                 widget.y + (widget.height - d) * 0.5f + viewport::px(y_bias),
                 d, d};
             // Push a blend-enabled pipeline so the atlas' transparent pixels

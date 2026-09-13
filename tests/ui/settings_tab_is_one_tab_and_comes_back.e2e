@@ -6,6 +6,8 @@
 # back to the conversation that was there, with its draft; and the thread the
 # surface covered was never marked read behind it.
 #
+# The sidebar caption "SETTINGS" is gone: the reference puts the settings
+# search field there instead, so the field is the anchor for "Settings is up".
 # settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_WIN_W=1440 HANABI_WIN_H=900
 require_thread t2
@@ -21,7 +23,7 @@ expect_input_text composer_reply_input "half-written thought"
 
 click_ui sb_settings
 wait_frames 24
-expect_text "SETTINGS"
+assert_ui settings_search_row hidden=false
 expect_no_ui composer_reply_input
 
 # Asked twice, three times: still one Settings tab. (Two would leave a second
@@ -32,10 +34,10 @@ click_ui sb_settings
 wait_frames 20
 click_ui sb_settings
 wait_frames 20
-expect_text "SETTINGS"
+assert_ui settings_search_row hidden=false
 click_ui tab_close
 wait_frames 20
-expect_no_text "SETTINGS"
+expect_no_ui settings_search_row
 
 # The pane came back to t2, with the draft exactly as it was left.
 expect_open t2

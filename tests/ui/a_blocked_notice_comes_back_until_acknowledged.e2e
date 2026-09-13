@@ -1,0 +1,85 @@
+# A kept record outlives the notice, and the notice outlives the process --
+# until the person acknowledges it.
+#
+# Two blocked messages are already on disk under the surface id, the way a
+# previous run would have left them. The launch-time restore pass
+# (`outbox_restore_again` runs the same pass a fresh process runs) must:
+#   - raise a notice for the oldest unacknowledged record, one at a time
+#   - ask the client for NOTHING (the mock's outbound counter stays where it
+#     was) and schedule nothing for retry
+#   - treat BOTH Copy and the x as the acknowledgement: each hides THAT
+#     record for good (the acknowledgement is persisted by local_id --
+#     tests/unit/test_settings.cpp holds the round trip) and raises the next
+#     unacknowledged one; a restore after both are acknowledged raises nothing
+#   - never delete: both records are still on disk with their attachment after
+#     both acknowledgements
+#   - leave the other pane's thread and draft alone throughout
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+require_thread t2
+require_thread t9
+wait_frames 10
+expect_panes t2 t9 0
+click_ui composer_reply_input
+wait_frames 8
+type "a draft that must survive"
+wait_frames 6
+expect_input_text composer_reply_input "a draft that must survive"
+
+seed_outbox hanabi:surface/settings first kept message
+seed_outbox hanabi:surface/settings second kept message
+expect_no_toast
+
+# The restore pass: the first record is offered, nothing is asked of the client.
+expect_mock_outbound_calls 0
+outbox_restore_again
+wait_frames 8
+expect_toast_holds "never sent"
+expect_toast_holds "first kept message"
+expect_mock_outbound_calls 0
+expect_outbox_retry_count hanabi:surface/settings 0
+expect_backend_no_message t2 first kept message
+expect_backend_no_message t9 first kept message
+expect_backend_state t9 running
+
+# Copy: the words (and the file's NAME, never its bytes) reach the clipboard,
+# the first record is acknowledged, and the second takes its place. The
+# record itself stays.
+reset_clipboard_probe
+click_ui toast_copy
+wait_frames 8
+expect_clipboard_contains "first kept message"
+expect_clipboard_contains "[attachments kept: forced.png]"
+expect_toast_holds "second kept message"
+expect_outbox hanabi:surface/settings first kept message
+
+# An acknowledgement sticks: a restore does not bring the first one back.
+outbox_restore_again
+wait_frames 8
+expect_toast_holds "second kept message"
+
+# The x acknowledges the second the same way; nothing is left to show, and a
+# restore after that raises nothing.
+click_ui toast_close
+wait_frames 8
+expect_no_toast
+outbox_restore_again
+wait_frames 8
+expect_no_toast
+
+# Both records, and their attachment, are still on disk; nothing was sent.
+expect_outbox hanabi:surface/settings first kept message
+expect_outbox hanabi:surface/settings second kept message
+expect_outbox_attachment hanabi:surface/settings forced.png
+expect_mock_outbound_calls 0
+expect_outbox_retry_count hanabi:surface/settings 0
+expect_backend_no_message t2 first kept message
+expect_backend_no_message t2 second kept message
+expect_backend_state t9 running
+
+# The other pane's draft never moved. (The toast sits over the RIGHT pane
+# in a split, so its clicks focused that pane; the left pane's composer is
+# the `_other` one now -- the naming follows focus, the draft did not go
+# anywhere.)
+expect_panes t2 t9 1
+expect_input_text composer_reply_input_other "a draft that must survive"

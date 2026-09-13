@@ -328,6 +328,7 @@ static void setup_app_state() {
     // to exist in the session list before it can be opened, exactly like a
     // tab's, and asking for it earlier is asking for a fetch of an id the
     // backend may no longer know.
+    app.expandedParents = Settings::get().get_expanded_parents();
     app.splitOpen = Settings::get().get_split_open();
     app.splitRatio =
         hanabi::clamp_split_ratio(Settings::get().get_split_ratio());

@@ -1,0 +1,41 @@
+# A thread's sub-agents fold beneath it in the list, under the parent's own
+# glyph slot, and the fold is a different target from the row.
+#
+# t2 ("needs a decision before it can go on") has two sub-agents in the mock
+# (t2s1 "Ledger diff scan", t2s2 "Duplicate-payout check"). They live in
+# the sub-agent MODE as before; here they also live where the reference puts
+# them -- under their parent, shown by the chevron in the glyph slot.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+wait_frames 12
+expect_text "needs a decision before it can go on"
+# Folded by default: the children are not in the list.
+expect_no_text "Ledger diff scan"
+expect_no_text "Duplicate-payout check"
+
+# The fold is the glyph slot. Clicking it shows the children and does NOT
+# open the thread.
+click_ui row_fold_t2
+wait_frames 10
+expect_text "Ledger diff scan"
+expect_text "Duplicate-payout check"
+assert_ui row_fold_open_t2 hidden=false
+expect_no_ui tab_active
+
+# A child is a real row: clicking it opens THAT thread.
+click_text "Ledger diff scan"
+wait_frames 16
+expect_open t2s1
+
+# Folding again hides them; the parent is still where it was.
+click_ui row_fold_open_t2
+wait_frames 10
+expect_no_text "Duplicate-payout check"
+expect_text "needs a decision before it can go on"
+
+# NOT asserted here: whether the conversation search reaches a folded
+# child. The children come from the sub-agent catalog, not the main one,
+# and hanabi's search walks the main catalog -- so today a folded child is
+# not found by search. Whether the reference searches sub-agents from the
+# main field is unverified against its source; recorded as open in
+# docs/sidebar-parity.md rather than asserted either way.

@@ -7,6 +7,8 @@
 # for it again focuses the tab that is already open rather than making a
 # second one: the id is reserved, which is what makes it a singleton.
 #
+# The sidebar caption "SETTINGS" is gone: the reference puts the settings
+# search field there instead, so the field is the anchor for "Settings is up".
 # settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_WIN_W=1440 HANABI_WIN_H=900
 require_thread t2
@@ -16,7 +18,7 @@ assert_ui composer_reply_input hidden=false
 
 click_ui sb_settings
 wait_frames 20
-expect_text "SETTINGS"
+assert_ui settings_search_row hidden=false
 assert_ui tab_active hidden=false
 # The conversation's tab is still there, and its composer is not: the pane
 # is showing Settings now.
@@ -46,11 +48,11 @@ expect_text "WAITING ON YOU"
 assert_ui tab_active hidden=false
 click_ui tab_active
 wait_frames 20
-expect_text "SETTINGS"
+assert_ui settings_search_row hidden=false
 
 # And its × closes it, like any tab: the conversation is what is left.
 click_ui tab_close
 wait_frames 20
-expect_no_text "SETTINGS"
+expect_no_ui settings_search_row
 expect_open t2
 assert_ui composer_reply_input hidden=false
