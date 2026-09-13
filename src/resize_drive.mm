@@ -662,3 +662,167 @@ bool finished() {
 }
 
 }  // namespace hanabi::resize_drive
+
+// ---------------------------------------------------------------------------
+// Native input bridge (see resize_drive.h). Content-space -> window base:
+// AppKit's window base has its origin at the BOTTOM-left of the window frame;
+// the contentView sits at contentView.frame within it. A content point (x, y)
+// with y from the top is base (cv.origin.x + x, cv.origin.y + cv.height - y).
+namespace {
+NSPoint content_to_base(NSWindow* win, float cx, float cy) {
+    const NSRect cv = [[win contentView] frame];
+    return NSMakePoint(cv.origin.x + cx, cv.origin.y + cv.size.height - cy);
+}
+void post_native_mouse(NSEventType type, float cx, float cy) {
+    NSWindow* win = the_window();
+    if (!win) return;
+    static int n = 1000;
+    const NSPoint loc = content_to_base(win, cx, cy);
+    NSEvent* e = [NSEvent mouseEventWithType:type
+                                    location:loc
+                               modifierFlags:0
+                                   timestamp:[[NSProcessInfo processInfo] systemUptime]
+                                windowNumber:[win windowNumber]
+                                     context:nil
+                                 eventNumber:++n
+                                  clickCount:1
+                                    pressure:(type == NSEventTypeLeftMouseUp ||
+                                              type == NSEventTypeRightMouseUp)
+                                                 ? 0.0f
+                                                 : 1.0f];
+    [NSApp postEvent:e atStart:NO];
+}
+}  // namespace
+
+extern "C" void hanabi_native_activate(void) {
+    NSWindow* win = the_window();
+    [NSApp activateIgnoringOtherApps:YES];
+    if (win) [win makeKeyAndOrderFront:nil];
+    if (const char* v = getenv("HANABI_DBG_NATIVE"); v && *v && *v != '0')
+        fprintf(stderr,
+                "[DBG native] active=%d keyWindow=%d main=%d policy=%ld "
+                "firstResponder=%s\n",
+                (int)[NSApp isActive], (int)([NSApp keyWindow] != nil),
+                (int)([NSApp mainWindow] != nil),
+                (long)[NSApp activationPolicy],
+                win ? [[[win firstResponder] className] UTF8String] : "-");
+}
+
+extern "C" void hanabi_native_mouse_move(float cx, float cy) {
+    post_native_mouse(NSEventTypeMouseMoved, cx, cy);
+}
+extern "C" void hanabi_native_mouse_down(float cx, float cy, int right) {
+    post_native_mouse(right ? NSEventTypeRightMouseDown : NSEventTypeLeftMouseDown, cx, cy);
+}
+extern "C" void hanabi_native_mouse_up(float cx, float cy, int right) {
+    post_native_mouse(right ? NSEventTypeRightMouseUp : NSEventTypeLeftMouseUp, cx, cy);
+}
+extern "C" void hanabi_native_content_size(float* w, float* h) {
+    NSWindow* win = the_window();
+    if (!win) { if (w) *w = 0; if (h) *h = 0; return; }
+    const NSSize cs = [[win contentView] frame].size;
+    if (w) *w = static_cast<float>(cs.width);
+    if (h) *h = static_cast<float>(cs.height);
+}
+extern "C" void hanabi_native_drag_resize(int dw, int dh, int steps) {
+    NSWindow* win = the_window();
+    if (!win || steps < 1) return;
+    const NSRect wf = [win frame];
+    // Three points inside the frame's bottom-right corner: the theme frame's
+    // resize zone. Window base coordinates, as post_mouse (the driver) uses.
+    NSPoint corner = NSMakePoint(NSMaxX(wf) - 3.0, NSMinY(wf) + 3.0);
+    static int n = 5000;
+    const auto post = [&](NSEventType t, NSPoint screen) {
+        const NSRect f = [win frame];
+        NSEvent* e = [NSEvent mouseEventWithType:t
+                                        location:NSMakePoint(screen.x - f.origin.x, screen.y - f.origin.y)
+                                   modifierFlags:0
+                                       timestamp:[[NSProcessInfo processInfo] systemUptime]
+                                    windowNumber:[win windowNumber]
+                                         context:nil
+                                     eventNumber:++n
+                                      clickCount:1
+                                        pressure:t == NSEventTypeLeftMouseUp ? 0.0f : 1.0f];
+        [NSApp postEvent:e atStart:NO];
+    };
+    post(NSEventTypeLeftMouseDown, corner);
+    for (int i = 1; i <= steps; ++i) {
+        const double f = static_cast<double>(i) / steps;
+        post(NSEventTypeLeftMouseDragged,
+             NSMakePoint(corner.x + dw * f, corner.y - dh * f));
+    }
+    // The final position twice more, then the up: the tracking loop sizes
+    // from the last drag it processed and a mouse-up moves nothing.
+    post(NSEventTypeLeftMouseDragged, NSMakePoint(corner.x + dw, corner.y - dh));
+    post(NSEventTypeLeftMouseDragged, NSMakePoint(corner.x + dw, corner.y - dh));
+    post(NSEventTypeLeftMouseUp, NSMakePoint(corner.x + dw, corner.y - dh));
+}
+extern "C" int hanabi_native_has_window(void) { return the_window() != nil; }
+
+namespace {
+struct Mod { unsigned bit; unsigned short code; NSEventModifierFlags flag; };
+constexpr Mod kMods[] = {{1u, 56, NSEventModifierFlagShift},     // kVK_Shift
+                         {2u, 59, NSEventModifierFlagControl},   // kVK_Control
+                         {4u, 58, NSEventModifierFlagOption},    // kVK_Option
+                         {8u, 55, NSEventModifierFlagCommand}};  // kVK_Command
+NSEventModifierFlags g_heldMods = 0;
+void post_flags_changed(NSWindow* win, unsigned short code,
+                        NSEventModifierFlags f) {
+    NSEvent* e = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
+                                  location:NSZeroPoint
+                             modifierFlags:f
+                                 timestamp:[[NSProcessInfo processInfo] systemUptime]
+                              windowNumber:[win windowNumber]
+                                   context:nil
+                                characters:@""
+               charactersIgnoringModifiers:@""
+                                 isARepeat:NO
+                                   keyCode:code];
+    [NSApp postEvent:e atStart:NO];
+}
+}  // namespace
+
+extern "C" void hanabi_native_mods_down(unsigned mods) {
+    NSWindow* win = the_window();
+    if (!win) return;
+    for (const Mod& m : kMods)
+        if (mods & m.bit) {
+            g_heldMods |= m.flag;
+            post_flags_changed(win, m.code, g_heldMods);
+        }
+}
+
+extern "C" void hanabi_native_mods_up(unsigned mods) {
+    NSWindow* win = the_window();
+    if (!win) return;
+    for (int i = 3; i >= 0; --i) {
+        const Mod& m = kMods[i];
+        if (!(mods & m.bit)) continue;
+        g_heldMods &= ~m.flag;
+        post_flags_changed(win, m.code, g_heldMods);
+    }
+}
+
+extern "C" void hanabi_native_key(unsigned short key_code, const char* chars,
+                                  unsigned /*mods*/) {
+    NSWindow* win = the_window();
+    if (!win) return;
+    NSString* c = chars ? [NSString stringWithUTF8String:chars] : @"";
+    // The modifiers are held by the caller across frames
+    // (hanabi_native_mods_down / _up); the flags on this key event carry them
+    // for AppKit's own key-equivalent matching.
+    NSEventModifierFlags flags = g_heldMods;
+    for (NSEventType t : {NSEventTypeKeyDown, NSEventTypeKeyUp}) {
+        NSEvent* e = [NSEvent keyEventWithType:t
+                                      location:NSZeroPoint
+                                 modifierFlags:flags
+                                     timestamp:[[NSProcessInfo processInfo] systemUptime]
+                                  windowNumber:[win windowNumber]
+                                       context:nil
+                                    characters:c
+                   charactersIgnoringModifiers:c
+                                     isARepeat:NO
+                                       keyCode:key_code];
+        [NSApp postEvent:e atStart:NO];
+    }
+}

@@ -13779,3 +13779,66 @@ window-space pointer.
 CLASS: SHARP EDGE
 
 ---
+
+### #598 — A Cmd chord never becomes a key event: the macOS view answers `performKeyEquivalent:` only for Tab, so an app without a main menu cannot see Command shortcuts at all
+
+**Expected.** A key the app is told about through the library's input plugin
+includes the Command chords a macOS user presses (Cmd+W, Cmd+1). An app that
+reads `is_key_pressed(W)` with the Super modifier down either sees the chord,
+or is told the platform will not deliver it.
+
+**Observed.** macOS does not send `keyDown:` for a Cmd-modified key: AppKit
+offers it to the key-equivalent chain first (main menu, then the window's
+views' `performKeyEquivalent:`), and only an unhandled chord falls through --
+as a beep, not a key event. sokol's view (`vendor/sokol/sokol_app.h`,
+`-[_sapp_macos_view performKeyEquivalent:]`) returns `NO` for every key but
+Tab, so nothing in the library ever reports a Command chord; the modifier
+itself does arrive (flagsChanged sets LEFT_SUPER), which makes the state read
+`cmd_down() == true` while the letter key never appears. An app whose
+shortcut layer polls "Super held AND key pressed" therefore fires for no
+Command shortcut, silently, with the modifier state proving the chord "should"
+have worked.
+
+**Reproducer.** hanabi at 0f996a8, unbundled binary (its `make run` path):
+post a real `NSEventTypeFlagsChanged` for Command and a `keyDown` for
+kVK_ANSI_2 through `-[NSApp postEvent:atStart:]` while the window is key and
+`_sapp_macos_view` is first responder (`src/resize_drive.mm`
+`hanabi_native_key`, script `tests/ui/native_open_switch_close_tabs.e2e`).
+Plain letters arrive (typing works); the chord does not, and
+`ecs::commands::CommandSystem`'s `keys::shortcut_pressed` loop never fires.
+Installing a main menu with the same key equivalents makes the same chord work
+in the same binary.
+
+**Cost.** Every Command shortcut in the app is dead on any launch path without
+a main menu. hanabi's `make run` (`scripts/run_app.sh` execs
+`output/hanabi.exe`, unbundled) was exactly that path, and menu installation
+was gated on the bundle: tab selection (Cmd+1..9), close tab (Cmd+W), new tab
+(Cmd+T) and settings (Cmd+,) did nothing for anyone running the app the way it
+is developed. Not a library defect in the strict sense -- it is a platform
+rule sokol declines to work around -- but the library's input surface reports
+no keys it cannot see, so an app cannot tell the difference between "no key
+pressed" and "this class of key is undeliverable".
+
+**Workaround (in hanabi, this wave).** Install the main menu whether or not the
+process is bundled (`src/menubar.mm install_main_menu`), so AppKit's key
+equivalents answer the chords; the in-app `keys::shortcut_pressed` fallback is
+kept for non-chord shortcuts.
+
+**Minimal upstream fix.** Have `-[_sapp_macos_view performKeyEquivalent:]`
+forward a chord to `keyDown:` and return YES when the app asks for it (a
+`sapp_desc` flag, since swallowing chords breaks menus for apps that want
+them), or expose the decision through the input plugin. Failing that, the
+library should document that Command chords are undeliverable without a menu.
+
+**Upstream acceptance test.** A macOS app with no main menu posts a Command
+chord; with the flag set, the frame reports a key-down for the letter with the
+Super modifier; with it unset, it reports nothing and the app is told why.
+
+**Hanabi reference.** `src/menubar.mm` (`install_main_menu`, no longer gated on
+`bundled_app()`), `src/ecs/command_system.h` (the polling fallback),
+`src/resize_drive.mm` (`hanabi_native_key`, the posted-chord bridge),
+`tests/ui/native_open_switch_close_tabs.e2e`.
+
+CLASS: SHARP EDGE
+
+---

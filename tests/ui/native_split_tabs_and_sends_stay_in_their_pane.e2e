@@ -1,0 +1,45 @@
+# The same, in a split: a native click in each pane's composer, distinct
+# drafts, each send lands on its own pane's thread; closing the focused pane's
+# tab keeps the other pane's thread and draft.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t6 HANABI_E2E_WINDOWED=1
+require_thread t2
+require_thread t6
+expect_panes t2 t6 0
+native_mode on
+native_drag_resize 0 60 12
+wait_frames 30
+expect_content_size 1100 820
+
+native_click_ui composer_reply_input
+wait_frames 6
+native_key 0 a
+native_key 11 b
+wait_frames 6
+expect_input_text composer_reply_input "ab"
+native_click_ui composer_reply_input_other
+wait_frames 10
+expect_panes t2 t6 1
+native_key 2 d
+native_key 14 e
+wait_frames 6
+expect_input_text composer_reply_input "de"
+expect_input_text composer_reply_input_other "ab"
+
+# Send from the right pane: t6 gets "de", t2 does not.
+native_click_ui composer_send
+wait_frames 60
+expect_backend_message t6 de
+expect_backend_no_message t2 de
+expect_input_text composer_reply_input ""
+expect_input_text composer_reply_input_other "ab"
+
+# Send from the left pane by Enter after a native click into it.
+native_click_ui composer_reply_input_other
+wait_frames 10
+expect_panes t2 t6 0
+native_key 36 -
+wait_frames 60
+expect_backend_message t2 ab
+expect_backend_no_message t6 ab

@@ -1,0 +1,89 @@
+# The core of using the app, through the NATIVE input path: open a thread from
+# the sidebar, open a second one, switch between them with the mouse and the
+# keyboard, close the active tab, close the last tab, reopen.
+#
+# `native_*` post real NSEvents through NSApp (resize_drive.h): sokol maps them
+# to content, afterhours letterboxes them against the resolution it holds, and
+# the hit-test decides what was pressed -- the path a person's mouse takes,
+# which `click_ui` skips (it writes the pointer into afterhours directly). The
+# native drag-resize first is the reproduction of the bug the user hit: after
+# a drag the window is 60 px taller than the settings said, and a stale
+# resolution shifted every pointer 30 px up -- the sidebar row above opened,
+# the tab strip's clicks landed in the titlebar. What is asserted is not a
+# highlight but the pane's selected session (expect_open), the transcript on
+# screen (expect_text) and the window's real content size.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
+require_thread t2
+wait_frames 10
+expect_open t2
+native_mode on
+native_drag_resize 0 60 12
+wait_frames 30
+expect_content_size 1100 820
+
+# A sidebar row opens a PREVIEW tab beside the kept one (a single click is a
+# glance; clicking the active tab, sending, or Cmd+digit keeps it -- the
+# reference's model too). The row whose title reads "SKU backfill" is t6.
+native_click_text "SKU backfill"
+wait_frames 30
+expect_open t6
+assert_ui tab_t2 hidden=false
+assert_ui tab_active hidden=false
+assert_ui tab_preview hidden=false
+
+# A third row REPLACES the preview: t9 takes t6's slot, t2 stays.
+native_click_text "kicker-tick"
+wait_frames 30
+expect_open t9
+assert_ui tab_t2 hidden=false
+assert_ui tab_preview hidden=false
+
+# Clicking the active tab keeps it; now the next row opens a NEW tab.
+native_click_ui tab_active
+wait_frames 10
+expect_no_ui tab_preview
+native_click_text "SKU backfill"
+wait_frames 30
+expect_open t6
+assert_ui tab_t9 hidden=false
+assert_ui tab_t2 hidden=false
+
+# Switch back with the mouse, on the tab itself.
+native_click_ui tab_t2
+wait_frames 20
+expect_open t2
+
+# And with the keyboard. The chord is Cmd+digit (shortcuts.h SelectTab1:
+# keys::ONE + CommandModifier); the old scripts press CTRL+ only because the
+# injected harness cannot hold Command (gaps #49, #256). A real NSEvent can,
+# and macOS routes a Cmd chord through -performKeyEquivalent:, which only the
+# MAIN MENU answers -- sokol's view says NO to everything but Tab. kVK_ANSI_2
+# = 19, kVK_ANSI_1 = 18, kVK_ANSI_W = 13.
+native_key 19 2 cmd
+wait_frames 20
+expect_open t9
+native_key 18 1 cmd
+wait_frames 20
+expect_open t2
+
+# Close the ACTIVE tab with the mouse on its close glyph: a neighbour takes
+# over and the closed one is gone.
+native_click_ui tab_close
+wait_frames 20
+expect_no_ui tab_t2
+
+# Close the next with the KEYBOARD (Cmd+W), and the last one too: Home.
+native_key 13 w cmd
+wait_frames 20
+native_key 13 w cmd
+wait_frames 30
+expect_open -
+expect_no_ui tab_active
+
+# Reopen: the same row opens the same thread again, with its transcript.
+native_click_text "needs a decision before it can go on"
+wait_frames 30
+expect_open t2
+expect_text "Reconciled 4,812 accounts"

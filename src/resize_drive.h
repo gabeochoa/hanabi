@@ -62,3 +62,53 @@ void frame_end();
 bool finished();
 
 }  // namespace hanabi::resize_drive
+
+// ---------------------------------------------------------------------------
+// The NATIVE input bridge for scripts (tests/ui/*.e2e), test-only.
+//
+// The e2e harness's `click`/`type` inject straight into afterhours' input
+// tables, BEFORE the backend and before the letterbox that maps a window
+// point onto content (input_system.h letterboxed_mouse_position). A script
+// driven that way cannot see a defect in that mapping. These post real
+// NSEvents through -[NSApplication postEvent:atStart:], the path a mouse's
+// events take from the window server's queue onward: NSEvent -> sokol's view
+// -> sapp event -> afterhours backend state -> window_to_content -> hit-test.
+// Content-space coordinates in: logical points, origin at the TOP-LEFT of the
+// window's contentView -- the same space the app's painted rects (assert_ui)
+// live in -- converted to window base coordinates with the CURRENT frame.
+// No correction of any kind is applied: if the mapping downstream is wrong,
+// the click lands wrong, which is the point.
+//
+// Not the window server: presentation timing and the server's own delivery
+// are not exercised (afterhours_gaps.md #594 has the limit).
+extern "C" {
+void hanabi_native_mouse_move(float content_x, float content_y);
+void hanabi_native_mouse_down(float content_x, float content_y, int right);
+void hanabi_native_mouse_up(float content_x, float content_y, int right);
+// A drag of the bottom-right resize corner by (dw, dh) in `steps` mouse-dragged
+// events, posted at once; AppKit's tracking loop consumes them and the window
+// ends resized (a live resize, WillStart/DidEnd fire). Content size afterwards
+// is read back by hanabi_native_content_size.
+void hanabi_native_drag_resize(int dw, int dh, int steps);
+void hanabi_native_content_size(float* w, float* h);
+// A key press (down + up) for one character with modifier flags
+// (1 = shift, 2 = control, 4 = option, 8 = command); `key_code` is the
+// macOS virtual key code, `chars` the characters the key produces (may be
+// empty for a pure modifier or arrow). Goes through the view's keyDown, so the
+// responder chain and sokol's key/char events are the real ones.
+void hanabi_native_key(unsigned short key_code, const char* chars, unsigned mods);
+// Bring the app forward and make its window key. A key equivalent (Cmd+W,
+// Cmd+1) is dispatched by NSApplication to the MAIN MENU, and a menu only
+// answers for the frontmost app -- so a script that presses a chord has to
+// activate first, exactly as a person clicking the window would.
+void hanabi_native_activate(void);
+// Whether there is a window at all: a script that drives native input in a
+// headless run has nothing to drive, and must fail rather than pass quietly.
+int hanabi_native_has_window(void);
+// The modifier part of a chord, held and released on separate FRAMES: a
+// polled modifier read (keys.h cmd_down) only sees a modifier that is still
+// down when the frame runs, so posting press and release in one batch leaves
+// every poll reading false.
+void hanabi_native_mods_down(unsigned mods);
+void hanabi_native_mods_up(unsigned mods);
+}

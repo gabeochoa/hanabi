@@ -264,7 +264,18 @@ static void collect_standard_bindings(NSMenu* menu) {
 }
 
 static void install_main_menu() {
-    if (g_main_menu != nil || !bundled_app()) return;
+    // NOT gated on the bundle any more. macOS delivers a Cmd chord through
+    // -performKeyEquivalent:, and sokol's view answers NO to everything but
+    // Tab (sokol_app.h), so a Cmd key never becomes a keyDown and the in-app
+    // fallback in command_system.h -- keys::shortcut_pressed -- can never see
+    // one. The MAIN MENU is the only thing that answers a key equivalent, and
+    // `make run` launches output/hanabi.exe directly (scripts/run_app.sh), an
+    // unbundled process: every Cmd shortcut in the app (Cmd+1..9 select tab,
+    // Cmd+W close tab, Cmd+T new tab, Cmd+, settings) silently did nothing on
+    // the path the app is actually developed and run on. An unbundled process
+    // can hold a main menu perfectly well once it is a regular activation
+    // policy app, which it is by the time this runs.
+    if (g_main_menu != nil) return;
 
     NSString* appName =
         [NSString stringWithUTF8String:product_branding::kAppName];

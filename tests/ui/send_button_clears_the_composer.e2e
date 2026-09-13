@@ -1,0 +1,23 @@
+# The Send BUTTON clears the composer, the way Enter does.
+#
+# It did not: the button's path cleared the app-side draft but not the text
+# area's own storage, so the message went and the words stayed in the box --
+# press Send twice and the thread got it twice. Enter went through the submit
+# path, which clears the field, which is why no script caught this.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 10
+click_ui composer_reply_input
+wait_frames 4
+type "one"
+wait_frames 6
+click_ui composer_send
+wait_frames 60
+expect_backend_message t2 one
+expect_input_text composer_reply_input ""
+# And pressing Send again with an empty field sends nothing: the transcript
+# gains no second copy (the field is empty, so the slot is disabled).
+click_ui composer_send
+wait_frames 40
+expect_input_text composer_reply_input ""

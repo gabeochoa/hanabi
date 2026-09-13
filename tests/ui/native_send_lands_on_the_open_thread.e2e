@@ -1,0 +1,57 @@
+# Sending, through the native path, after a native resize: the draft typed in
+# the open thread's composer reaches THAT thread on the backend and clears;
+# the other open tab's draft is untouched; a late switch does not redirect.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
+require_thread t2
+wait_frames 10
+native_mode on
+native_drag_resize 0 60 12
+wait_frames 30
+expect_content_size 1100 820
+
+# Type in t2's composer by clicking its field natively, then keys.
+native_click_ui composer_reply_input
+wait_frames 6
+native_key 0 a
+native_key 11 b
+native_key 8 c
+wait_frames 6
+expect_input_text composer_reply_input "abc"
+
+# Switch to t6 with the mouse, type a different draft there.
+native_click_ui tab_t6
+wait_frames 20
+expect_open t6
+expect_input_text composer_reply_input ""
+native_click_ui composer_reply_input
+wait_frames 6
+native_key 2 d
+native_key 14 e
+native_key 3 f
+wait_frames 6
+expect_input_text composer_reply_input "def"
+
+# Back to t2: its draft is where it was. Press Send natively.
+native_click_ui tab_t2
+wait_frames 20
+expect_open t2
+expect_input_text composer_reply_input "abc"
+native_click_ui composer_send
+wait_frames 60
+expect_backend_message t2 abc
+expect_backend_no_message t6 abc
+expect_input_text composer_reply_input ""
+
+# t6's draft survived, and Enter sends it to t6 only (kVK_Return = 36).
+native_click_ui tab_t6
+wait_frames 20
+expect_input_text composer_reply_input "def"
+native_click_ui composer_reply_input
+wait_frames 4
+native_key 36 -
+wait_frames 60
+expect_backend_message t6 def
+expect_backend_no_message t2 def
+expect_input_text composer_reply_input ""

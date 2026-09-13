@@ -8489,7 +8489,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestStream = std::move(message);
                 else
                     app.requestSend = std::move(message);
-                replyDraft.clear();
+                // The FIELD, not just the app-side draft: the text area owns
+                // its own storage and re-reads this string only when the
+                // widget is rebuilt from a different value, so clearing the
+                // draft alone left the sent words sitting in the composer --
+                // the message went, the text stayed, and pressing Send again
+                // sent it twice. Enter always went through the submit path,
+                // which does this (clearFieldAfterSubmit); the button did not.
+                set_field("");
                 // The restored text has been handed back to the send path, so
                 // the notice and its Retry have done their job.
                 if (restoreHere) app.composerRestore.clear();

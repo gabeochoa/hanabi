@@ -493,6 +493,17 @@ static void build_systems(afterhours::SystemManager& sm) {
 #endif
 }
 
+// The WINDOWED e2e runner (defined after the e2e headers below; no-ops when
+// the build has no e2e support or HANABI_E2E_WINDOWED is unset).
+static void windowed_e2e_arm(const std::string& script);
+static void request_test_opens(ecs::AppComponent* app);
+static void apply_test_knobs(ecs::AppComponent* app);
+static void windowed_e2e_register_handlers(afterhours::SystemManager& sm);
+static void windowed_e2e_load_script();
+static void windowed_e2e_tick(float dt);
+static int windowed_e2e_exit_code();  // -1 when not a windowed e2e run
+static bool windowed_e2e_running();   // a script is loaded and not finished
+
 static void app_init() {
     // app_init runs AFTER graphics::run has created the Metal/Cocoa window + GPU
     // context. Profiling (2026-08-02) showed that window+GPU init is ~130-220ms
@@ -531,7 +542,9 @@ static void app_init() {
 
     static afterhours::SystemManager sm;
     app_state::systemManager = &sm;
+    windowed_e2e_register_handlers(sm);
     build_systems(sm);
+    windowed_e2e_load_script();
     auto t4 = std::chrono::high_resolution_clock::now();
 
     auto readyTime = t4;
@@ -778,6 +791,10 @@ static void app_frame_body() {
         lastEventMs = eventMs;
     }
     hanabi::collect_ui_frame_signals(frameSignals);
+    // A windowed e2e script drives the app at full cadence: the runner ticks
+    // once per rendered frame, and an idle cadence would stretch a 60-line
+    // script past the harness's wall clock.
+    if (windowed_e2e_running()) frameSignals.pointer_input = true;
 
     static const bool fixedTenFps = [] {
         const char* value = std::getenv("HANABI_IDLE_FIXED_10FPS");
@@ -800,6 +817,7 @@ static void app_frame_body() {
         dt = std::min(dt, 0.1f);
     }
     framePolicy.rendered(nowUs);
+    windowed_e2e_tick(dt);
     hanabi::resize_drive::frame_begin();
     const unsigned long long frameCpu0 = hanabi::prof::cpu_nanos();
     afterhours::graphics::begin_drawing();
@@ -1108,6 +1126,10 @@ static void app_cleanup() {
     // flush — terminate the process immediately and let the OS reclaim the
     // threads/sockets/memory instead of blocking on future destructors.
     std::fflush(nullptr);
+    // A windowed e2e run exits with the runner's verdict; a run that armed the
+    // runner and never reached its results is a failure (exit code 1 set at
+    // arm time), never a silent 0.
+    if (const int code = windowed_e2e_exit_code(); code >= 0) std::_Exit(code);
     std::_Exit(0);
 }
 
@@ -1116,6 +1138,93 @@ static void app_cleanup() {
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
 #include <afterhours/src/plugins/e2e_testing/ui_commands.h>
 #include "ecs/e2e_commands.h"
+#endif
+
+// --- The WINDOWED e2e runner ------------------------------------------------
+// `--e2e` runs a script against the headless backend: no Cocoa window, so no
+// NSEvent has anywhere to land and the native input path (resize_drive.h's
+// bridge) cannot be exercised. HANABI_E2E_WINDOWED=1 runs the same script
+// inside the real windowed frame loop instead: app_init registers the runner's
+// systems, app_frame ticks the runner before the systems each frame, and the
+// app quits with the runner's verdict when the script is done. Everything a
+// script asserts (widgets, text, backend receipts) reads the same state
+// either way; what differs is that `native_*` commands now reach a window.
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+namespace {
+std::string g_windowedScript;
+std::optional<afterhours::testing::E2ERunner> g_windowedRunner;
+int g_windowedExit = -1;
+int g_windowedSettle = 0;
+}  // namespace
+static void windowed_e2e_arm(const std::string& script) {
+    g_windowedScript = script;
+    g_windowedExit = 1;  // until the runner says otherwise: a run that never
+                         // reached print_results is a failure
+}
+static void windowed_e2e_register_handlers(afterhours::SystemManager& sm) {
+    if (g_windowedScript.empty()) return;
+    namespace t = afterhours::testing;
+    hanabi::latency::reset();
+    hanabi::e2e::delayed_latency_inputs().clear();
+    hanabi::e2e::register_hanabi_pre_handlers(sm);
+    t::register_builtin_handlers(sm);
+    t::ui_commands::register_ui_commands<InputAction>(sm);
+    hanabi::e2e::register_hanabi_commands(sm);
+    t::register_unknown_handler(sm);
+    t::register_cleanup(sm);
+}
+static void windowed_e2e_load_script() {
+    if (g_windowedScript.empty()) return;
+    namespace t = afterhours::testing;
+    t::platform_input::set_test_mode(true);
+    g_windowedRunner.emplace();
+    auto& runner = *g_windowedRunner;
+    if (std::filesystem::is_directory(g_windowedScript))
+        runner.load_scripts_from_directory(g_windowedScript);
+    else
+        runner.load_script(g_windowedScript);
+    runner.set_screenshot_callback(
+        [](const std::string& p) { afterhours::graphics::capture_frame(p); });
+    auto q = afterhours::EntityQuery({.force_merge = true})
+                 .whereHasComponent<ecs::AppComponent>()
+                 .gen();
+    if (!q.empty()) {
+        request_test_opens(&q[0].get().get<ecs::AppComponent>());
+        apply_test_knobs(&q[0].get().get<ecs::AppComponent>());
+    }
+}
+static void windowed_e2e_tick(float dt) {
+    if (!g_windowedRunner) return;
+    namespace t = afterhours::testing;
+    auto& runner = *g_windowedRunner;
+    // The first 45 frames are the settle the headless runner also takes: the
+    // list loads and the restored tab opens before the first command.
+    if (g_windowedSettle < 45) {
+        ++g_windowedSettle;
+        return;
+    }
+    if (!runner.is_finished()) {
+        t::test_input::reset_frame();
+        runner.tick(dt);
+        return;
+    }
+    runner.print_results();
+    g_windowedExit = runner.has_failed() ? 1 : 0;
+    std::fflush(nullptr);
+    g_windowedRunner.reset();
+    afterhours::graphics::request_quit();
+}
+static int windowed_e2e_exit_code() { return g_windowedExit; }
+static bool windowed_e2e_running() {
+    return g_windowedRunner.has_value() && !g_windowedRunner->is_finished();
+}
+#else
+static bool windowed_e2e_running() { return false; }
+static void windowed_e2e_arm(const std::string&) {}
+static void windowed_e2e_register_handlers(afterhours::SystemManager&) {}
+static void windowed_e2e_load_script() {}
+static void windowed_e2e_tick(float) {}
+static int windowed_e2e_exit_code() { return -1; }
 #endif
 
 // State-only test knobs, shared by the two headless entry points (the
@@ -2860,7 +2969,13 @@ int main(int argc, char* argv[]) {
         int sw = 1100, sh = 760;
         if (const char* ew = std::getenv("HANABI_WIN_W"); ew && *ew) sw = atoi(ew);
         if (const char* eh = std::getenv("HANABI_WIN_H"); eh && *eh) sh = atoi(eh);
-        return run_e2e(script, sw, sh);
+        if (const char* w = std::getenv("HANABI_E2E_WINDOWED"); w && *w && std::string_view(w) != "0") {
+            windowed_e2e_arm(script);
+            // Falls through to the windowed run below; the runner's verdict
+            // is the exit code.
+        } else {
+            return run_e2e(script, sw, sh);
+        }
     }
 #endif
 
@@ -2893,5 +3008,6 @@ int main(int argc, char* argv[]) {
     cfg.cleanup = app_cleanup;
 
     afterhours::graphics::run(cfg);
+    if (const int code = windowed_e2e_exit_code(); code >= 0) return code;
     return 0;
 }

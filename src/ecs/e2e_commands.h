@@ -64,7 +64,9 @@
 #include <afterhours/src/plugins/clipboard.h>
 #include "../api/disk_cache.h"
 #include "../api/mock_client.h"
+#include "../resize_drive.h"
 #include "../test_hooks.h"
+#include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
 #include "../ui/link_detect.h"
 #include "../ui_context.h"
 #include "../util/clipboard.h"
@@ -761,6 +763,332 @@ struct HandleResizeDeferredCommand
 // the count of resizes applied AT A FRAME BOUNDARY, so it fails both ways: if
 // the deferral regresses and the builtin resizes inline the count stays 0, and
 // if a script's resize silently stopped happening the count stays 0 too.
+// ---------------------------------------------------------------------------
+// The NATIVE input segment of a script (resize_drive.h's bridge).
+//
+//   native_mode on|off      -- leave (or re-enter) the harness's injected
+//                              input: while off, afterhours reads the
+//                              backend's own mouse and keys, i.e. what real
+//                              NSEvents produced through sokol and the
+//                              letterbox. `click`/`type`/`key` do nothing in
+//                              this mode; the native_* commands below do.
+//   native_move x y         -- post a mouse-moved at content point (x, y)
+//   native_click x y        -- mouse-moved + left down now, left up two frames
+//                              later (so press-activated and release-activated
+//                              widgets both see their edge on a frame)
+//   native_right_click x y
+//   native_drag_resize dw dh [steps]
+//                           -- drag the bottom-right corner through AppKit's
+//                              tracking loop; the window ends (dw, dh) larger
+//   native_key <keycode> [chars] [shift|ctrl|alt|cmd ...]
+//   expect_content_size w h -- the window's CONTENT size as AppKit reports it
+//
+// Coordinates are content-space logical points, origin top-left of the
+// contentView -- the same space assert_ui reports. Nothing here corrects
+// anything: a script picks a point from a painted rect and the click has to
+// land where the paint says.
+// Whether a script has handed input over to the native path. Read by the
+// native commands (which refuse without a window) and by the injected ones
+// (which refuse while it is on, rather than quietly doing nothing).
+inline bool& native_mode_on() {
+    static bool on = false;
+    return on;
+}
+
+// expect_open <id>: the focused pane's SELECTED session is <id>, its loaded
+// session is <id>, and the view is Chat -- the single-pane counterpart of
+// expect_panes, so a script can prove what a click OPENED rather than what
+// is highlighted. `expect_open -` asserts nothing is open (Home).
+struct HandleExpectOpenCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_open")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_open requires <session id> or -");
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        const std::string& want = cmd.arg(0);
+        bool ok = false;
+        std::string actual = "(no app)";
+        if (app != nullptr) {
+            const ecs::Pane& pane = app->panes[static_cast<std::size_t>(
+                std::clamp(app->focusedPane, 0, 1))];
+            const bool open = pane.openSession &&
+                              pane.openSession->summary.id == pane.selectedId &&
+                              app->view == ecs::SmartView::Chat;
+            actual = open ? pane.selectedId : std::string("-");
+            ok = want == "-" ? (!open || pane.selectedId.empty())
+                             : (open && pane.selectedId == want);
+        }
+        if (ok) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_open: the focused pane has '{}' open, not '{}'",
+                             actual, want));
+    }
+};
+
+struct HandleNativeModeCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("native_mode")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("native_mode requires on|off");
+            return;
+        }
+        const bool on = cmd.arg(0) == "on";
+        // A test-only hook that posts input into a REAL window must not be
+        // able to drive the app against anyone's real backend: it would send
+        // messages to live threads. The gate is the app's own backend label,
+        // checked here rather than left to the runner's environment.
+        if (on) {
+            const ecs::AppComponent* app = app_component();
+            const std::string backend = app ? app->backend_label : std::string("none");
+            if (backend != "mock") {
+                cmd.fail(std::format(
+                    "native_mode refuses a '{}' backend: these hooks post real "
+                    "input into a real window, and the only destination that "
+                    "cannot reach anyone's real threads is the offline mock "
+                    "(HANABI_BACKEND=mock).",
+                    backend));
+                return;
+            }
+        }
+        if (on && !hanabi_native_has_window()) {
+            cmd.fail(
+                "native_mode on needs a real window: this run is headless. "
+                "A native script must be run with HANABI_E2E_WINDOWED=1 "
+                "(scripts carry it in their `# env:` line).");
+            return;
+        }
+        // Frontmost, because that is the state a person's input arrives in:
+        // menu key equivalents (Cmd+W, Cmd+digit) are dispatched by
+        // NSApplication to the main menu and a background app's menu never
+        // answers.
+        if (on) {
+            hanabi_native_activate();
+            // Drop anything the injected path was still holding, so a key
+            // "held" by a previous command cannot colour what the native
+            // events produce.
+            afterhours::testing::test_input::clear_queue();
+            afterhours::testing::input_injector::detail::mouse = {};
+        }
+        native_mode_on() = on;
+        // Leaving test mode also drops the injector's mouse override, so the
+        // backend position -- the letterboxed one -- is what gets read.
+        afterhours::testing::platform_input::set_test_mode(!on);
+        afterhours::testing::input_injector::detail::mouse.active = false;
+        cmd.consume();
+    }
+};
+
+struct HandleNativeMouseCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        const bool click = cmd.is("native_click");
+        const bool rclick = cmd.is("native_right_click");
+        const bool move = cmd.is("native_move");
+        if (!click && !rclick && !move) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("native mouse commands require x y");
+            return;
+        }
+        if (!hanabi_native_has_window() || !native_mode_on()) {
+            cmd.fail("a native input command needs `native_mode on` in a "
+                     "windowed run (HANABI_E2E_WINDOWED=1)");
+            return;
+        }
+        const float x = std::strtof(cmd.arg(0).c_str(), nullptr);
+        const float y = std::strtof(cmd.arg(1).c_str(), nullptr);
+        if (cmd.frames_alive == 0) {
+            hanabi_native_mouse_move(x, y);
+            if (move) {
+                cmd.consume();
+                return;
+            }
+            hanabi_native_mouse_down(x, y, rclick ? 1 : 0);
+            cmd.retry();
+            return;
+        }
+        if (cmd.frames_alive < 2) {
+            cmd.retry();
+            return;
+        }
+        hanabi_native_mouse_up(x, y, rclick ? 1 : 0);
+        cmd.consume();
+    }
+};
+
+// native_click_ui <name> / native_click_text "<text>": the SAME native click,
+// aimed at the centre of a widget's PAINTED rect (the rect afterhours laid it
+// out at last frame -- assert_ui's numbers). The lookup only picks the point;
+// the event still enters through NSApp and is mapped by the backend, so a
+// wrong mapping still lands the click somewhere else and the assertion that
+// follows (what opened, what was sent) says so.
+struct HandleNativeClickTargetCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    std::optional<std::pair<float, float>> target_;
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        const bool byName = cmd.is("native_click_ui");
+        const bool byText = cmd.is("native_click_text");
+        if (!byName && !byText) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("native_click_ui/native_click_text require a target");
+            return;
+        }
+        if (!hanabi_native_has_window() || !native_mode_on()) {
+            cmd.fail("a native input command needs `native_mode on` in a "
+                     "windowed run (HANABI_E2E_WINDOWED=1)");
+            return;
+        }
+        if (cmd.frames_alive == 0) {
+            // The runner splits an unlisted command's line on whitespace, so a
+            // quoted title arrives as several args: join them and drop the
+            // quotes (click_text gets this from the runner itself).
+            std::string target = byName ? cmd.arg(0) : joined_args(cmd, 0);
+            if (target.size() >= 2 && target.front() == '"' && target.back() == '"')
+                target = target.substr(1, target.size() - 2);
+            const auto pos =
+                byName ? afterhours::testing::ui_commands::find_component_center<InputAction>(target)
+                       : afterhours::testing::ui_commands::find_component_with_text<InputAction>(target);
+            if (!pos.has_value()) {
+                cmd.fail(std::format("native click target not on screen: {}", target));
+                return;
+            }
+            target_ = std::make_pair(static_cast<float>(pos->x), static_cast<float>(pos->y));
+            hanabi_native_mouse_move(target_->first, target_->second);
+            hanabi_native_mouse_down(target_->first, target_->second, 0);
+            cmd.retry();
+            return;
+        }
+        if (cmd.frames_alive < 2) {
+            cmd.retry();
+            return;
+        }
+        if (target_) hanabi_native_mouse_up(target_->first, target_->second, 0);
+        target_.reset();
+        cmd.consume();
+    }
+};
+
+struct HandleNativeDragResizeCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("native_drag_resize")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("native_drag_resize requires dw dh [steps]");
+            return;
+        }
+        if (!hanabi_native_has_window() || !native_mode_on()) {
+            cmd.fail("a native input command needs `native_mode on` in a "
+                     "windowed run (HANABI_E2E_WINDOWED=1)");
+            return;
+        }
+        const int dw = std::atoi(cmd.arg(0).c_str());
+        const int dh = std::atoi(cmd.arg(1).c_str());
+        const int steps = cmd.has_args(3) ? std::max(1, std::atoi(cmd.arg(2).c_str())) : 12;
+        hanabi_native_drag_resize(dw, dh, steps);
+        cmd.consume();
+    }
+};
+
+struct HandleNativeKeyCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("native_key")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("native_key requires <keycode> [chars] [shift|ctrl|alt|cmd...]");
+            return;
+        }
+        if (!hanabi_native_has_window() || !native_mode_on()) {
+            cmd.fail("a native input command needs `native_mode on` in a "
+                     "windowed run (HANABI_E2E_WINDOWED=1)");
+            return;
+        }
+        const unsigned short code =
+            static_cast<unsigned short>(std::atoi(cmd.arg(0).c_str()));
+        std::string chars;
+        unsigned mods = 0;
+        for (std::size_t i = 1; cmd.has_args(i + 1); ++i) {
+            const std::string& a = cmd.arg(i);
+            if (a == "shift") mods |= 1u;
+            else if (a == "ctrl") mods |= 2u;
+            else if (a == "alt") mods |= 4u;
+            else if (a == "cmd") mods |= 8u;
+            else chars = a == "-" ? std::string() : a;
+        }
+        // Three frames, because a modifier is STATE: the app polls "is Cmd
+        // down" during a frame (keys.h cmd_down), so pressing and releasing
+        // in one batch -- every event consumed before the next frame runs --
+        // leaves every poll reading false. Hold, let a frame see it, press
+        // the key, then release on a later frame. (The menu path answers
+        // synchronously inside performKeyEquivalent, which is why chords
+        // worked even when the poll could not see them.)
+        if (cmd.frames_alive == 0) {
+            if (mods != 0) hanabi_native_mods_down(mods);
+            cmd.retry();
+            return;
+        }
+        if (cmd.frames_alive == 1) {
+            hanabi_native_key(code, chars.c_str(), mods);
+            cmd.retry();
+            return;
+        }
+        if (cmd.frames_alive < 3) {
+            cmd.retry();
+            return;
+        }
+        if (mods != 0) hanabi_native_mods_up(mods);
+        cmd.consume();
+    }
+};
+
+struct HandleExpectContentSizeCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_content_size")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_content_size requires w h");
+            return;
+        }
+        float w = 0, h = 0;
+        hanabi_native_content_size(&w, &h);
+        const int ww = static_cast<int>(w + 0.5f), hh = static_cast<int>(h + 0.5f);
+        if (ww == std::atoi(cmd.arg(0).c_str()) && hh == std::atoi(cmd.arg(1).c_str())) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_content_size: window content is {}x{}, not {}x{}",
+                             ww, hh, cmd.arg(0), cmd.arg(1)));
+    }
+};
+
 struct HandleExpectResizesAppliedCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -1564,6 +1892,13 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectUploadCancelledCommand>());
     sm.register_update_system(std::make_unique<HandleExpectBackendStateCommand>());
     sm.register_update_system(std::make_unique<HandleExpectNoUiCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectOpenCommand>());
+    sm.register_update_system(std::make_unique<HandleNativeModeCommand>());
+    sm.register_update_system(std::make_unique<HandleNativeMouseCommand>());
+    sm.register_update_system(std::make_unique<HandleNativeClickTargetCommand>());
+    sm.register_update_system(std::make_unique<HandleNativeDragResizeCommand>());
+    sm.register_update_system(std::make_unique<HandleNativeKeyCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectContentSizeCommand>());
     sm.register_update_system(std::make_unique<HandleHoverUICommand>());
     sm.register_update_system(std::make_unique<HandleMouseDownUICommand>());
     sm.register_update_system(
