@@ -202,7 +202,7 @@ const app_sources = [_][]const u8{
 // Compiled on its own with the commit hash as a define; see build_stamp.h.
 const app_stamp_source = [_][]const u8{"src/build_stamp.cpp"};
 const app_objc_sources = [_][]const u8{
-    "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_extras.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
+    "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_extras.mm", "src/pointer_probe.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
 };
 // ws_socket.mm is the one ObjC++ file compiled under ARC.
 const app_arc_sources = [_][]const u8{"src/ws_socket.mm"};
@@ -399,6 +399,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "find-gate", .desc = "Find level gate", .cmds = &.{&.{ "bash", "scripts/find_gate.sh" }}, .after = need_app },
         .{ .name = "soak-gate", .desc = "Soak gate", .cmds = &.{&.{ "bash", "scripts/soak_gate.sh" }}, .after = need_app },
         .{ .name = "stress-resize-gate", .desc = "Stress-resize gate", .cmds = &.{&.{ "bash", "scripts/stress_resize_gate.sh" }}, .after = need_app },
+        .{ .name = "pointer-gate", .desc = "After a native window resize the pointer the UI hit-tests is the pointer the paint is under (opens a window)", .cmds = &.{&.{ "bash", "scripts/pointer_gate.sh" }}, .after = need_app },
         .{ .name = "resize-drive-gate", .desc = "A live window resize through AppKit's tracking loop paints every size and settles (opens a window; selftest, then the gate)", .cmds = &.{ &.{ "bash", "scripts/resize_drive_gate.sh", "--selftest" }, &.{ "bash", "scripts/resize_drive_gate.sh" } }, .after = need_app },
         .{ .name = "viewport-bound-gate", .desc = "Per-frame transcript layout work is bounded by the viewport, not the thread: same stimulus at ~575 / 5,736 / 57,345 messages, worst-frame counts must match (opens a window; selftest, then the gate)", .cmds = &.{ &.{ "bash", "scripts/viewport_bound_gate.sh", "--selftest" }, &.{ "bash", "scripts/viewport_bound_gate.sh" } }, .after = need_ui },
         .{ .name = "latency-delay-sweep", .desc = "Latency instrument controls", .cmds = &.{&.{ "bash", "scripts/latency_delay_sweep.sh" }}, .after = need_ui },

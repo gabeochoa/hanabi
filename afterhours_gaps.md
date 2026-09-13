@@ -13717,3 +13717,65 @@ bar's `mk`) — the salt.
 CLASS: SHARP EDGE
 
 ---
+
+### #597 — The Metal input path letterboxes the pointer against an app-owned resolution the library never refreshes on its own, while the draw path applies no letterbox at all
+
+**Expected.** The pointer a hit test reads and the pointer the paint is under
+are one point, whatever the window's size is this frame. If the library maps
+the pointer through a resolution the app owns, it either keeps that resolution
+current itself, or refuses to map through a stale one.
+
+**Observed.** At 1ac6db2 the Metal `input::get_mouse_position()`
+(`src/plugins/input_system.h`, `letterboxed_mouse_position`) runs the backend's
+window-space pointer through `window_manager::window_to_content`, which
+aspect-fits `ProvidesCurrentResolution` into the real window and maps the
+point into that box (`src/plugins/window_manager.h`, `content_viewport`).
+Nothing on the draw side applies the same box: `backend.h` projects in the
+window's own logical size, and `ui/systems.h` hit-tests `UIComponent::rect()`
+in that space. The two agree only while `ProvidesCurrentResolution` equals the
+window. The system that keeps it equal, `CollectCurrentResolution`, is
+registered by `window_manager::register_update_systems`, which the app has to
+call; `add_singleton_components` does not, and nothing checks. The previous
+pin (9ff9079) returned the window-space pointer unmapped, so an app that
+never called the registrar was correct there and wrong here with no
+compile-time or runtime signal.
+
+**Reproducer.** hanabi at c031a6d: settings window 1100x760, native corner drag
+of +60 px height (`HANABI_RESIZE_DRIVE=hold:40,grow:0x60:20,hold:60`), a real
+`mouseMoved` at content point (140, 400) (`HANABI_POINTER_PROBE=140,400`,
+`src/pointer_probe.mm`). Same frame: window 1100x820, resolution still
+1100x760, letterbox bar 30 px, pointer in paint space 399.5, pointer the UI
+read 369.5, hot widget the row at y 342..374 — the row above the pointer. A
+width change (`grow:200x-40`) gives a scale instead (mapped x 286 for a
+pointer at 400). `scripts/pointer_gate.sh` fails on those bytes on all three
+arms and passes once `window_manager::register_update_systems` is registered
+ahead of the UI bridge.
+
+**Cost.** Hover, clicks and right-clicks one row off in every pane after any
+native resize, restored frame that differed from the saved size, or
+constrain-to-screen on the first frame; a day of the app being unusable; the
+scripted `resize` never showed it, because that path writes the resolution
+itself.
+
+**Minimal upstream fix.** One of: (a) `window_to_content` reads the live
+window size for both sides when the app is not letterboxing (a resolution
+that was never set to something other than the window is not a letterbox);
+(b) `add_singleton_components` registers `CollectCurrentResolution` alongside
+the component it adds, so the two cannot be split; (c) a debug assertion in
+`letterboxed_mouse_position` that `ProvidesCurrentResolution` equals
+`fetch_current_resolution()` unless the app opted into a fixed resolution.
+Acceptance: an app that adds the singleton and never calls the registrar,
+window grown 60 px after launch, `get_mouse_position()` equals the backend's
+window-space pointer.
+
+**Status.** Confirmed at 1ac6db2; unchanged through upstream d90db15
+(`window_manager.h` and the pointer path have no commits in that range).
+
+**Hanabi reference.** `src/main.cpp` (system registration —
+`window_manager::register_update_systems` before
+`ui_imm::registerUIPreLayoutSystems`), `src/pointer_probe.mm`,
+`scripts/pointer_gate.sh`.
+
+CLASS: SHARP EDGE
+
+---

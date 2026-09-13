@@ -2,6 +2,7 @@
 #include <branding.h>
 #include "build_stamp.h"
 #include "resize_drive.h"
+#include "pointer_probe.h"
 
 #include <algorithm>
 #include <chrono>
@@ -393,6 +394,23 @@ static void build_systems(afterhours::SystemManager& sm) {
     // queue, a different path). Must run BEFORE the UI pre-layout bridge, which
     // READS the collector into the UIContext.
     afterhours::input::register_update_systems(sm);
+    // The window's CURRENT size, refetched every frame, BEFORE the UI bridge
+    // reads the mouse. afterhours letterboxes the pointer against
+    // ProvidesCurrentResolution (input_system.h letterboxed_mouse_position ->
+    // window_manager::window_to_content), while paint and this app's own
+    // layout use the real window 1:1. Nothing here kept that resolution
+    // current: it was written once at launch from Settings and again by the
+    // scripted `resize` (gfx_resize.h), so a native drag, a restored frame
+    // that differed from Settings, or the constrain-to-screen on first frame
+    // left it stale -- and a window 60 px taller than the recorded size put a
+    // 30 px letterbox bar the pointer crossed and the paint did not: hover
+    // and clicks landed one row above the pointer, in every pane. Measured
+    // with HANABI_POINTER_PROBE (pointer_probe.mm) through AppKit's own
+    // event path. CollectCurrentResolution is the library's own refresher
+    // (window_manager.h); registered here it runs before the pre-layout
+    // bridge below, so the frame that reads the pointer already has the size
+    // the pointer was delivered in.
+    afterhours::window_manager::register_update_systems(sm);
 
     ui_imm::registerUIPreLayoutSystems(sm);
 
@@ -794,6 +812,7 @@ static void app_frame_body() {
     hanabi::prof::frame_cpu(hanabi::prof::cpu_nanos() - frameCpu0);
     hanabi::prof::frame();
     hanabi::resize_drive::frame_end();
+    hanabi::pointer_probe::frame();
     if (hanabi::resize_drive::finished()) afterhours::graphics::request_quit();
 
     // Windowed FirstFrame instrumentation — the perf gate's headless
