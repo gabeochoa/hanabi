@@ -8915,6 +8915,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // this over-measures (a trailing space, say) only makes the rule fire
     // later; it cannot make it fire wrongly, because the counter's own probe
     // on that line measures a prefix of what is measured here.
+    //
+    // This covers the HEIGHT only. A rich entry's line_count is count_lines
+    // over the RAW body -- markers, fences and table rows included, every
+    // line at the body font -- and "**bold text**" is wider than "bold text",
+    // so a raw line can still wrap where its visible text fits; served at a
+    // wider width, that count is stale by the lines the markers cost, and
+    // the fold at kFoldLines can go the wrong way. measured() takes the max
+    // of this and natural_advance_flat(body) -- the raw pass is exactly the
+    // counter's first probe per hard line -- so `unwrapped` means both the
+    // height and the count are the hard-line answer at every wider width.
     static float natural_advance_rich(const std::string& body) {
         hanabi::prof::Scope _p("text.natural_advance");
         float widest = 0.0f;
@@ -9106,9 +9116,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Not for the live row, whose body changes every frame anyway.
         if (!isLive) {
             const float known = render_cache().known_natural_advance(key, m.text);
-            r.natural_advance = known >= 0.0f ? known
-                                : rich ? natural_advance_rich(r.body)
-                                       : natural_advance_flat(r.body);
+            r.natural_advance =
+                known >= 0.0f ? known
+                : rich ? std::max(natural_advance_rich(r.body),
+                                  natural_advance_flat(r.body))
+                       : natural_advance_flat(r.body);
             r.unwrapped = text_wrap_width(textW) >= r.natural_advance;
         }
         if (isLive) {

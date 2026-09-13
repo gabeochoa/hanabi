@@ -12,11 +12,14 @@
 //   different thread id, so the split-view case below measured everything
 //   twice per frame, forever.
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 
 #include "../../src/ecs/pane_state.h"
 #include "../../src/ecs/transcript_render_cache.h"
+#include "../../src/ui/md_spans.h"
+#include "../../src/util/wrap_count.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -157,6 +160,56 @@ static void test_an_unwrapped_entry_serves_every_wider_width() {
     const auto atNarrow = cache.hug("m1|hug", 131.0f, 121.0f, "short");
     CHECK(atNarrow.has_value() && atNarrow->text_w == 131.0f);
     CHECK(!cache.hug("m1|hug", 129.0f, 119.0f, "short").has_value());
+}
+
+// The natural advance of a RICH body must cover the RAW widest line, not only
+// the visible one. line_count is count_lines over the raw body (markers
+// kept), so at a wrap width where "bold text" fits but "**bold text**" does
+// not, the raw count is one line more than the hard count -- and an entry
+// marked unwrapped by the visible measure alone would serve that stale count
+// at every wider width, folding a 40-line message the direct count would not.
+// Same counter and same span parser measured() is built on, a uniform metric
+// so the numbers are exact; the max of the two passes is the width from which
+// the raw count is the hard count everywhere.
+static float uniform_advance(const std::string& s) {
+    return static_cast<float>(s.size()) * 7.0f;
+}
+static void test_a_rich_natural_advance_covers_the_raw_line() {
+    std::printf("test_a_rich_natural_advance_covers_the_raw_line\n");
+    std::string body;
+    for (int i = 0; i < 39; ++i) body += "line\n";
+    body += "**bold text**";
+    const int hardLines = 40;
+
+    float visibleWidest = 0.0f, rawWidest = 0.0f;
+    std::size_t start = 0;
+    while (start <= body.size()) {
+        const std::size_t nl = body.find('\n', start);
+        const std::size_t end = nl == std::string::npos ? body.size() : nl;
+        const std::string raw = body.substr(start, end - start);
+        rawWidest = std::max(rawWidest, uniform_advance(raw));
+        visibleWidest = std::max(
+            visibleWidest,
+            uniform_advance(hanabi::md::inline_spans(raw, hanabi::md::Palette{}).visible));
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    CHECK(visibleWidest == 63.0f);
+    CHECK(rawWidest == 91.0f);
+
+    // Visible alone: a width the visible rule accepts where the raw count is
+    // already stale.
+    const float between = 70.0f;
+    CHECK(between >= visibleWidest && between < rawWidest);
+    CHECK(hanabi::text::wrapped_line_count(body, between, uniform_advance) == hardLines + 1);
+
+    // The max of both passes: the hard count there and at every wider width.
+    const float natural = std::max(visibleWidest, rawWidest);
+    CHECK(hanabi::text::wrapped_line_count(body, natural, uniform_advance) == hardLines);
+    CHECK(hanabi::text::wrapped_line_count(body, natural + 1.0f, uniform_advance) == hardLines);
+    CHECK(hanabi::text::wrapped_line_count(body, 1000.0f, uniform_advance) == hardLines);
+    // And one short of it is not.
+    CHECK(hanabi::text::wrapped_line_count(body, natural - 1.0f, uniform_advance) == hardLines + 1);
 }
 
 static void test_render_cache_is_still_bounded() {
@@ -368,6 +421,7 @@ int main() {
     test_unread_tracks_append_prepend_and_replace();
     test_two_panes_at_two_widths_do_not_thrash();
     test_an_unwrapped_entry_serves_every_wider_width();
+    test_a_rich_natural_advance_covers_the_raw_line();
     test_render_cache_is_still_bounded();
     if (g_failures == 0) {
         std::printf("OK\n");
