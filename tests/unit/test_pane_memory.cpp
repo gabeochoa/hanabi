@@ -98,21 +98,65 @@ static void test_render_cache_holds_both_panes() {
 
     // Frame 2: the left pane comes round again and must NOT have to re-measure.
     cache.reset_for_thread("left-thread");
-    const ecs::model::MsgRender* hit = cache.get("m1", 500.0f, "left pane message");
+    const ecs::model::MsgRender* hit = cache.get("m1", 500.0f, 500.0f - 10.0f, "left pane message");
     CHECK(hit != nullptr);
     CHECK(hit != nullptr && hit->body == "left pane message");
     CHECK(hit != nullptr && hit->height == 42.0f);
 
     // And the right pane's own measurement is still its own.
     cache.reset_for_thread("right-thread");
-    const ecs::model::MsgRender* other = cache.get("m1", 500.0f, "right pane message");
+    const ecs::model::MsgRender* other = cache.get("m1", 500.0f, 500.0f - 10.0f, "right pane message");
     CHECK(other != nullptr && other->body == "right pane message");
 
     CHECK(cache.threads() == 2);
     CHECK(cache.total_size() == 2);
 
-    // A width change is still a miss -- a resize has to re-measure.
-    CHECK(cache.get("m1", 501.0f, "right pane message") == nullptr);
+    // A width change is still a miss -- a resize has to re-measure -- for an
+    // entry that WRAPPED at its width (unwrapped == false, the default).
+    CHECK(cache.get("m1", 501.0f, 501.0f - 10.0f, "right pane message") == nullptr);
+}
+
+// An entry that did not wrap at its width is good at every width whose wrap
+// width still holds its widest hard line, and at no narrower one -- so a
+// resize drag over a message that fits is a hit per frame, not a re-measure.
+static void test_an_unwrapped_entry_serves_every_wider_width() {
+    std::printf("test_an_unwrapped_entry_serves_every_wider_width\n");
+    ecs::model::TranscriptRenderCache cache;
+    cache.reset_for_thread("pane/thread");
+    ecs::model::MsgRender r;
+    r.body = "short";
+    r.wrap_w = 500.0f;
+    r.height = 24.0f;
+    r.natural_advance = 120.0f;   // the widest hard line, at the body font
+    r.unwrapped = true;           // 500 - 10 >= 120
+    cache.put("m1", "short", r);
+
+    // Wider, and narrower-but-still-fits: the same entry.
+    CHECK(cache.get("m1", 900.0f, 890.0f, "short") == &cache.get("m1", 500.0f, 490.0f, "short")[0]);
+    CHECK(cache.get("m1", 131.0f, 121.0f, "short") != nullptr);
+    CHECK(cache.get("m1", 130.0f, 120.0f, "short") != nullptr);  // exactly fits
+    CHECK(cache.natural() == 3);
+    // One wrap width too narrow for the widest line: a real miss.
+    CHECK(cache.get("m1", 129.0f, 119.0f, "short") == nullptr);
+    CHECK(cache.stale() == 1);
+
+    // A wrapped entry (fits at 500 only because it wrapped) never travels.
+    ecs::model::MsgRender wrapped;
+    wrapped.body = "a long paragraph";
+    wrapped.wrap_w = 500.0f;
+    wrapped.height = 96.0f;
+    wrapped.natural_advance = 2000.0f;
+    wrapped.unwrapped = false;
+    cache.put("m2", "a long paragraph", wrapped);
+    CHECK(cache.get("m2", 900.0f, 890.0f, "a long paragraph") == nullptr);
+
+    // The hug rule: same shape, the answer capped at the new max width.
+    cache.put_hug("m1|hug", "short", 600.0f, 132.0f, true, 120.0f, 132.0f);
+    const auto atNine = cache.hug("m1|hug", 900.0f, 890.0f, "short");
+    CHECK(atNine.has_value() && atNine->text_w == 132.0f);
+    const auto atNarrow = cache.hug("m1|hug", 131.0f, 121.0f, "short");
+    CHECK(atNarrow.has_value() && atNarrow->text_w == 131.0f);
+    CHECK(!cache.hug("m1|hug", 129.0f, 119.0f, "short").has_value());
 }
 
 static void test_render_cache_is_still_bounded() {
@@ -220,7 +264,7 @@ static void test_two_panes_at_two_widths_do_not_thrash() {
     const float rightMax = 420.0f, rightHug = 305.0f;
 
     const auto measure = [&](const std::string& key, float w) {
-        if (cache.get(key, w, "same source") != nullptr) return;
+        if (cache.get(key, w, w - 10.0f, "same source") != nullptr) return;
         ecs::model::MsgRender r;
         r.wrap_w = w;
         r.height = w * 0.1f;
@@ -253,16 +297,16 @@ static void test_same_id_content_change_invalidates_geometry() {
     old.wrap_w = 500.0f;
     old.height = 20.0f;
     cache.put("same-id|r", "old", old);
-    cache.put_hug("same-id|hug", "old", 600.0f, 300.0f);
+    cache.put_hug("same-id|hug", "old", 600.0f, 300.0f, false, -1.0f, 0.0f);
 
-    CHECK(cache.get("same-id|r", 500.0f, "new content") == nullptr);
-    CHECK(cache.hug("same-id|hug", 600.0f, "new content") == nullptr);
+    CHECK(cache.get("same-id|r", 500.0f, 500.0f - 10.0f, "new content") == nullptr);
+    CHECK(!cache.hug("same-id|hug", 600.0f, 590.0f, "new content").has_value());
 
     ecs::model::MsgRender fresh = old;
     fresh.body = "new content";
     fresh.height = 40.0f;
     cache.put("same-id|r", "new content", fresh);
-    const auto* hit = cache.get("same-id|r", 500.0f, "new content");
+    const auto* hit = cache.get("same-id|r", 500.0f, 500.0f - 10.0f, "new content");
     CHECK(hit != nullptr && hit->height == 40.0f);
     CHECK(cache.changed() == 1);
 }
@@ -323,6 +367,7 @@ int main() {
     test_same_id_content_change_invalidates_geometry();
     test_unread_tracks_append_prepend_and_replace();
     test_two_panes_at_two_widths_do_not_thrash();
+    test_an_unwrapped_entry_serves_every_wider_width();
     test_render_cache_is_still_bounded();
     if (g_failures == 0) {
         std::printf("OK\n");

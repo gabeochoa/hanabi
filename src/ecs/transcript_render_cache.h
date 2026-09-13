@@ -71,6 +71,8 @@
 
 #include <cstddef>
 #include <list>
+#include <optional>
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -82,6 +84,19 @@ struct MsgRender {
     int line_count = 0;    // logical (newline-split) wrapped line count
     float height = 0.0f;   // measured body height at wrap_w (matches render)
     float wrap_w = -1.0f;  // the textW this was computed at (-1 = empty slot)
+    // The widest hard line of `body`, measured the way the wrapper measures a
+    // candidate line (its own font per segment, the wrapper's own measure
+    // function), and whether wrap_w was wide enough that nothing soft-wrapped.
+    // Together they make this entry valid at EVERY width whose wrap width is
+    // at least natural_advance: the greedy wrapper's first probe per hard
+    // line is "does the whole line fit", and when it does no other probe
+    // runs, so the count -- and the height built from it -- is the hard line
+    // count at any such width. That is what lets a resize drag, where every
+    // frame is a new width, be a cache HIT for every message that does not
+    // wrap, instead of a full re-measure of the transcript per frame
+    // (measured: 5.75 ms a frame at 3,672 messages, 68% of the frame).
+    float natural_advance = -1.0f;
+    bool unwrapped = false;
 };
 
 class TranscriptRenderCache {
@@ -115,7 +130,10 @@ class TranscriptRenderCache {
 
     // Fetch the cached render for `key` at wrap width `w`, or nullptr on a
     // miss (caller recomputes + put()s).
-    const MsgRender* get(const std::string& key, float w,
+    // `wrap_w_of` is the wrap width the caller's counter would use at `w`
+    // (text_wrap_width(w)); the natural-width test is made in the caller's
+    // own arithmetic so it cannot disagree with the counter by an ulp.
+    const MsgRender* get(const std::string& key, float w, float wrap_w_of,
                          const std::string& source) const {
         auto slot = threads_.find(active_);
         if (slot == threads_.end()) {
@@ -132,6 +150,10 @@ class TranscriptRenderCache {
             return nullptr;
         }
         if (const MsgRender* m = it->second.find(w)) return m;
+        if (const MsgRender* m = it->second.find_unwrapped(wrap_w_of)) {
+            ++natural_;
+            return m;
+        }
         ++stale_;
         return nullptr;
     }
@@ -140,7 +162,20 @@ class TranscriptRenderCache {
                          MsgRender r) {
         auto& pair = threads_[active_].map[key];
         pair.reset_for_source(source);
+        if (r.natural_advance >= 0.0f) pair.naturalAdvance = r.natural_advance;
         return pair.insert(std::move(r));
+    }
+    // The natural advance already measured for this key at this source, so a
+    // body that wraps (and so misses at every new width) is not re-scanned
+    // for it on every miss. Negative when unknown.
+    float known_natural_advance(const std::string& key,
+                                const std::string& source) const {
+        auto slot = threads_.find(active_);
+        if (slot == threads_.end()) return -1.0f;
+        auto it = slot->second.map.find(key);
+        if (it == slot->second.map.end() || it->second.source != source)
+            return -1.0f;
+        return it->second.naturalAdvance;
     }
 
     // ---- The hugged width of a user bubble, at a given pane width ---------
@@ -154,22 +189,39 @@ class TranscriptRenderCache {
     // width does. Memoized here rather than in its own container because it
     // is keyed the same way, invalidated the same way, and evicted with the
     // same thread -- one owner, one lifetime.
-    const float* hug(const std::string& key, float paneW,
-                     const std::string& source) const {
+    // A hugged width is the widest wrapped line plus the label inset, capped
+    // at the max text width. When the body did not wrap at the width it was
+    // measured at, the widest line IS the widest hard line, so at any other
+    // max width wide enough for the same to hold the answer is
+    // min(maxTextW, natural + inset) -- returned here without a wrap.
+    struct Hug {
+        float text_w;
+    };
+    std::optional<Hug> hug(const std::string& key, float paneW, float wrap_w_of,
+                           const std::string& source) const {
         auto slot = threads_.find(active_);
-        if (slot == threads_.end()) return nullptr;
+        if (slot == threads_.end()) return std::nullopt;
         auto it = slot->second.map.find(key);
-        if (it == slot->second.map.end() || it->second.source != source ||
-            it->second.hugPaneW != paneW)
-            return nullptr;
-        return &it->second.hugTextW;
+        if (it == slot->second.map.end() || it->second.source != source)
+            return std::nullopt;
+        const WidthPair& p = it->second;
+        if (p.hugPaneW == paneW) return Hug{p.hugTextW};
+        if (p.hugUnwrapped && wrap_w_of >= p.hugNaturalAdvance) {
+            ++natural_;
+            return Hug{std::min(paneW, p.hugNaturalTextW)};
+        }
+        return std::nullopt;
     }
     void put_hug(const std::string& key, const std::string& source,
-                 float paneW, float textW) {
+                 float paneW, float textW, bool unwrapped,
+                 float naturalAdvance, float naturalTextW) {
         auto& slot = threads_[active_].map[key];
         slot.reset_for_source(source);
         slot.hugPaneW = paneW;
         slot.hugTextW = textW;
+        slot.hugUnwrapped = unwrapped;
+        slot.hugNaturalAdvance = naturalAdvance;
+        slot.hugNaturalTextW = naturalTextW;
     }
 
     // Miss BREAKDOWN, because the two kinds mean opposite things. `absent` is
@@ -181,6 +233,9 @@ class TranscriptRenderCache {
     std::size_t absent() const { return absent_; }
     std::size_t stale() const { return stale_; }
     std::size_t changed() const { return changed_; }
+    // Hits served by the natural-width rule at a width the pair does not
+    // hold: what a resize drag costs the transcript, or does not.
+    std::size_t natural() const { return natural_; }
 
     // Entries held for the ACTIVE thread (the number the old size() meant).
     std::size_t size() const {
@@ -212,6 +267,10 @@ class TranscriptRenderCache {
         std::string source;
         float hugPaneW = -1.0f;  // pane width the hug below was measured at
         float hugTextW = 0.0f;   // widest wrapped line + label inset
+        bool hugUnwrapped = false;
+        float hugNaturalAdvance = -1.0f;
+        float hugNaturalTextW = 0.0f;   // widest hard line + label inset
+        float naturalAdvance = -1.0f;   // of the body, once per source
 
         void reset_for_source(const std::string& next) {
             if (source == next) return;
@@ -220,11 +279,20 @@ class TranscriptRenderCache {
             b = {};
             hugPaneW = -1.0f;
             hugTextW = 0.0f;
+            hugUnwrapped = false;
+            hugNaturalAdvance = -1.0f;
+            hugNaturalTextW = 0.0f;
+            naturalAdvance = -1.0f;
         }
 
         const MsgRender* find(float w) const {
             if (a.wrap_w == w) return &a;
             if (b.wrap_w == w) return &b;
+            return nullptr;
+        }
+        const MsgRender* find_unwrapped(float wrap_w_of) const {
+            if (a.unwrapped && wrap_w_of >= a.natural_advance) return &a;
+            if (b.unwrapped && wrap_w_of >= b.natural_advance) return &b;
             return nullptr;
         }
         MsgRender& insert(MsgRender r) {
@@ -254,6 +322,7 @@ class TranscriptRenderCache {
     std::string active_;
     mutable std::size_t absent_ = 0;
     mutable std::size_t stale_ = 0;
+    mutable std::size_t natural_ = 0;
     mutable std::size_t changed_ = 0;
 };
 

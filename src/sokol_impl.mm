@@ -32,8 +32,11 @@
 // sokol headers.
 #include <afterhours/src/backends/sokol/capture_impl.h>
 #include <atomic>
+#include <cstdlib>
+#include <cstring>
 
 #import <AppKit/AppKit.h>
+#import <MetalKit/MetalKit.h>
 
 static std::atomic<bool> g_hanabi_window_resize{true};
 static std::atomic<bool> g_hanabi_window_exposure{true};
@@ -42,10 +45,46 @@ static id g_hanabi_window_activity_observer = nil;
 @interface HanabiWindowActivityObserver : NSObject
 @end
 
+static std::atomic<bool> g_hanabi_in_frame{false};
+static std::atomic<unsigned> g_hanabi_sync_draws{0};
+
+// HANABI_RESIZE_SYNC_DRAW: draw the frame for a live-resize step INSIDE the
+// step, from windowDidResize, instead of on the next display-link tick.
+// Read once. Default on; "0" turns it off (the A/B arm).
+static bool hanabi_resize_sync_draw_enabled(void) {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_RESIZE_SYNC_DRAW");
+        return v == nullptr || *v == '\0' || std::strcmp(v, "0") != 0;
+    }();
+    return on;
+}
+
+extern "C" void metal_mark_frame_begin(void) { g_hanabi_in_frame.store(true); }
+extern "C" void metal_mark_frame_end(void) { g_hanabi_in_frame.store(false); }
+extern "C" unsigned metal_sync_draw_count(void) { return g_hanabi_sync_draws.load(); }
+
 @implementation HanabiWindowActivityObserver
 - (void)resized:(NSNotification*)note {
-    (void)note;
     g_hanabi_window_resize.store(true);
+    // A live-resize step is AppKit's tracking loop calling setFrame; the
+    // window's new frame is committed to the window server with a fence that
+    // waits for the layer's contents. Left to the display link, the content
+    // for this size arrives one tick later, and the next step waits for it:
+    // two ticks per step. Drawing here puts the content in the same step.
+    // Measured with the in-process driver at 1100x760: steps applied every
+    // 15.4 ms p50 / 36.5 p95 without it, [see resize_drive_gate.sh] with.
+    // Never from inside a frame (a programmatic setFrame during one would
+    // re-enter the renderer), never outside a live resize (a zoom or a
+    // restore is one setFrame and the tick is fine), and never for a window
+    // that is not the Metal view's.
+    if (!hanabi_resize_sync_draw_enabled()) return;
+    NSWindow* window = [note object];
+    if (![window isKindOfClass:[NSWindow class]] || ![window inLiveResize]) return;
+    if (g_hanabi_in_frame.load()) return;
+    NSView* view = [window contentView];
+    if (![view isKindOfClass:[MTKView class]]) return;
+    g_hanabi_sync_draws.fetch_add(1);
+    [(MTKView*)view draw];
 }
 - (void)exposed:(NSNotification*)note {
     (void)note;

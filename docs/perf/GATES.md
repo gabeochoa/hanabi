@@ -1215,6 +1215,19 @@ never echoed from the request). A frame loop that opens its frame outside
 `hanabi::gfx::begin_frame` shows 520 asked / 0 applied; a `set_window_size`
 that became a no-op keeps the counter and fails on the size.
 
+### A LIVE resize, through AppKit's own tracking loop — gated
+
+`scripts/resize_drive_gate.sh` (`zig build resize-drive-gate`, in `test`) is
+the one gate that drives a real window: `HANABI_RESIZE_DRIVE` posts NSEvents
+at the resize corner and AppKit's `_resizeWithEvent:` loop does the rest,
+step by step, with the display link ticking underneath. It asserts by count
+that the live resize started and ended, that every applied size was painted
+(`sizes_skipped == 0` -- the planted `HANABI_RESIZE_SYNC_DRAW=0` arm fails
+here and `--selftest` requires that), that the last frame is the settled
+window, and that the natural-width rule's audit found no disagreement. The
+measurements, the driver's limits and the two library gaps it surfaced (#594,
+#595) are in `docs/perf/RESIZE.md`.
+
 ### Anything only the windowed app does — with one instrument now, and no gate
 
 **`HANABI_GPU_WATCH=<n>`** prints the device's GPU byte total, the window size,

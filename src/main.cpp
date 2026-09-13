@@ -1,6 +1,7 @@
 #include <argh.h>
 #include <branding.h>
 #include "build_stamp.h"
+#include "resize_drive.h"
 
 #include <algorithm>
 #include <chrono>
@@ -569,7 +570,22 @@ static void record_idle_diagnostic(bool rendered, std::uint64_t nowUs) {
     afterhours::graphics::request_quit();
 }
 
+extern "C" void metal_mark_frame_begin(void);
+extern "C" void metal_mark_frame_end(void);
+extern "C" unsigned metal_sync_draw_count(void);
+
+// The frame callback, with the "inside a frame" mark around it so a
+// live-resize step that arrives while one is drawing is not drawn re-entrantly
+// (see sokol_impl.mm).
+static void app_frame_body();
 static void app_frame() {
+    metal_mark_frame_begin();
+    app_frame_body();
+    metal_mark_frame_end();
+}
+
+static void app_frame_body() {
+    hanabi::resize_drive::callback();
     // Every frame gets a pool, because Metal hands back autoreleased objects
     // and a render loop is not a Cocoa run loop: six per frame, ~2.5 KB, never
     // freed. See util/autorelease.h for the measurement.
@@ -610,6 +626,7 @@ static void app_frame() {
         // Windowed-only + install-once, same as the hotkey.
         native_openurl_install();
         metal_frame_activity_install();
+        hanabi::resize_drive::install();
         menubarInstalled = true;
         // Ensure the window fits ON-SCREEN: a restored/dragged frame taller
         // than the display pushes the bottom (composer + status bar) below the
@@ -765,10 +782,19 @@ static void app_frame() {
         dt = std::min(dt, 0.1f);
     }
     framePolicy.rendered(nowUs);
+    hanabi::resize_drive::frame_begin();
+    const unsigned long long frameCpu0 = hanabi::prof::cpu_nanos();
     afterhours::graphics::begin_drawing();
     afterhours::graphics::clear_background(theme::window_bg());
     app_state::systemManager->run(dt);
     afterhours::graphics::end_drawing();
+    // The windowed loop is a profiled path too (HANABI_PROF=1, dumped when
+    // the window closes), so a resize drag's phases can be read the way the
+    // soak loop's are.
+    hanabi::prof::frame_cpu(hanabi::prof::cpu_nanos() - frameCpu0);
+    hanabi::prof::frame();
+    hanabi::resize_drive::frame_end();
+    if (hanabi::resize_drive::finished()) afterhours::graphics::request_quit();
 
     // Windowed FirstFrame instrumentation — the perf gate's headless
     // FirstFrame does NOT reflect the real windowed cold launch (no Cocoa
@@ -1047,6 +1073,9 @@ static void persist_app_state() {
 }
 
 static void app_cleanup() {
+    // The windowed loop's profile (HANABI_PROF=1), dumped here because a
+    // quit through sokol never returns from run().
+    hanabi::prof::dump();
     persist_app_state();
 
     // FAST, non-hanging quit. AppComponent holds ~9 std::future<>s from

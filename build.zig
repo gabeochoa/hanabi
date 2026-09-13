@@ -200,7 +200,7 @@ const app_sources = [_][]const u8{
 // Compiled on its own with the commit hash as a define; see build_stamp.h.
 const app_stamp_source = [_][]const u8{"src/build_stamp.cpp"};
 const app_objc_sources = [_][]const u8{
-    "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_extras.mm", "src/sokol_impl.mm",
+    "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_extras.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
 };
 // ws_socket.mm is the one ObjC++ file compiled under ARC.
 const app_arc_sources = [_][]const u8{"src/ws_socket.mm"};
@@ -397,6 +397,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "find-gate", .desc = "Find level gate", .cmds = &.{&.{ "bash", "scripts/find_gate.sh" }}, .after = need_app },
         .{ .name = "soak-gate", .desc = "Soak gate", .cmds = &.{&.{ "bash", "scripts/soak_gate.sh" }}, .after = need_app },
         .{ .name = "stress-resize-gate", .desc = "Stress-resize gate", .cmds = &.{&.{ "bash", "scripts/stress_resize_gate.sh" }}, .after = need_app },
+        .{ .name = "resize-drive-gate", .desc = "A live window resize through AppKit's tracking loop paints every size and settles (opens a window; selftest, then the gate)", .cmds = &.{ &.{ "bash", "scripts/resize_drive_gate.sh", "--selftest" }, &.{ "bash", "scripts/resize_drive_gate.sh" } }, .after = need_app },
         .{ .name = "latency-delay-sweep", .desc = "Latency instrument controls", .cmds = &.{&.{ "bash", "scripts/latency_delay_sweep.sh" }}, .after = need_ui },
         .{ .name = "alloc-gate", .desc = "Allocation gate", .cmds = &.{&.{ "bash", "scripts/alloc_gate.sh" }}, .after = need_app },
         .{ .name = "idle-gate", .desc = "Idle gate", .cmds = &.{&.{ "bash", "scripts/idle_gate.sh" }}, .after = need_app },

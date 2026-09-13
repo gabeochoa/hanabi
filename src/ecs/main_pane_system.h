@@ -8881,6 +8881,83 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Total pixel height of `render_rich_body(body, textW)` — MUST mirror that
     // method's per-segment layout exactly (blank line = half pitch, else
     // segLines*pitch) so virtualization spacers line up with what renders.
+    // The measure the line counter probes with (count_lines' lambda), so a
+    // "does the whole line fit" answer here is the counter's own first probe.
+    static float line_advance(const std::string& line, float fontPx) {
+        return afterhours::ui::measure_text_line(
+                   line, afterhours::ui::UIComponent::DEFAULT_FONT, fontPx)
+            .x;
+    }
+
+    // The widest hard line of a FLAT body, at the body font: the wrap width
+    // at or above which count_lines(body, w) is the hard line count.
+    static float natural_advance_flat(const std::string& body) {
+        hanabi::prof::Scope _p("text.natural_advance");
+        float widest = 0.0f;
+        std::size_t start = 0;
+        static std::string line;
+        while (start <= body.size()) {
+            const std::size_t nl = body.find('\n', start);
+            const std::size_t end = (nl == std::string::npos) ? body.size() : nl;
+            line.assign(body, start, end - start);
+            if (!line.empty())
+                widest = std::max(widest, line_advance(line, theme::type::BODY));
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+        return widest;
+    }
+
+    // The same for a RICH body: one segment walk, mirroring rich_body_h's --
+    // a heading line is measured at its heading font, a paragraph line as
+    // md_visible() at the body font, and tables and code blocks contribute
+    // nothing because their heights do not depend on the width. Any line
+    // this over-measures (a trailing space, say) only makes the rule fire
+    // later; it cannot make it fire wrongly, because the counter's own probe
+    // on that line measures a prefix of what is measured here.
+    static float natural_advance_rich(const std::string& body) {
+        hanabi::prof::Scope _p("text.natural_advance");
+        float widest = 0.0f;
+        std::size_t start = 0;
+        while (start <= body.size()) {
+            const std::size_t nl = body.find('\n', start);
+            const std::size_t end = (nl == std::string::npos) ? body.size() : nl;
+            const std::string line = body.substr(start, end - start);
+            if (is_table_start(body, start)) {
+                std::vector<std::vector<std::string>> rows;
+                start = scan_table(body, start, &rows);
+                continue;
+            }
+            if (is_code_fence(line)) {
+                std::size_t p = (nl == std::string::npos) ? body.size() : nl + 1;
+                while (p <= body.size()) {
+                    const std::size_t n2 = body.find('\n', p);
+                    const std::size_t e2 = (n2 == std::string::npos) ? body.size() : n2;
+                    const std::string cl = body.substr(p, e2 - p);
+                    if (is_code_fence(cl)) {
+                        p = (n2 == std::string::npos) ? body.size() : n2 + 1;
+                        break;
+                    }
+                    if (n2 == std::string::npos) { p = body.size() + 1; break; }
+                    p = n2 + 1;
+                }
+                start = p;
+                continue;
+            }
+            if (const int level = md_heading_level(line); level > 0) {
+                widest = std::max(widest, line_advance(md_heading_text(line),
+                                                       heading_font(level)));
+            } else {
+                const std::string vis = md_visible(line);
+                if (!vis.empty())
+                    widest = std::max(widest, line_advance(vis, theme::type::BODY));
+            }
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+        return widest;
+    }
+
     static float rich_body_h(const std::string& body, float textW) {
         hanabi::prof::Scope _p("text.rich_body_h");
         float h = 0.0f;
@@ -8968,8 +9045,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::size_t staleWas =
             hanabi::prof::enabled() ? render_cache().stale() : 0;
         if (!isLive) {
-            if (const auto* hit = render_cache().get(key, textW, m.text)) {
+            const std::size_t naturalWas = render_cache().natural();
+            if (const auto* hit = render_cache().get(key, textW,
+                                                     text_wrap_width(textW),
+                                                     m.text)) {
                 hanabi::prof::tick("cache.msgrender_hit");
+                // HANABI_NATURAL_AUDIT=1: every hit the natural-width rule
+                // served is re-measured the long way and compared. The rule
+                // is exact by the wrapper's own logic; this is the check that
+                // says so on the real fixtures, and scripts/resize_drive_gate.sh
+                // runs with it on.
+                static const bool audit = [] {
+                    const char* v = std::getenv("HANABI_NATURAL_AUDIT");
+                    return v && *v && std::string_view(v) != "0";
+                }();
+                if (audit && render_cache().natural() != naturalWas) {
+                    std::string body = strip_inline_md(redact_secrets(m.text));
+                    if (!rich) body = strip_inline_markers(body);
+                    const int lines = count_lines(body, textW);
+                    const float h = rich ? rich_body_h(body, textW)
+                                         : flat_body_h(body, textW);
+                    hanabi::prof::tick("cache.natural_audited");
+                    if (lines != hit->line_count || h != hit->height) {
+                        hanabi::prof::tick("cache.natural_mismatch");
+                        std::fprintf(stderr,
+                                     "[natural-audit] MISMATCH %s w=%.2f "
+                                     "cached lines=%d h=%.2f direct lines=%d "
+                                     "h=%.2f natural=%.2f\n",
+                                     key.c_str(), textW, hit->line_count,
+                                     hit->height, lines, h,
+                                     hit->natural_advance);
+                    }
+                }
                 return *hit;
             }
             hanabi::prof::tick("cache.msgrender_miss");
@@ -8995,6 +9102,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         r.wrap_w = textW;
         r.height = rich ? rich_body_h(r.body, textW)
                         : flat_body_h(r.body, textW);
+        // Whether this entry is good at every wider width too; see MsgRender.
+        // Not for the live row, whose body changes every frame anyway.
+        if (!isLive) {
+            const float known = render_cache().known_natural_advance(key, m.text);
+            r.natural_advance = known >= 0.0f ? known
+                                : rich ? natural_advance_rich(r.body)
+                                       : natural_advance_flat(r.body);
+            r.unwrapped = text_wrap_width(textW) >= r.natural_advance;
+        }
         if (isLive) {
             static ecs::model::MsgRender liveSlot;
             liveSlot = std::move(r);
@@ -9229,11 +9345,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string hugKey =
             (m.id.empty() ? ("i" + std::to_string(index)) : m.id) + "|hug";
         if (!isLive) {
-            if (const float* w = render_cache().hug(hugKey, maxTextW, m.text)) {
+            if (const auto w = render_cache().hug(hugKey, maxTextW,
+                                                  text_wrap_width(maxTextW),
+                                                  m.text)) {
                 hanabi::prof::tick("cache.hug_hit");
                 return box_from_text_w(m.attachments.empty()
-                                           ? *w
-                                           : std::max(*w, 190.0f));
+                                           ? w->text_w
+                                           : std::max(w->text_w, 190.0f));
             }
             hanabi::prof::tick("cache.hug_miss");
         }
@@ -9270,12 +9388,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               theme::text_px(lineBuf, theme::type::BODY));
         }
         const float textW = std::min(maxTextW, widest + 2.0f * kLabelInsetX);
-        const float attachmentWidth = m.attachments.empty()
-                                          ? textW
-                                          : std::max(textW, 190.0f);
-        if (!isLive)
-            render_cache().put_hug(hugKey, m.text, maxTextW, attachmentWidth);
-        return box_from_text_w(attachmentWidth);
+        if (!isLive) {
+            // With nothing soft-wrapped, `widest` is the widest hard line and
+            // the hug at any wider max width is the same number, capped.
+            // Stored without the attachment floor, which the hit re-applies.
+            const bool unwrapped = mr.unwrapped;
+            render_cache().put_hug(hugKey, m.text, maxTextW, textW, unwrapped,
+                                   mr.natural_advance,
+                                   widest + 2.0f * kLabelInsetX);
+        }
+        return box_from_text_w(m.attachments.empty() ? textW
+                                                     : std::max(textW, 190.0f));
     }
 
     // The box the hugged text width implies. One place, so the memoized path

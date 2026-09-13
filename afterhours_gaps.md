@@ -13552,3 +13552,118 @@ the patch is a maintainer-ready proposal, not a build input.
 CLASS: SHARP EDGE
 
 ---
+
+### #594 — Nothing in the library or its e2e runner can drive a LIVE window resize, so the path a person's drag takes (AppKit's tracking loop) is unreachable from any test
+
+**Expected.** A way to exercise the resize path the user experiences: AppKit's
+`-[NSWindow(NSWindowResizing) _resizeWithEvent:]` tracking loop
+(`NSWindowWillStartLiveResize`, a `windowDidResize` per applied step in
+`NSEventTrackingRunLoopMode`, `NSWindowDidEndLiveResize`), with the backend's
+display link ticking underneath -- from a script, so a regression in it fails
+a gate.
+
+**Observed.** At 1ac6db2 the e2e runner's `resize W H` and
+`window_manager::set_window_size` are one programmatic `setFrame:` each: no
+tracking loop, no live-resize notifications, one size. The headless backend
+resizes a render target. Neither reaches the step-by-step path, so hanabi's
+`gfx_resize` deferral, its frame policy and its per-width measuring were
+gated on a path nobody drags. `osascript`/`CGEventPost` from outside need the
+Accessibility grant.
+
+**Reproducer.** `HANABI_RESIZE_DRIVE=grow:300x150:150,grow:-500x-250:150,grow:200x100:80 output/hanabi.exe`
+(`src/resize_drive.mm`): a user-interactive-QoS thread posts real `NSEvent`s
+-- left-mouse-down at the frame's bottom-right resize zone, a mouse-dragged
+every 8 ms along the pattern with edge reversals, mouse-up, then a settle --
+through `-[NSApplication postEvent:atStart:]`. The in-process sampler
+(`HANABI_RESIZE_DRIVE_SAMPLE=1`) shows the main thread inside
+`_resizeWithEvent:` ← `-[NSThemeFrame mouseDown:]`; the three notifications
+fire; frames are drawn from `-[MTKView drawRect:]` in
+`NSEventTrackingRunLoopMode`. Measured on the M1 Pro capture rig at 1100x760,
+mock t2, 380 drag events: backend callbacks every 8.3 ms p50 throughout (the
+display link keeps ticking); AppKit applies a step every 13–17 ms p50 /
+35–38 ms p95; the app draws one frame per applied size (frame CPU 1.4–3.3 ms
+p50, 4–5 ms p95); the main thread is ~75% idle in the tracking loop's
+`nextEventMatchingMask`. At 3,672 messages the app's frame is 4.8 ms p50 /
+16–20 ms p95 -- the transcript measured every message at every new width
+(hanabi's cost, fixed app-side by the natural-width rule in
+`transcript_render_cache.h`, p95 → 10–12 ms).
+
+**Limitation of the workaround.** The events enter through NSApp's queue, not
+the window server, so (a) presentation timing against a real pointer is not
+what is measured, (b) `postEvent:` from a second thread contends with the main
+thread's event-queue lock, so posted drags arrive in bursts (gap p50 0 ms,
+p95 ~50 ms) and the applied-step cadence is a mix of AppKit's and the
+driver's, (c) the tracking loop sizes the frame from the last drag it
+processed and a mouse-up moves nothing, so under posted events the settled
+size can sit 1–2 px from the pointer (the gate allows 4 and asserts the app's
+last frame equals the window exactly). `CGEventPostToPid(getpid())` was tried:
+dropped silently without the Accessibility grant (`live_starts=0`).
+
+**Cost.** ~430 lines of ObjC++ hanabi now owns (driver, observers, sampler,
+report), plus `scripts/resize_drive_gate.sh`.
+
+**Minimal upstream fix / acceptance test.** An e2e command `live_resize_drag
+<dw> <dh> <steps>` in the macOS backend doing the above, and
+`expect_live_resize_steps >= N` / `expect_sizes_skipped 0`; the acceptance test
+is a script that drags a window and fails when a step is applied without a
+frame drawn for it.
+
+**Status.** Confirmed at 1ac6db2; hanabi's driver ships behind the env and
+`zig build resize-drive-gate` runs it (with a planted control:
+`HANABI_RESIZE_SYNC_DRAW=0` fails the gate on sizes_skipped).
+
+**Hanabi reference.** `src/resize_drive.mm` — the driver and the sampler;
+`scripts/resize_drive_gate.sh` — the gate.
+
+CLASS: MISSING
+
+---
+
+### #595 — The macOS backend draws a live-resize step on the NEXT display-link tick, not inside the step, so a size can be applied that no frame ever paints
+
+**Expected.** During a live resize every applied window size is painted before
+the next one is applied -- the content and the frame edge move together.
+
+**Observed.** sokol's `windowDidResize:` updates the drawable size
+(`_sapp_macos_update_dimensions`) and returns; the frame for the new size is
+drawn whenever `MTKView`'s display link next fires (`drawRect:` → the frame
+callback). When AppKit's tracking loop applies two steps within one display
+interval, the first size is never drawn: measured with the driver above at
+1100x760, 7–24 of ~170 applied sizes per drag were skipped (three runs), the
+content lagging the frame edge by a step each time -- which is the strip the
+`layerContentsPlacement` anchoring in `windowWillStartLiveResize` exists to
+hide. afterhours exposes no hook for a resize step (no
+`on_window_resized`, no way to ask the backend to draw now), so an app cannot
+close the gap through the library.
+
+**Reproducer.** `HANABI_RESIZE_SYNC_DRAW=0 bash scripts/resize_drive_gate.sh`
+→ `FAIL progression: N applied sizes were never painted` (the gate's
+`--selftest` is exactly this).
+
+**Workaround (hanabi).** `src/sokol_impl.mm` observes
+`NSWindowDidResizeNotification` and, when the window is `inLiveResize` and no
+frame is in progress, calls `-[MTKView draw]` on the sokol view -- the frame
+for the new size is drawn inside the step, through the same frame callback
+and hanabi's `gfx::begin_frame` (the render-target swap still happens at the
+frame boundary; #374's invariant holds). Measured, three runs each arm:
+sizes_skipped 7/19/10 → 0/0/0; inter-frame gap p95 37–45 → 34–35 ms, max
+61–73 → 46–60 ms; the applied-step cadence itself did not move (13–17 ms p50
+both arms), so the fence-release hypothesis -- that drawing in-step would let
+AppKit apply steps faster -- is NOT supported by this measurement. Cost: one
+extra frame callback per step (~1.5–2 ms CPU on the typical scene), and a
+reach into the backend's view class.
+
+**Minimal upstream fix.** In the sokol backend's `windowDidResize:`, when
+`[window inLiveResize]`, call the frame once after updating the dimensions
+(guarded against re-entry), or expose `graphics::on_resize_step(callback)` so
+the app can. Acceptance: #594's script with `expect_sizes_skipped 0`.
+
+**Status.** Confirmed at 1ac6db2 by count; the workaround ships, default on
+(`HANABI_RESIZE_SYNC_DRAW=0` is the control arm).
+
+**Hanabi reference.** `src/sokol_impl.mm` (`resized:`) — the same-step draw;
+`scripts/resize_drive_gate.sh` — the count that guards it.
+
+CLASS: SHARP EDGE
+
+---
