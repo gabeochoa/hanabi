@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../../vendor/afterhours/src/plugins/ui/imm_components.h"
+#include <afterhours/src/plugins/ui/imm_components.h>
 #include "accessibility.h"
 #include "anchored_surface.h"
 #include "control_state.h"

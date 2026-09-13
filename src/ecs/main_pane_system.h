@@ -60,7 +60,7 @@
 #include "line_draw_state.h"
 #include "ui_imports.h"
 
-#include "../../vendor/afterhours/src/plugins/clipboard.h"
+#include <afterhours/src/plugins/clipboard.h>
 
 namespace ecs {
 

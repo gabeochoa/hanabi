@@ -11,7 +11,7 @@
 // scripts/check_resize_deferral.py enforces both halves.
 
 #include "../rl.h"
-#include "../../vendor/afterhours/src/plugins/window_manager.h"
+#include <afterhours/src/plugins/window_manager.h>
 
 namespace hanabi::gfx {
 

@@ -47,7 +47,7 @@
 #include "../ui/secondary_surface.h"
 #include "../ui/snippet_highlight.h"
 #include "../ui/status_mark.h"
-#include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
+#include <afterhours/src/plugins/ui/text_input/text_input.h>
 #include "sidebar_buckets.h"
 #include "folder_state.h"
 #include "line_draw_state.h"

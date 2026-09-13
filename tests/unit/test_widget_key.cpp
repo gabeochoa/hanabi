@@ -23,7 +23,7 @@
 // (upstream 5996464). The property this test pins -- distinct call
 // sites do not collide -- did not go away with it, so the test now guards the
 // library's implementation, which is what every hanabi widget uses.
-#include "../../vendor/afterhours/src/plugins/ui/entity_management.h"
+#include <afterhours/src/plugins/ui/entity_management.h>
 
 static int g_failures = 0;
 #define CHECK(cond)                                                 \

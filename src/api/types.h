@@ -12,6 +12,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace api {
@@ -207,6 +208,22 @@ struct OutgoingMessage {
 
 // One message inside a session transcript.
 struct Message {
+    Message() = default;
+    // The five fields every transcript row has, in the order the fixtures
+    // have always written them: {id, role, text, created_at, subtitle}. The
+    // rest of the struct is tool-call, attachment and sync metadata that is
+    // set by name where it applies. Spelled as a constructor so a row that
+    // states five fields is a row that MEANS five fields, not an aggregate
+    // that happens to leave twelve unsaid (-Wmissing-field-initializers fired
+    // 441 times on the mock's fixtures for exactly that).
+    Message(std::string id_, Role role_, std::string text_,
+            int64_t created_at_ = 0, std::string subtitle_ = {})
+        : id(std::move(id_)),
+          role(role_),
+          text(std::move(text_)),
+          created_at(created_at_),
+          subtitle(std::move(subtitle_)) {}
+
     std::string id;
     Role role = Role::Assistant;
     std::string text;

@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include "../../vendor/afterhours/src/plugins/clipboard.h"
+#include <afterhours/src/plugins/clipboard.h>
 
 namespace hanabi::clipboard {
 

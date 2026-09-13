@@ -26,11 +26,11 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **260** |
-| Distinct numeric gap numbers | **255** (several numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **261** |
+| Distinct numeric gap numbers | **256** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **264** rows, **264** unique identifiers — includes index-only ids with no detailed entry |
-| Standalone live asks | **142** (152 less the ten fixed at 1ac6db2) |
+| **Rows in the triage table (§6)** | **265** rows, **265** unique identifiers — includes index-only ids with no detailed entry |
+| Standalone live asks | **143** (152 less the ten fixed at 1ac6db2, plus #593) |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
@@ -854,6 +854,7 @@ correction narrows them rather than closing them.
 | 590 | Button variants drop per-widget text inset | FOOTGUN | HIGH | XS | app workaround |
 | 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited | MISSING | MED | XS | live (re-tested 1ac6db2) · extends #223; app workaround: latch + `release_compaction` |
 | 592 | Every click on a `HasClickListener` moves keyboard focus to it; no activate-without-focus | FOOTGUN | HIGH | XS | live (re-tested 1ac6db2) · app workaround (refocus) |
+| 593 | `System<>`'s six overrides lack `override`; a consumer compiling the library as user code gets 18 warnings per TU | SHARP EDGE | LOW | XS | live · app workaround (every include via `-isystem`) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

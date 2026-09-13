@@ -14,7 +14,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../../vendor/afterhours/src/core/base_component.h"
+#include <afterhours/src/core/base_component.h>
 #include "../api/auth.h"
 #include "../api/client.h"
 #include "../api/outbox.h"

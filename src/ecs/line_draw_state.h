@@ -28,8 +28,8 @@
 #include <string>
 #include <vector>
 
-#include "../../vendor/afterhours/src/core/base_component.h"
-#include "../../vendor/afterhours/src/core/entity.h"
+#include <afterhours/src/core/base_component.h>
+#include <afterhours/src/core/entity.h>
 #include "../ui/link_detect.h"
 
 namespace ecs {

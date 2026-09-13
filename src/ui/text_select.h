@@ -29,8 +29,8 @@
 #include <utility>
 #include <vector>
 
-#include "../../vendor/afterhours/src/plugins/clipboard.h"
-#include "../../vendor/afterhours/src/plugins/ui/text_selection.h"
+#include <afterhours/src/plugins/clipboard.h>
+#include <afterhours/src/plugins/ui/text_selection.h>
 #include "find_highlight.h"
 #include "theme.h"
 

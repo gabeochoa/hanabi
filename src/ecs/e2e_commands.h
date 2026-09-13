@@ -61,7 +61,7 @@
 #include <string_view>
 #include <unordered_map>
 
-#include "../../vendor/afterhours/src/plugins/clipboard.h"
+#include <afterhours/src/plugins/clipboard.h>
 #include "../api/disk_cache.h"
 #include "../api/mock_client.h"
 #include "../test_hooks.h"

@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "../../vendor/afterhours/src/plugins/ui/component_config.h"
+#include <afterhours/src/plugins/ui/component_config.h>
 #include "theme.h"
 
 // Design system presets for hanabi.

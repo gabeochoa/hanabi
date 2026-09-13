@@ -13495,3 +13495,53 @@ focus". hanabi's `refocusComposer` workaround stands;
 `tests/ui/a_compaction_divider_opens_its_summary.e2e` still passes on it.
 
 CLASS: FOOTGUN
+
+### #593 — `System<>`'s six overrides are not marked `override`, so every consumer that compiles the library as its own code gets `-Winconsistent-missing-override` eighteen times per translation unit
+
+**Expected.** A header-only library compiles clean under the warning set a
+consumer is likely to hold its own code to. `-Winconsistent-missing-override`
+is on by default in clang (it fires when a class marks SOME overriding
+methods `override` and not others), so a consumer that includes the library as
+a user header sees the library's inconsistency as its own warning.
+
+**Observed.** At 1ac6db2, `src/core/system.h` declares `for_each` (two
+overloads, `:429` and `:456`), `for_each_derived` (two, `:437` and `:444`) and
+`for_each_with_derived` (two, `:451` and `:453`) in `System<Components...>`;
+they override the pure virtuals of `SystemBase` at `:147-154`, and the two
+`for_each_with_derived` say `virtual` while none says `override`. Clang reports
+all six, once per template instantiation that reaches them, so a translation
+unit instantiating three systems reads eighteen warnings. Measured here with
+both Apple clang 17.0.0 and Homebrew clang 21.1.8 (zig 0.16.0's), identical.
+
+**Reproducer.**
+
+```
+printf '#include "vendor/afterhours/src/core/system.h"\nstruct S : afterhours::System<> {};\nint main(){}' > /tmp/s.cpp
+clang++ -std=c++23 -Wall -Wextra -fsyntax-only /tmp/s.cpp -I. \
+    -isystem vendor/afterhours/vendor -DFMT_HEADER_ONLY        # 6 warnings (measured, Apple clang 17)
+clang++ -std=c++23 -Wall -Wextra -fsyntax-only /tmp/s.cpp -isystem . \
+    -isystem vendor/afterhours/vendor -DFMT_HEADER_ONLY        # 0: the -isystem policy hides it
+```
+`zig c++` (clang 21) reads the same six.
+
+**Workaround (hanabi).** Every hanabi include of the library goes through
+`<afterhours/...>` on the `-isystem vendor/` path (thirty-two files used a
+relative `"../../vendor/afterhours/..."` and were changed), and the one
+vendored `.cpp` hanabi compiles, `plugins/files.cpp`, is compiled through
+`src/afterhours_files.cpp`, a one-line shim that includes it the same way. Cost:
+a rule the tree has to keep (a relative include reintroduces the eighteen
+lines), and the library's OTHER diagnostics are hidden with it -- which is the
+price of `-isystem` and why this is a workaround rather than a fix.
+
+**Minimal upstream fix.** `override` on the six declarations (and drop the two
+`virtual`s that go with it). Six words; no behaviour change.
+
+**Status.** Confirmed at the pin by compile on two compilers; the workaround
+ships (see the -Werror build in `build.zig`, which is what surfaced it).
+
+**Hanabi reference.** `src/afterhours_files.cpp` — the shim; `build.zig`
+(`-isystem`) — every afterhours include is a system include.
+
+CLASS: SHARP EDGE
+
+---

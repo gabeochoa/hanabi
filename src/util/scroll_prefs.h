@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "../../vendor/afterhours/src/plugins/ui/components.h"
+#include <afterhours/src/plugins/ui/components.h>
 
 // Scroll-direction preference: make hanabi's scroll views track the macOS
 // "natural scrolling" system setting instead of hard-coding a direction.

@@ -47,8 +47,8 @@
 #include "heap_walk.h"
 #include "prof.h"
 #include "trend.h"
-#include "../../vendor/afterhours/src/core/entity_helper.h"
-#include "../../vendor/afterhours/src/plugins/ui/components.h"
+#include <afterhours/src/core/entity_helper.h>
+#include <afterhours/src/plugins/ui/components.h>
 #include "../ui/widget_epoch.h"
 
 namespace hanabi::soak {

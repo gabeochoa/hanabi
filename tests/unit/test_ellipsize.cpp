@@ -219,8 +219,8 @@ static void test_it_does_not_measure_more_than_it_needs_to() {
         "reconciling the ledger after the migration, second attempt",
         "oncall handoff",
         "why did the retry queue stall overnight and what unblocked it",
-        "a very long thread title that goes on well past any column width "
-        "a sidebar could plausibly give it, and then keeps going",
+        ("a very long thread title that goes on well past any column width "
+         "a sidebar could plausibly give it, and then keeps going"),
     };
 
     long probes = 0;

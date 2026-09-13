@@ -30,7 +30,7 @@
 #include <string>
 #include <vector>
 
-#include "../../vendor/afterhours/src/plugins/ui/text_selection.h"
+#include <afterhours/src/plugins/ui/text_selection.h>
 #include "../util/prof.h"
 #include "../util/textscan.h"
 #include "theme.h"

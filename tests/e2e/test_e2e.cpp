@@ -24,7 +24,7 @@
 #define AFTER_HOURS_ENTITY_QUERY
 #define AFTER_HOURS_SYSTEM
 // clang-format off
-#include "../../vendor/afterhours/src/ecs.h"
+#include <afterhours/src/ecs.h>
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
 #include "../../src/ecs/load_older_model.h"

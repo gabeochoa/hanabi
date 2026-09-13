@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../../vendor/afterhours/src/plugins/color.h"
-#include "../../vendor/afterhours/src/plugins/ui/components.h"
-#include "../../vendor/afterhours/src/plugins/ui/ui_collection.h"
+#include <afterhours/src/plugins/color.h>
+#include <afterhours/src/plugins/ui/components.h>
+#include <afterhours/src/plugins/ui/ui_collection.h>
 
 // ---------------------------------------------------------------------------
 // The two bits of chrome `text_area` gets wrong, put back from this side of

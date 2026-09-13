@@ -17,8 +17,8 @@
 #include <cmath>
 #include <string>
 
-#include "../../vendor/afterhours/src/core/entity_helper.h"
-#include "../../vendor/afterhours/src/core/entity_query.h"
+#include <afterhours/src/core/entity_helper.h>
+#include <afterhours/src/core/entity_query.h>
 #include "../util/format.h"
 #include "components.h"
 

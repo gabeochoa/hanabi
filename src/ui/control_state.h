@@ -2,8 +2,8 @@
 
 #include <algorithm>
 
-#include "../../vendor/afterhours/src/core/base_component.h"
-#include "../../vendor/afterhours/src/core/entity.h"
+#include <afterhours/src/core/base_component.h>
+#include <afterhours/src/core/entity.h>
 #include "theme.h"
 
 namespace hanabi::control {

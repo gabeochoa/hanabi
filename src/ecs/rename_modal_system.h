@@ -17,7 +17,7 @@
 #include "keyboard_focus.h"
 #include "../ui/edged_field.h"
 #include "ui_imports.h"
-#include "../../vendor/afterhours/src/plugins/ui/text_input/text_input.h"
+#include <afterhours/src/plugins/ui/text_input/text_input.h>
 
 namespace ecs {
 

@@ -3,13 +3,13 @@
 #include <string>
 #include <string_view>
 
-#include "../../vendor/afterhours/src/core/base_component.h"
-#include "../../vendor/afterhours/src/core/entity.h"
-#include "../../vendor/afterhours/src/plugins/ui/ui_core_components.h"
+#include <afterhours/src/core/base_component.h>
+#include <afterhours/src/core/entity.h>
+#include <afterhours/src/plugins/ui/ui_core_components.h>
 
 #ifdef AFTER_HOURS_ENABLE_E2E_TESTING
-#include "../../vendor/afterhours/src/core/system.h"
-#include "../../vendor/afterhours/src/plugins/e2e_testing/platform_test_input.h"
+#include <afterhours/src/core/system.h>
+#include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
 #endif
 
 namespace hanabi::a11y {

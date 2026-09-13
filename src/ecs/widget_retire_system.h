@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../vendor/afterhours/src/core/system.h"
+#include <afterhours/src/core/system.h>
 #include "../ui/text_select.h"
 #include "../ui/widget_epoch.h"
 

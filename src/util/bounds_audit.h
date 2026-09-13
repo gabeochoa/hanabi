@@ -51,7 +51,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../../vendor/afterhours/ah.h"
+#include <afterhours/ah.h>
 
 namespace hanabi::bounds_audit {
 

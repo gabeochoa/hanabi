@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../vendor/afterhours/src/plugins/ui.h"
-#include "../vendor/afterhours/src/plugins/window_manager.h"
-#include "../vendor/afterhours/src/plugins/toast.h"
-#include "../vendor/afterhours/src/plugins/modal.h"
+#include <afterhours/src/plugins/ui.h>
+#include <afterhours/src/plugins/window_manager.h>
+#include <afterhours/src/plugins/toast.h>
+#include <afterhours/src/plugins/modal.h>
 #include "rl.h"
 #include "input_mapping.h"
 

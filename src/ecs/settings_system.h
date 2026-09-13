@@ -229,7 +229,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         render_header(ctx, panel.ent(), *app);
         const float bodyW = std::max(120.0f, panelRect.width - kPadH * 2.0f);
-        render_search_field(ctx, panel.ent(), *app, focus, navW, bodyW);
+        render_search_field(ctx, panel.ent(), *app, navW, bodyW);
 
         auto body = div(ctx, mk(panel.ent(), 500),
             ComponentConfig{}
@@ -626,8 +626,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     void render_search_field(UIContext<InputAction>& ctx, Entity& parent,
-                             AppComponent& app, const cat::Focus& focus,
-                             float navW, float bodyW) {
+                             AppComponent& app, float navW, float bodyW) {
         const float labelW = navW;
         auto row = div(ctx, mk(parent, 400),
             ComponentConfig{}

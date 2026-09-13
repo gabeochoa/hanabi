@@ -22,7 +22,7 @@
 #define AFTER_HOURS_ENTITY_HELPER
 #define AFTER_HOURS_ENTITY_QUERY
 #define AFTER_HOURS_SYSTEM
-#include "../../vendor/afterhours/src/ecs.h"
+#include <afterhours/src/ecs.h>
 
 #include "../../src/api/disk_cache.h"
 #include "../../src/api/mock_client.h"

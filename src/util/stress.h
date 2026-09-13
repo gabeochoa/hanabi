@@ -77,7 +77,7 @@
 #include "../ecs/tab_model.h"
 #include "../ecs/ui_imports.h"
 #include "gfx_resize.h"
-#include "../../vendor/afterhours/src/plugins/window_manager.h"
+#include <afterhours/src/plugins/window_manager.h>
 
 namespace hanabi::stress {
 

@@ -51,21 +51,11 @@ static void hanabi_a11y_queue_press(unsigned long long entity) {
     return YES;
 }
 
-- (NSArray<NSString*>*)accessibilityActionNames {
-    if (!self.hanabiPressable || !self.hanabiEnabled) return @[];
-    return @[ NSAccessibilityPressAction ];
-}
-
-- (NSString*)accessibilityActionDescription:(NSString*)action {
-    if ([action isEqualToString:NSAccessibilityPressAction]) return @"press";
-    return nil;
-}
-
-- (void)accessibilityPerformAction:(NSString*)action {
-    if (![action isEqualToString:NSAccessibilityPressAction]) return;
-    [self accessibilityPerformPress];
-}
-
+// Press is exposed through the NSAccessibility protocol method alone. The
+// informal trio (accessibilityActionNames / -ActionDescription: /
+// -PerformAction:) has been deprecated since 10.10 and AppKit routes a
+// VoiceOver press to accessibilityPerformPress when an element implements
+// it, so keeping both was one behaviour spelled twice.
 - (BOOL)accessibilityPerformPress {
     if (!self.hanabiPressable || !self.hanabiEnabled) return NO;
     if (self.hanabiEntity == 0) return NO;
@@ -274,11 +264,10 @@ int native_a11y_perform_press(const char* name) {
     NSString* want = [NSString stringWithUTF8String:name];
     for (HanabiA11yElement* e in g_all) {
         if (![[e accessibilityLabel] isEqualToString:want]) continue;
-        if (![[e accessibilityActionNames]
-                containsObject:NSAccessibilityPressAction])
-            return 0;
-        [e accessibilityPerformAction:NSAccessibilityPressAction];
-        return 1;
+        // The protocol method answers NO for a control that cannot be pressed
+        // (not pressable, disabled, or unbound), which is the same reading the
+        // old action-name list gave.
+        return [e accessibilityPerformPress] ? 1 : 0;
     }
     return 0;
 }

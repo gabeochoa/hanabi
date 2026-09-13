@@ -52,7 +52,7 @@
 #include "ui/theme_config.h"
 #include "util/gfx_resize.h"
 
-#include "../vendor/afterhours/src/ecs.h"
+#include <afterhours/src/ecs.h>
 
 #include "api/client.h"
 #include "api/disk_cache.h"
@@ -1064,9 +1064,9 @@ static void app_cleanup() {
 }
 
 #ifdef AFTER_HOURS_ENABLE_E2E_TESTING
-#include "../vendor/afterhours/src/plugins/e2e_testing/e2e_testing.h"
-#include "../vendor/afterhours/src/plugins/e2e_testing/platform_test_input.h"
-#include "../vendor/afterhours/src/plugins/e2e_testing/ui_commands.h"
+#include <afterhours/src/plugins/e2e_testing/e2e_testing.h>
+#include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
+#include <afterhours/src/plugins/e2e_testing/ui_commands.h>
 #include "ecs/e2e_commands.h"
 #endif
 

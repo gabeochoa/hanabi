@@ -2,7 +2,7 @@
 
 // Shared UI type aliases for ECS system headers. Include at file scope.
 
-#include "../../vendor/afterhours/src/core/system.h"
+#include <afterhours/src/core/system.h>
 #include "../input_mapping.h"
 #include "../rl.h"
 #include "../ui/div.h"

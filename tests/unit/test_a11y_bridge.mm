@@ -279,11 +279,10 @@ static void check_press_action_dispatch() {
     for (id child in [[[NSApp windows] firstObject] contentView]
              .accessibilityChildren) {
         if (![[child accessibilityLabel] isEqualToString:@"Archive"]) continue;
-        CHECK([[child accessibilityActionNames]
-            containsObject:NSAccessibilityPressAction]);
-        CHECK([[child accessibilityActionDescription:NSAccessibilityPressAction]
-            isEqualToString:@"press"]);
-        [child accessibilityPerformAction:NSAccessibilityPressAction];
+        // The protocol method is the one AppKit calls for a VoiceOver press;
+        // it answers YES and queues the entity.
+        CHECK([child respondsToSelector:@selector(accessibilityPerformPress)]);
+        CHECK([child accessibilityPerformPress]);
         CHECK(native_a11y_take_pressed() == 4242);
         CHECK([child accessibilityPerformPress]);
         CHECK(native_a11y_take_pressed() == 4242);
@@ -292,7 +291,6 @@ static void check_press_action_dispatch() {
              .accessibilityChildren) {
         if (![[child accessibilityLabel] isEqualToString:@"Rename\u2026"])
             continue;
-        CHECK([[child accessibilityActionNames] count] == 0);
         CHECK(![child accessibilityPerformPress]);
         CHECK(native_a11y_take_pressed() == 0);
     }

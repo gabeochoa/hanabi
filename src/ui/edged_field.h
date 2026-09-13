@@ -17,7 +17,7 @@
 // field on that same footing -- the wrap carries the chrome the field used to
 // carry, and the field fills it transparently.
 
-#include "../../vendor/afterhours/src/plugins/ui/text_input/component.h"
+#include <afterhours/src/plugins/ui/text_input/component.h>
 #include "../ecs/ui_imports.h"
 #include "field_chrome.h"
 #include "secondary_surface.h"

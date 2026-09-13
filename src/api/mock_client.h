@@ -1372,8 +1372,11 @@ class MockClient : public Client {
         if (mode == "big" || mode == "vanish") {
             nlohmann::json props = nlohmann::json::object();
             static const char* kAsks[] = {
-                "Which ledger should the reconciliation trust when the promo "
-                "credit and the bank feed disagree?",
+                // One question, wrapped at the margin; the parentheses say so
+                // (-Wstring-concatenation reads a bare wrap in an array as a
+                // missing comma).
+                ("Which ledger should the reconciliation trust when the promo "
+                 "credit and the bank feed disagree?"),
                 "What may I touch while fixing it?",
                 "Which cycle should the corrected batch be booked against?",
                 "Who signs off before the release runs?",
