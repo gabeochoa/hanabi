@@ -120,8 +120,8 @@ supplied entirely at runtime via env — nothing committed). Results:
 
 Two concrete things this live test surfaced and FIXED in the generic adapter:
 1. **HTTPS transport was missing from ordinary builds.** `HANABI_ENABLE_TLS`
-   adds OpenSSL and platform certificate support. A plain `make` now enables it
-   whenever Homebrew OpenSSL is present; `HANABI_TLS=0` is the explicit
+   adds OpenSSL and platform certificate support. A plain `zig build` now enables it
+   whenever Homebrew OpenSSL is present; `zig build -Dtls=false` is the explicit
    dependency-free portability lane.
 2. **Block-array transcripts.** Some backends carry message content in a
    `blocks:[{type,content}]` array instead of a flat text field, so transcript text

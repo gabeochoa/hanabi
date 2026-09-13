@@ -143,7 +143,7 @@ cleanup() { kill_own_runs; rm -f "$SHOT" "$LOG"; }
 trap cleanup EXIT
 
 if [ ! -x "$EXE" ]; then
-    echo "soak_gate: $EXE not found — run 'make' first." >&2
+    echo "soak_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 
@@ -241,7 +241,7 @@ if ! grep -qE '^\[soak\] (PASS|-+ SOAK GATE)' "$LOG"; then
     echo "        the process. On this machine the usual cause is another" >&2
     echo "        worktree: scripts/review_shots.sh kills output/hanabi.exe in" >&2
     echo "        EVERY worktree it finds, not just its own. Re-run:" >&2
-    echo "            make soak-gate" >&2
+    echo "            zig build soak-gate" >&2
     exit 1
 fi
 echo "  FAILED soak gate (rc=${rc}) — see docs/perf/GATES.md" >&2

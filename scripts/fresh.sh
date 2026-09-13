@@ -47,7 +47,7 @@ require_fresh_build() {
     echo "    These are newer than the binary you are about to measure:" >&2
     printf '      %s\n' $newer | sed "s|$root/||" >&2
     echo "    A stale binary and a real regression are indistinguishable in" >&2
-    echo "    the output. Run 'make' first." >&2
+    echo "    the output. Run 'zig build' first." >&2
     if [ "${HANABI_REQUIRE_FRESH:-0}" = "1" ]; then
         echo "    HANABI_REQUIRE_FRESH=1, so this is fatal." >&2
         return 2

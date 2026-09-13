@@ -89,7 +89,7 @@ cleanup() { kill_own_runs; rm -f "$SHOT" "$LOG"; }
 trap cleanup EXIT
 
 if [ ! -x "$EXE" ]; then
-    echo "scaling_gate: $EXE not found — run 'make' first." >&2
+    echo "scaling_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

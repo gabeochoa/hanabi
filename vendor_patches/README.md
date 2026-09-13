@@ -37,7 +37,7 @@ the corresponding patch here.
 
 ## Verified proof patches on 1ac6db2
 
-`PATCHES` in `scripts/verify_vendor_patches.py` covers the two below. The other
+`PATCHES` in `scripts/verify_vendor_patches.py` covers the three below. The other
 four files in this directory (`22`, `25`, `30`, `305`) are **not** in `PATCHES`
 and are verified by nothing.
 
@@ -65,6 +65,7 @@ that the atlas filled.
 |---|---:|---:|---|
 | `265-focus-ring-contrast-toggle.patch` | #265 | +17/-12 | The none backend records three outlines by default in both renderers; disabling contrast records exactly one after the patch. |
 | `266-explicit-disabled-label-color.patch` | #266 | +9 | The disabled-label probe drives afterhours' own harness and reads back the drawn colour: implicit before, the explicit disabled colour after. |
+| `593-system-override.patch` | #593 | +6/-6 | `System<>`'s six overrides marked `override`. The probe compiles the header as user code with `-Werror=inconsistent-missing-override`: red at the pin, green after. hanabi's stand-in is the include policy (every afterhours include through `-isystem`, `src/afterhours_files.cpp` for the one vendored .cpp). |
 
 Run:
 
@@ -72,7 +73,7 @@ Run:
 
 Expected runtime is about one minute on Apple Silicon. A pass ends with:
 
-    PASS all 2 vendor patches are absent from the pinned tree
+    PASS all 3 vendor patches are absent from the pinned tree
     1ac6db21da8768af6bc27248fb6f9484e810a614 and apply cleanly to it. The app
     builds against the UNPATCHED pin; hanabi's own stand-ins are what ship.
 

@@ -192,7 +192,7 @@ def screens_in(directory):
 def report_new(new, manifest_path, lenient):
     print("NEW (no baseline): {}".format(", ".join(new)))
     print("  scripts/screens.sh captures these; nothing checks them.")
-    print("  Adopt them:  make update-baselines   (then review the PNGs and commit)")
+    print("  Adopt them:  zig build update-baselines   (then review the PNGs and commit)")
     print("  Or record why they stay out, in {}:".format(manifest_path))
     print('      "unbaselined": {{"{}": "<why this state has no baseline>"}}'.format(new[0]))
     if lenient:
@@ -248,7 +248,7 @@ def main():
         "(bash scripts/screens.sh --list); - reads stdin"))
     parser.add_argument("--only", default=None, help=(
         "compare just these baselines (comma-separated state names). For the "
-        "fast subset in `make test`: the states outside the list are neither "
+        "fast subset in `zig build test`: the states outside the list are neither "
         "captured nor compared, so the run says nothing about them and the "
         "declared/unbaselined accounting is skipped"))
     parser.add_argument("--lenient-new", action="store_true", help=(
@@ -305,7 +305,7 @@ def main():
             args.baselines), file=sys.stderr)
         return 2
     if current is None:
-        print("ERROR: no current directory at {} — run 'make validate-screenshots'".format(
+        print("ERROR: no current directory at {} — run 'zig build validate-screenshots'".format(
             args.current), file=sys.stderr)
         return 2
 
@@ -369,7 +369,7 @@ def main():
 
     if failures:
         print("FAILED: {}".format(", ".join(f["name"] for f in failures)), file=sys.stderr)
-        print("If the change is intentional: make update-baselines, then review "
+        print("If the change is intentional: zig build update-baselines, then review "
               "the PNG diff before committing.", file=sys.stderr)
         return 1
     if new and not args.lenient_new:

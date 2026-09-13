@@ -30,7 +30,7 @@ FRAMES="${2:-300}"
 SCENARIO="${3:-idle}"
 
 if [ ! -x "$EXE" ]; then
-    echo "alloc_sites: $EXE not found — run 'make' first." >&2
+    echo "alloc_sites: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

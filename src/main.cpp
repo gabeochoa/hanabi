@@ -1,6 +1,6 @@
 #include <argh.h>
 #include <branding.h>
-#include <build_stamp.h>
+#include "build_stamp.h"
 
 #include <algorithm>
 #include <chrono>
@@ -2836,7 +2836,7 @@ int main(int argc, char* argv[]) {
     // WHICH binary is running (the "am I even on the new build?" blind spot).
     static std::string s_title =
         std::string(product_branding::kAppName) + "  ·  build " +
-        HANABI_BUILD_STAMP;
+        hanabi::build_stamp();
     cfg.title = s_title.c_str();
     cfg.target_fps = 120;
     cfg.flags = afterhours::graphics::FLAG_WINDOW_RESIZABLE;

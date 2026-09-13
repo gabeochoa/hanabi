@@ -26,7 +26,7 @@ cd "$ROOT" || exit 2
 
 EXE="$ROOT/output/hanabi_uitest.exe"
 if [ ! -x "$EXE" ]; then
-    echo "ERROR: $EXE not found. Build it with 'make uitest-build'." >&2
+    echo "ERROR: $EXE not found. Build it with 'zig build uitest-build'." >&2
     exit 2
 fi
 

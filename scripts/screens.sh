@@ -92,7 +92,7 @@ kill_own_renders() {
 if ! listing; then
 
 if [ ! -x "$EXE" ]; then
-    echo "ERROR: $EXE not found or not executable. Build first (make -j4)." >&2
+    echo "ERROR: $EXE not found or not executable. Build first (zig build)." >&2
     exit 2
 fi
 

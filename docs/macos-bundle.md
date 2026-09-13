@@ -23,14 +23,14 @@ The defaults remain `Hanabi`, `io.github.gabeochoa.hanabi`, executable `hanabi`,
 and scheme `hanabi`:
 
 ```bash
-make app
-make verify-app
+zig build app
+zig build verify-app
 ```
 
 One-off builds can override all four values without editing the repository:
 
 ```bash
-make verify-app \
+zig build verify-app \
   APP_NAME=Ember \
   BUNDLE_ID=io.github.gabeochoa.ember \
   EXECUTABLE_NAME=ember \
@@ -45,7 +45,7 @@ values stop generation before packaging.
 Derived values are not independently configurable: the URL type name,
 notification request prefix, Spotlight domain, Spotlight item prefix, Spotlight
 manifest key, WebSocket diagnostic label, and local data namespace all derive
-from the four validated fields. `make source-checks` verifies generated outputs
+from the four validated fields. `zig build source-checks` verifies generated outputs
 and rejects duplicated default identity literals in identity-sensitive source.
 
 The bundle contains the executable, UI resources, and the OpenSSL runtime
@@ -57,7 +57,7 @@ The ad-hoc signature proves the local bundle is internally consistent. It is not
 a Developer ID signature, is not notarized, and makes no Gatekeeper distribution
 claim.
 
-`make run` is unchanged: it builds and starts the developer executable. That
+`zig build run` is unchanged: it builds and starts the developer executable. That
 executable has no bundle identity, does not request notification permission, and
 does not write to CoreSpotlight.
 
@@ -94,8 +94,8 @@ count, responder-bridge installation, and recorder state.
 ## Install, update, and remove
 
 ```bash
-make install-app
-make uninstall-app
+zig build install-app
+zig build uninstall-app
 ```
 
 The default install path is `~/Applications/<app_name>.app`. Installation stages
@@ -107,12 +107,12 @@ with `APP_INSTALL_DIR=/path/to/Name.app`; quote paths containing spaces.
 For the build output alone:
 
 ```bash
-make register-app
-make unregister-app
-make launch-app
+zig build register-app
+zig build unregister-app
+zig build launch-app
 ```
 
-The same identity overrides used by `make app` must be supplied to later
+The same identity overrides (`-Dapp-name=` and friends) used by `zig build app` must be supplied to later
 register, install, launch, or uninstall commands for that branded build.
 
 ## Notifications
@@ -170,12 +170,12 @@ proof that macOS accepted the donation.
 "output/hanabi.exe" --native-diagnostics
 "output/Hanabi.app/Contents/MacOS/hanabi" \
   --parse-thread-url 'hanabi://thread/local%20check'
-make verify-app
+zig build verify-app
 ```
 
 The first command reports the real bundle identifier plus the compiled scheme,
 notification prefix, and Spotlight domain. The bare executable reports
 `bundle=none`. The URL parser command prints the decoded thread id and performs
-no AppKit, filesystem, or network work. `make verify-app` also rejects
+no AppKit, filesystem, or network work. `zig build verify-app` also rejects
 machine-local dylib paths, missing resources, plist/runtime identity mismatches,
 invalid URL parsing, or an invalid bundle seal.

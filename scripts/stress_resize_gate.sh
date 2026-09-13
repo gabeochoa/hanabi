@@ -23,7 +23,7 @@ FRAMES="${HANABI_RESIZE_GATE_FRAMES:-400}"
 SESSIONS="${HANABI_RESIZE_GATE_SESSIONS:-40}"
 
 if [ ! -x "$EXE" ]; then
-    echo "stress_resize_gate: $EXE not found — run 'make' first." >&2
+    echo "stress_resize_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

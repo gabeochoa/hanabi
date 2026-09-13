@@ -56,7 +56,7 @@ read_arm() {
 }
 
 if [ ! -x "$EXE" ]; then
-    echo "home-scan-gate: $EXE not found — run 'make' first." >&2
+    echo "home-scan-gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

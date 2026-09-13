@@ -79,14 +79,14 @@ L_ALLOC_RATIO=$(awk -v a="$L_OPEN_ALLOC" -v b="$L_CLOSED_ALLOC" 'BEGIN { printf 
 #
 #                    closed    open    extra   ratio
 #   9ff9079  480 msgs  4108    6751     2643   1.643
-#   9ff9079 3672 msgs  4742    7767     3024   1.638
+#   9ff9079 3672 msgs  4742    7767     3025   1.638
 #   1ac6db2  480 msgs  2240    4767     2527   2.128
 #   1ac6db2 3672 msgs  2875    5782     2907   2.011
 #
 # A ratio punishes the code around find for getting cheaper. The gate is on the
 # extra now; the ratio is still printed because it is what older logs show.
 # The limit, 3700, is the old headroom (limit 2.0 over a measured 1.64 is 22%)
-# over the old worst extra (3024 * 1.22). It is STRICTER than what the ratio
+# over the old worst extra (3025 * 1.22 = 3690). It is STRICTER than what the ratio
 # gate allowed at the old pin, which was 2.0 * 4742 - 4742 = 4742 extra.
 # Mutant controls at 1ac6db2 (both planted in collect_matches, both caught):
 #   every-frame memo miss (transcriptVersion + counter): rows/f 797.6 and

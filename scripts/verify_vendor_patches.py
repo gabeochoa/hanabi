@@ -25,6 +25,7 @@ CXX = shlex.split(os.environ.get("CXX", "clang++"))
 PATCHES = {
     "265-focus-ring-contrast-toggle.patch": "focus",
     "266-explicit-disabled-label-color.patch": "label",
+    "593-system-override.patch": "override",
 }
 
 # NOTHING APPLIES THESE PATCHES. The app compiles the submodule verbatim, so a
@@ -122,8 +123,13 @@ def export_base(destination: Path) -> None:
         raise SystemExit("could not export pinned vendor base")
 
 
-def compile_probe(tree: Path, source: Path, output: Path, syntax_only: bool = False) -> subprocess.CompletedProcess[str]:
-    args = CXX + ["-std=c++23", "-O0", "-w"]
+def compile_probe(tree: Path, source: Path, output: Path, syntax_only: bool = False,
+                  warnings: bool = False) -> subprocess.CompletedProcess[str]:
+    # -w by default: these probes are about behaviour, not diagnostics. The
+    # override probe is the exception -- it IS a diagnostic -- and asks for
+    # the one warning as an error, with the library on a USER include path.
+    args = CXX + ["-std=c++23", "-O0"]
+    args += (["-Werror=inconsistent-missing-override"] if warnings else ["-w"])
     if syntax_only:
         args += ["-fsyntax-only", "-x", "objective-c++"]
     args += [
@@ -211,6 +217,17 @@ def verify_patch(temp: Path, base_tree: Path, pin_tree: Path, contract: Path,
             compile_and_run(patched_tree, "disabled_label_color_probe.cpp",
                             temp / "label-after"),
             f"{patch_name}: green probe",
+        )
+    elif kind == "override":
+        require_red(
+            compile_probe(base_tree, PROBES / "system_override_probe.cpp",
+                          temp / "override-before", warnings=True),
+            f"{patch_name}: red compile (the pin warns as user code)",
+        )
+        require_ok(
+            compile_probe(patched_tree, PROBES / "system_override_probe.cpp",
+                          temp / "override-after", warnings=True),
+            f"{patch_name}: green compile",
         )
     else:
         raise SystemExit(f"{patch_name}: unknown patch kind {kind!r}")

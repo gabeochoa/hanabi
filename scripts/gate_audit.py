@@ -376,19 +376,18 @@ GATE_CMD = {
     "home-source": ["/usr/bin/python3", "scripts/check_home_scan.py"],
     "sidebar-source": ["/usr/bin/python3", "scripts/check_sidebar_scan.py"],
     "sidebar-scan-gate": ["bash", "scripts/sidebar_scan_gate.sh"],
-    "source-checks": ["make", "source-checks"],
+    "source-checks": ["zig", "build", "source-checks"],
     "alloc-gate": ["bash", "scripts/alloc_gate.sh"],
     # The snippet cut, measured directly. No frame-level ceiling can hold this
     # property (see alloc.snippet_copies_line), so its gate is the unit test.
-    # The binary depends on every header, so make rebuilds it after a patch —
-    # and a build failure exits 2, which the audit never accepts as a red.
-    "snippet-alloc": ["bash", "-c",
-                      "make output/tests/test_snippet_text && "
-                      "output/tests/test_snippet_text"],
+    # The binary depends on every header it includes, so zig rebuilds it after
+    # a patch — and a build failure is not a test failure, which the audit
+    # never accepts as a red. `zig build test_snippet_text` builds AND runs.
+    "snippet-alloc": ["zig", "build", "test_snippet_text"],
     "launch": ["bash", "scripts/measure_launch.sh"],
-    # The screenshot subset `make test` runs. It captures and compares, so it
+    # The screenshot subset `zig build test` runs. It captures and compares, so it
     # needs the built app and the machine to itself, like the UI suite.
-    "shots": ["make", "validate-screenshots-fast"],
+    "shots": ["zig", "build", "validate-screenshots-fast"],
 }
 
 KNOWN_BLIND_SPOTS = {
@@ -468,10 +467,12 @@ def audit_selftest():
 def build(kind):
     if kind == "none":
         return True, ""
+    # zig rebuilds exactly what the planted patch reaches (content-hashed
+    # objects), so there is no -B: a patched header IS a changed input.
     if kind == "uitest":
-        rc, out = run(["make", "-B", "uitest-build"])
+        rc, out = run(["zig", "build", "uitest-build"])
     else:
-        rc, out = run(["make", "-B", "-j8"])
+        rc, out = run(["zig", "build"])
     return rc == 0, out[-2000:]
 
 

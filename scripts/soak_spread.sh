@@ -24,7 +24,7 @@ EVERY="${3:-100}"
 SCENARIO="${HANABI_STRESS:-idle}"
 
 if [ ! -x "$EXE" ]; then
-    echo "soak_spread: $EXE not found — run 'make' first." >&2
+    echo "soak_spread: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

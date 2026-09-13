@@ -55,7 +55,7 @@ PIN_NOW="${HANABI_UI_MOCK_NOW:-1781524800}"   # 2026-06-15 12:00:00Z
 PIN_TZ="${HANABI_UI_TZ:-UTC}"
 
 if [ ! -x "$EXE" ]; then
-    echo "ERROR: $EXE not found. Build it with 'make uitest'." >&2
+    echo "ERROR: $EXE not found. Build it with 'zig build uitest-build'." >&2
     exit 2
 fi
 

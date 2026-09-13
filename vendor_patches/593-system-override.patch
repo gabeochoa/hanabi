@@ -1,0 +1,69 @@
+From 593a0000000000000000000000000000000593aa Mon Sep 17 00:00:00 2001
+From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
+Date: Sat, 12 Sep 2026 21:30:00 -0400
+Subject: [PATCH] core: mark System<>'s six overrides `override`
+
+Pinned base: 1ac6db21da8768af6bc27248fb6f9484e810a614
+
+System<Components...> overrides six pure virtuals of SystemBase -- for_each
+(two), for_each_derived (two), for_each_with_derived (two) -- and none of the
+declarations says `override` (the last two say `virtual`). Clang's
+-Winconsistent-missing-override, on by default, reports all six per
+instantiation, so a consumer that reaches the header as user code (a relative
+include, or compiling plugins/files.cpp by its own path) reads eighteen
+warnings per translation unit, and one that holds itself to -Werror cannot
+build. Six words, no behaviour change: `override` on each, `virtual` dropped
+where `override` makes it redundant.
+
+hanabi afterhours_gaps.md #593.
+---
+ src/core/system.h | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/src/core/system.h b/src/core/system.h
+--- a/src/core/system.h
++++ b/src/core/system.h
+@@ -426,7 +426,7 @@
+         }
+     }
+ 
+-    void for_each(Entity &entity, const float dt) {
++    void for_each(Entity &entity, const float dt) override {
+         if (!tags_ok(entity)) return;
+         bool has_all = HasAllComponents<ComponentsOnly>::value(entity);
+         if (has_all) {
+@@ -434,26 +434,26 @@
+         }
+     }
+ 
+-    void for_each_derived(Entity &entity, const float dt) {
++    void for_each_derived(Entity &entity, const float dt) override {
+         if (!tags_ok(entity)) return;
+         if (HasAllComponents<ComponentsOnly>::value_child(entity)) {
+             CallWithChildComponents<ComponentsOnly>::call(this, entity, dt);
+         }
+     }
+ 
+-    void for_each_derived(const Entity &entity, const float dt) const {
++    void for_each_derived(const Entity &entity, const float dt) const override {
+         if (!tags_ok(entity)) return;
+         if (HasAllComponents<ComponentsOnly>::value_child(entity)) {
+             CallWithChildComponents<ComponentsOnly>::call_const(this, entity,
+                                                                 dt);
+         }
+     }
+-    virtual void for_each_with_derived(Entity &, Components &..., const float) {
++    void for_each_with_derived(Entity &, Components &..., const float) override {
+     }
+-    virtual void for_each_with_derived(const Entity &, const Components &...,
+-                                       const float) const {}
++    void for_each_with_derived(const Entity &, const Components &...,
++                               const float) const override {}
+ 
+-    void for_each(const Entity &entity, const float dt) const {
++    void for_each(const Entity &entity, const float dt) const override {
+         if (!tags_ok(entity)) return;
+         if (HasAllComponents<ComponentsOnly>::value(entity)) {
+             CallWithComponents<ComponentsOnly>::call_const(this, entity, dt);
+-- 
+2.39.0

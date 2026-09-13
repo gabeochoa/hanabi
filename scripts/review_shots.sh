@@ -89,13 +89,13 @@ capture() {
 
     if [ -n "$SHOT_SCRIPT" ]; then
         # uitest-build is recent; an older base ref only has the exe target.
-        ( cd "$wt" && { make uitest-build || make output/hanabi_uitest.exe copy-resources; } ) \
+        ( cd "$wt" && zig build uitest-build ) \
             >"${log%.log}_build.log" 2>&1
         local tmp="$STAGE/${label}.e2e"
         sed "s#^screenshot .*#screenshot $png#" "$SHOT_SCRIPT" > "$tmp"
         ( env "${envv[@]}" "$wt/output/hanabi_uitest.exe" --e2e "$tmp" >"$log" 2>&1 ) &
     else
-        ( cd "$wt" && make ) >"${log%.log}_build.log" 2>&1
+        ( cd "$wt" && zig build ) >"${log%.log}_build.log" 2>&1
         ( env "${envv[@]}" "$wt/output/hanabi.exe" --screenshot "$png" >"$log" 2>&1 ) &
     fi
     local pid=$! i

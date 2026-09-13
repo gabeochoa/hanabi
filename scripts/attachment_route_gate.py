@@ -37,8 +37,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--selftest", action="store_true")
     parser.parse_args()
+    # The test executable's step is its own name (build.zig: `zig build
+    # test_agentcloud_local` builds and runs it; tests-build only builds).
     built = subprocess.run(
-        ["make", "-s", str(BINARY.relative_to(ROOT))],
+        ["zig", "build", "tests-build"],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,

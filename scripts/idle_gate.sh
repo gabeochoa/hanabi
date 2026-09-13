@@ -10,7 +10,7 @@ MAX_CPU_MS_PER_SEC="${HANABI_IDLE_MAX_CPU_MS_PER_SEC:-8.0}"
 MAX_ALLOCS_PER_SEC="${HANABI_IDLE_MAX_ALLOCS_PER_SEC:-3000}"
 
 if [ ! -x "$EXE" ]; then
-    echo "idle_gate: $EXE not found — run 'make' first." >&2
+    echo "idle_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

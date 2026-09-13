@@ -115,7 +115,7 @@ cleanup() { kill_own_runs; rm -f "$SHOT" "$LOG"; rm -rf "$HOMEDIR"; }
 trap cleanup EXIT
 
 if [ ! -x "$EXE" ]; then
-    echo "events_gate: $EXE not found — run 'make' first." >&2
+    echo "events_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

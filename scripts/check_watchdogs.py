@@ -16,7 +16,7 @@ the script's stdout, so any reader of that stdout — ``make``, ``tee``,
 
 Measured on 2026-08-25, clean tree, ``>file`` against ``2>&1 | cat``:
 ``soak_gate.sh`` 4 s -> 120 s (its RUN_TIMEOUT is 120), ``measure_launch.sh``
-0 s -> 16 s (its RUN_TIMEOUT is 15).  Both run inside ``make test``, so a
+0 s -> 16 s (its RUN_TIMEOUT is 15).  Both run inside ``zig build test``, so a
 piped suite paid 135 seconds of sleeping for nothing, and every wall-clock
 figure in docs/perf/GATES.md was taken on a tty where the bug does not show.
 

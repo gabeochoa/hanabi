@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Pre-push gate. Installed by `make install-hooks` (never active just by being
+# Pre-push gate. Installed by `zig build install-hooks` (never active just by being
 # in the repo — a hook has to be copied into the hooks dir to run).
 #
-# Runs `make gate`: the test suites and the screenshot baselines. It takes
+# Runs `zig build gate`: the test suites and the screenshot baselines. It takes
 # several minutes, because it captures and compares 30 screens. To push without
 # it once:
 #
@@ -12,8 +12,8 @@
 set -u
 
 ROOT="$(git rev-parse --show-toplevel)"
-echo "pre-push: running 'make gate' in $ROOT (this takes a few minutes)"
-if make -C "$ROOT" gate; then
+echo "pre-push: running 'zig build gate' in $ROOT (this takes a few minutes)"
+if (cd "$ROOT" && zig build gate); then
     exit 0
 fi
 echo "pre-push: the gate failed, so the push is stopped." >&2

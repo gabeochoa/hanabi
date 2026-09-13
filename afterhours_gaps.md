@@ -13534,13 +13534,20 @@ lines), and the library's OTHER diagnostics are hidden with it -- which is the
 price of `-isystem` and why this is a workaround rather than a fix.
 
 **Minimal upstream fix.** `override` on the six declarations (and drop the two
-`virtual`s that go with it). Six words; no behaviour change.
+`virtual`s that go with it). Six words; no behaviour change --
+`vendor_patches/593-system-override.patch`, proven by
+`tests/vendor_probes/system_override_probe.cpp` under `make verify-vendor-patches`:
+the probe compiles the header as user code with
+`-Werror=inconsistent-missing-override`, fails at the pin, compiles after.
 
 **Status.** Confirmed at the pin by compile on two compilers; the workaround
-ships (see the -Werror build in `build.zig`, which is what surfaced it).
+ships (see the -Werror build in `build.zig`, which is what surfaced it), and
+the patch is a maintainer-ready proposal, not a build input.
 
 **Hanabi reference.** `src/afterhours_files.cpp` — the shim; `build.zig`
-(`-isystem`) — every afterhours include is a system include.
+(`-isystem`) — every afterhours include is a system include;
+`vendor_patches/593-system-override.patch` — the fix, red/green under
+`scripts/verify_vendor_patches.py`.
 
 CLASS: SHARP EDGE
 

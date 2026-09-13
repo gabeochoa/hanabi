@@ -132,7 +132,7 @@ printf '%s\n' '{"window_width":1180,"window_height":949,"open_tabs":[],"active_t
 export HOME="$HOME_DIR"
 
 if [ ! -x "$EXE" ]; then
-    echo "digest_gate: $EXE not found — run 'make' first." >&2
+    echo "digest_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

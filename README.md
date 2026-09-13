@@ -87,38 +87,75 @@ touching the code.
 
 ## Build
 
-Requires a C++23 compiler (clang recommended) and, on macOS, the Metal
-frameworks (installed with the Xcode command-line tools).
+Requires [Zig](https://ziglang.org) 0.16 (`brew install zig`) as the build
+driver, Apple's `clang++` from the Xcode command-line tools as the compiler
+(the same compiler and libc++ every screenshot baseline was captured against;
+`build.zig` says why zig's own clang is not used), the Metal frameworks that
+come with it, and, for https backends, Homebrew OpenSSL (`brew install
+openssl@3`, detected automatically).
 
 ```bash
 git clone --recurse-submodules <this-repo>
 cd hanabi
-make            # build ./output/hanabi.exe for development
-make run        # build + launch without changing the app-bundle workflow
-make app        # build a self-contained TLS-enabled output/Hanabi.app
-make verify-app # validate identity, signature, resources, and runtime libraries
-make install-app   # install/update ~/Applications/Hanabi.app + register it
-make uninstall-app # unregister and remove that exact bundle
-make test       # run unit, headless UI, screenshot, and performance gates
+zig build              # ./output/hanabi.exe + output/resources, for development
+zig build run          # build + launch (reads .env; the offline mock without it)
+zig build run-mock     # build + launch against the offline mock backend
+zig build app          # a self-contained TLS-enabled output/Hanabi.app
+zig build verify-app   # validate identity, signature, resources, runtime libraries
+zig build install-app  # install/update ~/Applications/Hanabi.app + register it
+zig build uninstall-app
+zig build test         # unit + e2e + perf, the scripted-UI suite, every gate,
+                       # the fast screenshot subset, source checks -- in order
+zig build --help       # every step, with what it does
 ```
+
+Every step's outputs land under `output/` at the paths the scripts read
+(`output/hanabi.exe`, `output/hanabi_uitest.exe`, `output/tests/<name>`).
+Every object is its own node with a depfile, cached by content: an edit to a
+header rebuilds exactly the objects that include it, a new commit rebuilds
+only `build_stamp.cpp` (three lines) and relinks, and a no-op `zig build`
+does nothing (about two seconds). Everything that RUNS -- a test,
+a gate, a capture -- runs every time it is asked for; nothing is served from
+the cache.
+
+Warnings are errors (`-Dwerror=true` is the default). The project's own
+sources are held to `-Wall -Wextra -Wpedantic` with the six named
+suppressions the makefile always carried for patterns in the vendored headers
+(`app_warnings` in `build.zig`: deprecated-volatile, missing-field-initializers,
+c99-extensions, unused-function, sign-conversion,
+deprecated-literal-operator); the tests to `-Wall -Wextra` with two
+(deprecated-literal-operator, sign-conversion). Vendored
+headers come in through `-isystem` and are not diagnosed (the one vendored
+`.cpp` is compiled through `src/afterhours_files.cpp` for the same reason;
+the library defect that made it necessary is `afterhours_gaps.md` #593, with
+a proof patch). `-Dwerror=false` shows a warning instead of stopping on it --
+a compile's stderr is printed either way -- while you work on it; the suite
+does not accept it.
+
+Options: `-Dtls=false` for an HTTP-only build with no OpenSSL dependency
+(`-Dtls=true` requires it), `-Dopt=0` for an unoptimised app, `-Dapp-name=`
+`-Dbundle-id=` `-Dexecutable-name=` `-Durl-scheme=` for an alternate identity.
+`make <target>` still works: the makefile is a forwarder to the step of the
+same name (`zig build test` runs `zig build test`).
 
 ## macOS app bundle
 
-`make app` produces `output/Hanabi.app` with the default bundle identifier
+`zig build app` produces `output/Hanabi.app` with the default bundle identifier
 `io.github.gabeochoa.hanabi`. The four defaults live only in
-`resources/macos/branding.json`; `make app APP_NAME=Ember
-BUNDLE_ID=io.github.gabeochoa.ember EXECUTABLE_NAME=ember URL_SCHEME=ember`
+`resources/macos/branding.json`; `zig build app -Dapp-name=Ember
+-Dbundle-id=io.github.gabeochoa.ember -Dexecutable-name=ember -Durl-scheme=ember`
 builds an isolated alternate identity. It includes resources plus the OpenSSL
 dylibs used by the TLS build, uses macOS Keychain roots for certificate
 verification, and is ad-hoc signed so its local bundle seal and identifier can
 be verified. It is not Developer ID signed or notarized.
 
-Building does not install or register anything. `make install-app` copies the
-verified app to `~/Applications/<app_name>.app` and registers it with
-LaunchServices; `make uninstall-app` unregisters and removes only an app at that
-path with the resolved display name and bundle identifier.
-`APP_INSTALL_DIR=/path/Name.app` overrides the destination. `make register-app`
-/ `make unregister-app` manage the build output directly for local verification.
+Building does not install or register anything. `zig build install-app` copies
+the verified app to `~/Applications/<app_name>.app` and registers it with
+LaunchServices; `zig build uninstall-app` unregisters and removes only an app at
+that path with the resolved display name and bundle identifier.
+`APP_INSTALL_DIR=/path/Name.app` in the environment overrides the destination.
+`zig build register-app` / `zig build unregister-app` manage the build output
+directly for local verification.
 
 The bundled app requests notification permission on its first windowed launch.
 The developer executable and every headless screenshot/test path remain
@@ -131,11 +168,11 @@ There is no CI for this repo — the remote is a plain GitHub repo with no
 workflows, so nothing runs the tests when a commit lands. The gate is local:
 
 ```bash
-make gate          # tests + screenshot baselines; a few minutes
-make install-hooks # optional: run the gate automatically on git push
+zig build gate          # tests + screenshot baselines; a few minutes
+zig build install-hooks # optional: run the gate automatically on git push
 ```
 
-`make gate` runs both halves even if the first one fails, so one run tells you
+`zig build gate` runs both halves even if the first one fails, so one run tells you
 everything that is wrong. When a screen has drifted from its committed
 baseline, the evidence is written to `test-failures/`: the baseline, the fresh
 capture, a diff image with the changed pixels in red, and `summary.json`. See
@@ -186,16 +223,17 @@ If `http` is selected but no base URL is set, the app cleanly falls back to the
 
 ### HTTPS backends use TLS by default
 
-When Homebrew OpenSSL is installed, a plain `make` builds HTTPS support. Use
-`make HANABI_TLS=0` only for a dependency-free portability or offline build:
+When Homebrew OpenSSL is installed, a plain `zig build` builds HTTPS support.
+Use `-Dtls=false` only for a dependency-free portability or offline build:
 
 ```bash
-make                    # TLS on when OpenSSL is present
-make HANABI_TLS=0       # explicit HTTP-only build
-make HANABI_TLS=1       # require an explicit TLS build
+zig build               # TLS on when OpenSSL is present
+zig build -Dtls=false   # explicit HTTP-only build
+zig build -Dtls=true    # require an explicit TLS build (refuses without OpenSSL)
 ```
 
-The build records the last mode and only recompiles when it changes. Without
+The two modes are separate cache entries, so switching recompiles only what the
+define reaches and switching back is free. Without
 OpenSSL, the default remains an HTTP-only build and an HTTPS configuration
 reports a clean error instead of connecting or crashing.
 

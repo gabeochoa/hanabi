@@ -221,7 +221,7 @@ CEIL_ASKNARROW="${HANABI_ALLOC_CEIL_ASKNARROW:-1200}"
 REPORT_ONLY="${HANABI_ALLOC_GATE_REPORT:-0}"
 
 if [ ! -x "$EXE" ]; then
-    echo "alloc_gate: $EXE not found — run 'make' first." >&2
+    echo "alloc_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

@@ -63,7 +63,7 @@ MAX_FOLDER_RATIO="${HANABI_SIDEBAR_SCAN_MAX_FOLDER_RATIO:-1.20}"
 RUN_TIMEOUT="${HANABI_SIDEBAR_SCAN_TIMEOUT:-180}"
 
 if [ ! -x "$EXE" ]; then
-    echo "sidebar-scan-gate: $EXE not found — run 'make' first." >&2
+    echo "sidebar-scan-gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

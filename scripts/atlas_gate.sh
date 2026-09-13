@@ -49,7 +49,7 @@ EXE="${1:-$ROOT/output/hanabi.exe}"
 . "$ROOT/scripts/watchdog.sh"
 
 if [ ! -x "$EXE" ]; then
-    echo "atlas_gate: no binary at $EXE — run 'make' first." >&2
+    echo "atlas_gate: no binary at $EXE — run 'zig build' first." >&2
     exit 2
 fi
 

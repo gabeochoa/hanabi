@@ -42,7 +42,7 @@ EXE="$ROOT/output/hanabi.exe"
 BASELINE="$ROOT/scripts/bounds_baseline.txt"
 
 if [ ! -x "$EXE" ]; then
-    echo "bounds-gate: ERROR: $EXE not found. Build it with 'make'." >&2
+    echo "bounds-gate: ERROR: $EXE not found. Build it with 'zig build'." >&2
     exit 2
 fi
 

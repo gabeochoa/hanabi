@@ -28,13 +28,12 @@ FAIL=0
 step() { printf '\n\033[1m>>> %s\033[0m\n' "$1"; }
 
 # --- Build (app + all test exes) ---
-step "Build (make -j4 + test binaries)"
-if ! make -j4 >/tmp/hb_build.log 2>&1; then
+step "Build (zig build + test binaries)"
+if ! zig build >/tmp/hb_build.log 2>&1; then
     echo "BUILD FAILED:"; tail -30 /tmp/hb_build.log; exit 1
 fi
 # Build the three test binaries without running them yet.
-if ! make output/tests/test_api output/tests/test_e2e output/tests/test_perf \
-        >/tmp/hb_build_tests.log 2>&1; then
+if ! zig build tests-build >/tmp/hb_build_tests.log 2>&1; then
     echo "TEST BUILD FAILED:"; tail -30 /tmp/hb_build_tests.log; exit 1
 fi
 echo "  build OK"

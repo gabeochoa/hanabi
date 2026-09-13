@@ -149,7 +149,7 @@ cleanup() { kill_own_runs; rm -rf "$WORK"; }
 trap cleanup EXIT
 
 if [ ! -x "$EXE" ]; then
-    echo "soak: $EXE not found — run 'make' first." >&2
+    echo "soak: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 
@@ -245,7 +245,7 @@ for arm in $ARMS; do
         echo "  the run ended (rc=${rc}) before it reached a verdict — nothing was" >&2
         echo "  measured. Something killed the process, or it crashed; this is not" >&2
         echo "  a leak. Re-run the arm on its own:" >&2
-        echo "      make soak ARMS=${arm} JOBS=1" >&2
+        echo "      HANABI_SOAK_ARMS=${arm} HANABI_SOAK_JOBS=1 zig build soak" >&2
         rss="not measured"; heap="not measured"
     elif grep -q 'SCENARIO DROVE NOTHING' "$log" 2>/dev/null; then
         # A scenario that drove nothing is the flattest run anybody ever took.

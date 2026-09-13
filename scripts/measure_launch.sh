@@ -102,7 +102,7 @@ cleanup() { kill_own_runs; rm -f "$SHOT" "$LOG" "$TIMELOG"; }
 trap cleanup EXIT
 
 if [ ! -x "$EXE" ]; then
-    echo "measure_launch: $EXE not found — run 'make -j4' first." >&2
+    echo "measure_launch: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 

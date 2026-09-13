@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """scripts/check_sidebar_scan.py — the sidebar's catalog walks, counted.
 
-WHAT THIS GUARDS, AND WHY A COUNTER GATE COULD NOT.  `make sidebar-scan-gate`
+WHAT THIS GUARDS, AND WHY A COUNTER GATE COULD NOT.  `zig build sidebar-scan-gate`
 reads counters that `ecs::model::SidebarBuckets` publishes about ITSELF:
 rebuilds, reuses, sessions visited.  Every one of them is an honest reading of
 the collection — and every one of them stays green if somebody puts a raw loop

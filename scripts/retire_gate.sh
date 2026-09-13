@@ -79,7 +79,7 @@ HELD_RATIO_CEILING="${HANABI_RETIRE_HELD_CEILING:-1.50}"
 SESSIONS="${HANABI_RETIRE_GATE_SESSIONS:-500}"
 FRAMES="${HANABI_RETIRE_GATE_FRAMES:-1200}"
 
-[ -x "$EXE" ] || { echo "no such binary: $EXE (make first)" >&2; exit 2; }
+[ -x "$EXE" ] || { echo "no such binary: $EXE (zig build first)" >&2; exit 2; }
 
 echo "=== hanabi widget-retirement gate ==="
 

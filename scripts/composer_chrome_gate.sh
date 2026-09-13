@@ -35,7 +35,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXE="$ROOT/output/hanabi.exe"
 
 if [ ! -x "$EXE" ]; then
-    echo "ERROR: $EXE not found. Build it with 'make'." >&2
+    echo "ERROR: $EXE not found. Build it with 'zig build'." >&2
     exit 2
 fi
 

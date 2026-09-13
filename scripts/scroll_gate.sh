@@ -140,7 +140,7 @@ cleanup() { kill_own_runs; rm -f "$SHOT" "$LOG"; }
 trap cleanup EXIT
 
 if [ ! -x "$EXE" ]; then
-    echo "scroll_gate: $EXE not found — run 'make' first." >&2
+    echo "scroll_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
 fi
 
@@ -216,7 +216,7 @@ for attempt in $(seq 1 "$TREND_ATTEMPTS"); do
     if ! grep -q 'TREND PASS\|SCROLL TREND: FAIL' "$LOG"; then
         echo "  FAIL: the trend run ended before it reached a verdict (rc=${rc})." >&2
         echo "        Nothing was measured, so this is not a regression — something" >&2
-        echo "        killed the process. Re-run: make scroll-gate" >&2
+        echo "        killed the process. Re-run: zig build scroll-gate" >&2
         exit 1
     fi
     if grep -q 'TREND PASS' "$LOG"; then
