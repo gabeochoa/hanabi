@@ -92,14 +92,66 @@
 // clipped bubble somebody notices in a screenshot.
 // ---------------------------------------------------------------------------
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include "prof.h"
 
 namespace hanabi::text {
+
+// ---------------------------------------------------------------------------
+// THE WIDTHS AN ANSWER HOLDS AT.
+//
+// The bisecting counter is a deterministic function of the text and of the
+// OUTCOMES of its comparisons `measure(probe) <= max_width`. Nothing else in
+// it reads the width. So if every probe that fit at `max_width` still fits at
+// `w`, and every probe that overflowed still overflows, the counter run at
+// `w` makes the same comparisons in the same order and returns the same
+// count -- and `wrapped_line_spans`, which probes the same prefixes the same
+// way, returns the same lines.
+//
+// That is the half-open interval
+//
+//     [ max{ measure(p) : p fit },  min{ measure(p) : p overflowed } )
+//
+// over the probes one call actually made. It needs no monotonicity of the
+// metric (the bisection's OWN correctness does; see above): it is the same
+// answer because it is the same computation. The natural-width rule in
+// transcript_render_cache.h is the case where nothing overflowed -- hi is
+// infinite and lo is the widest whole-line probe.
+//
+// A hard line of one word is never probed and constrains nothing, which is
+// right: it is one line at every width.
+// ---------------------------------------------------------------------------
+struct FitInterval {
+    // Empty by default (lo > hi): an interval nobody recorded holds nowhere.
+    float lo = std::numeric_limits<float>::infinity();
+    float hi = -std::numeric_limits<float>::infinity();
+
+    static FitInterval everywhere() {
+        return FitInterval{-std::numeric_limits<float>::infinity(),
+                           std::numeric_limits<float>::infinity()};
+    }
+    bool contains(float w) const { return lo <= w && w < hi; }
+    // One probe's outcome, with the SAME predicate the counter used.
+    void note(float advance, float max_width) {
+        if (advance <= max_width) {
+            if (advance > lo) lo = advance;
+        } else if (advance < hi) {
+            hi = advance;
+        }
+    }
+    // The widths where BOTH answers hold.
+    void merge(const FitInterval& o) {
+        lo = std::max(lo, o.lo);
+        hi = std::min(hi, o.hi);
+    }
+};
 
 namespace wrapdetail {
 
@@ -326,11 +378,36 @@ inline bool verify_wrap_enabled() {
     return on;
 }
 
-// The one callers use.
+// The one callers use. `holds`, when given, receives the widths this answer
+// is good for (FitInterval above), recorded off the fast counter's own
+// probes. The early returns are widths the counter never probes at, so they
+// are fenced explicitly: an empty text is one line everywhere, and any width
+// at or below zero is one line only among widths at or below zero.
 template <class Measure>
 inline int wrapped_line_count(const std::string& text, float max_width,
-                              Measure&& measure) {
-    const int fast = wrapped_line_count_fast(text, max_width, measure);
+                              Measure&& measure,
+                              FitInterval* holds = nullptr) {
+    int fast;
+    if (holds == nullptr) {
+        fast = wrapped_line_count_fast(text, max_width, measure);
+    } else if (text.empty()) {
+        *holds = FitInterval::everywhere();
+        fast = 1;
+    } else if (max_width <= 0.0f) {
+        *holds = FitInterval{-std::numeric_limits<float>::infinity(),
+                             std::nextafter(0.0f, 1.0f)};
+        fast = 1;
+    } else {
+        FitInterval rec{std::nextafter(0.0f, 1.0f),
+                        std::numeric_limits<float>::infinity()};
+        fast = wrapped_line_count_fast(
+            text, max_width, [&](const std::string& s) {
+                const float advance = measure(s);
+                rec.note(advance, max_width);
+                return advance;
+            });
+        *holds = rec;
+    }
     if (verify_wrap_enabled()) {
         const int ref = wrapped_line_count_linear(text, max_width, measure);
         hanabi::prof::tick(ref == fast ? "text.wrap_verified"

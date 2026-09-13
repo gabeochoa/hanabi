@@ -25,7 +25,9 @@
 // metric here, monotonic or not; that is what makes it usable as the runtime
 // cross-check behind HANABI_VERIFY_WRAP.
 
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -256,6 +258,163 @@ static void spans_are_the_lines(const char* metricName, M&& m) {
                 checked);
 }
 
+// ---- the widths an answer holds at -----------------------------------------
+
+// Prose the shape of what the transcript measures, on top of corpus(): the
+// synthetic fixture's assistant turn wraps in one paragraph and can flatter
+// an interval; a real answer has many, and its interval is the intersection
+// of all of them.
+static std::vector<std::string> interval_corpus() {
+    std::vector<std::string> out = corpus();
+    out.push_back(
+        "Here's the breakdown for step 7:\n\n"
+        "1. Pulled the trace and diffed it against the baseline.\n"
+        "2. The hot path is `handle_request` calling into "
+        "`parser_cache.entries` on every event.\n"
+        "3. Under load that's ~40k calls/sec, each allocating.\n"
+        "4. The fix caps the cache and hashes the key.\n\n"
+        "Ruled out:\n- connection pool (steady)\n- metrics buffer (flat)\n\n"
+        "Applying the LRU cap now and adding a regression test so this stays "
+        "bounded going forward. Expected steady-state drop is significant.");
+    out.push_back(
+        "## What changed\n\n"
+        "The counter records, over every probe it makes, the widest prefix "
+        "that fit and the narrowest that did not. Between those two numbers "
+        "every comparison resolves the same way, so the same breaks come out "
+        "and the same count. That is the whole argument; it needs no "
+        "monotonicity, only determinism.\n\n"
+        "Three things follow. First, a message that fits on its hard lines "
+        "has no overflowing probe and holds at every wider width, which is "
+        "the rule that already shipped. Second, a message of fifty wrapped "
+        "lines has fifty chances to pin the interval and it will be narrow. "
+        "Third, a hard line of one word is never probed and constrains "
+        "nothing, because it is one line everywhere.\n\n"
+        "- the render cache keeps the interval per entry\n"
+        "- the line-count memo keeps it per paragraph\n"
+        "- the audit re-measures every hit the long way");
+    out.push_back(
+        "short reply\n\nwith a second paragraph that is long enough to wrap "
+        "at most of the widths this sweep visits, and a third\n\nthat is not");
+    return out;
+}
+
+// SOUNDNESS: at every sweep width w' inside the interval recorded at w, the
+// counter returns the same count and the spans are the same lines. Checked
+// under every metric, the non-monotonic ones included -- the interval is the
+// same COMPUTATION, so it holds wherever the bisection itself is used, and
+// not only where it agrees with the vendor. What is NOT asserted: that the
+// answer differs just outside the interval. A moved break can leave the
+// count, even the lines, unchanged; the interval is where the answer is
+// KNOWN to hold, not the whole set where it happens to.
+//
+// Cost: every (w, w') pair per string per metric is quadratic in the sweep.
+// The routine run steps 1 px over 1..400 (~20 M pairs, a few tenths of a
+// second on top of the suite); HANABI_WRAP_STRESS=1 steps half a pixel, which
+// quadruples that and is the run to make when the counter itself changes.
+static float interval_step() {
+    const char* v = std::getenv("HANABI_WRAP_STRESS");
+    return (v != nullptr && *v != '\0' && std::string(v) != "0") ? 0.5f : 1.0f;
+}
+
+template <class M>
+static void intervals_hold(const char* metricName, M&& m) {
+    constexpr float kLo = 1.0f, kHi = 400.0f;
+    const float kStep = interval_step();
+    const std::size_t nw = static_cast<std::size_t>((kHi - kLo) / kStep) + 1;
+    std::vector<int> counts(nw);
+    std::vector<std::vector<std::pair<size_t, size_t>>> spans(nw);
+    std::vector<hanabi::text::FitInterval> holds(nw);
+    long checked = 0;
+    long wrappedIntervals = 0;
+    double sumWidth = 0.0;
+    int stringsWithFiniteHi = 0;
+    for (const std::string& s : interval_corpus()) {
+        bool finiteHi = false;
+        for (std::size_t i = 0; i < nw; ++i) {
+            const float w = kLo + static_cast<float>(i) * kStep;
+            counts[i] = hanabi::text::wrapped_line_count(s, w, m, &holds[i]);
+            hanabi::text::wrapped_line_spans(s, w, m, spans[i]);
+            if (!holds[i].contains(w)) {
+                std::printf("  FAIL[%s]: interval [%g, %g) does not hold its "
+                            "own width %g for \"%.40s\"\n", metricName,
+                            static_cast<double>(holds[i].lo),
+                            static_cast<double>(holds[i].hi),
+                            static_cast<double>(w), s.c_str());
+                ++g_failures;
+            }
+            // Never a width the counter answers by its early return (an
+            // empty text is the one answer that is the same everywhere).
+            if (!s.empty()) {
+                CHECK(!holds[i].contains(0.0f));
+                CHECK(!holds[i].contains(-1.0f));
+            }
+            if (std::isfinite(holds[i].hi)) {
+                finiteHi = true;
+                ++wrappedIntervals;
+                sumWidth += static_cast<double>(holds[i].hi - holds[i].lo);
+            }
+        }
+        if (finiteHi) ++stringsWithFiniteHi;
+        for (std::size_t i = 0; i < nw; ++i) {
+            for (std::size_t j = 0; j < nw; ++j) {
+                const float wj = kLo + static_cast<float>(j) * kStep;
+                if (!holds[i].contains(wj)) continue;
+                ++checked;
+                if (counts[j] != counts[i] || spans[j] != spans[i]) {
+                    std::printf("  FAIL[%s]: [%g, %g) recorded at w=%g says "
+                                "the answer holds at w=%g, but %d/%zu lines "
+                                "became %d/%zu for \"%.40s\"\n", metricName,
+                                static_cast<double>(holds[i].lo),
+                                static_cast<double>(holds[i].hi),
+                                static_cast<double>(kLo + static_cast<float>(i) * kStep),
+                                static_cast<double>(wj), counts[i],
+                                spans[i].size(), counts[j], spans[j].size(),
+                                s.c_str());
+                    ++g_failures;
+                    goto next_string;
+                }
+            }
+        }
+    next_string:;
+    }
+    // The recorder must actually record: strings that wrap somewhere in the
+    // sweep produce finite upper bounds, and the check above must have had
+    // something to check.
+    CHECK(stringsWithFiniteHi >= 10);
+    CHECK(checked > 0);
+    std::printf("  %s intervals: %ld (w, w') pairs held; %ld wrapped "
+                "intervals, mean width %.1f\n", metricName, checked,
+                wrappedIntervals,
+                wrappedIntervals ? sumWidth / static_cast<double>(wrappedIntervals)
+                                 : 0.0);
+}
+
+// The fenced early returns: an empty text holds everywhere, a non-positive
+// width holds only among non-positive widths, and a text of single-word
+// lines holds at every positive width.
+static void interval_edges() {
+    hanabi::text::FitInterval h;
+    CHECK(hanabi::text::wrapped_line_count(std::string(), 50.0f, uniform, &h) == 1);
+    CHECK(h.contains(-5.0f) && h.contains(0.0f) && h.contains(1e9f));
+    CHECK(hanabi::text::wrapped_line_count(std::string("a b c"), 0.0f, uniform, &h) == 1);
+    CHECK(h.contains(0.0f) && h.contains(-100.0f) && !h.contains(1.0f) &&
+          !h.contains(1e-30f));
+    CHECK(hanabi::text::wrapped_line_count(std::string("one\ntwo\nthree"), 5.0f,
+                                           uniform, &h) == 3);
+    CHECK(!h.contains(0.0f) && h.contains(1e-30f) && h.contains(1e9f));
+    // A caller that does not ask for the interval gets the same count.
+    CHECK(hanabi::text::wrapped_line_count(std::string("one two three"), 50.0f,
+                                           uniform) ==
+          hanabi::text::wrapped_line_count(std::string("one two three"), 50.0f,
+                                           uniform, &h));
+    // An unrecorded interval is empty; merge is intersection.
+    hanabi::text::FitInterval none;
+    CHECK(!none.contains(0.0f) && !none.contains(100.0f));
+    hanabi::text::FitInterval a{10.0f, 50.0f}, b{20.0f, 40.0f};
+    a.merge(b);
+    CHECK(a.lo == 20.0f && a.hi == 40.0f);
+}
+
 static void the_default_wrap_is_unchanged() {
     std::vector<std::pair<size_t, size_t>> implicit;
     std::vector<std::pair<size_t, size_t>> off;
@@ -389,6 +548,11 @@ int main() {
     sweep("dipping-kern", dipping_kern, false);
     spans_are_the_lines("uniform", uniform);
     spans_are_the_lines("proportional", proportional);
+    intervals_hold("uniform", uniform);
+    intervals_hold("proportional", proportional);
+    intervals_hold("backwards-kern", backwards_kern);
+    intervals_hold("dipping-kern", dipping_kern);
+    interval_edges();
     degenerate_widths();
     overlong_word();
     scratch_is_reused();

@@ -8,6 +8,7 @@
 // transcript as message bubbles.
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <map>
 #include <memory>
@@ -8644,26 +8645,63 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // 99.2% hit, 1.4 recomputes a frame. So 512 is the number where a
         // thread longer than any real one starts paying, and what it pays is
         // one recompute per evicted paragraph rather than a cold screen.
+        //
+        // Each entry also keeps the WRAP WIDTHS its count holds at
+        // (FitInterval, src/util/wrap_count.h), recorded off the probes that
+        // produced it. measured() collects those over every count it asks
+        // for while building one message, so a memo hit here still tells it
+        // where the answer stops being good -- a hit that said only "N" would
+        // leave that collector blind and the message unable to travel.
+        struct LineCount {
+            int lines = 1;
+            hanabi::text::FitInterval holds;
+        };
         constexpr std::size_t kLineCountEntries = 512;
-        static hanabi::text::TextKeyCache<int> memo(kLineCountEntries);
-        if (const int* hit = memo.find(text, widthPx, fontPx)) {
+        static hanabi::text::TextKeyCache<LineCount> memo(kLineCountEntries);
+        if (const LineCount* hit = memo.find(text, widthPx, fontPx)) {
             hanabi::prof::tick("cache.lines_hit");
-            return *hit;
+            if (hanabi::text::FitInterval* sink = fit_interval_sink())
+                sink->merge(hit->holds);
+            return hit->lines;
         }
         hanabi::prof::tick("cache.lines_miss");
         hanabi::prof::Scope _p("text.count_lines");
         hanabi::prof::tick("text.count_bytes", text.size());
+        LineCount out;
         const int lines = hanabi::text::wrapped_line_count(
-            text, text_wrap_width(widthPx), [fontPx](const std::string& s) {
+            text, text_wrap_width(widthPx),
+            [fontPx](const std::string& s) {
                 return afterhours::ui::measure_text_line(
                            s, afterhours::ui::UIComponent::DEFAULT_FONT, fontPx)
                     .x;
-            });
-        const int out = lines < 1 ? 1 : lines;
+            },
+            &out.holds);
+        out.lines = lines < 1 ? 1 : lines;
+        if (hanabi::text::FitInterval* sink = fit_interval_sink())
+            sink->merge(out.holds);
         memo.put(text, widthPx, fontPx, out);
         hanabi::prof::gauge("cache.lines_entries", memo.size());
-        return out;
+        return out.lines;
     }
+
+    // Where count_lines reports the widths each answer holds at, while
+    // measured() is building one message's render. Null when nobody is
+    // collecting. Main-thread state, like every memo around it; the
+    // ScopedFitSink below arms it and restores what it found.
+    static hanabi::text::FitInterval*& fit_interval_sink() {
+        static hanabi::text::FitInterval* sink = nullptr;
+        return sink;
+    }
+    struct ScopedFitSink {
+        hanabi::text::FitInterval* prev;
+        explicit ScopedFitSink(hanabi::text::FitInterval* s)
+            : prev(fit_interval_sink()) {
+            fit_interval_sink() = s;
+        }
+        ~ScopedFitSink() { fit_interval_sink() = prev; }
+        ScopedFitSink(const ScopedFitSink&) = delete;
+        ScopedFitSink& operator=(const ScopedFitSink&) = delete;
+    };
 
     // Return the first `maxLines` WRAPPED lines of `text` (approx: we cut on
     // newline boundaries and, within a long unbroken line, on perLine chars).
@@ -9190,6 +9228,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     const char* v = std::getenv("HANABI_NATURAL_AUDIT");
                     return v && *v && std::string_view(v) != "0";
                 }();
+                if (render_cache().natural() != naturalWas) {
+                    // Served at a width the pair does not hold: by the
+                    // natural rule when nothing wrapped, by the interval
+                    // when something did. The second is the new count and
+                    // the one the big scene's gate should see rise above 0.
+                    hanabi::prof::tick(std::isfinite(hit->fit_hi)
+                                           ? "cache.interval_hit"
+                                           : "cache.natural_hit");
+                }
                 if (audit && render_cache().natural() != naturalWas) {
                     std::string body = strip_inline_md(redact_secrets(m.text));
                     if (!rich) body = strip_inline_markers(body);
@@ -9229,10 +9276,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             else
                 r.body += " |";
         }
-        r.line_count = count_lines(r.body, textW);  // logical lines (for fold)
-        r.wrap_w = textW;
-        r.height = rich ? rich_body_h(r.body, textW)
-                        : flat_body_h(r.body, textW);
+        // Every width-dependent term of the count and the height below goes
+        // through count_lines (tables, code blocks and blank lines are flat
+        // in the width; see rich_body_h), so the widths this entry holds at
+        // are the intersection of what every count it asked for holds at --
+        // collected here off the counter's own probes. That is what lets a
+        // message that WRAPS be served at the next width of a resize drag
+        // without re-measuring, exactly, for as long as none of its line
+        // breaks would move; MsgRender::fit_lo/fit_hi.
+        hanabi::text::FitInterval holds = hanabi::text::FitInterval::everywhere();
+        {
+            ScopedFitSink sink(&holds);
+            r.line_count = count_lines(r.body, textW);  // logical lines (for fold)
+            r.wrap_w = textW;
+            r.height = rich ? rich_body_h(r.body, textW)
+                            : flat_body_h(r.body, textW);
+        }
+        r.fit_lo = holds.lo;
+        r.fit_hi = holds.hi;
         // Whether this entry is good at every wider width too; see MsgRender.
         // Not for the live row, whose body changes every frame anyway.
         if (!isLive) {

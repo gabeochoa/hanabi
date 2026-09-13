@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <limits>
 #include <string>
 
 #include "../../src/ecs/pane_state.h"
@@ -132,6 +133,10 @@ static void test_an_unwrapped_entry_serves_every_wider_width() {
     r.height = 24.0f;
     r.natural_advance = 120.0f;   // the widest hard line, at the body font
     r.unwrapped = true;           // 500 - 10 >= 120
+    // What the counter's probes recorded: the widest line fit, nothing
+    // overflowed -- good at every wrap width from 120 up.
+    r.fit_lo = 120.0f;
+    r.fit_hi = std::numeric_limits<float>::infinity();
     cache.put("m1", "short", r);
 
     // Wider, and narrower-but-still-fits: the same entry.
@@ -143,7 +148,7 @@ static void test_an_unwrapped_entry_serves_every_wider_width() {
     CHECK(cache.get("m1", 129.0f, 119.0f, "short") == nullptr);
     CHECK(cache.stale() == 1);
 
-    // A wrapped entry (fits at 500 only because it wrapped) never travels.
+    // An entry nobody recorded an interval for never travels.
     ecs::model::MsgRender wrapped;
     wrapped.body = "a long paragraph";
     wrapped.wrap_w = 500.0f;
@@ -152,6 +157,8 @@ static void test_an_unwrapped_entry_serves_every_wider_width() {
     wrapped.unwrapped = false;
     cache.put("m2", "a long paragraph", wrapped);
     CHECK(cache.get("m2", 900.0f, 890.0f, "a long paragraph") == nullptr);
+    CHECK(cache.get("m2", 501.0f, 491.0f, "a long paragraph") == nullptr);
+    CHECK(cache.get("m2", 500.0f, 490.0f, "a long paragraph") != nullptr);
 
     // The hug rule: same shape, the answer capped at the new max width.
     cache.put_hug("m1|hug", "short", 600.0f, 132.0f, true, 120.0f, 132.0f);
@@ -210,6 +217,63 @@ static void test_a_rich_natural_advance_covers_the_raw_line() {
     CHECK(hanabi::text::wrapped_line_count(body, 1000.0f, uniform_advance) == hardLines);
     // And one short of it is not.
     CHECK(hanabi::text::wrapped_line_count(body, natural - 1.0f, uniform_advance) == hardLines + 1);
+}
+
+// A message that WRAPS is exact at every wrap width where none of its breaks
+// would move -- the half-open interval its counter's probes recorded -- and
+// at no other. Both ends bite: the lower bound is a fitting probe (held), the
+// upper bound is an overflowing one (not held).
+static void test_a_wrapped_entry_serves_its_interval() {
+    std::printf("test_a_wrapped_entry_serves_its_interval\n");
+    ecs::model::TranscriptRenderCache cache;
+    cache.reset_for_thread("pane/thread");
+    // textW is the label width; the wrap width the counter compares against
+    // is textW less the inset (10 here, as text_wrap_width takes off).
+    ecs::model::MsgRender r;
+    r.body = "a paragraph that wraps twice at this width";
+    r.wrap_w = 310.0f;
+    r.line_count = 3;
+    r.height = 72.0f;
+    r.natural_advance = 700.0f;
+    r.unwrapped = false;
+    r.fit_lo = 281.5f;   // the widest line that fit
+    r.fit_hi = 312.25f;  // the narrowest line-plus-next-word that did not
+    const ecs::model::MsgRender* put = &cache.put("m1", r.body, r);
+
+    // Its own width, exactly: the width slot, not the interval.
+    CHECK(cache.get("m1", 310.0f, 300.0f, r.body) == put);
+    CHECK(cache.natural() == 0);
+    // Inside the interval, the fit bound held and the overflow bound not.
+    CHECK(cache.get("m1", 291.5f, 281.5f, r.body) == put);
+    CHECK(cache.get("m1", 322.0f, 312.0f, r.body) == put);
+    CHECK(cache.get("m1", 300.0f, 290.0f, r.body) == put);
+    CHECK(cache.natural() == 3);
+    // At the overflow bound and below the fit bound: a break would move.
+    CHECK(cache.get("m1", 322.25f, 312.25f, r.body) == nullptr);
+    CHECK(cache.get("m1", 291.0f, 281.0f, r.body) == nullptr);
+    CHECK(cache.get("m1", 900.0f, 890.0f, r.body) == nullptr);
+    CHECK(cache.stale() == 3);
+    CHECK(cache.natural() == 3);
+
+    // The next width's entry carries its own interval; the pair serves
+    // whichever holds, and a width neither holds is still a miss.
+    ecs::model::MsgRender r2 = r;
+    r2.wrap_w = 340.0f;
+    r2.line_count = 2;
+    r2.height = 48.0f;
+    r2.fit_lo = 312.25f;
+    r2.fit_hi = 340.0f;
+    cache.put("m1", r.body, r2);
+    const auto* atBound = cache.get("m1", 322.25f, 312.25f, r.body);
+    CHECK(atBound != nullptr && atBound->line_count == 2);
+    const auto* below = cache.get("m1", 300.0f, 290.0f, r.body);
+    CHECK(below != nullptr && below->line_count == 3);
+    CHECK(cache.get("m1", 350.0f, 340.0f, r.body) == nullptr);
+    CHECK(cache.stale() == 4);
+
+    // A changed source drops the interval with the rest of the entry.
+    CHECK(cache.get("m1", 300.0f, 290.0f, "edited") == nullptr);
+    CHECK(cache.changed() == 1);
 }
 
 static void test_render_cache_is_still_bounded() {
@@ -422,6 +486,7 @@ int main() {
     test_two_panes_at_two_widths_do_not_thrash();
     test_an_unwrapped_entry_serves_every_wider_width();
     test_a_rich_natural_advance_covers_the_raw_line();
+    test_a_wrapped_entry_serves_its_interval();
     test_render_cache_is_still_bounded();
     if (g_failures == 0) {
         std::printf("OK\n");

@@ -70,6 +70,7 @@
 // ---------------------------------------------------------------------------
 
 #include <cstddef>
+#include <limits>
 #include <list>
 #include <optional>
 #include <algorithm>
@@ -97,6 +98,17 @@ struct MsgRender {
     // (measured: 5.75 ms a frame at 3,672 messages, 68% of the frame).
     float natural_advance = -1.0f;
     bool unwrapped = false;
+    // The wrap widths this count and height HOLD at: [fit_lo, fit_hi), the
+    // intersection over every line count the entry was built from of the
+    // widths where the counter makes the same comparisons (FitInterval,
+    // src/util/wrap_count.h). The natural rule above is the case fit_hi is
+    // infinite; a message that wraps gets a finite fit_hi and still travels
+    // to every width where none of its breaks would move -- so a resize
+    // drag stepping a few pixels at a time is a hit for it too, until a
+    // break does move. Empty (lo > hi) on an entry nobody recorded, which
+    // is then served at its own width only.
+    float fit_lo = std::numeric_limits<float>::infinity();
+    float fit_hi = -std::numeric_limits<float>::infinity();
 };
 
 class TranscriptRenderCache {
@@ -150,7 +162,7 @@ class TranscriptRenderCache {
             return nullptr;
         }
         if (const MsgRender* m = it->second.find(w)) return m;
-        if (const MsgRender* m = it->second.find_unwrapped(wrap_w_of)) {
+        if (const MsgRender* m = it->second.find_holding(wrap_w_of)) {
             ++natural_;
             return m;
         }
@@ -233,8 +245,9 @@ class TranscriptRenderCache {
     std::size_t absent() const { return absent_; }
     std::size_t stale() const { return stale_; }
     std::size_t changed() const { return changed_; }
-    // Hits served by the natural-width rule at a width the pair does not
-    // hold: what a resize drag costs the transcript, or does not.
+    // Hits served at a width the pair does not hold -- by the natural-width
+    // rule when nothing wrapped, by the entry's fit interval when something
+    // did: what a resize drag costs the transcript, or does not.
     std::size_t natural() const { return natural_; }
 
     // Entries held for the ACTIVE thread (the number the old size() meant).
@@ -290,9 +303,12 @@ class TranscriptRenderCache {
             if (b.wrap_w == w) return &b;
             return nullptr;
         }
-        const MsgRender* find_unwrapped(float wrap_w_of) const {
-            if (a.unwrapped && wrap_w_of >= a.natural_advance) return &a;
-            if (b.unwrapped && wrap_w_of >= b.natural_advance) return &b;
+        // The slot whose recorded interval holds at this wrap width. Same
+        // predicate as FitInterval::contains, on the same float the caller's
+        // counter would have compared against.
+        const MsgRender* find_holding(float wrap_w_of) const {
+            if (a.fit_lo <= wrap_w_of && wrap_w_of < a.fit_hi) return &a;
+            if (b.fit_lo <= wrap_w_of && wrap_w_of < b.fit_hi) return &b;
             return nullptr;
         }
         MsgRender& insert(MsgRender r) {

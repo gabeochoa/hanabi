@@ -30,10 +30,19 @@
 #                 server delivers a real pointer's last event). That slack is
 #                 AppKit's, and it is printed; the content-equals-window
 #                 check is the app's and it is exact.
-#   exactness     HANABI_NATURAL_AUDIT=1 re-measures every render-cache hit the
-#                 natural-width rule served: natural_mismatch must be absent and,
-#                 on the big fixture, natural_audited must be > 0 so the rule was
-#                 exercised, not merely not wrong.
+#   exactness     HANABI_NATURAL_AUDIT=1 re-measures every render-cache hit
+#                 served at a width the pair does not hold -- by the
+#                 natural-width rule or by the entry's fit interval:
+#                 natural_mismatch must be absent and, on the big fixture,
+#                 natural_audited must be > 0 so the rules were exercised,
+#                 not merely not wrong.
+#   reuse         on the big fixture, whose assistant turns all WRAP, the fit
+#                 interval must be what serves them: cache.interval_hit >= 100
+#                 and cache.msgrender_miss < cache.interval_hit over the run.
+#                 A build without the interval reads 0 hits against ~380
+#                 misses a frame (measured, b6d82ef); with it, ~330 hits
+#                 against ~60 misses. Counts, not milliseconds, so it holds
+#                 on a loaded box.
 #   fail closed   a non-zero exit, a missing SUMMARY, or a missing prof table
 #                 is a FAIL, not a skip.
 # It also PRINTS the timing percentiles (app frame CPU/wall, inter-frame gap,
@@ -85,13 +94,16 @@ check_scene() {  # name expect_audited(0|1) -> prints, returns 0/1
     frames=$(field "$summary" frames_live); notes=$(field "$summary" notes)
     skipped=$(field "$summary" sizes_skipped); final=$(field "$summary" final)
     settle=$(field "$summary" settle_frames); lastframe=$(field "$summary" last_frame)
-    local audited mismatch
+    local audited mismatch interval misses
     audited=$(grep -oE 'cache\.natural_audited +[0-9]+' "$LOG" | awk '{print $2}'); audited=${audited:-0}
     mismatch=$(grep -oE 'cache\.natural_mismatch +[0-9]+' "$LOG" | awk '{print $2}'); mismatch=${mismatch:-0}
+    interval=$(grep -oE 'cache\.interval_hit +[0-9]+' "$LOG" | awk '{print $2}'); interval=${interval:-0}
+    misses=$(grep -oE 'cache\.msgrender_miss +[0-9]+' "$LOG" | awk '{print $2}'); misses=${misses:-0}
     printf '  %-14s live_starts=%s live_ends=%s\n' liveness "$starts" "$ends"
     printf '  %-14s frames=%s applied_sizes=%s sizes_skipped=%s\n' progression "$frames" "$notes" "$skipped"
     printf '  %-14s window=%s last_frame=%s settle_frames=%s (pointer left it at 1100x760)\n' settle "$final" "$lastframe" "$settle"
     printf '  %-14s natural_audited=%s natural_mismatch=%s\n' exactness "$audited" "$mismatch"
+    printf '  %-14s interval_hits=%s render_misses=%s\n' reuse "$interval" "$misses"
     printf '  %-14s %s\n' timing "$(grep -oE 'cpu_p50=.* gap_max=[^ ]*' <<< "$summary")"
     printf '  %-14s %s\n' cadence "$(sed 's/\[resize-drive\] CADENCE //' <<< "$cadence")"
     [ "$starts" = 1 ] && [ "$ends" = 1 ] || { echo "  FAIL liveness: AppKit's live resize did not start and end once"; fail=1; }
@@ -107,7 +119,11 @@ check_scene() {  # name expect_audited(0|1) -> prints, returns 0/1
     fi
     [ -n "$settle" ] && [ "$settle" -ge 1 ] || { echo "  FAIL settle: no frame after the live resize ended"; fail=1; }
     [ "$mismatch" = 0 ] || { echo "  FAIL exactness: $mismatch natural-width hits disagreed with a direct measure"; fail=1; }
-    if [ "$want_audited" = 1 ] && [ "$audited" -lt 100 ]; then echo "  FAIL exactness: the natural-width rule was barely exercised ($audited hits)"; fail=1; fi
+    if [ "$want_audited" = 1 ] && [ "$audited" -lt 100 ]; then echo "  FAIL exactness: the off-width rules were barely exercised ($audited hits)"; fail=1; fi
+    if [ "$want_audited" = 1 ]; then
+        [ "$interval" -ge 100 ] || { echo "  FAIL reuse: the fit interval served $interval hits on a fixture whose every assistant turn wraps"; fail=1; }
+        [ "$misses" -lt "$interval" ] || { echo "  FAIL reuse: render-cache misses ($misses) are not under interval hits ($interval) -- wrapped messages are re-measuring per step"; fail=1; }
+    fi
     return $fail
 }
 
