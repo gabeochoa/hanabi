@@ -166,6 +166,13 @@ Preload& Preload::make_singleton() {
         // stops the ring's three concentric outlines fanning at the corners.
         // Both frozen parity captures are byte-identical across this change.
         theme.roundness = hanabi::ui::focus_visible::kRingRoundness;
+        // afterhours d90db15 (c6345e2) moved its default from a 0.5 fraction
+        // to an 8 px corner_radius, and a pixel radius wins over the fraction
+        // wherever a widget states neither. hanabi's shape is the square
+        // above; every rounded widget here asks for its own corners
+        // (theme::layout::ROUNDNESS_*, with_corner_radius), so the theme
+        // carries no pixel default either.
+        theme.corner_radius.reset();
 
         // Arrows stay hanabi's. theme.arrows_tab defaults true, which makes
         // process_tabbing treat Up/Down as Tab/Shift+Tab — and hanabi already

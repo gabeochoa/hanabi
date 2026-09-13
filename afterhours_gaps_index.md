@@ -29,8 +29,8 @@ that do not exist, and `make source-checks` runs it.
 | Numbered headings parsed by the reference checker | **264** |
 | Distinct numeric gap numbers | **259** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **269** rows, **269** unique identifiers — includes index-only ids with no detailed entry |
-| Standalone live asks | **148** (152 less the ten fixed at 1ac6db2, plus #593–#598) |
+| **Rows in the triage table (§6)** | **270** rows, **270** unique identifiers — includes index-only ids with no detailed entry |
+| Standalone live asks | **148** (152 less the ten fixed at 1ac6db2, less #593 fixed at d90db15, plus #594–#599) |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
@@ -75,6 +75,34 @@ not taken from a postscript.
 | #231 | `f607faa` | `wait_frames` counts ticks |
 | #351 | `bdea3b9` | `fonsSetErrorCallback` registered |
 | #352 | `bdea3b9` | `AFTERHOURS_FONT_ATLAS_SIZE` |
+
+At pin **d90db15** (2026-09-13, range 1ac6db2..d90db15, 26 commits): **#593** closed
+(`f923254`); the pointer entry **#597** is app-side and stays as filed (the library
+still refreshes nothing on its own; hanabi registers `CollectCurrentResolution`);
+**#265** / **#266** / **#46** / **#83** re-read against `a738f48`'s rewritten focus
+paint and still open (no contrast-edge switch, one global offset, no
+`:focus-visible`); **#326/#420** unchanged (`virtual_list` still rebuilds its prefix
+per build). Behaviour the range changes that hanabi had to meet, each established
+by a run at the pin against the same script at 1ac6db2:
+1. Theme default corners: 0.5 fraction -> 8 px radius (`c6345e2`). `src/preload.cpp`
+   resets `theme.corner_radius` so hanabi's square default survives.
+2. A scroll view's own padding is part of its content and scroll range
+   (`a738f48`, `measure_scroll_content`); at 1ac6db2 only children counted. The
+   transcript view (12 px above, 10 below) reaches 22 px further at the bottom:
+   the layout ledger's origin and clamp count the same padding
+   (`ledgerOriginY`, `slack_below`), and the bottom-pad pins in four scroll
+   scripts moved by 22 -- the first turn after HOME and the per-notch wheel
+   distance are unchanged. The Home digest (6 + 6 px) clamps 12 px lower, so the
+   bottom window's first card moves; `digest_is_windowed` pins the new index.
+3. `imm::popover` decides dismissal BEFORE running its body (`fc0fd04`,
+   `menu.h:301-311`); an imm button's click reaches the body one frame after the
+   press, so a row press that ends its frame with focus outside the panel was
+   lost (#599, frame log in the entry). hanabi's four popover row families act
+   in the click listener instead (`src/ui/act_on_press.h`).
+Observed, no pin needed: `RevealKeyboardFocus` (`a738f48`, registered by the
+standard set) scrolls a keyboard-focused child into view unless the focus came
+from the pointer; no script in `tests/ui` changed under it. `Modal` (`e876803`)
+is unused by hanabi; nothing else in the range moved a pin.
 
 Ten more at pin **1ac6db2** (2026-09-12, range 9ff9079..1ac6db2, 68 commits), each
 read in the pinned source and, where hanabi could see it, measured. These are
@@ -854,11 +882,12 @@ correction narrows them rather than closing them.
 | 590 | Button variants drop per-widget text inset | FOOTGUN | HIGH | XS | app workaround |
 | 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited | MISSING | MED | XS | live (re-tested 1ac6db2) · extends #223; app workaround: latch + `release_compaction` |
 | 592 | Every click on a `HasClickListener` moves keyboard focus to it; no activate-without-focus | FOOTGUN | HIGH | XS | live (re-tested 1ac6db2) · app workaround (refocus) |
-| 593 | `System<>`'s six overrides lack `override`; a consumer compiling the library as user code gets 18 warnings per TU | SHARP EDGE | LOW | XS | live · app workaround (every include via `-isystem`) |
+| 593 | `System<>`'s six overrides lack `override`; a consumer compiling the library as user code gets 18 warnings per TU | SHARP EDGE | LOW | XS | fixed at d90db15 (`f923254`, proven on pristine headers); proposal retired |
 | 594 | No way to drive a LIVE window resize (AppKit's tracking loop) from the library or its e2e runner | MISSING | HIGH | S | live · app driver (`HANABI_RESIZE_DRIVE`) + gate |
 | 595 | The macOS backend paints a live-resize step on the next display-link tick, so applied sizes go unpainted | SHARP EDGE | HIGH | XS | live · app workaround (same-step draw, default on) |
 | 596 | An imm subtree built twice from one call site collides on its ids unless the caller salts `otherID` | SHARP EDGE | MEDIUM | XS | live · app workaround (salted root `mk`) |
 | 597 | The Metal pointer is letterboxed against an app-owned resolution the library never refreshes; the draw path is not letterboxed | SHARP EDGE | HIGH | XS | live · app registers `CollectCurrentResolution` ahead of the UI bridge + `pointer_gate.sh` |
+| 599 | `imm::popover` dismisses before its body runs on the frame focus leaves the panel, but an imm button's click reaches the body a frame after the press: a row press is lost (fc0fd04, d90db15) | SHARP EDGE | HIGH | XS | live · app acts in the click listener, not the return value |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

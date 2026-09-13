@@ -23,8 +23,14 @@
 require_thread rbig
 mouse_move 650 400
 wait_frames 10
-assert_ui transcript_bottom_pad y=646
+# Bottom-pad y values are 22 px lower than they were at afterhours 1ac6db2: at
+# d90db15 (a738f48, measure_scroll_content) the scroll view's own padding --
+# 12 px above, 10 px below the transcript -- is part of its content size, so
+# the bottom padding is finally reachable and the bottom-pinned view rests 22
+# px further down. The rows themselves did not move: the first turn after HOME
+# is still at y=147, and a wheel notch still moves the view by the same pixels.
+assert_ui transcript_bottom_pad y=624
 
 scroll_wheel 0 3
 wait_frames 25
-assert_ui transcript_bottom_pad y=676
+assert_ui transcript_bottom_pad y=654

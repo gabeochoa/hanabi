@@ -8542,6 +8542,22 @@ CLASS: MISSING
 
 ### #265 — A focus ring is three outlines, not one, and the two you did not ask for take their colour from the RING rather than from what it is drawn on
 
+**Re-read at d90db15 (2026-09-13).** Still open. Upstream `a738f48` "Fix focus ring
+geometry, paint order, and keyboard scroll visibility" moved the ring into
+`detail::prepare_focus_paint` / `draw_focus_paint` / `collect_focus_paint`
+(`rendering.h:131-300`), painted after the layer with an optional clip, and fixed
+the corner geometry (`inset` clamped to half the short side, radius from
+`resolve_roundness`) -- but both contrast outlines are still emitted unconditionally
+(`rendering.h:272-276`, `:292-296`) and `theme.h` has no switch for them. The proof
+patch `vendor_patches/265-focus-ring-contrast-toggle.patch` (written against 1ac6db2)
+no longer applies -- its hunks were in the code `a738f48` replaced -- and it is left
+as the historical proposal it is: the library is not edited here, and the ask goes
+upstream as this entry. What the fix now needs, in the new shape: a
+`FocusRing::contrast_edges` bit set from a `theme.focus_ring_contrast` switch, gating
+the two `outer_contrast()` / `inner_contrast()` outlines in both `draw_focus_paint`
+and `collect_focus_paint`. hanabi's stand-in (`focus_ring_thickness = 1`, ring off at
+rest via `src/ui/focus_visible.h`) is unchanged.
+
 **What was wanted.** The ring hanabi's own `preload.cpp` believes it is asking
 for, in a comment: "ONE hairline, flush with the element." `theme.focus_ring_thickness
 = 1.0f`, `focus_ring_offset = 0.0f`.
@@ -8726,6 +8742,11 @@ CLASS: WORKAROUND
 ---
 
 ### #266 — The ring's rect is the widget's LAYOUT box and its offset is one number for the whole app, so a UI with both full-bleed rows and inset chips cannot have a correct ring on either
+
+**Re-read at d90db15 (2026-09-13).** Still open: `rendering.h:186` reads
+`cmp.focus_rect(context.theme.focus_ring_offset)` -- one theme number for every
+widget -- and `a738f48` only clamps it (`:203`) so a tiny control cannot invert.
+No per-widget offset component exists.
 
 **What was wanted.** The macOS convention the rest of this app is matched
 against: a focus ring sits a couple of points OUTSIDE the control, clear of it.
@@ -11113,7 +11134,7 @@ its number came from and the window size it is true at, in every wheel test
 here. Cost: exactly gap #232's complaint, one more time.
 
 
-**Hanabi reference.** `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=646`) — scroll offset is asserted through a named proxy element at the pinned position. `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=766`) — same proxy element verifies the scrolled position because assert_ui has no scroll_y property. Tests: `tests/ui/wheel_notch_distance_is_settable.e2e` (`assert_ui transcript_bottom_pad y=706`) — speed override test uses the same proxy-element workaround.
+**Hanabi reference.** `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=624`) — scroll offset is asserted through a named proxy element at the pinned position. `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=766`) — same proxy element verifies the scrolled position because assert_ui has no scroll_y property. Tests: `tests/ui/wheel_notch_distance_is_settable.e2e` (`assert_ui transcript_bottom_pad y=706`) — speed override test uses the same proxy-element workaround.
 
 
 **Minimal upstream fix.** Two lines in `check_ui_property`:
@@ -13508,7 +13529,25 @@ focus". hanabi's `refocusComposer` workaround stands;
 
 CLASS: FOOTGUN
 
-### #593 — `System<>`'s six overrides are not marked `override`, so every consumer that compiles the library as its own code gets `-Winconsistent-missing-override` eighteen times per translation unit
+### #593 — FIXED at d90db15 (`f923254`): `System<>`'s overrides are marked `override`
+
+**Closed by upstream `f923254` "Make System overrides explicit and inherit filtered
+derived callbacks"** (2026-09-12): `src/core/system.h` marks both `for_each` and both
+`for_each_derived` overloads `override` and folds the two `for_each_with_derived`
+defaults into the base. Verified by reading the diff (`git show f923254 --
+src/core/system.h`) and on PRISTINE headers, no patch applied: a five-line probe
+deriving `System<P>` and overriding `for_each_with`, compiled `-fsyntax-only -Wall
+-Werror=inconsistent-missing-override` with the library on a USER include path,
+fails at a read-only export of 1ac6db2 (`system.h:429 'for_each' overrides a member
+function but is not marked 'override'`, and :437, :444) and passes at d90db15. The
+593 proof-patch proposal and its probe are retired from the vendor_patches directory
+(nothing applies proof patches any more; see the README there). hanabi keeps
+`-isystem` for the submodule regardless: that is the right way to consume a vendored
+header. The text below is the record as filed.
+
+---
+
+#### As filed — `System<>`'s six overrides are not marked `override`, so every consumer that compiles the library as its own code gets `-Winconsistent-missing-override` eighteen times per translation unit
 
 **Expected.** A header-only library compiles clean under the warning set a
 consumer is likely to hold its own code to. `-Winconsistent-missing-override`
@@ -13547,7 +13586,7 @@ price of `-isystem` and why this is a workaround rather than a fix.
 
 **Minimal upstream fix.** `override` on the six declarations (and drop the two
 `virtual`s that go with it). Six words; no behaviour change --
-`vendor_patches/593-system-override.patch`, proven by
+the (retired) 593 proof patch, proven by
 `tests/vendor_probes/system_override_probe.cpp` under `make verify-vendor-patches`:
 the probe compiles the header as user code with
 `-Werror=inconsistent-missing-override`, fails at the pin, compiles after.
@@ -13558,7 +13597,7 @@ the patch is a maintainer-ready proposal, not a build input.
 
 **Hanabi reference.** `src/afterhours_files.cpp` — the shim; `build.zig`
 (`-isystem`) — every afterhours include is a system include;
-`vendor_patches/593-system-override.patch` — the fix, red/green under
+the (retired) 593 proof patch — the fix, red/green under
 `scripts/verify_vendor_patches.py`.
 
 CLASS: SHARP EDGE
@@ -13843,6 +13882,72 @@ CLASS: SHARP EDGE
 
 ---
 
+### #599 — `imm::popover` dismisses BEFORE its body runs on the frame focus leaves the panel, but an imm button's click reaches the body one frame after the press, so a row press that ends the frame with focus outside the panel is lost
+
+**Expected.** A press on a button inside an open popover selects it. Whether the
+popover then closes is the caller's business; the click it was opened for is
+not dropped.
+
+**Observed at d90db15** (`fc0fd04` "Dismiss popups consistently and fit dropdowns
+to their available space"). `imm::popover` (`src/plugins/ui/menu.h:301-311`) now
+runs `detail::dismiss_menu` first and returns falsy -- body skipped -- when the
+panel was open last frame and focus is not inside it (`inside =
+ctx.focus_in_subtree(state.panel)`), or the press was outside it, or MenuBack.
+An imm `button()` reports its click through `HasClickListener.down`
+(`src/plugins/ui/imm_components.h:956-958`), which `HandleClicks` sets during
+frame N and the caller's body reads on frame N+1. So:
+
+```
+frame N   (press on row 3 at 734,580; panel 255 rect 591,421 286x222; row 261 rect 595,563 278x34,
+           parent 255, rendered, not hidden): build sees open=1 focus=255 focus_in=1 just_pressed=1;
+           ResolveHitTarget picks row 261 (active=261 is visible next frame); HandleClicks sets
+           down=true, set_focus(261); EndUIContextManager ends the frame with focus_id=ROOT.
+frame N+1 (build): popover -> dismiss_menu: focus_in_subtree(255) is false -> dismissed, ShouldHide,
+           returns falsy; the body -- and `if (row)` -- never runs. The click is gone.
+frame N+2: open=0, panel not rendered.
+```
+
+Frame log: hanabi `.ab/popover-diag.d90db15.log` from `HANABI_POPOVER_DIAG=1`
+(read-only prints in `render_effort_popover`, `src/ecs/main_pane_system.h`),
+script `tests/ui/composer_effort_picker.e2e` (`click_ui effort_row_3`).
+
+**At 1ac6db2** the same popover built the panel, ran the body, and only THEN set
+`open = false` when `!detail::focus_within(ctx, panel)` (`menu.h@1ac6db2:335-340`):
+frame N+1's body consumed the click and the popover closed after. The test
+passed. Hit-testing did not change between the pins (`ResolveHitTarget`,
+`HandleClicks`, `is_mouse_inside` are byte-identical in the range).
+
+**Why focus is ROOT at the end of frame N** is not fully closed here:
+`HandleClicks` sets focus to the row, and `EndUIContextManager`
+(`systems.h:652-653`) resets `focus_id` to ROOT when it is not in `focused_ids`,
+which `HandleTabbing` fills through `try_to_grab` for `can_be_focused` entities
+(`systems.h:1057-1071`). The rows are clickable, rendered, not hidden, and
+hanabi sets no input gate. Whatever the reason, it was the same at 1ac6db2; the
+body-order change is the delta that loses the click.
+
+**Not caller misuse.** The rows are children of the panel (`parent=255`),
+rendered, clickable, the press landed inside the panel and inside the row; the
+caller followed the documented shape (`if (pop) button(ctx, mk(pop.ent(), i), ...)`).
+
+**Minimal upstream fix.** Run the body on the dismissal frame (return truthy with
+the panel marked closing, close on the next), or deliver the recorded `down`
+before the dismiss check. Acceptance test: popover with one button; press it
+with focus moving anywhere; the button reports the click exactly once.
+
+**Hanabi workaround (app-only).** Act in the row's click LISTENER, which fires
+inside `HandleClicks` on the press frame, instead of on the button's return
+value. Correct under both pins.
+
+**Hanabi reference.** `src/ui/act_on_press.h` (`act_on_press`) — assigns the
+row's `HasClickListener::cb` to the selection lambda on every build.
+`src/ecs/main_pane_system.h` (`hanabi::ui::act_on_press(row`) — the four popover
+row families (effort, model, tool fold, node) act there; their `if (row)` paths
+are gone. Tests: `tests/ui/composer_effort_picker.e2e`,
+`tests/ui/composer_slash_commands.e2e`, `tests/ui/tool_fold_modes.e2e`,
+`tests/ui/a_node_is_picked_before_the_thread_exists.e2e` (all four failed at
+d90db15 before the change, pass after).
+
+CLASS: SHARP EDGE (behaviour change in the range)
 ### APP #H1 — Hanabi-only parity limitation: no saved-filter store, so the reference's "save this filter as a view" has nothing behind it
 
 NOT an afterhours gap. Filed here because this file is where the project's

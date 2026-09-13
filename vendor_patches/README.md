@@ -1,7 +1,7 @@
 # Vendored afterhours patches (proven in hanabi, ready for the maintainer)
 
 `vendor/afterhours` is the pinned afterhours submodule
-(`1ac6db21da8768af6bc27248fb6f9484e810a614`). This directory contains both
+(`d90db15a5f9c0e745a3302339d653829a4aa7c59`). This directory contains both
 older Hanabi-proven fixes and proof patches that are applied only to temporary
 vendor copies by `make verify-vendor-patches`. The verifier checks the base,
 checks and applies each patch independently, compiles focused probes, and
@@ -31,15 +31,28 @@ If you only want the diff applied to the working tree (no commit), use:
     git apply --check ../../vendor_patches/<file>.patch # dry-run: verify it applies
 
 Every patch states its pinned base in the commit message. The proof-patch set
-below applies independently to `1ac6db2`; the older patches retain their own
+below applies independently to `d90db15`; the older patches retain their own
 bases. After a patch lands upstream, bump Hanabi's submodule pointer and remove
 the corresponding patch here.
 
-## Verified proof patches on 1ac6db2
+## Proof patches at d90db15: dormant
 
-`PATCHES` in `scripts/verify_vendor_patches.py` covers the three below. The other
-four files in this directory (`22`, `25`, `30`, `305`) are **not** in `PATCHES`
-and are verified by nothing.
+Nothing here is applied anywhere any more -- not to the submodule, not to a
+scratch export: the project's rule is that the library is never edited by us,
+proposals go upstream as gap entries. `PATCHES` in
+`scripts/verify_vendor_patches.py` is empty; the script still checks the pin
+and that hanabi's stand-ins for the pin's gaps are present.
+
+State of the proposals at d90db15: `593-system-override.patch` is **gone: it
+landed upstream** (`f923254` marks `System<>`'s overrides `override`; proven
+by reading the diff and by compiling `src/core/system.h` as user code under
+`-Werror=inconsistent-missing-override`, which is green on the pristine pin).
+`265` no longer applies (`a738f48` rewrote the focus paint into
+`draw_focus_paint` / `collect_focus_paint`); the behaviour it asks for is still
+absent upstream -- afterhours_gaps.md #265 carries the drift as evidence. `266`
+still applies but is not exercised. `22`, `25`, `30` no longer apply either;
+`305` does. None of that is a claim about hanabi's binary, which builds against
+the unpatched pin.
 
 `210-reject-unsamplable-textures.patch` and `255-word-editing-capability.patch`
 are **gone: both landed upstream** in the 9ff9079..1ac6db2 range -- `865c4e6`
@@ -73,9 +86,9 @@ Run:
 
 Expected runtime is about one minute on Apple Silicon. A pass ends with:
 
-    PASS all 3 vendor patches are absent from the pinned tree
-    1ac6db21da8768af6bc27248fb6f9484e810a614 and apply cleanly to it. The app
-    builds against the UNPATCHED pin; hanabi's own stand-ins are what ship.
+    PASS vendor pin is d90db15a5f9c0e745a3302339d653829a4aa7c59; 0 proof
+    patches exercised (the library is never edited here); hanabi's stand-ins
+    for the pin's gaps are present.
 
 The probes live in `tests/vendor_probes/`; `scripts/verify_vendor_patches.py`
 exports the pinned revision, applies each patch to its own temporary copy, and

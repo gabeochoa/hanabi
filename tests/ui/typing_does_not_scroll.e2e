@@ -10,7 +10,13 @@
 require_thread rbig
 
 expect_no_text #0:
-assert_ui transcript_bottom_pad y=646
+# Bottom-pad y values are 22 px lower than they were at afterhours 1ac6db2: at
+# d90db15 (a738f48, measure_scroll_content) the scroll view's own padding --
+# 12 px above, 10 px below the transcript -- is part of its content size, so
+# the bottom padding is finally reachable and the bottom-pinned view rests 22
+# px further down. The rows themselves did not move: the first turn after HOME
+# is still at y=147, and a wheel notch still moves the view by the same pixels.
+assert_ui transcript_bottom_pad y=624
 
 # Focus the composer and type, then press Home: the caret moves, the thread
 # stays where it was.
@@ -30,5 +36,5 @@ key HOME
 wait_frames 12
 expect_input_selection composer_reply_input 0 0
 expect_no_text #0:
-assert_ui transcript_bottom_pad y=646
+assert_ui transcript_bottom_pad y=624
 expect_text "still at the bottom"

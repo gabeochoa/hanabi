@@ -14,19 +14,26 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
-BASE = "1ac6db21da8768af6bc27248fb6f9484e810a614"
-PIN = "1ac6db21da8768af6bc27248fb6f9484e810a614"
+BASE = "d90db15a5f9c0e745a3302339d653829a4aa7c59"
+PIN = "d90db15a5f9c0e745a3302339d653829a4aa7c59"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 # 210 and 255 are gone: both landed upstream between 9ff9079 and 1ac6db2
 # (865c4e6 checks the sampler and sizes its pool; 7208d0c exposes
 # has_editing_action, which src/preload.cpp now static_asserts). The
 # 210 patch no longer applies to the pin and the 255 probe's trait name was
-# the patch's own, so neither could be kept honest here.
-PATCHES = {
-    "265-focus-ring-contrast-toggle.patch": "focus",
-    "266-explicit-disabled-label-color.patch": "label",
-    "593-system-override.patch": "override",
-}
+# the patch's own, so neither could be kept honest here. 593 is gone at
+# d90db15: f923254 marks System<>'s overrides `override`, which is the patch
+# (the probe's `-Werror=inconsistent-missing-override` compile is green on
+# the pin now, so the gate's red half could not be kept honest either).
+# At d90db15 the proof patches are DORMANT: the project's rule is that the
+# library is never edited here, not even in a scratch copy, so nothing applies
+# them and this gate applies none. 265's hunks drifted with a738f48 (the focus
+# paint moved into draw_focus_paint / collect_focus_paint; the behaviour it
+# asks for is still absent, see afterhours_gaps.md #265) and 266 still applies
+# but is not exercised. Both stay in vendor_patches/ as the historical proposal
+# they are. What this script still enforces: the hanabi stand-ins the pin's
+# gaps require are present (COMPENSATORS).
+PATCHES: dict[str, str] = {}
 
 # NOTHING APPLIES THESE PATCHES. The app compiles the submodule verbatim, so a
 # green run here says the patch is a good upstream contribution -- it says
@@ -126,8 +133,8 @@ def export_base(destination: Path) -> None:
 def compile_probe(tree: Path, source: Path, output: Path, syntax_only: bool = False,
                   warnings: bool = False) -> subprocess.CompletedProcess[str]:
     # -w by default: these probes are about behaviour, not diagnostics. The
-    # override probe is the exception -- it IS a diagnostic -- and asks for
-    # the one warning as an error, with the library on a USER include path.
+    # (the retired 593 override probe was the exception -- a diagnostic -- and
+    # asked for one warning as an error with the library on a USER path.)
     args = CXX + ["-std=c++23", "-O0"]
     args += (["-Werror=inconsistent-missing-override"] if warnings else ["-w"])
     if syntax_only:
@@ -218,17 +225,6 @@ def verify_patch(temp: Path, base_tree: Path, pin_tree: Path, contract: Path,
                             temp / "label-after"),
             f"{patch_name}: green probe",
         )
-    elif kind == "override":
-        require_red(
-            compile_probe(base_tree, PROBES / "system_override_probe.cpp",
-                          temp / "override-before", warnings=True),
-            f"{patch_name}: red compile (the pin warns as user code)",
-        )
-        require_ok(
-            compile_probe(patched_tree, PROBES / "system_override_probe.cpp",
-                          temp / "override-after", warnings=True),
-            f"{patch_name}: green compile",
-        )
     else:
         raise SystemExit(f"{patch_name}: unknown patch kind {kind!r}")
 
@@ -244,23 +240,30 @@ def main() -> int:
         sys.stderr.write(f"vendor revision is {actual.stdout.strip()}, expected {PIN}\n")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="hanabi-vendor-patches-") as raw_temp:
-        temp = Path(raw_temp)
-        base_tree = temp / "base" / "afterhours"
-        export_base(base_tree)
-        pin_tree = temp / "pin" / "afterhours"
-        export_tree(pin_tree, PIN)
-        contract = temp / "source-contract-probe"
-        require_ok(
-            run(CXX + ["-std=c++23", "-O0", "-w", str(PROBES / "source_contract_probe.cpp"), "-o", str(contract)]),
-            "compile source contract probe",
-        )
-        for patch_name, kind in PATCHES.items():
-            verify_patch(temp, base_tree, pin_tree, contract, patch_name, kind)
+    # No patch is applied anywhere -- the library is never edited here, not
+    # even in a scratch export -- so this is the read-only half only: the pin
+    # is what build.zig expects and every stand-in the pin's gaps require is
+    # still in the tree.
+    for patch_name in sorted(COMPENSATORS):
+        require_compensators(patch_name)
+    if PATCHES:
+        with tempfile.TemporaryDirectory(prefix="hanabi-vendor-patches-") as raw_temp:
+            temp = Path(raw_temp)
+            base_tree = temp / "base" / "afterhours"
+            export_base(base_tree)
+            pin_tree = temp / "pin" / "afterhours"
+            export_tree(pin_tree, PIN)
+            contract = temp / "source-contract-probe"
+            require_ok(
+                run(CXX + ["-std=c++23", "-O0", "-w", str(PROBES / "source_contract_probe.cpp"), "-o", str(contract)]),
+                "compile source contract probe",
+            )
+            for patch_name, kind in PATCHES.items():
+                verify_patch(temp, base_tree, pin_tree, contract, patch_name, kind)
 
-    print(f"PASS all {len(PATCHES)} vendor patches are absent from the "
-          f"pinned tree {PIN} and apply cleanly to it. The app builds "
-          f"against the UNPATCHED pin; hanabi's own stand-ins are what ship.")
+    print(f"PASS vendor pin is {PIN}; {len(PATCHES)} proof patches exercised "
+          f"(the library is never edited here); hanabi's stand-ins for the "
+          f"pin's gaps are present.")
     return 0
 
 

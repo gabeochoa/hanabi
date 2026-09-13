@@ -39,6 +39,7 @@
 #include "composer_strip.h"
 #include "surface_tabs.h"
 #include "../ui/accessibility.h"
+#include "../ui/act_on_press.h"
 #include "../ui/control_state.h"
 #include "../ui/overlay_lifecycle.h"
 #include "../ui/slash_row.h"
@@ -2060,6 +2061,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Trailing spacer under the last message, so it can be scrolled clear of
     // the pane bottom instead of sitting flush against it.
     static constexpr float kTranscriptBottomPad = 28.0f;
+    // The transcript scroll view's own vertical padding. Named because the
+    // layout ledger's clamp has to count it the way the scroll view does.
+    static constexpr float kTranscriptScrollPadTop = 12.0f;
+    static constexpr float kTranscriptScrollPadBottom = 10.0f;
 
     // Height of the sub-agent rollup, WITHOUT rendering it — the transcript
     // needs the number during its measure pass, before it knows where in the
@@ -3748,9 +3753,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // 4px high against `ref/02_thread.png` — a constant offset
                 // applied to every row in the pane, and worth 1.45 structural
                 // points across the turns band on its own.
-                .with_padding(Padding{.top = pixels(12.0f + findClearance),
+                .with_padding(Padding{.top = pixels(kTranscriptScrollPadTop + findClearance),
                                       .right = pixels(gutter),
-                                      .bottom = pixels(10),
+                                      .bottom = pixels(kTranscriptScrollPadBottom),
                                       .left = pixels(gutter)})
                 .with_debug_name(scroll_name(pane_index(app, pane))));
         // TEMPORARY scroll indicator (afterhours gap upstream a1b9a4b): afterhours has no
@@ -3830,6 +3835,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // in the column, but a short thread gets a leading spacer in front of
         // it, and the spacer's size isn't known until every item is measured.
         const float subH = sub_agent_panel_height(app, pane);
+        // Where row 0 sits in the scroll view's content: under the view's own
+        // top padding (which afterhours d90db15 counts into the content and
+        // the scroll range, a738f48) and the rollup panel. Every conversion
+        // between the ledger's y and the view's scroll offset goes through
+        // this one number.
+        const float ledgerOriginY = kTranscriptScrollPadTop + findClearance + subH;
 
         const bool streamingHere =
             app.streamActive &&
@@ -3936,7 +3947,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // rollup is a negative offset into row 0, never clamped away.
         model::Anchor anchor = led.rows() == 0
                                    ? model::Anchor{}
-                                   : led.anchor_at(scrollYIn - subH, id_of);
+                                   : led.anchor_at(scrollYIn - ledgerOriginY, id_of);
 
         // Whether a Tool-role message is one the pile loop absorbs: the
         // sequential build consumed spawn, delivery, compaction and one-line
@@ -4062,12 +4073,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         {
             hanabi::prof::Scope _p("transcript.pass1_measure");
             led.sync(msgs.size(), pane.transcriptMutationLog, lf, classify, id_of);
-            // What the column lays out under the last row, so the ledger's
-            // clamp is the scroll view's clamp: the trailing pad, and the
-            // round-in-flight divider while it is drawn.
-            led.set_slack_below(kTranscriptBottomPad +
+            // What the scroll view holds besides the rows, so the ledger's
+            // clamp is the scroll view's clamp to the pixel: above, the
+            // view's own top padding and the rollup panel; below, its bottom
+            // padding, the trailing pad, and the round-in-flight divider
+            // while it is drawn. afterhours d90db15 (a738f48,
+            // measure_scroll_content) counts a scroll view's padding into
+            // its content size -- 1ac6db2 summed children only, so the
+            // bottom padding could never scroll into view -- and the two
+            // numbers here are the view's (:3699-3702).
+            led.set_slack_below(kTranscriptScrollPadBottom + kTranscriptBottomPad +
                                 (compactingHere ? compaction_row_height() : 0.0f));
-            led.set_slack_above(subH);
+            led.set_slack_above(ledgerOriginY);
         }
         // A prepend the loader armed an anchor for: the ledger's anchor holds
         // the reader's row by id through the shift, so there is nothing to
@@ -4207,7 +4224,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     // Handled by the bottom pin below (the latch re-arms).
                 } else {
                     const float want = jumpTop ? 0.0f : sv.scroll_offset.y + delta;
-                    anchor = led.anchor_at(want - subH, id_of);
+                    anchor = led.anchor_at(want - ledgerOriginY, id_of);
                     s_scrollOverride = true;
                 }
                 // Scrolling up by hand means "stop following the bottom", the
@@ -4307,7 +4324,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // flight keeps gliding.
         if (scroll.ent().has<afterhours::ui::HasScrollView>() && n > 0) {
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            const float derived = subH + led.scroll_for(anchor, viewH);
+            const float derived = ledgerOriginY + led.scroll_for(anchor, viewH);
             const float correction = derived - sv.scroll_offset.y;
             if (pinBottom) {
                 sv.scroll_offset.y = 1e9f;
@@ -4598,10 +4615,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
                 Vector2Type{28.0f, 0.0f});
             row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
-            if (row) {
-                Settings::get().set_default_model(std::string(model.id));
+            hanabi::ui::act_on_press(row, [&app, id = std::string(model.id)] {
+                Settings::get().set_default_model(id);
                 app.modelPopoverOpen = false;
-            }
+            });
         }
     }
 
@@ -4700,10 +4717,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
                 Vector2Type{28.0f, 0.0f});
             row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
-            if (row) {
-                Settings::get().set_default_effort(std::string(level.id));
+            // In the listener, not on `if (row)`: src/ui/act_on_press.h.
+            hanabi::ui::act_on_press(row, [&app, id = std::string(level.id)] {
+                Settings::get().set_default_effort(id);
                 app.effortPopoverOpen = false;
-            }
+            });
         }
     }
 
@@ -6427,9 +6445,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             selected ? theme::accent() : theme::text_faint());
                     })
                     .with_debug_name("fold_row_" + std::to_string(i)));
-            if (row && app.pane().openSession) {
+            // The session is resolved when the press lands, not captured: the
+            // pane may have switched between build and activation.
+            hanabi::ui::act_on_press(row, [&app, mode = c.mode] {
+                if (!app.pane().openSession) return;
                 Settings::get().set_tool_fold(app.pane().openSession->summary.id,
-                                              hanabi::fold::to_int(c.mode));
+                                              hanabi::fold::to_int(mode));
                 // The sub-agent rollup shares this set but is not a tool row,
                 // so its own disclosure is left exactly as the reader left it.
                 const bool subs = app.expandedPiles.count("__subagents__") != 0;
@@ -6438,7 +6459,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (subs) app.expandedPiles.insert("__subagents__");
                 model::transcript_ledgers().mark_all_dirty();
                 app.foldPopoverOpen = false;
-            }
+            });
         }
     }
 
@@ -6525,22 +6546,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     })
                     .with_debug_name("node_row_" + std::to_string(i)));
             row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 21.0f;
-            if (!row) continue;
-            if (session) {
-                if (selected || attaching) continue;
-                const std::string sid = session->summary.id;
-                const std::string nid = n.id;
-                std::shared_ptr<api::Client> c = app.client;
-                app.nodeAttachSession = sid;
-                app.nodeAttachError.clear();
-                app.nodeAttachFuture = std::async(
-                    std::launch::async,
-                    [c, sid, nid] { return c->attach_node(sid, nid); });
-                app.nodePopoverOpen = false;
-            } else {
-                app.pendingNodeId = selected ? std::string() : n.id;
-                app.nodePopoverOpen = false;
-            }
+            // The intended target is captured BY VALUE at build time: the
+            // session id this row was drawn for, and this node's id. A press
+            // that lands after the pane switched still acts on the row the
+            // reader saw, never on whatever is open now.
+            const std::string sid = session ? session->summary.id : std::string();
+            hanabi::ui::act_on_press(
+                row, [&app, sid, nid = n.id, selected, attaching] {
+                    if (!sid.empty()) {
+                        if (selected || attaching) return;
+                        std::shared_ptr<api::Client> c = app.client;
+                        app.nodeAttachSession = sid;
+                        app.nodeAttachError.clear();
+                        app.nodeAttachFuture = std::async(
+                            std::launch::async,
+                            [c, sid, nid] { return c->attach_node(sid, nid); });
+                        app.nodePopoverOpen = false;
+                    } else {
+                        app.pendingNodeId = selected ? std::string() : nid;
+                        app.nodePopoverOpen = false;
+                    }
+                });
         }
     }
 

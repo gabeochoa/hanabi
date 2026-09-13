@@ -40,7 +40,13 @@ scroll_wheel 0 -400
 wait_frames 20
 scroll_wheel 0 -400
 wait_frames 20
-expect_text "digest cards 16 of 81 @ 65"
+# 15 built from 66: the last card is 80, so 66..80 is the whole tail and the
+# view's bottom rests 12 px lower than at afterhours 1ac6db2 -- at d90db15 a
+# scroll view's own padding (6 px above, 6 below here) is part of its content
+# and scroll range (a738f48), and card 65 has scrolled out. Measured at the
+# clamp: offset 4150 = content 4872 - viewport 722; the window read @ 65 with
+# 16 built at 4138 before.
+expect_text "digest cards 15 of 81 @ 66"
 
 # And back to the top, at the same cost. A window that only ever grows is a
 # window that has become the list again.

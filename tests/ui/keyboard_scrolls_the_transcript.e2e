@@ -15,7 +15,13 @@
 require_thread rbig
 
 expect_no_text #0:
-assert_ui transcript_bottom_pad y=646
+# Bottom-pad y values are 22 px lower than they were at afterhours 1ac6db2: at
+# d90db15 (a738f48, measure_scroll_content) the scroll view's own padding --
+# 12 px above, 10 px below the transcript -- is part of its content size, so
+# the bottom padding is finally reachable and the bottom-pinned view rests 22
+# px further down. The rows themselves did not move: the first turn after HOME
+# is still at y=147, and a wheel notch still moves the view by the same pixels.
+assert_ui transcript_bottom_pad y=624
 
 key HOME
 wait_frames 10
@@ -29,10 +35,10 @@ assert_ui_text "Follow-up question #0: can you dig into the memory regression an
 key END
 wait_frames 10
 expect_no_text #0:
-assert_ui transcript_bottom_pad y=646
+assert_ui transcript_bottom_pad y=624
 
 # A page back from the end moves, but not all the way to the top.
 key PAGE_UP
 wait_frames 14
-assert_ui transcript_bottom_pad y=1209
+assert_ui transcript_bottom_pad y=1187
 expect_no_text #0:
