@@ -417,8 +417,108 @@ bookkeeping allocations for removing repeated large transient construction.
 `messages visited / (loaded messages × index calls)` at 0.02. The old path reads
 1.0; the indexed 480-message fixture reads 0.0026. The gate was sabotaged by
 forcing every lookup to rebuild and failed before the implementation was
-restored. `tests/unit/test_transcript_item_index.cpp` compares the incremental
-result with a from-scratch reference across 3,000 randomized appends, prepends,
-content/kind changes, width changes, fold toggles, date-divider toggles, and
-unread moves. `tests/unit/test_pane_memory.cpp` covers same-ID content changes,
-unread changes, and two panes at different widths.
+restored. (`tests/unit/test_transcript_item_index.cpp` compared the incremental
+result with a from-scratch reference across 3,000 randomized changes; section 9
+replaces the index and the test.) `tests/unit/test_pane_memory.cpp` covers
+same-ID content changes, unread changes, and two panes at different widths.
+
+## 9. Layout work is bounded by the viewport, not by the thread
+
+Section 8's index made an UNCHANGED frame cheap. It did not make a changed
+one cheap: any global fact -- the pane width first among them -- rebuilt the
+item list from message 0, so every applied size of a live resize visited every
+message, summed every height, walked them again for the spacers and a third
+time for the minimap. With every text measure a cache hit that was still four
+O(N) passes per frame, and on a long thread that is the freeze the reader
+reported ("the same freezing bug as the Swift version").
+
+`src/ecs/transcript_ledger.h` replaces the item index. One scalar row per
+message (`RowGeom`: a divider above, the body, an outcome line below, hidden
+for a pile follower or a thinking row with reasoning off), heights in a Fenwick
+tree (y of a row, row at a y, total: O(log N); a corrected height: one point
+update), and the reader's place as an ANCHOR -- a message id, the row it was
+at, and a pixel offset -- from which the scroll offset is DERIVED after the
+rows around it are measured. A row is exact when it was measured under the
+current epoch at a column width its own interval holds; otherwise its height
+is an estimate that only positions content nobody can see. Nothing estimated
+is ever built or hit-tested: `materialize` measures outward from the anchor
+row until the viewport is covered by exact rows (edge clamps fill from the
+edge), then half a viewport of overscan each side under a budget, and the
+window it returns holds only exact rows. Width and font changes bump an epoch
+or nothing; a mutation classifies only the rows it touched (grouping, author
+rows and outcome lines are local facts of a row and its neighbour); reasoning
+and date-divider toggles re-classify every row's metadata once, measuring
+nothing. The minimap reads the rail at its own resolution: `railH / 2 px`
+slices, each mapped to rows through the index and probed at up to six ranks.
+
+What is O(N), by design, and counted under `ledger.reindexed`: the open
+(newest 40), the one load-older that prepends the rest of the thread, a
+reasoning/divider toggle, and -- on those same frames only -- rescaling the
+never-measured rows' estimates by what the measured rows of their kind turned
+out to be. Never a width step, a token, or a scroll.
+
+### The bound, on the production path
+
+`scripts/viewport_bound_gate.sh` (`zig build viewport-bound-gate`) runs
+`tests/perf/viewport_bound_stimulus.e2e` -- HOME (the load-older prepend),
+END, three PAGE_UPs, three resizes while scrolled up, a prompt whose reply the
+mock streams while scrolled up, wheel both ways, END, a resize while following
+-- on the heterogeneous fixture (`HANABI_BIG_EVENTS=1`: bubbles, thinking, tool
+piles, sub-agents, deliveries, events) at three lengths, same window, and
+reads the worst frame. Pasted from the run at bb8cf25:
+
+| messages | rows visited, max/frame | rows measured, max/frame | rows built, max/frame | minimap probes, max/frame | reindexed | recalibrated | unfilled frames |
+|---|---|---|---|---|---|---|---|
+| 575 | 17 | 12 | 31 | 882 | 613 (open 38 + prepend 575) | 613 | 0 |
+| 5,736 | 16 | 12 | 32 | 2,378 | 5,774 | 5,774 | 0 |
+| 57,345 | 17 | 12 | 32 | 2,187 | 57,383 | 57,383 | 0 |
+
+(`reindexed` is the structural metadata pass, `recalibrated` the estimate
+rescale on those same frames; both are the open plus the one load-older and
+nothing else. Index time is O(total text bytes) on those frames: the hint
+counts each never-measured row's hard lines once.)
+
+`--selftest` runs the same with `HANABI_LEDGER_EAGER=1`, which measures every
+row every frame (the shape this replaced): 365 → 3,500 rows visited from 575
+to 5,736 messages, and the gate fails its bound. The b6d82ef binary, which has
+no ledger counters, fails closed.
+
+The model alone, `tests/unit/test_transcript_ledger.cpp`: an identical 200-row
+tail behind 100 / 2,800 / 29,800 rows of history reads exactly equal counts per
+frame (settled 6 visited / 0 measured; scroll-up 36 / 35; width 12 / 9; tail
+append while scrolled up 5 / 0; font 12 / 11); a 5,000-follower pile straddling
+the window is crossed in under 80 visits; the anchor holds its row and pixel
+through a prepend of 300, a 10× height correction above it, an edit of the
+visible neighbour and a tail append while following; two notes a frame (a
+streamed token is an append and an update) cost no rebuild across 30 tokens;
+the index does not drift over a million point updates.
+
+### What the reader sees
+
+The same pixels as before where it matters: the wheel probes (one notch, three
+notches from the bottom) and the first turn's position after HOME are identical
+to b6d82ef; `tests/ui` passes with one pin changed -- the bottom pad's absolute
+y after HOME, which depended on every row between being exact, now pins the
+first turn's own y instead. What changed: the scrollbar and the rail proportion
+unvisited history by estimate until it is visited, and a page or a jump into
+unmeasured rows lands where the exact rows say, with the rows between measured
+upward from there.
+
+### Limitations, stated
+
+- A single enormous EXPANDED message is one row: measured whole when it is in
+  view, O(its lines) per new width, and painted by `render_rich_body`, which
+  walks every segment each frame to place the ones in view.
+  `tests/perf/giant_row_stimulus.e2e` with `HANABI_LONGMSG_LINES=5000`
+  (expanded from the bottom, five resizes, two pages): measure
+  `measure.bubble_h` 59.1 ms over 17 measures = 3.5 ms per width step; paint
+  `text.count_lines` 1,110,446 memo hits over 292 frames = ~3,800 a frame,
+  3.1 s total = ~10 ms a frame while its tail is in view. The paint cost is
+  the renderer's and predates this change; neither is bounded by the
+  viewport. Paragraph sub-rows are the follow-up, not this change.
+- A tool pile is one row whose height is O(its run) to measure, once per
+  width, when its lead is in view.
+- Find stays whole-thread (its contract), and its memo re-collects on every
+  streamed token while the find bar is open; unchanged here.
+- Two panes on one thread at two widths keep two ledgers (~40 bytes a row
+  each).

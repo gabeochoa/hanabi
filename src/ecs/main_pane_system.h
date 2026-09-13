@@ -34,6 +34,7 @@
 #include "../util/prof.h"
 #include "../util/text_cache.h"
 #include "../util/wrap_count.h"
+#include "transcript_ledger.h"
 #include "transcript_render_cache.h"
 #include "composer_strip.h"
 #include "../ui/accessibility.h"
@@ -2216,7 +2217,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // ---------------- Chat transcript --------------------------------------
 
-    using Item = model::TranscriptItem;
 
     // ---- Minimap rail -----------------------------------------------------
     static model::FollowMemory& seeded_latch(model::PaneState& state) {
@@ -2227,8 +2227,97 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return state.latch;
     }
 
+    // The mark a row wears on the rail: the row's kind, and for a bubble its
+    // author. O(1) from the ledger's classification and the message's role.
+    static hanabi::minimap::Mark row_mark(const model::RowGeom& g,
+                                          const api::Message& m) {
+        switch (g.kind) {
+            case model::RowGeom::ToolPile:
+            case model::RowGeom::ToolBlock:
+                return hanabi::minimap::Mark::Machinery;
+            case model::RowGeom::Spawn:
+            case model::RowGeom::Delivery:
+            case model::RowGeom::Event:
+                return hanabi::minimap::Mark::Notice;
+            case model::RowGeom::Bubble:
+                return m.role == api::Role::User ? hanabi::minimap::Mark::Ask
+                                                 : hanabi::minimap::Mark::Reply;
+            default:
+                return hanabi::minimap::Mark::Note;
+        }
+    }
+
+    // The rail's marks, read through the height index at the rail's own
+    // resolution. A rail `railH` tall can draw railH / kMinDotH marks and no
+    // more, so that is the number of samples: each covers a slice of content
+    // height, the rows in the slice are found by two O(log N) lookups, and
+    // the slice wears the highest-priority visible mark among them. A slice
+    // holding more rows than a bounded probe count is sampled at evenly
+    // spaced ranks -- at 2 px per slice nothing finer could be drawn anyway.
+    // A short thread (fewer rows than the rail has slots) keeps one exact
+    // mark per row, which is the density the navigator test expects; that
+    // walk is bounded by the rail, not the thread. Never O(N) on a width
+    // step, a token or a total change: O(cap * (log N + probes)).
+    static std::vector<hanabi::minimap::Slot> sample_minimap_slots(
+        const model::TranscriptLedger& led,
+        const std::vector<api::Message>& msgs, float subH, float totalH,
+        float railH, std::string_view hiddenMarks, std::size_t& rowsVisited) {
+        std::vector<hanabi::minimap::Slot> out;
+        const std::size_t n = led.rows();
+        if (n == 0 || totalH <= 0.0f || railH <= 0.0f) return out;
+        const std::size_t cap =
+            static_cast<std::size_t>(railH / hanabi::minimap::kMinDotH) + 2;
+        const float ledgerH = led.total();
+        if (n <= cap) {
+            // One mark per visible row, exact, bounded by the rail.
+            out.reserve(n);
+            for (std::size_t r = 0; r < n; ++r) {
+                const model::RowGeom& g = led.geom(r);
+                ++rowsVisited;
+                if (g.hidden || g.total() <= 0.0f) continue;
+                const auto mark = row_mark(g, msgs[r]);
+                if (hanabi::minimap::mark_hidden(hiddenMarks, mark)) continue;
+                out.push_back(hanabi::minimap::Slot{static_cast<int>(r),
+                                                    subH + led.top_of(r),
+                                                    g.total(), mark});
+            }
+            return out;
+        }
+        constexpr std::size_t kProbes = 6;
+        out.reserve(cap);
+        const float slice = ledgerH / static_cast<float>(cap);
+        for (std::size_t k = 0; k < cap; ++k) {
+            const float y0 = slice * static_cast<float>(k);
+            const float y1 = (k + 1 == cap) ? ledgerH : y0 + slice;
+            const std::size_t r0 = led.visible_row_at(y0);
+            const std::size_t r1 = led.visible_row_at(std::max(y0, y1 - 0.01f));
+            int bestPri = 1 << 20;
+            hanabi::minimap::Mark best = hanabi::minimap::Mark::Note;
+            bool any = false;
+            const std::size_t span = r1 >= r0 ? r1 - r0 + 1 : 1;
+            const std::size_t step = std::max<std::size_t>(1, span / kProbes);
+            for (std::size_t r = r0; r <= r1 && r < n; r += step) {
+                const model::RowGeom& g = led.geom(r);
+                ++rowsVisited;
+                if (g.hidden) continue;
+                const auto mark = row_mark(g, msgs[r]);
+                if (hanabi::minimap::mark_hidden(hiddenMarks, mark)) continue;
+                const int pri = hanabi::minimap::mark_priority(mark);
+                if (!any || pri < bestPri) {
+                    bestPri = pri;
+                    best = mark;
+                    any = true;
+                }
+            }
+            if (!any) continue;
+            out.push_back(hanabi::minimap::Slot{static_cast<int>(r0), subH + y0,
+                                                y1 - y0, best});
+        }
+        return out;
+    }
+
     void minimap_rail(UIContext<InputAction>& ctx, Entity& parent,
-                      Entity& scrollEnt, const std::vector<Item>& items,
+                      Entity& scrollEnt, const model::TranscriptLedger& led,
                       const std::vector<api::Message>& msgs, float subH,
                       float paneW, float railTopY, float listH, float totalH,
                       float viewH, float scrollY, bool& follow,
@@ -2239,7 +2328,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // below worth_showing, the reader switched tabs, the pane got narrow —
         // the state has to go with it, or the next press inherits a drag
         // nobody started.
-        if (items.empty() || !Settings::get().get_show_minimap() ||
+        if (led.rows() == 0 || !Settings::get().get_show_minimap() ||
             !hanabi::minimap::worth_showing(totalH, viewH) ||
             !scrollEnt.has<afterhours::ui::HasScrollView>()) {
             drag = {};
@@ -2328,42 +2417,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                   state.minimapRailH != railH ||
                                   state.minimapLeadH != subH;
         if (rebuildSlots) {
-            std::vector<float> heights;
-            std::vector<hanabi::minimap::Mark> kinds;
-            heights.reserve(items.size());
-            kinds.reserve(items.size());
-            for (const Item& it : items) {
-                hanabi::minimap::Mark mark = hanabi::minimap::Mark::Note;
-                switch (it.kind) {
-                    case Item::ToolPile:
-                    case Item::ToolBlock:
-                        mark = hanabi::minimap::Mark::Machinery;
-                        break;
-                    case Item::Spawn:
-                    case Item::Delivery:
-                    case Item::Event:
-                        mark = hanabi::minimap::Mark::Notice;
-                        break;
-                    case Item::Bubble:
-                        mark = (it.lo < static_cast<int>(msgs.size()) &&
-                                msgs[static_cast<size_t>(it.lo)].role ==
-                                    api::Role::User)
-                                   ? hanabi::minimap::Mark::Ask
-                                   : hanabi::minimap::Mark::Reply;
-                        break;
-                    default: break;
-                }
-                if (hanabi::minimap::mark_hidden(
-                        Settings::get().get_minimap_hidden_marks(), mark))
-                    continue;
-                heights.push_back(it.height);
-                kinds.push_back(mark);
-            }
+            std::size_t visited = 0;
             state.minimapSlots =
                 std::make_shared<const std::vector<hanabi::minimap::Slot>>(
-                    hanabi::minimap::group_marks(heights, kinds, subH, totalH,
-                                                 railH));
+                    sample_minimap_slots(led, msgs, subH, totalH, railH,
+                                         Settings::get().get_minimap_hidden_marks(),
+                                         visited));
             hanabi::prof::tick("minimap.slot_rebuild");
+            hanabi::prof::tick("minimap.rows_visited", visited);
+            hanabi::prof::gauge("minimap.frame_probes_max", visited);
             state.minimapTotalH = totalH;
             state.minimapRailH = railH;
             state.minimapLeadH = subH;
@@ -2371,7 +2433,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::prof::tick("minimap.slot_cache_hit");
         }
         const auto slots = state.minimapSlots;
-        hanabi::prof::gauge("minimap.items", items.size());
+        hanabi::prof::gauge("minimap.items", led.rows());
         hanabi::prof::gauge("minimap.marks", slots->size());
 
         const float markSlop =
@@ -3779,213 +3841,193 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int firstUnread = mark.unreadFirst;
         const int unreadCount = mark.unreadCount;
 
-        model::TranscriptGeometryFacts geometry;
-        geometry.pane_width = colW;
-        geometry.show_date_dividers = show_date_dividers();
-        geometry.show_reasoning = show_reasoning();
-        geometry.fold_long_messages = fold_long_messages();
-        geometry.tool_fold_mode = hanabi::fold::to_int(fold_mode());
-        geometry.unread_first = firstUnread;
-        geometry.unread_count = unreadCount;
-        geometry.find_open = pane.findOpen;
-        geometry.find_query = pane.findQuery;
-        geometry.streaming = streamingHere;
-        geometry.live_index = liveIdx;
-        geometry.stream_phase = static_cast<int>(app.streamPhase);
-        geometry.font_epoch = hanabi::text::font_epoch();
+        // ---- The ledger: one scalar row per message ------------------------
+        // Widths, fold state and the rest are facts the ledger compares; a
+        // change bumps an epoch, and a row is re-measured when it next enters
+        // the window. Nothing here walks the thread (transcript_ledger.h).
+        model::LedgerFacts lf;
+        lf.column_w = colW;
+        lf.show_date_dividers = show_date_dividers();
+        lf.show_reasoning = show_reasoning();
+        lf.fold_long_messages = fold_long_messages();
+        lf.tool_fold_mode = hanabi::fold::to_int(fold_mode());
+        lf.unread_first = firstUnread;
+        lf.find_open = pane.findOpen;
+        lf.find_query = pane.findQuery;
+        lf.streaming = streamingHere;
+        lf.live_index = liveIdx;
+        lf.stream_phase = static_cast<int>(app.streamPhase);
+        lf.font_epoch = hanabi::text::font_epoch();
 
-        model::TranscriptItemIndex::View itemView;
-        {
-            hanabi::prof::Scope _p("transcript.pass1_measure");
-            itemView = model::transcript_item_index().update(
-                model::pane_key(pane_index(app, pane),
-                                pane.openSession->summary.id),
-                msgs.data(), msgs.size(), pane.transcriptMutation, geometry,
-                [&](std::size_t start, std::vector<Item>& built) {
-                    int i = static_cast<int>(start);
-                    while (i < n) {
-                        if (geometry.show_date_dividers && i > 0 &&
-                            starts_new_day(msgs[i - 1], msgs[i])) {
-                            Item d;
-                            d.kind = Item::DateDivider;
-                            d.lo = i;
-                            d.height = kDateDividerH;
-                            built.push_back(d);
-                        }
-                        if (i == firstUnread) {
-                            Item d;
-                            d.kind = Item::NewDivider;
-                            d.lo = i;
-                            d.hi = unreadCount;
-                            d.height = kNewDividerH;
-                            built.push_back(d);
-                        }
-                        const auto& m = msgs[i];
-                        if (is_spawn_tool(m)) {
-                            Item it;
-                            it.kind = Item::Spawn;
-                            it.lo = i;
-                            it.height = spawn_card_height();
-                            built.push_back(it);
-                            ++i;
-                            continue;
-                        }
-                        if (is_delivery(m)) {
-                            Item it;
-                            it.kind = Item::Delivery;
-                            it.lo = i;
-                            it.height = delivery_height(app, m, i, colW);
-                            built.push_back(it);
-                            ++i;
-                            continue;
-                        }
-                        if (is_compaction(m)) {
-                            Item it;
-                            it.kind = Item::Compaction;
-                            it.lo = i;
-                            it.height = compaction_height(app, m, i, colW);
-                            built.push_back(it);
-                            ++i;
-                            continue;
-                        }
-                        if (is_one_line_event(m)) {
-                            Item it;
-                            it.kind = Item::Event;
-                            it.lo = i;
-                            it.height = event_row_height();
-                            built.push_back(it);
-                            ++i;
-                            continue;
-                        }
-                        if (m.role == api::Role::Tool) {
-                            int j = i;
-                            while (j < n && msgs[j].role == api::Role::Tool &&
-                                   !is_spawn_tool(msgs[j]))
-                                ++j;
-                            if (j - i >= 2) {
-                                Item it;
-                                it.kind = Item::ToolPile;
-                                it.lo = i;
-                                it.hi = j;
-                                it.height = tool_pile_height(app, msgs, i, j);
-                                built.push_back(it);
-                                i = j;
-                                continue;
-                            }
-                            Item it;
-                            it.kind = Item::ToolBlock;
-                            it.lo = i;
-                            it.height = tool_block_height(app, msgs[i]);
-                            built.push_back(it);
-                            ++i;
-                            continue;
-                        }
-                        if (is_thinking(m) &&
-                            !(streamingHere && static_cast<size_t>(i) == liveIdx)) {
-                            if (!geometry.show_reasoning) {
-                                ++i;
-                                continue;
-                            }
-                            Item it;
-                            it.kind = Item::Thinking;
-                            it.lo = i;
-                            it.height = thinking_height(app, m, i, colW);
-                            built.push_back(it);
-                            ++i;
-                            continue;
-                        }
-                        Item it;
-                        it.kind = Item::Bubble;
-                        it.lo = i;
-                        it.isLive = streamingHere && static_cast<size_t>(i) == liveIdx;
-                        it.showAuthor =
-                            (i == 0) ||
-                            (msgs[i - 1].role != api::Role::Assistant &&
-                             msgs[i - 1].role != api::Role::Tool);
-                        it.height = bubble_height(m, colW, it.isLive, i,
-                                                  it.showAuthor);
-                        built.push_back(it);
-                        if (draws_outcome(m.run_outcome, i == n - 1)) {
-                            Item ro;
-                            ro.kind = Item::RunOutcome;
-                            ro.lo = i;
-                            ro.height = kRunOutcomeH + kRunOutcomeGapTop;
-                            built.push_back(ro);
-                        }
-                        ++i;
-                    }
-                });
-        }
-        const std::vector<Item>& items = *itemView.items;
-        float totalH = subH + itemView.height;
-        if (compactingHere) totalH += compaction_row_height();
-        hanabi::prof::tick("transcript.item_messages_visited",
-                           itemView.messages_visited);
-        hanabi::prof::tick(itemView.rebuilt ? "transcript.item_index_rebuild"
-                                            : "transcript.item_index_hit");
-        hanabi::prof::gauge("transcript.item_index_slots",
-                            model::transcript_item_index().slots());
-        hanabi::prof::gauge("transcript.item_index_items",
-                            model::transcript_item_index().total_items());
-        if (hanabi::mprobe::on())
-            for (const Item& item : items)
-                if (item.kind == Item::Bubble)
-                    hanabi::mprobe::expect("turn#" + std::to_string(item.lo),
-                                           item.height);
+        const std::string paneKey =
+            model::pane_key(pane_index(app, pane), pane.openSession->summary.id);
+        model::TranscriptLedger& led = model::transcript_ledgers().slot(paneKey);
+        led.counters().reset();
 
-        // WHAT THE ITEM LIST ACTUALLY CONTAINS, as gauges. Not a perf number:
-        // a gate's first job is to prove the scenario DROVE the thing it
-        // claims to measure, and the whole reason scripts/events_gate.sh
-        // exists is that every existing gate ran over a transcript with none
-        // of feat/event-model's row kinds in it and read the same number
-        // before and after the merge. The gate fails when these are zero,
-        // which is the difference between "the event rows cost nothing" and
-        // "no event row was drawn".
-        if (hanabi::prof::enabled()) {
-            unsigned long long nEvent = 0, nDeliv = 0, nSpawn = 0, nThink = 0;
-            for (const Item& it : items) {
-                switch (it.kind) {
-                    case Item::Event: ++nEvent; break;
-                    case Item::Delivery: ++nDeliv; break;
-                    case Item::Spawn: ++nSpawn; break;
-                    case Item::Thinking: ++nThink; break;
-                    default: break;
-                }
-            }
-            hanabi::prof::gauge("items.total", items.size());
-            hanabi::prof::gauge("items.event", nEvent);
-            hanabi::prof::gauge("items.delivery", nDeliv);
-            hanabi::prof::gauge("items.spawn", nSpawn);
-            hanabi::prof::gauge("items.thinking", nThink);
-        }
-        // ---- Virtualization: read last frame's scroll to skip off-screen. --
-        float scrollY = 0.0f;
+        // The reader's place, read off LAST frame's scroll against LAST
+        // frame's geometry, before anything below moves a row: the row under
+        // the viewport's top edge and the offset into it, held by message id.
+        float scrollYIn = 0.0f;
         float viewH = listH;
         if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            scrollY = sv.scroll_offset.y;
-            if (sv.viewport_or_zero().y > 1.0f)
-                viewH = sv.viewport_or_zero().y;
+            scrollYIn = sv.scroll_offset.y;
+            if (sv.viewport_or_zero().y > 1.0f) viewH = sv.viewport_or_zero().y;
         }
+        const auto id_of = [&](std::size_t i) -> std::string {
+            const api::Message& m = msgs[i];
+            if (!m.id.empty()) return m.id;
+            if (!m.local_id.empty()) return "local:" + m.local_id;
+            return "i" + std::to_string(i);
+        };
+        // Ledger space starts under the sub-agent rollup: a scroll inside the
+        // rollup is a negative offset into row 0, never clamped away.
+        model::Anchor anchor = led.rows() == 0
+                                   ? model::Anchor{}
+                                   : led.anchor_at(scrollYIn - subH, id_of);
 
-        // ---- Load-older: scroll-anchor + trigger + prefetch ---------------
-        // (a) ANCHOR: when older messages were just prepended (loader armed
-        //     anchorPending), the content grew above the viewport. Measure the
-        //     height of the newly-prepended items and bump scroll_offset by it,
-        //     so the user's view stays on the same message instead of snapping
-        //     to the newly-loaded oldest. Cleared after one application.
-        const std::string openId = pane.openSession->summary.id;
-        if (pane.anchorPending == openId &&
-            msgs.size() > pane.anchorPrevMsgCount &&
-            scroll.ent().has<afterhours::ui::HasScrollView>()) {
-            const float prependedH =
-                std::max(0.0f, itemView.height - itemView.previous_height);
-            auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            sv.scroll_offset.y += prependedH;  // hold the viewport steady
-            sv.clamp_scroll();
-            scrollY = sv.scroll_offset.y;
-            pane.anchorPending.clear();
+        // Whether a Tool-role message is one the pile loop absorbs: the
+        // sequential build consumed spawn, delivery, compaction and one-line
+        // events BEFORE testing the role, so a run never starts on one of
+        // those, but a run already open swallows a following delivery.
+        const auto pile_member = [&](int k) {
+            return msgs[k].role == api::Role::Tool && !is_spawn_tool(msgs[k]);
+        };
+        const auto pile_starter = [&](int k) {
+            const auto& m = msgs[k];
+            return pile_member(k) && !is_delivery(m) && !is_compaction(m) &&
+                   !is_one_line_event(m);
+        };
+        // The run containing k, as the sequential build would have found it.
+        // O(1) per follower: the row before k has been classified already
+        // (rows are classified in index order), so "k continues a pile" is
+        // one read; only a run's FIRST row walks forward to find its span.
+        const auto run_bounds = [&](int k, int& lo, int& hi) -> bool {
+            if (k > 0 && k - 1 < static_cast<int>(led.rows())) {
+                const model::RowGeom& prev = led.geom(static_cast<std::size_t>(k - 1));
+                if (prev.kind == model::RowGeom::ToolPile && pile_member(k)) {
+                    lo = k - static_cast<int>(prev.hidden ? prev.leadDistance + 1 : 1);
+                    hi = k + 1;  // the lead's span is the ledger's to extend
+                    return true;
+                }
+            }
+            if (!pile_starter(k)) return false;
+            int e = k;
+            while (e + 1 < n && pile_member(e + 1)) ++e;
+            lo = k;
+            hi = e + 1;
+            return hi - lo >= 2;
+        };
+        const auto classify = [&](std::size_t idx) -> model::RowClass {
+            const int i = static_cast<int>(idx);
+            const auto& m = msgs[i];
+            model::RowClass c;
+            if (lf.show_date_dividers && i > 0 && starts_new_day(msgs[i - 1], m))
+                c.before += kDateDividerH;
+            if (i == firstUnread) c.before += kNewDividerH;
+            if (is_spawn_tool(m)) { c.kind = model::RowGeom::Spawn; return c; }
+            int lo = 0, hi = 0;
+            const bool inRun = m.role == api::Role::Tool && run_bounds(i, lo, hi);
+            if (inRun) {
+                c.kind = model::RowGeom::ToolPile;
+                c.span = static_cast<std::uint32_t>(hi - lo);
+                c.hidden = i != lo;
+                return c;
+            }
+            if (is_delivery(m)) { c.kind = model::RowGeom::Delivery; return c; }
+            if (is_compaction(m)) { c.kind = model::RowGeom::Compaction; return c; }
+            if (is_one_line_event(m)) { c.kind = model::RowGeom::Event; return c; }
+            if (m.role == api::Role::Tool) { c.kind = model::RowGeom::ToolBlock; return c; }
+            const bool live = streamingHere && static_cast<size_t>(i) == liveIdx;
+            if (is_thinking(m) && !live) {
+                c.kind = model::RowGeom::Thinking;
+                c.hidden = !lf.show_reasoning;
+                return c;
+            }
+            c.kind = m.role == api::Role::System ? model::RowGeom::System
+                                                 : model::RowGeom::Bubble;
+            c.live = live;
+            // A first guess at the body height from the text's LENGTH and
+            // its hard lines: lines at ~6.5 px a character over the column,
+            // at least one, plus the bubble's padding. Only positions the
+            // row until it is measured; never built from -- and not
+            // recomputed for a row that has been measured (a streamed token
+            // re-classifies the live row every frame).
+            if (idx >= led.rows() || !led.geom(idx).everMeasured) {
+                const float textW = std::max(120.0f, colW - 120.0f);
+                // Hard lines are a floor on the wrapped count; counting them
+                // is one pass over the bytes, once per row at index time.
+                const float hard = static_cast<float>(
+                    std::count(m.text.begin(), m.text.end(), '\n') + 1);
+                const float chars = static_cast<float>(m.text.size());
+                float lines = std::max(hard, std::ceil(chars * 6.5f / textW) + hard * 0.5f);
+                if (lines < 1.0f) lines = 1.0f;
+                c.estimate = kTurnGapTop + kTurnGapBot + kBubblePadTop + kBubblePadBot +
+                             lines * kLinePitch + (c.showAuthor ? kAuthorH + kAuthorGap : 0.0f);
+            }
+            c.showAuthor = (i == 0) ||
+                           (msgs[i - 1].role != api::Role::Assistant &&
+                            msgs[i - 1].role != api::Role::Tool);
+            if (draws_outcome(m.run_outcome, i == n - 1))
+                c.after = kRunOutcomeH + kRunOutcomeGapTop;
+            return c;
+        };
+        const auto measure = [&](std::size_t idx) -> model::RowMeasure {
+            const int i = static_cast<int>(idx);
+            const auto& m = msgs[i];
+            const model::RowGeom& g = led.geom(idx);
+            model::RowMeasure r;
+            switch (g.kind) {
+                case model::RowGeom::Spawn: r.h = spawn_card_height(); break;
+                case model::RowGeom::ToolPile:
+                    r.h = tool_pile_height(app, msgs, i, i + g.span);
+                    break;
+                case model::RowGeom::ToolBlock: r.h = tool_block_height(app, m); break;
+                case model::RowGeom::Delivery:
+                    r.h = delivery_height(app, m, i, colW);
+                    r.validLo = colW; r.validHi = colW;
+                    break;
+                case model::RowGeom::Compaction:
+                    r.h = compaction_height(app, m, i, colW);
+                    r.validLo = colW; r.validHi = colW;
+                    break;
+                case model::RowGeom::Event: r.h = event_row_height(); break;
+                case model::RowGeom::Thinking:
+                    r.h = thinking_height(app, m, i, colW);
+                    r.validLo = colW; r.validHi = colW;
+                    break;
+                case model::RowGeom::System:
+                case model::RowGeom::Bubble:
+                default:
+                    r.h = bubble_height(m, colW, g.live, i, g.showAuthor);
+                    // Exact at this width only; the per-message render cache
+                    // underneath serves its own interval on the re-ask.
+                    r.validLo = colW; r.validHi = colW;
+                    break;
+            }
+            return r;
+        };
+        {
+            hanabi::prof::Scope _p("transcript.pass1_measure");
+            led.sync(msgs.size(), pane.transcriptMutationLog, lf, classify, id_of);
+            // What the column lays out under the last row, so the ledger's
+            // clamp is the scroll view's clamp: the trailing pad, and the
+            // round-in-flight divider while it is drawn.
+            led.set_slack_below(kTranscriptBottomPad +
+                                (compactingHere ? compaction_row_height() : 0.0f));
+            led.set_slack_above(subH);
         }
+        // A prepend the loader armed an anchor for: the ledger's anchor holds
+        // the reader's row by id through the shift, so there is nothing to
+        // add to the offset; the flag is consumed so the load-older trigger
+        // re-arms.
+        const std::string openId = pane.openSession->summary.id;
+        if (pane.anchorPending == openId) pane.anchorPending.clear();
+
+        float scrollY = scrollYIn;
+        float totalH = subH + led.total();
+        if (compactingHere) totalH += compaction_row_height();
+        bool s_scrollOverride = false;  // a jump or key replaced the anchor
         // (b) TRIGGER + PREFETCH: when the user is near the TOP and there are
         //     older messages, request a load. A generous threshold (2 viewports)
         //     PREFETCHES before the user hits the very top, so older content is
@@ -3997,27 +4039,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             pane.anchorPending.empty() && scrollY <= viewH * 2.0f) {
             pane.requestLoadOlder = true;
         }
-        // Jump the current match into view. The item list carries every
-        // message's measured height, so the y of the message holding the match
-        // is the sum of the heights before it; a third of a viewport of lead-in
-        // puts it comfortably inside the pane rather than flush at the top.
+        // Jump the current match into view: anchor the viewport a third of
+        // its height above the message holding the match. Exact regardless
+        // of how much of the history above is still estimated.
         if (pane.findScrollPending && !matches->empty() &&
             scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const int target =
                 (*matches)[static_cast<size_t>(pane.findIndex)].msg;
-            float y = subH + findClearance;
-            for (const auto& it : items) {
-                if (it.lo == target ||
-                    (it.kind == Item::ToolPile && it.lo <= target &&
-                     target < it.hi))
-                    break;
-                y += it.height;
+            if (target >= 0 && target < n) {
+                anchor.id = id_of(static_cast<std::size_t>(target));
+                anchor.row = static_cast<std::size_t>(target);
+                anchor.offset = -viewH / 3.0f - findClearance;
+                s_scrollOverride = true;
             }
-            auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            sv.scroll_offset.y = std::max(0.0f, y - viewH / 3.0f);
-            hanabi::set_scroll_target_y(sv, sv.scroll_offset.y);
-            sv.clamp_scroll();
-            scrollY = sv.scroll_offset.y;
             pane.findScrollPending = false;
         }
 
@@ -4117,17 +4151,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (hanabi::keys::pressed(hanabi::keys::kEnd)) jumpEnd = true;
 
             if (jumpTop || jumpEnd || delta != 0.0f) {
-                float want = jumpTop  ? 0.0f
-                             : jumpEnd ? 1e9f
-                                       : sv.scroll_offset.y + delta;
-                sv.scroll_offset.y = want;
-                hanabi::set_scroll_target_y(sv, want);
-                sv.clamp_scroll();
-                scrollY = sv.scroll_offset.y;
+                if (jumpEnd) {
+                    // Handled by the bottom pin below (the latch re-arms).
+                } else {
+                    const float want = jumpTop ? 0.0f : sv.scroll_offset.y + delta;
+                    anchor = led.anchor_at(want - subH, id_of);
+                    s_scrollOverride = true;
+                }
                 // Scrolling up by hand means "stop following the bottom", the
                 // same as a wheel scroll does; End means "follow again".
                 s_follow = jumpEnd;
-                model::note_follow_pinned(latch, scrollY, sv.scroll_target.y);
             }
         }
 
@@ -4139,45 +4172,124 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool findDriving = pane.findOpen && !findQ.text.empty();
         const bool pinBottom =
             !findDriving && (wantOpenBottom || streamingHere || s_follow);
-        if (pinBottom) scrollY = totalH;
-        // Build a virtualization window around the visible viewport. A fast
-        // fling moves scroll_offset by MANY px between frames, and we read LAST
-        // frame's offset here — so a fixed small margin (old: 0.5*viewH) let a
-        // fast scroll outrun the built window and reveal blank gaps until the
-        // user stopped. Fix: (a) a generous base margin, and (b) a
-        // velocity-aware extension in the direction of travel, computed from
-        // the per-frame scroll delta, so the window always covers where the
-        // content will be next frame. Tracked per-session (map, not a single
-        // static) so switching tabs — or rendering two panes in split-view —
-        // doesn't inherit a stale velocity from the other thread.
-        // A first sight has velocity 0, not -scrollY: the flag is what the
-        // map's find()-vs-end() used to say.
-        float vel = mem.haveLastScrollY ? scrollY - mem.lastScrollY : 0.0f;
-        mem.lastScrollY = scrollY;
-        mem.haveLastScrollY = true;
-        // Base margin ~1 viewport each side (covers normal wheel steps), plus
-        // an extension of several frames of the current velocity in the travel
-        // direction (clamped so a huge jump doesn't build the whole doc).
-        const float kBaseMargin = viewH * 1.0f;
-        const float kMaxExtend = viewH * 4.0f;
-        const float extendDown = std::clamp(vel * 6.0f, 0.0f, kMaxExtend);
-        const float extendUp = std::clamp(-vel * 6.0f, 0.0f, kMaxExtend);
-        const float visTop = scrollY - kBaseMargin - extendUp;
-        const float visBot = scrollY + viewH + kBaseMargin + extendDown;
+        if (pinBottom && n > 0) {
+            // Following: a BOTTOM anchor on the last row, resolved after the
+            // row is measured this frame, so a token that grows it keeps its
+            // bottom on the viewport's bottom edge.
+            anchor.id = id_of(static_cast<std::size_t>(n - 1));
+            anchor.row = static_cast<std::size_t>(n - 1);
+            anchor.offset = led.slack_below();  // the pad (and a row in flight) stay on screen
+            anchor.bottom = true;
+        }
 
-        // ---- Pass 2: emit spacers + only the visible items. ----------------
-        float y = subH;
-        float pendingSpacer = 0.0f;
-        auto flush_spacer = [&](int tag) {
-            if (pendingSpacer <= 0.0f) return;
+        // ---- Materialize: exact rows for the viewport, budgeted overscan --
+        // Every row that intersects the viewport is measured before it is
+        // built; the overscan (half a viewport each side) is measured until
+        // the budget runs out; beyond the window a row's estimate positions
+        // it and nothing else. Nothing estimated is ever built or hit.
+        model::LedgerWindow win;
+        {
+            hanabi::prof::Scope _p("transcript.materialize");
+            constexpr std::size_t kOverscanBudget = 64;
+            if (n > 0)
+                win = led.materialize(anchor, viewH, viewH * 0.5f,
+                                      kOverscanBudget, measure);
+            // The frames that indexed the thread (an open, a load-older)
+            // also proportion its unvisited rows by what the visited ones
+            // measured: one more scalar pass on a frame that is O(N) anyway.
+            if (n > 0 && led.counters().reindexed > 0) led.recalibrate_estimates();
+            // HANABI_LEDGER_EAGER=1: the planted regression for
+            // scripts/viewport_bound_gate.sh --selftest -- measure every row
+            // every frame, the shape this ledger replaced. The gate must
+            // fail on it, or the gate proves nothing.
+            static const bool eager = [] {
+                const char* v = std::getenv("HANABI_LEDGER_EAGER");
+                return v && *v && std::string_view(v) != "0";
+            }();
+            if (eager)
+                for (std::size_t r = 0; r < led.rows(); ++r)
+                    if (!led.geom(r).hidden) led.set_measure(r, measure(r));
+        }
+        const float ledgerH = led.total();
+        totalH = subH + ledgerH;
+        if (compactingHere) totalH += compaction_row_height();
+        hanabi::prof::gauge("ledger.rows", led.rows());
+        // What the thread is made of, for scripts/events_gate.sh (which
+        // fails when a fixture drew none of a row kind it measures), read
+        // off the ledger's running counts rather than a walk.
+        hanabi::prof::gauge("items.total", led.visible_rows());
+        hanabi::prof::gauge("items.event", led.kind_count(model::RowGeom::Event));
+        hanabi::prof::gauge("items.delivery", led.kind_count(model::RowGeom::Delivery));
+        hanabi::prof::gauge("items.spawn", led.kind_count(model::RowGeom::Spawn));
+        hanabi::prof::gauge("items.thinking", led.kind_count(model::RowGeom::Thinking));
+        // The slope gate's three counters (scripts/perf_transcript_slope.sh),
+        // with the ledger's meaning: messages the layout touched this frame,
+        // a frame that touched none, and a frame that reindexed.
+        hanabi::prof::tick("transcript.item_messages_visited",
+                           led.counters().rows_visited + led.counters().rows_classified);
+        hanabi::prof::tick(led.counters().rows_measured == 0 &&
+                                   led.counters().rows_classified == 0
+                               ? "transcript.item_index_hit"
+                               : "transcript.item_index_rebuild");
+        hanabi::prof::tick("ledger.rows_visited", led.counters().rows_visited);
+        hanabi::prof::tick("ledger.rows_measured", led.counters().rows_measured);
+        hanabi::prof::tick("ledger.rows_classified", led.counters().rows_classified);
+        hanabi::prof::tick("ledger.index_updates", led.counters().index_updates);
+        hanabi::prof::tick("ledger.reindexed", led.counters().reindexed);
+        hanabi::prof::tick("ledger.recalibrated", led.counters().recalibrated);
+        hanabi::prof::tick("ledger.rows_built", win.last - win.first);
+        hanabi::prof::gauge("ledger.window_rows", win.last - win.first);
+        // Worst frame, not the average: a bound is a claim about the maximum.
+        // scripts/viewport_bound_gate.sh reads these across thread lengths.
+        hanabi::prof::gauge("ledger.frame_visited_max", led.counters().rows_visited);
+        hanabi::prof::gauge("ledger.frame_measured_max", led.counters().rows_measured);
+        hanabi::prof::gauge("ledger.frame_built_max", win.last - win.first);
+        hanabi::prof::gauge("ledger.frame_classified_max",
+                            led.counters().rows_classified - led.counters().reindexed);
+        hanabi::prof::gauge("ledger.unfilled_frames", led.counters().unfilled);
+        if (!win.filled) hanabi::prof::tick("ledger.unfilled");
+
+        // The scroll, DERIVED from the anchor now that the rows around it are
+        // exact: a correction above the reader moved the spacer, not them.
+        // The eased target moves by the same correction so a wheel notch in
+        // flight keeps gliding.
+        if (scroll.ent().has<afterhours::ui::HasScrollView>() && n > 0) {
+            auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+            const float derived = subH + led.scroll_for(anchor, viewH);
+            const float correction = derived - sv.scroll_offset.y;
+            if (pinBottom) {
+                sv.scroll_offset.y = 1e9f;
+                hanabi::set_scroll_target_y(sv, 1e9f);
+                sv.unbuilt_content_size.y = 0.0f;
+            } else if (s_scrollOverride) {
+                sv.scroll_offset.y = derived;
+                hanabi::set_scroll_target_y(sv, derived);
+            } else if (correction != 0.0f) {
+                sv.scroll_offset.y = derived;
+                sv.scroll_target.y += correction;
+            }
+            scrollY = pinBottom ? totalH : derived;
+        }
+        if (hanabi::mprobe::on())
+            for (std::size_t r = win.first; r < win.last; ++r)
+                if (!led.geom(r).hidden && led.geom(r).kind == model::RowGeom::Bubble)
+                    hanabi::mprobe::expect("turn#" + std::to_string(r),
+                                           led.geom(r).total() - led.geom(r).before -
+                                               led.geom(r).after);
+        // Paragraph windowing inside a bubble reads these: where the viewport
+        // is, with a margin, in content coordinates.
+        const float visTop = scrollY - viewH * 0.5f;
+        const float visBot = scrollY + viewH * 1.5f;
+
+        // ---- Pass 2: one spacer, the window's rows, one spacer. -----------
+        auto spacer = [&](int tag, float h) {
+            if (h <= 0.0f) return;
             div(ctx, mk(col, 30000 + tag),
                 ComponentConfig{}
-                    .with_size(ComponentSize{percent(1.0f),
-                                             pixels(pendingSpacer)})
+                    .with_size(ComponentSize{percent(1.0f), pixels(h)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_debug_name("virt_spacer"));
-            pendingSpacer = 0.0f;
         };
         // NO short-thread bottom anchor. hanabi used to insert a leading spacer
         // of the whole slack so a two-message thread sat just above the
@@ -4188,64 +4300,58 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         sub_agent_panel(ctx, col, app, pane, colW);
         {
         hanabi::prof::Scope _p2("transcript.pass2_build");
-        for (const auto& it : items) {
-            const float top = y;
-            const float bot = y + it.height;
-            y = bot;
-            const bool visible = (bot >= visTop) && (top <= visBot);
-            if (!visible) {
-                pendingSpacer += it.height;
-                continue;
+        if (n > 0) {
+            spacer(1, led.top_of(win.first));
+            float y = subH + led.top_of(win.first);
+            for (std::size_t r = win.first; r < win.last; ++r) {
+                const model::RowGeom& g = led.geom(r);
+                if (g.hidden) continue;
+                const int i = static_cast<int>(r);
+                const auto& m = msgs[i];
+                if (lf.show_date_dividers && i > 0 && starts_new_day(msgs[i - 1], m))
+                    date_divider(ctx, col, i, m.created_at, colW);
+                if (i == firstUnread) new_divider(ctx, col, i, unreadCount, colW);
+                const float top = y + g.before;
+                switch (g.kind) {
+                    case model::RowGeom::Spawn:
+                        render_spawn_card(ctx, col, i, m, colW);
+                        break;
+                    case model::RowGeom::ToolPile:
+                        tool_pile(ctx, col, i, msgs, i, i + g.span, colW);
+                        break;
+                    case model::RowGeom::ToolBlock:
+                        render_tool_block(ctx, col, i, m, colW);
+                        break;
+                    case model::RowGeom::Delivery:
+                        render_delivery_row(ctx, col, i, m, app, colW);
+                        break;
+                    case model::RowGeom::Compaction:
+                        render_compaction_divider(ctx, col, i, m, app, colW);
+                        break;
+                    case model::RowGeom::Event:
+                        render_event_row(ctx, col, i, m, colW);
+                        break;
+                    case model::RowGeom::Thinking:
+                        render_thinking_block(ctx, col, i, m, app, colW);
+                        break;
+                    case model::RowGeom::System:
+                    case model::RowGeom::Bubble:
+                    default:
+                        render_bubble(ctx, col, i, m, colW, g.live,
+                                      app.streamPhase, visTop, visBot, top,
+                                      g.showAuthor);
+                        if (g.after > 0.0f)
+                            run_outcome_divider(ctx, col, i, m.run_outcome, colW);
+                        break;
+                }
+                y += g.total();
             }
-            flush_spacer(it.lo);
-            switch (it.kind) {
-                case Item::Bubble:
-                    render_bubble(ctx, col, it.lo, msgs[it.lo], colW,
-                                  it.isLive, app.streamPhase, visTop, visBot,
-                                  top, it.showAuthor);
-                    break;
-                case Item::ToolPile:
-                    tool_pile(ctx, col, it.lo, msgs, it.lo, it.hi, colW);
-                    break;
-                case Item::ToolBlock:
-                    render_tool_block(ctx, col, it.lo, msgs[it.lo], colW);
-                    break;
-                case Item::Spawn:
-                    render_spawn_card(ctx, col, it.lo, msgs[it.lo], colW);
-                    break;
-                case Item::NewDivider:
-                    new_divider(ctx, col, it.lo, it.hi, colW);
-                    break;
-                case Item::DateDivider:
-                    date_divider(ctx, col, it.lo, msgs[it.lo].created_at,
-                                 colW);
-                    break;
-                case Item::RunOutcome:
-                    run_outcome_divider(ctx, col, it.lo,
-                                        msgs[it.lo].run_outcome, colW);
-                    break;
-                case Item::Thinking:
-                    render_thinking_block(ctx, col, it.lo, msgs[it.lo], app,
-                                          colW);
-                    break;
-                case Item::Event:
-                    render_event_row(ctx, col, it.lo, msgs[it.lo], colW);
-                    break;
-                case Item::Delivery:
-                    render_delivery_row(ctx, col, it.lo, msgs[it.lo], app,
-                                        colW);
-                    break;
-                case Item::Compaction:
-                    render_compaction_divider(ctx, col, it.lo, msgs[it.lo],
-                                              app, colW);
-                    break;
-            }
+            spacer(99999, ledgerH - led.top_of(win.last));
         }
-        flush_spacer(99999);
         // The round in flight, at the end of everything durable: the reply it
         // precedes has not begun, so this is where the server's own row would
-        // stand. Not an item -- it is not a message and the index must not
-        // cache it -- but it is real height, counted into totalH above.
+        // stand. Not a row -- it is not a message and the ledger must not
+        // hold it -- but it is real height, counted into totalH above.
         if (compactingHere)
             render_compacting_divider(ctx, col, n, *app.transfer, colW);
         }
@@ -4277,12 +4383,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("transcript_bottom_pad"));
 
-        // Apply the bottom pin when we decided to (first-open / streaming /
-        // already-at-end). Otherwise leave the user's scroll be.
         if (pinBottom && scroll.ent().has<afterhours::ui::HasScrollView>()) {
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            sv.scroll_offset.y = 1e9f;  // clamped to content end next line
-            hanabi::set_scroll_target_y(sv, 1e9f);  // sync eased target (patch)
             sv.clamp_scroll();
             // Both fields, so the next frame does not read our own pin back as
             // a gesture — on either of the two signals the latch watches.
@@ -4304,9 +4406,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // so does a drag, which writes the scroll on every frame it is held.
         {
             hanabi::prof::Scope _pm("transcript.minimap");
-            minimap_rail(ctx, parent, scroll.ent(), items, msgs, subH, paneW,
+            minimap_rail(ctx, parent, scroll.ent(), led, msgs, subH, paneW,
                          listTop, listH, totalH, viewH, scrollY, s_follow,
-                         mem.minimapDrag, mem, itemView.rebuilt);
+                         mem.minimapDrag, mem,
+                         led.counters().rows_measured != 0 ||
+                             led.counters().rows_classified != 0);
         }
 
         // Floating "jump to bottom" affordance: a small down-chevron pinned to
@@ -6280,7 +6384,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.expandedPiles.clear();
                 app.collapsedPiles.clear();
                 if (subs) app.expandedPiles.insert("__subagents__");
-                model::transcript_item_index().invalidate_all();
+                model::transcript_ledgers().mark_all_dirty();
                 app.foldPopoverOpen = false;
             }
         }
@@ -9324,9 +9428,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         for (int paneIndex = 0; paneIndex < 2; ++paneIndex) {
             const std::string key = model::pane_key(paneIndex, id);
             if (messageIndex < 0)
-                model::transcript_item_index().invalidate(key);
+                model::transcript_ledgers().mark_all_dirty();
             else
-                model::transcript_item_index().invalidate(
+                model::transcript_ledgers().mark_dirty(
                     key, static_cast<std::size_t>(messageIndex));
         }
     }

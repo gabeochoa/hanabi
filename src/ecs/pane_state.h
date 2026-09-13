@@ -61,7 +61,7 @@
 #include "../ui/minimap_marks.h"
 #include "../ui/minimap_scrub.h"
 #include "follow_latch.h"
-#include "transcript_item_index.h"
+#include "transcript_ledger.h"
 
 namespace ecs::model {
 

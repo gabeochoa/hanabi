@@ -1,0 +1,29 @@
+# The giant single message: one expanded row of HANABI_LONGMSG_LINES lines in
+# view while the window resizes. The ledger bounds work by the VIEWPORT, and
+# this row IS the viewport: its measure is O(its own lines) at every new width.
+# Not a gate -- the number this produces is the limitation the release notes
+# state (docs/perf/RESIZE.md), read from measure.bubble_h and text.count_lines
+# under HANABI_PROF=1.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_LONGMSG_DEMO=1 HANABI_OPEN=rlong
+
+require_thread rlong
+wait_frames 20
+click_ui asst_fold_btn
+wait_frames 20
+expect_text "Show less"
+resize 900 700
+wait_frames 24
+resize 1300 800
+wait_frames 24
+resize 1100 760
+wait_frames 24
+key PAGE_DOWN
+wait_frames 12
+key PAGE_DOWN
+wait_frames 12
+resize 1000 720
+wait_frames 24
+resize 1100 760
+wait_frames 24

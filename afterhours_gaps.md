@@ -678,7 +678,7 @@ vendored source, not by running it.
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** Hanabi still has a mixed-height app-side virtualizer, so the workaround is live. The broad 'no list virtualization primitive' wording is stale because later notes/current docs acknowledge a uniform-row virtual_list exists upstream.
 
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`Pass 2: emit spacers + only the visible items`) — the transcript virtualizer emits spacers for off-window content and only builds visible items. `src/ecs/main_pane_system.h` (`render_bubble(ctx, col`) — visible transcript items are the only ones passed to the body renderer. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`Pass 2 is genuinely virtualized`) — measured current transcript virtualization behavior and remaining costs.
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`Pass 2: one spacer, the window's rows, one spacer`) — the transcript virtualizer emits one spacer above and one below the ledger's window and builds only its rows. `src/ecs/main_pane_system.h` (`render_bubble(ctx, col`) — visible transcript items are the only ones passed to the body renderer. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`Pass 2 is genuinely virtualized`) — measured current transcript virtualization behavior and remaining costs.
 
 
 
@@ -832,7 +832,7 @@ move behind the framework seam instead of living in the .mm.
   the top-most visible child before layout and re-derive `scroll_offset` after,
   so a content-size change above the fold keeps the visible item stable.
 
-**Hanabi reference.** `src/ecs/components.h` (`anchorPending is the session id awaiting the offset bump`) — pane state carries the pending scroll-anchor adjustment. `src/ecs/main_pane_system.h` (`sv.scroll_offset.y += prependedH`) — render applies the measured prepended height to preserve viewport position.
+**Hanabi reference.** `src/ecs/transcript_ledger.h` (`is DERIVED from the anchor after the window is measured`) — the layout ledger keeps the reader's place as a message id plus a pixel offset and derives the scroll from it after a prepend or a height correction above. `src/ecs/main_pane_system.h` (`The scroll, DERIVED from the anchor now that the rows around it are`) — render writes the derived offset and moves the eased target by the same correction. **Update 2026-09-13:** the `anchorPending` height-bump workaround is gone; the anchor is the mechanism, so the ask above (an opt-in anchor mode on `HasScrollView`) is what hanabi now does app-side by identity rather than by child entity.
 
 
 
@@ -857,7 +857,7 @@ move behind the framework seam instead of living in the .mm.
   next offset), or — better — provide the virtualization itself (see #23) so
   apps don't re-derive a velocity-aware window by hand.
 
-**Hanabi reference.** `src/ecs/pane_state.h` (`Virtualiser scroll velocity`) — per-pane state tracks last scroll position for virtualization overscan. `src/ecs/main_pane_system.h` (`velocity-aware extension in the direction of travel`) — transcript virtualization expands the window according to scroll velocity. Measurement/gate: `docs/perf/TRANSCRIPT.md` (`velocity-aware extension in the direction of travel`) — current perf doc explains the scrolling cost and blank-gap prevention tradeoff.
+**Hanabi reference.** `src/ecs/pane_state.h` (`Virtualiser scroll velocity`) — per-pane state still tracks the last scroll position. **Update 2026-09-13:** the transcript no longer extends its window by velocity; the ledger (`src/ecs/transcript_ledger.h`, `materialize`) measures the rows the anchored viewport needs before paint and half a viewport of overscan each side under a budget, so a fast fling shows exact rows or spacer, never a stale window. The stale-offset half of this entry remains: the anchor is read off last frame's `scroll_offset`.
 
 
 
@@ -12044,7 +12044,7 @@ byte-identically. The commit names hanabi's `measure_config` (#224) as what an a
 would feed it. What this entry asked for beyond that -- a RETAINED prefix-height index
 the library owns, with range invalidation when one row's height changes -- is not
 there: the running total is summed per call. hanabi's three hand-rolled windows
-(`src/ecs/transcript_item_index.h`, the sidebar and digest windows) are NOT migrated
+(the transcript's -- since 2026-09-13 `src/ecs/transcript_ledger.h` -- the sidebar and digest windows) are NOT migrated
 in this wave: the transcript's window carries fold state, live-row exemptions and the
 mutation-kind reconcile that the library's `height_of` has no slot for, and a swap
 would have to be proved pixel- and allocation-neutral against
@@ -12087,17 +12087,29 @@ the scroll offset is in cumulative-height space.
 per `(pane, thread)`. It rebuilds only the affected suffix for appends, content
 updates, and fold toggles; width and global-setting changes replace one slot.
 
-**Hanabi reference.** `src/ecs/transcript_item_index.h` —
-`TranscriptItemIndex::update` implements the bounded index and explicit
-invalidation. `src/ecs/components.h` — `Pane::note_transcript_mutation` carries
-the source revision. `src/ecs/main_pane_system.h` — `render_transcript` builds a
-changed suffix and consumes the retained list; the old full-pass path is gone.
-Tests: `tests/unit/test_transcript_item_index.cpp` runs a 3,000-change
-randomized differential against a from-scratch reference and covers the bound
-and different-width panes; `tests/unit/test_pane_memory.cpp` covers same-ID
-content and unread changes. Measurement/gate:
-`scripts/perf_transcript_slope.sh` gates the visited-message ratio at 0.02; the
-old path is 1.0 and the new 480-message run is 0.0026.
+**Hanabi reference.** (Superseded 2026-09-13.) The item index above is gone:
+`src/ecs/transcript_ledger.h` (`TranscriptLedger`) is the retained index this
+entry asks for -- one scalar row per message, a Fenwick prefix over heights
+with O(log N) point updates, per-row exact/estimate validity, a mutation log
+(`TranscriptMutationLog`, `src/ecs/components.h`) so several notes in one frame
+apply as steps, and a stable-id anchor from which the scroll is derived. A
+width step re-measures only the rows in the viewport; a rebuild happens only
+on the open, a load-older prepend and a reasoning/divider toggle (counted:
+`ledger.reindexed`). `src/ecs/main_pane_system.h` (`render_transcript`)
+consumes it in five calls: sync, anchor, materialize, derive scroll, paint.
+Tests: `tests/unit/test_transcript_ledger.cpp` (identical visible content
+behind 100 / 2,800 / 29,800 rows of history costs identical work; anchor
+through prepend, corrections above, edits and follow; 5,000-follower pile;
+two notes a frame; drift). Gate: `scripts/viewport_bound_gate.sh` -- worst-frame
+rows visited / measured / built and rail probes at ~575 / 5,736 / 57,345
+messages must agree within 24 rows (measured 17 / 16 / 17 visited, 12 / 12 /
+12 measured), with a planted every-row arm the gate must fail.
+`scripts/perf_transcript_slope.sh` keeps its walk-ratio gate with the ledger's
+counters (visited + classified rows per frame over messages x frames).
+**Proposed upstream acceptance:** `detail::RowMetrics` gains `set(i, h)` and
+estimated rows, and `virtual_list` takes a `RowMetrics&` the caller retains,
+instead of rebuilding the prefix by `measured_rows(n, height_of)` per build
+(`imm_components.h`, 1ac6db2).
 
 **Result and remaining cost.** The matched CPU ratios are 0.064x / 0.063x /
 0.078x at 3,672 / 7,344 / 14,688 messages. Allocation calls rose 0.4–1.0%
@@ -12901,7 +12913,7 @@ platform layer exposes no memory-pressure callback. The UI and texture caches
 can be cleared explicitly, but nothing coordinates that with OS pressure.
 
 **Hanabi reference.** `src/ecs/transcript_cache.h`,
-`src/ecs/transcript_render_cache.h`, `src/ecs/transcript_item_index.h`, and
+`src/ecs/transcript_render_cache.h`, `src/ecs/transcript_ledger.h` (formerly `transcript_item_index.h`), and
 `src/search/find_memo.h` each own an independent bounded cache with `clear`.
 
 **Rejected.** Polling RSS every frame is expensive, lagging, and cannot tell

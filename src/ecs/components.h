@@ -25,7 +25,7 @@
 #include "composer_escape.h"
 #include "focus_routing.h"
 #include "transcript_cache.h"
-#include "transcript_item_index.h"
+#include "transcript_ledger.h"
 
 namespace ecs {
 
@@ -157,11 +157,16 @@ struct Pane {
     std::string newThreadReturnId;
     std::optional<api::Session> openSession;
     model::TranscriptMutation transcriptMutation;
+    // The same notes, kept in order for the layout ledger: several in one
+    // frame (a streamed token is an append and an update) are applied as
+    // steps rather than read as a lost base revision.
+    model::TranscriptMutationLog transcriptMutationLog;
 
     void note_transcript_mutation(model::TranscriptMutationKind kind,
                                   std::size_t first, std::size_t count) {
         const std::uint64_t base = transcriptMutation.revision;
         transcriptMutation = {base, base + 1, kind, first, count};
+        transcriptMutationLog.push(transcriptMutation);
         ++transcriptVersion;
         if (transcriptVersion == 0) transcriptVersion = 1;
     }

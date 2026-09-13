@@ -1218,7 +1218,7 @@ class MockClient : public Client {
         "HANABI_ASK_NO_RESOLVE",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
-        "HANABI_LONGMSG_DEMO",    "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
+        "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
@@ -2576,7 +2576,15 @@ class MockClient : public Client {
                              hrs_ago(1), "active", ThreadState::Unknown,
                              "long-message fixture");
             std::string body = "Every step, in order:\n";
-            for (int k = 1; k <= 55; ++k)
+            // HANABI_LONGMSG_LINES=<n> makes the checklist that long: the
+            // giant-single-message arm of the viewport-layout measurements
+            // (one expanded row whose measure is O(its own lines), the cost
+            // the ledger does not bound). Default 55, the shape the fold
+            // tests were written for.
+            int steps = 55;
+            if (const char* ln = std::getenv("HANABI_LONGMSG_LINES"); ln && *ln)
+                if (const int parsed = std::atoi(ln); parsed > 0) steps = parsed;
+            for (int k = 1; k <= steps; ++k)
                 body += "Step " + std::to_string(k) +
                         " of the migration checklist is done.\n";
             body += "Signed off by the migration owner.";

@@ -27,7 +27,7 @@ for n in 20 100 500; do
   tabs="$(printf '%s' "$held" | sed -nE 's/.*tabs=([0-9]+).*/\1/p')"
   lru="$(printf '%s' "$held" | sed -nE 's/.*lru=([0-9]+).*/\1/p')"
   panes="$(printf '%s' "$held" | sed -nE 's/.*paneStates=([0-9]+).*/\1/p')"
-  items="$(printf '%s' "$held" | sed -nE 's/.*itemIndex=([0-9]+)\/.*/\1/p')"
+  items="$(printf '%s' "$held" | sed -nE 's/.*ledger=([0-9]+)\/.*/\1/p')"
   live="$(printf '%s' "$held" | sed -nE 's/.*liveSubs=([0-9]+).*/\1/p')"
   printf '%8d %10d %10d %8d %8d %10d\n' "$n" "$rss" "$heap" "$tabs" "$lru" "$panes"
 

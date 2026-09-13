@@ -1,0 +1,63 @@
+# The viewport-bound stimulus: every way the reader moves the viewport or the
+# thread moves under it, on a thread whose length the gate varies. Not a UI
+# test of what is seen -- scripts/viewport_bound_gate.sh runs this three times
+# at 300 / 3,000 / 30,000 messages and compares the WORST-FRAME ledger work,
+# which must not grow with the length.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_BIG_EVENTS=1 HANABI_OPEN=rbig
+
+require_thread rbig
+wait_frames 20
+
+# Opened at the bottom, following, with the newest 40 loaded. Jump to the
+# top: the load-older fetches the rest and PREPENDS it (the product's one
+# O(N) metadata event after the open); the rows there are cold estimates
+# (clamped edge), then back to the end.
+key HOME
+wait_frames 40
+key HOME
+wait_frames 30
+key END
+wait_frames 20
+
+# Scrolled up a few pages: the tail is off screen.
+key PAGE_UP
+wait_frames 12
+key PAGE_UP
+wait_frames 12
+key PAGE_UP
+wait_frames 12
+
+# Width changes with the reader scrolled up: nothing above or below the
+# window may be re-measured.
+resize 900 700
+wait_frames 24
+resize 1300 800
+wait_frames 24
+resize 1100 760
+wait_frames 24
+
+# A tail mutation while scrolled up: the mock streams a reply to a sent
+# message (append + per-token update at the end of the thread).
+type "and the memory regression?"
+key ENTER
+wait_frames 90
+
+# Wheel both ways across the window edge.
+scroll_wheel 0 -30
+wait_frames 8
+scroll_wheel 0 -30
+wait_frames 8
+scroll_wheel 0 60
+wait_frames 8
+scroll_wheel 0 60
+wait_frames 8
+
+# Back to the end, following again, then one more resize while following.
+key END
+wait_frames 20
+resize 1000 720
+wait_frames 24
+resize 1100 760
+wait_frames 24

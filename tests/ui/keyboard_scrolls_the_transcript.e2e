@@ -20,7 +20,11 @@ assert_ui transcript_bottom_pad y=646
 key HOME
 wait_frames 10
 expect_text "Follow-up question #0:"
-assert_ui transcript_bottom_pad y=12615
+# The first turn sits where it always has. (This used to pin the bottom pad's
+# absolute y here too; with the viewport-bounded ledger the rows between the
+# top and the far-off bottom are estimates until visited, so that number is
+# not a promise any more. What IS promised is where the visible row lands.)
+assert_ui_text "Follow-up question #0: can you dig into the memory regression and report what you find?" y=147
 
 key END
 wait_frames 10

@@ -1407,14 +1407,14 @@ static std::string hold_note(const ecs::AppComponent& app) {
                       hanabi::decode_to_fit::pool_exhaustions());
     std::snprintf(buf, sizeof(buf),
                   "sessions=%zu tabs=%zu lru=%zu paneStates=%zu(drafts %zu) "
-                  "liveSubs=%zu find=%zu itemIndex=%zu/%zu outbox=%zu "
+                  "liveSubs=%zu find=%zu ledger=%zu/%zu outbox=%zu "
                   "sendQueue=%zu stream=%zu/%zuB entities=%zu "
                   "images=%zu(%zu KB) %s",
                   app.sessions.size(), tabs, app.transcriptCache.size(),
                   ecs::model::pane_states().size(),
                   ecs::model::pane_states().drafts(), app.liveSubs.size(),
-                  findEntries, ecs::model::transcript_item_index().slots(),
-                  ecs::model::transcript_item_index().total_items(),
+                  findEntries, ecs::model::transcript_ledgers().slots(),
+                  ecs::model::transcript_ledgers().total_rows(),
                   app.outboxRetry.size(), app.pendingSendQueue.size(),
                   app.streamQueue.size() -
                       std::min(app.streamCursor, app.streamQueue.size()),
