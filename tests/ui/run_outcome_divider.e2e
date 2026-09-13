@@ -10,6 +10,8 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["r9"],"active_tab":"r9","theme":"dark"}
 
+# The label box is 38 wide at afterhours 1ac6db2 (82145f9: advance, not ink;
+# the word's side bearings no longer pad the measurement).
 require_thread r9
 
 expect_text "That is the Autograph key"
@@ -24,4 +26,4 @@ expect_text "failed"
 # half of what is left each, so the three add up to the column and the word
 # sits on its centre line.
 assert_ui run_outcome_divider w=736 h=22
-assert_ui run_outcome_label w=40
+assert_ui run_outcome_label w=38

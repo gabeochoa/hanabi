@@ -146,7 +146,7 @@ class TranscriptRenderCache {
     // ---- The hugged width of a user bubble, at a given pane width ---------
     //
     // A user bubble shrinks to fit its longest wrapped line, and afterhours
-    // cannot size a box to its own text (gaps #79 / #87 / #103), so hanabi
+    // cannot size a box to its own text (gaps #79 / #87; the ink-vs-advance half closed upstream at 1ac6db2), so hanabi
     // works it out itself: wrap the body, then measure every resulting line
     // and take the widest. That is one wrap plus one measure PER LINE, and it
     // ran for every user message in the thread on every frame, on-screen or

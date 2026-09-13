@@ -30,15 +30,15 @@ that do not exist, and `make source-checks` runs it.
 | Distinct numeric gap numbers | **255** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
 | **Rows in the triage table (§6)** | **264** rows, **264** unique identifiers — includes index-only ids with no detailed entry |
-| Standalone live asks | **152** |
+| Standalone live asks | **142** (152 less the ten fixed at 1ac6db2) |
 | Live but subsumed into a family canonical | **56** (§3) |
-| Already fixed upstream | **24** (closed at pin 9ff9079 and REMOVED from the ledger — see the closure table) |
+| Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
 | hanabi/platform-owned, not afterhours' | **26** |
 | **Rows explicitly marked wrong** | **5** (§2) |
 
 Everything in §2 was checked by reading `vendor/afterhours` at the pinned
-submodule **9ff9079**. Nothing here was verified by running the library; each
+submodule **9ff9079**; the 1ac6db2 closures and re-tests above were read at that pin. Nothing here was verified by running the library; each
 correction says so.
 
 ### Closed and removed at pin 9ff9079
@@ -75,6 +75,37 @@ not taken from a postscript.
 | #231 | `f607faa` | `wait_frames` counts ticks |
 | #351 | `bdea3b9` | `fonsSetErrorCallback` registered |
 | #352 | `bdea3b9` | `AFTERHOURS_FONT_ATLAS_SIZE` |
+
+Ten more at pin **1ac6db2** (2026-09-12, range 9ff9079..1ac6db2, 68 commits), each
+read in the pinned source and, where hanabi could see it, measured. These are
+closed IN PLACE (the heading reads `FIXED at 1ac6db2`, the filed text stays under
+`As filed`) rather than deleted: 55 lines across `src/`, `docs/` and these two
+files cite the numbers, and the reference checker refuses a citation of a removed
+id.
+
+| gap | fixed by | what closed it |
+|---|---|---|
+| #137 | `82145f9` | sokol `measure_text` returns the advance, so the shared cache and the app's own measure agree; measured here as a 1px shift of every centred label and one more glyph per row in the narrow approval card (six scripts re-pinned, 162 baselines re-captured) |
+| #103 | `82145f9` | the same: ink box → advance |
+| #575 | `30c6ad6` + `82145f9` | `measure_text_internal` is gone; one measure, one answer |
+| #573 | `1586a17` | `get_active_font`/`get_font` fall back instead of `.at()`-throwing on a missing face |
+| #72 | `7736594` | `has_interacted` keeps `visual_focus_id` at ROOT until a deliberate focus move or click; `tab_walks_the_focus_ring.e2e` reads `ring off` with nothing named at rest |
+| #275 | `0c67090` | `assert_within_parents` — the content-box containment walk beside the viewport one; adopted in `settings_segments_fit_their_row.e2e` and `a_compaction_divider_opens_its_summary.e2e` |
+| #277 | `cc26cbc` | the inset is `ui::kTextInset` with `text_inset_for(rect)`; hanabi's three copies are bound to it |
+| #340 | `b9844c2` | the draw-pass wrap is memoised (LRU keyed on runs and width, both draw paths) |
+| #435 | `b9844c2` | same memo, plain wrapped labels |
+| #436 | `b9844c2` | same memo, styled runs |
+
+Also fixed and rewritten in place: **#210** (`865c4e6`,
+sampler check + `AFTERHOURS_SG_SAMPLER_POOL_SIZE`), **#255** (`7208d0c`/`6daa71b`,
+`has_editing_action` + the once-per-run report), **#85** (`cc26cbc`, the warn-once).
+Narrowed, not closed: **#83** (ring off at rest, but the rule is "after any
+interaction"), **#136/#87/#69** (`with_fit_content` exists; the bubble memo is not
+migrated), **#420/#326/#455** (`height_of(index)` exists; no retained index), **#112**
+(`with_tooltip` exists; no accessible name), **#223** (fixed timestep, deadline still
+`dt`). Re-tested and still open: **#591**, **#592**, **#265**, **#266** (both proof
+patches still red-before/green-after at 1ac6db2), **#350/#353** (`3f264ca` is the
+raylib atlas packer; sokol's fontstash path is unchanged).
 
 Three left a residue, and that is what survives: `1ad3360` exposed the mid-pass
 render-target teardown (**#374**), `bdea3b9` reports that the atlas filled but
@@ -131,7 +162,7 @@ for a glyph the atlas has never held at a size it has never held, which is
 exact rather than heuristic — and gates it with `scripts/atlas_gate.sh`. That
 stand-in stays until #350 and #353 land.
 
-### 2. #210 — the sampler pool is the last fixed pool, and nothing checks a sampler that failed
+### 2. #210 — CLOSED at 1ac6db2 (`865c4e6`): the sampler is checked and its pool is sized
 
 **Upstream sized three of the four.** `11e7338` added
 `AFTERHOURS_SG_PIPELINE_POOL_SIZE` (128), `AFTERHOURS_SG_IMAGE_POOL_SIZE` (256)
@@ -155,7 +186,7 @@ implements and verifies the correctness half, and `make verify-vendor-patches`
 proves it is still absent from the pin — which is what keeps this entry honest
 rather than asserted.
 
-### 3. #137 + #136 + #340 + #116 + #135 — text: the cache answers a different question than the app can ask, nothing hugs its own text, and the draw path re-wraps every frame
+### 3. #136 + #116 + #135 — text: `with_fit_content` landed (partial), the cheap overloads did not; #137 and #340 are CLOSED at 1ac6db2
 
 Text metrics have been called the number-one papercut in this file since day
 one, and three weeks later they still are — the newest entry in the family
@@ -212,7 +243,7 @@ correctness decision, a sizing feature, a cache and three overloads:
   produce one integer per message. Three overloads beside the existing ones,
   sharing the same break loop so they cannot disagree with it.
 
-### 4. #275 — nothing in the stack asks whether a widget is inside its PARENT
+### 4. #275 — CLOSED at 1ac6db2 (`0c67090`): `assert_within_parents`
 
 **A few lines, in a walk that already runs.** Three things look like they answer
 "is this drawing outside its box" and none of them does: the layout warning is
@@ -240,7 +271,7 @@ fast path. #224 is the same ask one level up: `measure_config(config,
 available_w)` — how tall would this child be, without minting an entity — is
 what turns every hand-rolled window in this file into a call.
 
-### 6. #85 + #277 + #75 + #100 + #84 + #91 + #109 — a label is drawn at a hardcoded 5px that no caller can set, read, or override
+### 6. #75 + #100 + #84 + #91 + #109 — the label inset is NAMED now (`ui::kTextInset`, `cc26cbc`; #277 closed, #85's warn-once landed) but still cannot be set per single-line label
 
 **Seven entries. One literal.** `rendering.h` positions every label at
 `Vector2Type{5.f, 5.f}` (verified at the call site), and padding on a label-only
@@ -262,7 +293,7 @@ contract is coupled to multiple 5px/10px calculations across plain, wrapped,
 styled, immediate, batched, ellipsis, and text-input paths; a partial patch
 would create divergent pixels.
 
-### 7. #255 — an editing feature is opted into by ENUMERATOR NAME, and opting out is silent
+### 7. #255 — CLOSED at 1ac6db2 (`7208d0c`): `has_editing_action` + the once-per-run report; hanabi static_asserts its four
 
 `if constexpr (magic_enum::enum_contains<InputAction>("TextWordLeft"))` — verified,
 eleven of them in `text_input/component.h` alone. Word motion, word delete, undo,
@@ -281,7 +312,7 @@ names, a startup warning naming each action that resolved to nothing, or a
 that trait; `tests/vendor_probes/word_editing_capability_probe.cpp` is a compile
 failure before and classifies complete/incomplete enums after.
 
-### 8. #83 + #265 + #266 + #267 + #72 + #46 — the focus ring
+### 8. #83 + #265 + #266 + #267 + #46 — the focus ring (#72 CLOSED at 1ac6db2: no ring at rest; the `:focus-visible` rule is still hanabi's)
 
 Six entries, one widget. A ring is painted **at rest**, on whatever happened to
 be focusable first, so the app opens with a blue box around a row nobody
@@ -605,7 +636,7 @@ correction narrows them rather than closing them.
 | 41 | No worked example of an e2e host loop | — | MED | S | live |
 | 44 | The imm builder copies its config a lot | — | MED | S | dup→#181 |
 | 45 | Widget callbacks outlive their frame; no imm `on_submit` | — | MED | S | live |
-| 46 | The focus ring fans out at the corners | — | HIGH | S | dup→#83 |
+| 46 | The focus ring fans out at the corners | — | MED | S | dup→#83; `ffd62d8` squares the ring on a square element |
 | 48 | A missing codepoint draws nothing, with no query | — | HIGH | S | live |
 | 49 | A script cannot press Cmd | — | — | — | wrong |
 | 50 | Graphics-layer key reads bypass the injector | — | MED | S | live |
@@ -626,10 +657,10 @@ correction narrows them rather than closing them.
 | 66 | A placeholder is a string, so an undrawable hint is blank | — | LOW | S | dup→#48 |
 | 67 | Multi-line is a different widget, not a mode | — | HIGH | M | live |
 | 68 | Nothing reports the height an element came out at | — | HIGH | M | live |
-| 69 | A wrapped label cannot size itself to its text | — | HIGH | M | dup→#136 |
+| 69 | A wrapped label cannot size itself to its text | — | MED | M | dup→#136 (partial) |
 | 70 | An entity created this frame is not findable by id | — | MED | S | live |
 | 71 | Grid snapping quantizes child POSITIONS | FOOTGUN | HIGH | XS | live |
-| 72 | A focus ring is painted at rest | — | HIGH | S | dup→#83 |
+| 72 | A focus ring is painted at rest | — | — | — | fixed at 1ac6db2 (`7736594`); entry kept in place |
 | 73 | `assert_ui_text` matches ANY element with that label | — | HIGH | S | live |
 | 74 | The resolved layout tree cannot be walked | — | HIGH | M | live |
 | 75 | Text is inset by a hardcoded 5px margin that no caller can turn off | WORKAROUND | HIGH | S | partial→#590 |
@@ -640,42 +671,42 @@ correction narrows them rather than closing them.
 | 80 | Every box rasterizes 1px bigger and 1px up-left | WORKAROUND | HIGH | S | live |
 | 81 | Per-corner rounding bits are named for the OPPOSITE corner | FOOTGUN | HIGH | XS | live |
 | 82 | Renderer measurement is weight-aware; global app measure is not | FOOTGUN | HIGH | XS | wrong→#574 |
-| 83 | The focus ring paints at rest; no `:focus-visible` | WORKAROUND | HIGH | S | **live — top 10** |
+| 83 | No `:focus-visible`; the library's rule since 1ac6db2 is "after any interaction" | WORKAROUND | MED | S | **partial — top 10**; #72 half closed |
 | 84 | Right-aligned text can never sit flush to its box | — | MED | XS | partial→#590 |
-| 85 | Padding on a label-only element is silently ignored | — | HIGH | S | partial→#590 |
+| 85 | Padding on a label-only element is silently ignored | — | — | — | fixed at 1ac6db2 (`cc26cbc` warns once); the inset asks live in #75/#91 |
 | 86 | A capture emits pixels and no geometry | TEDIOUS | HIGH | S | live |
-| 87 | `Dim::Text` measures unwrapped; `max_width` clamps nothing | WORKAROUND | HIGH | S | dup→#136 |
+| 87 | `Dim::Text` measures unwrapped; `max_width` clamps nothing | WORKAROUND | — | — | fixed at 1ac6db2 (`c1c1eac`) with #136's `with_fit_content` |
 | 88 | A row cannot baseline-align its children | FOOTGUN | MED | M | live |
 | 89 | Right-aligning needs no spacer | TEDIOUS | — | — | neg |
 | 90 | `ctx.theme` is one global read at RENDER time | FOOTGUN | HIGH | M | live |
-| 91 | A label is not a layout participant | — | HIGH | S | dup→#85 |
+| 91 | A label is not a layout participant | — | HIGH | S | live (canonical now; #85 closed) |
 | 92 | Primitives are not antialiased (MSAA hardcoded off) | WORKAROUND | HIGH | S | live |
 | 93 | An absolute child can only be placed from the LEADING edge | WORKAROUND | MED | S | live |
 | 94 | The scrollbar is a bare on/off bool; no overlay mode | WORKAROUND | MED | S | live |
 | 95 | `clipboard.h` declares none of the symbols it calls | WORKAROUND | MED | XS | live |
 | 96 | A translucent shape blends correctly in `on_draw_fg` | NOT A GAP | — | — | neg |
 | 97 | An absolute child cannot be `percent()`-sized | WORKAROUND | MED | XS | live |
-| 100 | The private 5px margin is in DEVICE pixels | WORKAROUND | MED | XS | dup→#85 |
+| 100 | The private 5px margin is in DEVICE pixels | WORKAROUND | MED | XS | dup→#91 |
 | 101 | No supersampled capture; `ui_scale` is a layout zoom | IMPOSSIBLE | MED | M | live |
 | 102 | `on_draw_fg` gets a SCALED rect and no scale | WORKAROUND | HIGH | XS | live |
-| 103 | `measure_text` returns the ink BOX, not the advance | WORKAROUND | HIGH | XS | dup→#136 |
+| 103 | `measure_text` returns the ink BOX, not the advance | — | — | — | fixed at 1ac6db2 (`82145f9`); entry kept in place |
 | 104 | A script cannot assert an element is ABSENT | TEDIOUS | HIGH | S | live |
 | 105 | A field's placeholder colour is a frame-wide global | TEDIOUS | MED | XS | live |
 | 106 | No AA, and the one escape needs a flat, known background | WORKAROUND | HIGH | S | dup→#92 |
 | 107 | A selected row's fill IS the row's own background box | MISSING | MED | S | live |
 | 108 | Icon stroke weight is baked into the atlas | MISSING | — | — | app |
-| 109 | #85 again, live 2,200 lines down, cost a whole region | FOOTGUN | HIGH | S | dup→#85 |
+| 109 | #85 again, live 2,200 lines down, cost a whole region | FOOTGUN | — | — | fixed with #85 at 1ac6db2 (the warn-once) |
 | 110 | Nothing rounds a widget's ORIGIN | SURPRISING | HIGH | S | live |
 | 111 | A hover highlight IS the hit rectangle | MISSING | MED | XS | live |
-| 112 | No tooltip and no accessible name | MISSING | HIGH | M | live |
+| 112 | No accessible name (tooltip landed at 1ac6db2) | MISSING | MED | M | partial |
 | 114 | A sprite's rendered INK extent is not derivable | TEDIOUS | — | — | app |
 | 116 | No way to ask how much of a string fits in a width | WORKAROUND | HIGH | S | **live — top 10** |
 | 117 | A script pins coordinates and goes stale silently | TEDIOUS | MED | S | wrong |
 | 125 | `load_texture` has no max dimension | WORKAROUND | MED | XS | live |
 | 126 | Nothing says how many GPU bytes are held | IMPOSSIBLE | MED | XS | live |
 | 135 | `wrap_text` is O(words) measures and O(words) strings | PERFORMANCE | HIGH | S | **live — top 10** |
-| 136 | Nothing sizes a box to its own text | PERFORMANCE | CRIT | M | **live — top 10** |
-| 137 | The cached measure and the app's measure disagree | FOOTGUN | CRIT | XS | **proof rejected — pixel-unsafe choice** |
+| 136 | Nothing sizes a box to its own text | PERFORMANCE | MED | M | **partial** — `with_fit_content` at 1ac6db2; bubble memo not migrated |
+| 137 | The cached measure and the app's measure disagree | — | — | — | fixed at 1ac6db2 (`82145f9` measures text by advance); entry kept in place |
 | 138 | ~4.6 heap allocations per widget per frame | PERFORMANCE | HIGH | M | dup→#181 |
 | 145 | No frame SCOPE, so Metal autoreleases have no drain | FOOTGUN | HIGH | XS | live |
 | 146 | Nothing reports the size of the tree just built | WORKAROUND | MED | XS | live |
@@ -691,20 +722,20 @@ correction narrows them rather than closing them.
 | 183 | The focusable set is a `std::set` rebuilt every frame | PERFORMANCE | MED | XS | live |
 | 190 | `TextMeasureCache` is keyed by a font's NAME | FOOTGUN | HIGH | XS | dup→#579 |
 | 191 | `wrap_text` gives the LINES or nothing | PERFORMANCE | HIGH | S | dup→#136 |
-| 210 | Fixed GPU pools; the sampler pool exhausts at 64, silently | — | CRIT | XS | **proof patch — validation half** |
+| 210 | Fixed GPU pools; the sampler pool exhausts at 64, silently | — | — | — | fixed at 1ac6db2 (`865c4e6`); entry kept, source cites it |
 | 350 | Nothing can be asked of the atlas, not even "was that measure complete" | MISSING | CRIT | XS | **live — top 10** |
 | 353 | A dropped glyph is not drawn either, and neither failure is reported | FOOTGUN | HIGH | XS | **live — top 10** |
 | 365 | Find-in-conversation normalized every loaded message every frame | PERFORMANCE | HIGH | M | app (fixed) |
 | 212 | Destroying a GPU object does not free it until next frame | SURPRISING | MED | XS | live |
 | 221 | `with_label` takes `const std::string&` | TEDIOUS | MED | XS | dup→#181 |
 | 222 | An absolute child is still counted in its parent's flow | SHARP EDGE | MED | XS | live |
-| 223 | The retry budget is seconds fed by the host's `dt` | SHARP EDGE | MED | XS | live · #591 is the wall-clock half |
+| 223 | The script deadline is seconds fed by the host's `dt` (fixed timestep landed at 1ac6db2) | SHARP EDGE | MED | XS | live · #591 is the wall-clock half |
 | 224 | Nothing says how tall a child WOULD be | — | HIGH | M | **live — top 10** |
 | 230 | `mouse.pos` is NaN until the first mouse event | FOOTGUN | MED | XS | live |
 | 232 | A coordinate test cannot state its own precondition | TEDIOUS | MED | S | live |
 | 240 | Coloured runs are first-class | NOT A GAP | — | — | neg |
 | 241 | `imm::mk` hashes the SOURCE LOCATION | NOT A GAP | — | — | neg |
-| 255 | A feature is opted into by ENUMERATOR NAME, silently | FOOTGUN | CRIT | S | **proof patch — capability trait** |
+| 255 | A feature is opted into by ENUMERATOR NAME, silently | FOOTGUN | — | — | fixed at 1ac6db2 (`7208d0c`); hanabi static_asserts its names |
 | 256 | Correction to #49: `CMD+` means Ctrl, `SUPER+` is dropped | FOOTGUN | MED | XS | live |
 | 257 | No action for delete-to-line-start | MISSING | MED | S | live |
 | 258 | `expect_input_text` cannot see a multiline field | WORKAROUND | HIGH | XS | live |
@@ -717,14 +748,14 @@ correction narrows them rather than closing them.
 | 265 | The ring is three outlines, not one | — | HIGH | XS | **proof patch — contrast toggle** |
 | 266 | The ring's offset is one number for the whole app | — | MED | S | dup→#83 |
 | 267 | The ring is drawn with no reference to whether focus moves | — | MED | XS | dup→#83 |
-| 275 | Nothing asks whether a widget is inside its PARENT | — | HIGH | S | **live — top 10** |
+| 275 | Nothing asks whether a widget is inside its PARENT | — | — | — | fixed at 1ac6db2 (`0c67090`); entry kept in place |
 | 276 | `Dim::Percent` ignores the child's own margin | FOOTGUN | HIGH | XS | live |
-| 277 | The 5px label inset is hard-coded and unqueryable | FOOTGUN | HIGH | S | **proof rejected — coupled pixel contract** |
+| 277 | The 5px label inset is hard-coded and unqueryable | — | — | — | fixed at 1ac6db2 (`cc26cbc`); entry kept in place |
 | 285 | Every element-addressed input command is a CLICK | TEDIOUS | MED | S | live |
 | 286 | A widget cannot know its own position on the frame built | — | MED | M | live |
 | 287 | There IS a drag primitive, unreachable from the config | — | HIGH | XS | live |
 | 325 | `with_debug_name` takes a `std::string` | PERF | MED | XS | dup→#181 |
-| 326 | `virtual_list` handles UNIFORM row heights only | MISSING | HIGH | S | **live — top 10** |
+| 326 | `virtual_list` handles UNIFORM row heights only | MISSING | — | — | fixed at 1ac6db2 (`4a439b4`); see #420 for what is left |
 | 327 | No draw-only element; a decorative mark costs an Entity | MISSING | HIGH | M | live |
 | 305 | `text_area` re-wraps EVERY FRAME and bypasses `TextMeasureCache` | PERF | HIGH | XS | **live — patch proven** |
 | 306 | `with_auto_grow` knows the row count and will not return it | MISSING | MED | XS | live |
@@ -735,7 +766,7 @@ correction narrows them rather than closing them.
 | 337 | With two panes a debug name stops naming ONE widget | FOOTGUN | HIGH | S | dup→#51 |
 | 338 | Two subtrees from the same call sites get disjoint identities | NOT A GAP | — | — | neg |
 | 339 | `imm::divider` and `hsplit` already exist | NOT A GAP | — | — | neg |
-| 340 | Styled text re-wraps and re-allocates on the RENDER path, per frame | MISSING | HIGH | M | **live — top 10** |
+| 340 | Styled text re-wraps and re-allocates on the RENDER path, per frame | — | — | — | fixed at 1ac6db2 (`b9844c2`); entry kept in place |
 | 341 | What a second pane costs (hanabi's own accounting) | PERF | — | — | app |
 | 374 | `set_window_size` tears down the render target mid-pass, aborting the process | BLOCKING | HIGH | XS | **live — top 10** |
 | 375 | A focused `text_input`'s border loses its top edge to the field's own clip | VISUAL | MED | S | **live — top 10** |
@@ -747,14 +778,14 @@ correction narrows them rather than closing them.
 | 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live** |
 | 409 | An OS preference read inside the per-frame widget build, 333 ns a panel a frame | PERF | LOW | S | app (fixed) |
 | 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** |
-| 420 | `virtual_list` has no variable-height index or range invalidation | MISSING / PERF | HIGH | M | live · extends #326 |
-| 455 | Variable-height transcript virtualization still scans every item | PERFORMANCE | HIGH | M | dup→#326/#224; measured |
+| 420 | `virtual_list` has no RETAINED variable-height index (`height_of` landed at 1ac6db2) | MISSING / PERF | MED | M | partial · extends #326 |
+| 455 | Variable-height transcript virtualization still scans every item | PERFORMANCE | MED | M | dup→#420/#224; measured |
 | 456 | E2E has no clipboard assertion despite exposing clipboard reads | MISSING | MED | S | **live** |
 | 457 | Custom E2E commands lose quoted arguments | FOOTGUN | HIGH | S | **live** |
 | 458 | Icon controls have no semantic accessible name or role | MISSING | HIGH | M | dup→#112 |
 | 459 | Conditional construction gives zero hidden hover entities | NOT A GAP | — | — | neg |
-| 435 | Plain wrapped labels rebuild their line vectors on every draw | PERFORMANCE | HIGH | M | dup→#340 |
-| 436 | Styled labels independently rebuild nested wrapped runs on every draw | PERFORMANCE | HIGH | M | dup→#340 |
+| 435 | Plain wrapped labels rebuild their line vectors on every draw | — | — | — | fixed at 1ac6db2 (`b9844c2`); entry kept in place |
+| 436 | Styled labels independently rebuild nested wrapped runs on every draw | — | — | — | fixed at 1ac6db2 (`b9844c2`); entry kept in place |
 | 437 | The renderer exposes no byte-to-rectangle layout map for find bands | MISSING | HIGH | M | dup→#51 |
 | 438 | Visible rich text still reparses markdown and copies configs every frame | PERFORMANCE | — | — | app |
 | 465 | Bundle identity comes from Info.plist, not the executable path | FIXED | HIGH | S | app (fixed) |
@@ -803,9 +834,9 @@ correction narrows them rather than closing them.
 | 570 | Fontstash size is not native point size | WORKAROUND | HIGH | S | app fixed |
 | 571 | No installed-font catalog | MISSING | MED | S | app workaround |
 | 572 | Path-only font loading cannot select collection faces | FOOTGUN | HIGH | S | app workaround |
-| 573 | Font load failure is stored as an invalid handle | FOOTGUN | HIGH | XS | app workaround |
+| 573 | Font load failure is stored as an invalid handle | — | — | — | fixed at 1ac6db2 (`1586a17`); entry kept in place |
 | 574 | `measure_text_internal` ignores `FontManager::active_font` | FOOTGUN | CRIT | S | app fixed |
-| 575 | Advance and ink bounds are different APIs | FOOTGUN | HIGH | XS | dup→#137 |
+| 575 | Advance and ink bounds are different APIs | — | — | — | fixed at 1ac6db2 (`30c6ad6` + `82145f9`); entry kept in place |
 | 576 | Weighted renderer measurement already works | NOT A GAP | — | — | neg; corrects #82 |
 | 577 | Loaded font IDs cannot be unloaded and cap at sixteen | FOOTGUN | HIGH | S | app workaround |
 | 578 | Headless 2x zoom is not Retina rasterization | IMPOSSIBLE | HIGH | M | dup→#101 |
@@ -821,8 +852,8 @@ correction narrows them rather than closing them.
 | 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
 | 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
 | 590 | Button variants drop per-widget text inset | FOOTGUN | HIGH | XS | app workaround |
-| 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited | MISSING | MED | XS | live · extends #223; app workaround: latch + `release_compaction` |
-| 592 | Every click on a `HasClickListener` moves keyboard focus to it; no activate-without-focus | FOOTGUN | HIGH | XS | live · app workaround (refocus) |
+| 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited | MISSING | MED | XS | live (re-tested 1ac6db2) · extends #223; app workaround: latch + `release_compaction` |
+| 592 | Every click on a `HasClickListener` moves keyboard focus to it; no activate-without-focus | FOOTGUN | HIGH | XS | live (re-tested 1ac6db2) · app workaround (refocus) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

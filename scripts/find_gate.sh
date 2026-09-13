@@ -69,30 +69,57 @@ S_RATE=$(awk -v h="$S_HIT" -v m="$S_MISS" 'BEGIN { t=h+m; if (t==0) print 0; els
 L_RATE=$(awk -v h="$L_HIT" -v m="$L_MISS" 'BEGIN { t=h+m; if (t==0) print 0; else printf "%.2f", 100*h/t }')
 S_ALLOC_RATIO=$(awk -v a="$S_OPEN_ALLOC" -v b="$S_CLOSED_ALLOC" 'BEGIN { printf "%.3f", a/b }')
 L_ALLOC_RATIO=$(awk -v a="$L_OPEN_ALLOC" -v b="$L_CLOSED_ALLOC" 'BEGIN { printf "%.3f", a/b }')
+# What find itself costs: the allocations the open bar adds to a frame, per
+# frame (column 6 of the ALLOCATIONS line is already per frame), over the same
+# transcript with the bar closed. This is the number the ratio was standing in
+# for, and it stopped standing in for it at afterhours 1ac6db2: upstream
+# b9844c2 memoised the draw-pass wrap and the CLOSED frame fell by about 45%
+# while find's own extra fell a little, so the same find read as a ratio over
+# the limit. Measured, 180 frames, 1180x949, both binaries on one machine:
+#
+#                    closed    open    extra   ratio
+#   9ff9079  480 msgs  4108    6751     2643   1.643
+#   9ff9079 3672 msgs  4742    7767     3024   1.638
+#   1ac6db2  480 msgs  2240    4767     2527   2.128
+#   1ac6db2 3672 msgs  2875    5782     2907   2.011
+#
+# A ratio punishes the code around find for getting cheaper. The gate is on the
+# extra now; the ratio is still printed because it is what older logs show.
+# The limit, 3700, is the old headroom (limit 2.0 over a measured 1.64 is 22%)
+# over the old worst extra (3024 * 1.22). It is STRICTER than what the ratio
+# gate allowed at the old pin, which was 2.0 * 4742 - 4742 = 4742 extra.
+# Mutant controls at 1ac6db2 (both planted in collect_matches, both caught):
+#   every-frame memo miss (transcriptVersion + counter): rows/f 797.6 and
+#     6099.8, hit-rate 0.00% -> FAIL on the row/hit columns, extra unchanged;
+#   eight 64-byte strings per match per frame: extra 6819 and 38582 with
+#     rows/hit clean -> FAIL on this column alone.
+S_ALLOC_EXTRA=$(awk -v a="$S_OPEN_ALLOC" -v b="$S_CLOSED_ALLOC" 'BEGIN { printf "%.0f", a-b }')
+L_ALLOC_EXTRA=$(awk -v a="$L_OPEN_ALLOC" -v b="$L_CLOSED_ALLOC" 'BEGIN { printf "%.0f", a-b }')
 ROW_LEVEL_MAX="${HANABI_FIND_ROWS_PER_FRAME_MAX:-30.0}"
 HIT_RATE_MIN="${HANABI_FIND_HIT_RATE_MIN:-95.0}"
-ALLOC_RATIO_MAX="${HANABI_FIND_ALLOC_RATIO_MAX:-2.0}"
+ALLOC_EXTRA_MAX="${HANABI_FIND_EXTRA_ALLOC_MAX:-3700}"
 CAP=16384
 fail=0
 
 printf '=== find level gate ===\n'
-printf '  %-12s %12s %12s %12s %12s\n' messages rows/f hit-rate alloc-ratio entries
-for row in "$SHORT_MSGS:$S_ROWS:$S_RATE:$S_ALLOC_RATIO:$S_ENTRIES" \
-           "$LONG_MSGS:$L_ROWS:$L_RATE:$L_ALLOC_RATIO:$L_ENTRIES"; do
-    IFS=: read -r messages rows rate ratio entries <<< "$row"
+printf '  %-12s %12s %12s %12s %12s %12s\n' messages rows/f hit-rate alloc-extra/f alloc-ratio entries
+for row in "$SHORT_MSGS:$S_ROWS:$S_RATE:$S_ALLOC_EXTRA:$S_ALLOC_RATIO:$S_ENTRIES" \
+           "$LONG_MSGS:$L_ROWS:$L_RATE:$L_ALLOC_EXTRA:$L_ALLOC_RATIO:$L_ENTRIES"; do
+    IFS=: read -r messages rows rate extra ratio entries <<< "$row"
     verdict=ok
     awk -v x="$rows" -v m="$ROW_LEVEL_MAX" 'BEGIN { exit !(x > m) }' && verdict=FAIL
     awk -v x="$rate" -v m="$HIT_RATE_MIN" 'BEGIN { exit !(x < m) }' && verdict=FAIL
-    awk -v x="$ratio" -v m="$ALLOC_RATIO_MAX" 'BEGIN { exit !(x > m) }' && verdict=FAIL
+    awk -v x="$extra" -v m="$ALLOC_EXTRA_MAX" 'BEGIN { exit !(x > m) }' && verdict=FAIL
     [ "$entries" -gt "$CAP" ] && verdict=FAIL
     [ "$verdict" = FAIL ] && fail=1
-    printf '  %-12s %12s %11s%% %12s %12s  %s\n' \
-        "$messages" "$rows" "$rate" "$ratio" "$entries" "$verdict"
+    printf '  %-12s %12s %11s%% %12s %12s %12s  %s\n' \
+        "$messages" "$rows" "$rate" "$extra" "$ratio" "$entries" "$verdict"
 done
 
 if [ "$fail" -ne 0 ]; then
     echo "  find level gate: FAIL"
     echo "  unchanged find frames must not revisit the loaded transcript; inspect find.memo_hit and find.rows_visited"
+    echo "  (alloc-extra/f is open-bar allocations per frame minus closed-bar; limit $ALLOC_EXTRA_MAX)"
     exit 1
 fi
 

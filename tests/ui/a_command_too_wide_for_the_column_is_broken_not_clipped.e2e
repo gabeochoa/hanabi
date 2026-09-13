@@ -20,16 +20,20 @@
 # settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
 
+# Break points re-pinned at afterhours 1ac6db2: upstream 82145f9 measures text
+# by advance instead of the ink box, so the same column packs one more
+# glyph per row (16 rather than 15) and the command is 19 rows, not 20.
+# Inspected at 340x620: every row whole, nothing clipped.
 require_thread t2
 expect_text "The agent needs approval  ·  bash"
 
 # Broken mid-token, on the exact byte the column runs out at.
-assert_ui ask_approval_input_1 text=cripts/release_
-assert_ui ask_approval_input_2 text=batch.sh
+assert_ui ask_approval_input_1 text=cripts/release_b
+assert_ui ask_approval_input_2 text=atch.sh
 
 # And not clipped: the row after the last one the old build drew still exists,
 # and no row ends in the truncation ellipsis.
-assert_ui ask_approval_input_8 text=csv
+assert_ui ask_approval_input_8 text=sv
 expect_no_text "ledger.csv…"
 
 assert_ui ask_submit text=OK

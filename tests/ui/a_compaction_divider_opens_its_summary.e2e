@@ -29,6 +29,9 @@ wait_frames 8
 expect_text "landing waits on approval"
 expect_text "4,812 accounts matched within tolerance"
 expect_input_text composer_reply_input "a draft that the divider must not eat"
+# The opened summary sits inside the divider block, inside the column: the
+# library's containment walk (assert_within_parents, afterhours 1ac6db2).
+assert_within_parents
 # The words are not a place to type: the caret is back in the composer, where
 # it was (the library moved it onto the group on the press -- afterhours_gaps.md
 # #592 -- and the app puts it back the frame after).

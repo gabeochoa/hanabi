@@ -331,7 +331,9 @@ inline void report(std::vector<Sample>& out, int frame, double ms, double cpuMs,
     // large means the column warns BEFORE the app's own text is affected,
     // which is the side to err on for a fault whose whole problem is silence.
     hanabi::atlas::probe(48.0f, [](const char* t, float px) {
-        return afterhours::measure_text_internal(t, px);
+        // The active font, by advance (upstream 30c6ad6 dropped the
+        // separate measure_text_internal; measure_text is the same read).
+        return afterhours::measure_text(afterhours::Font{}, t, px, 1.0f).x;
     });
     std::printf("[soak] frame %6d  %7.3f ms/f cpu  %7.3f ms/f wall  "
                 "RSS %7ld KB  entities %6zu  live %8u blocks / %8zu KB  "

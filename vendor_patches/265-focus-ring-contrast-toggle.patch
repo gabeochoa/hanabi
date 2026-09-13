@@ -3,7 +3,7 @@ From: Hanabi proof patch <gabeochoa@users.noreply.github.com>
 Date: Thu, 27 Aug 2026 22:14:03 -0400
 Subject: [PATCH] feat(ui): allow focus rings without contrast edges
 
-Pinned base: 9ff9079556c86d0fffb7bbc11c17898a74961c26
+Pinned base: 1ac6db21da8768af6bc27248fb6f9484e810a614
 
 Add an independent focus_ring_contrast theme switch. It defaults on for byte-compatible rendering and gates the inner and outer contrast outlines in both immediate and batched renderers.
 ---

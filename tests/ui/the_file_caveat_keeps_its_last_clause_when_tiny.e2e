@@ -5,4 +5,6 @@ require_thread t2
 expect_text "The agent is as"
 
 assert_ui ask_note hidden=false
-expect_text "left unanswered"
+# "left" and "unanswered" sit on different lines since afterhours 1ac6db2
+# measured by advance (82145f9); the clause is whole, the substring is not.
+expect_text "unanswered"

@@ -23,7 +23,12 @@
 # At rest the ring is away, and focus is parked on the first view row.
 require_thread t2
 
-expect_text "ring off Home"
+expect_text "ring off"
+# At afterhours 1ac6db2 the library itself keeps visual focus at ROOT until
+# something is interacted with (7736594), so the parked row is not named here
+# -- the ring is off AND nothing wears it, which is what hanabi's own rule
+# (ui/focus_visible.h) asked the library for.
+expect_no_text "ring off Home"
 
 # Each Tab is one step down the list, and the ring goes with it.
 key TAB

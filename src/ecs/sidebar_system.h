@@ -1125,7 +1125,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // One vocabulary, shared with the tab strip: ecs::model::StatusGlyph.
     using SidebarGlyph = ecs::model::StatusGlyph;
     static constexpr float kCountTextPad = 6.0f;
-    static constexpr float kAhTextInset = 5.0f;
+    // The library's own label inset, by its own name since upstream cc26cbc.
+    static constexpr float kAhTextInset = afterhours::ui::kTextInset;
     static float count_font_px() { return theme::type::SM; }
     static constexpr float kBadgeD = 16.0f;
     static float badge_font_px() { return theme::type::SM; }

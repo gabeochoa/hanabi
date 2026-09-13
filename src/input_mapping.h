@@ -57,6 +57,11 @@ enum class InputAction {
     // Will be extended by T040 (keyboard navigation)
 };
 
+// The four word-editing names below are static_asserted against the
+// library's own opt-in trait in preload.cpp (has_editing_action, upstream
+// 7208d0c); this header stays light enough for the unit tests that include
+// it without a graphics backend.
+
 namespace hanabi::input {
 
 // The chords hanabi binds, macOS-first.

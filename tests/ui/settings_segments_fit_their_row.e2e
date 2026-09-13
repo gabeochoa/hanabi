@@ -12,7 +12,11 @@
 # against the VIEWPORT, so a button inside the window passes however far out of
 # its parent it is; the containment probe that found these is
 # HANABI_BOUNDS_AUDIT=1 (src/util/bounds_audit.h) and its gate is
-# scripts/bounds_gate.sh.
+# scripts/bounds_gate.sh. Since afterhours 1ac6db2 the library has the same
+# question under its own name -- assert_within_parents (0c67090, hanabi's
+# ask, closed in the afterhours_gaps_index.md closure table at 1ac6db2) -- and this script asks it at the end, so
+# the sheet is held to its parents by the library's walk as well as by the
+# row-by-row pins above.
 #
 # This pins the property in the sheet's own coordinates, on three of the five
 # builders, so a sixth caller writing 32 again fails here as well as in the
@@ -53,3 +57,7 @@ wait_frames 8
 # and the one that carried this thirty-odd times over.
 assert_ui settings_yap_row h=30
 assert_ui settings_yap_0 h=30
+
+# Every element of the sheet inside its parent's content box, by the library's
+# own containment walk.
+assert_within_parents

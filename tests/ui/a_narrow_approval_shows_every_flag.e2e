@@ -14,6 +14,10 @@
 # settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
 
+# Break points re-pinned at afterhours 1ac6db2: upstream 82145f9 measures text
+# by advance instead of the ink box, so the same column packs one more
+# glyph per row (16 rather than 15) and the command is 19 rows, not 20.
+# Inspected at 340x620: every row whole, nothing clipped.
 require_thread t2
 expect_text "The agent needs approval  ·  bash"
 expect_text "bash may write"
@@ -21,8 +25,8 @@ expect_text "bash may write"
 # Twenty rows reserved, twenty rows built. Under the old measure the row list
 # stopped at eight and this element did not exist, so this line times out on a
 # revert.
-assert_ui ask_approval_input_19 hidden=false
-assert_ui ask_approval_input_18 text=--allow-outside-
+assert_ui ask_approval_input_18 hidden=false
+assert_ui ask_approval_input_17 text=--allow-outside-
 
 # Nothing was cut to make it fit. The pre-fix build ended its last row with an
 # ellipsis right here, and that ellipsis was the whole defect: it is what a

@@ -1687,7 +1687,7 @@ static int run_atlas_stress() {
         const unsigned long long after = hanabi::atlas::fault_count();
         const bool probeOk =
             hanabi::atlas::probe(px, [](const char* t, float p) {
-                return afterhours::measure_text_internal(t, p);
+                return afterhours::measure_text(afterhours::Font{}, t, p, 1.0f).x;
             });
         if (!probeOk) probeSaidFull = true;
 

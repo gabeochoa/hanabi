@@ -17,6 +17,21 @@
 #endif
 
 #include "input_mapping.h"
+#include <afterhours/src/plugins/ui/text_input/component.h>
+
+// The names the library gates its editing features on, asserted rather than
+// remembered (afterhours_gaps.md #255): upstream 7208d0c exposes
+// has_editing_action so the opt-in can be stated, and the first focused frame
+// names whatever resolved to nothing. These four are the ones hanabi ships
+// and binds below; the rest of the library's optional set (undo/redo, the
+// clipboard verbs, select-by-word) is deliberately not in this enum -- hanabi
+// routes those through its own chords (text_edit_chords_system.h) -- and the
+// library now says so in the log instead of silently compiling them out.
+static_assert(afterhours::text_input::has_editing_action<InputAction>("TextWordLeft"));
+static_assert(afterhours::text_input::has_editing_action<InputAction>("TextWordRight"));
+static_assert(afterhours::text_input::has_editing_action<InputAction>("TextDeleteWordBack"));
+static_assert(afterhours::text_input::has_editing_action<InputAction>("TextDeleteWordForward"));
+
 #include "ui/font_system.h"
 #include "ui/focus_visible.h"
 #include "ui/theme_config.h"
@@ -97,7 +112,7 @@ Preload& Preload::make_singleton() {
     hanabi::fonts::preload(fontMgr);
 
     // From here a zero-width measurement is a FAULT, not a not-ready. Before
-    // this line measure_text_internal legitimately returns 0 (no font context,
+    // this line measure_text legitimately returns 0 (no font context,
     // no active face) for the whole of launch, and counting that would drown
     // the signal src/util/atlas_guard.h exists to raise.
     hanabi::atlas::arm();

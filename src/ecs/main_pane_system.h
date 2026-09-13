@@ -6724,9 +6724,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // So every text run in this row is measured and sized by hand, and
         // every gap between runs is stated NET of the inset the library will
         // not let us set. kLabelInset is that constant, named so the arithmetic
-        // below reads as arithmetic rather than as magic numbers.
-        // See afterhours_gaps.md #91.
-        constexpr float kLabelInset = 5.0f;
+        // below reads as arithmetic rather than as magic numbers -- and since
+        // upstream cc26cbc it IS the library's own name (ui::kTextInset), so
+        // the two cannot drift. See afterhours_gaps.md #91.
+        constexpr float kLabelInset = afterhours::ui::kTextInset;
         const auto run_box = [](const std::string& s, float trailing) {
             return theme::text_px(s, theme::type::SM) + kLabelInset + trailing;
         };
@@ -8472,7 +8473,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // horizontal inset the renderer applies. (Not wrap_width() above -- that
     // one is the pane's width, a different question.)
     static float text_wrap_width(float widthPx) {
-        const float w = widthPx - 10.0f;
+        const float w = widthPx - 2.0f * afterhours::ui::kTextInset;
         return w < 24.0f ? 24.0f : w;
     }
 
@@ -11976,10 +11977,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             lw = afterhours::measure_text(fm->get_active_font(), label.c_str(),
                                           theme::type::MICRO, 1.0f)
                      .x;
-        // The renderer insets a label 5px each side (gap #85); the label box
-        // is sized to the words plus that inset so the rules meet it at the
-        // reference's 8px gap rather than at the box's dead margin.
-        const float labelBoxW = lw + 10.0f;
+        // The renderer insets a label kTextInset each side (gap #85, named
+        // upstream in cc26cbc); the label box is sized to the words plus that
+        // inset so the rules meet it at the reference's 8px gap rather than at
+        // the box's dead margin.
+        const float labelBoxW = lw + 2.0f * afterhours::ui::kTextInset;
         const float groupW = labelBoxW + (showGlyph ? kCompactionGlyphW : 0.0f);
         auto row = div(ctx, mk(parent, id),
             ComponentConfig{}

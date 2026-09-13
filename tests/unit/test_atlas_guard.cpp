@@ -5,7 +5,7 @@
 // scripts/atlas_gate.sh. What is testable here without one is the part that
 // decides whether a number is believable, and that part has to be exactly
 // right in two directions: it must not miss a zero, and it must not fire on
-// the whole of launch (before a font is loaded `measure_text_internal`
+// the whole of launch (before a font is loaded `measure_text`
 // returns 0 by design, and a guard that screams through every startup is a
 // guard somebody turns off).
 //

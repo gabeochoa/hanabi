@@ -534,8 +534,8 @@ Still open, all written up with numbers in `afterhours_gaps.md`: the sidebar
 truncates without saying so (**S9**, #372) and un-virtualizes when a search
 meets "Show N more" (**S8**, #369); its deep filter costs 165 ms on the first
 frame of a new query (#368); and four small things are #371. The remaining
-find-paint cost and the two vendored wrapping mechanisms behind it are
-#435–#438.
+find-paint cost and the two vendored wrapping mechanisms behind it were
+#435–#438 (#435/#436 closed at afterhours 1ac6db2; #437/#438 stand).
 
 And the two tests that would have caught the two most embarrassing of these
 passed without the code they name (**S10**) — both fixed, one renamed, three

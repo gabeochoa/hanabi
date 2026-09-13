@@ -3182,7 +3182,13 @@ path.
 
 ---
 
-### #72 — A focus ring is painted at rest, on whatever happens to be first
+### #72 — FIXED at 1ac6db2: A focus ring is painted at rest, on whatever happens to be first
+
+**Closed by upstream `7736594`** (in the 9ff9079..1ac6db2 range): `UIContext::has_interacted` (`context.h:188`) is false until a deliberate focus move or a click, and `ComputeVisualFocusId` keeps `visual_focus_id = ROOT` until then (`systems.h:673`); `tests/ui/tab_walks_the_focus_ring.e2e` reads `ring off` with nothing named at rest. The `:focus-visible` rule itself is still hanabi's — see #83. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — A focus ring is painted at rest, on whatever happens to be first
 
 **A focus ring is painted at rest, on whatever happens to be first, with no
 "focus-visible" notion — so deleting a button moves a blue box onto a design
@@ -3751,7 +3757,30 @@ CLASS: FOOTGUN
 
 ---
 
-### #83 — The focus ring paints at rest: there is no `:focus-visible`, and `FocusSource` cannot be used to build one
+### #83 — PARTIAL at 1ac6db2: the ring no longer paints at rest, but the library's rule is "after any interaction", not `:focus-visible`
+
+**Narrowed by upstream `7736594` "Keep the focus ring off until something is interacted
+with"**: `UIContext::has_interacted` (`context.h:188`) starts false, `try_to_grab`'s
+per-frame Grab never sets it (`:296`), and `ComputeVisualFocusId` leaves
+`visual_focus_id = ROOT` until it is true (`systems.h:673`). So the half of this entry
+that was #72 -- a ring around the first focusable row before anyone touched anything --
+is fixed, and #72 is closed. Measured here: `tests/ui/tab_walks_the_focus_ring.e2e`
+reads `ring off` with NO parked widget named at rest (it used to name Home), and every
+scripted scene that opens a thread still passes.
+
+**What stays open is the rule.** `has_interacted` is sticky and is set by a click too
+(`systems.h:291`), so after the first pointer press the library paints the ring on
+whatever the pointer focused, forever -- the CSS `:focus-visible` rule every desktop
+toolkit implements turns it OFF again on a pointer press and ON only for keyboard
+navigation. hanabi's `src/ui/focus_visible.h` still carries that rule (armed on Tab,
+disarmed on a press) through `theme.focus_ring_thickness`, and `FocusSource` is still
+reset to Grab each frame, so it still cannot express it. The upstream ask narrows to:
+a `focus_visible` bool that the pointer path clears, or a `FocusSource` that persists.
+The text below is the record as filed.
+
+---
+
+#### As filed — The focus ring paints at rest: there is no `:focus-visible`, and `FocusSource` cannot be used to build one
 
 **What was wanted.** An app that opens looking like an app that has not been
 touched. Puffin's sidebar at launch has a selection fill on the current view and
@@ -3981,7 +4010,24 @@ CLASS: WORKAROUND
 
 ---
 
-### #85 — Padding on a label-only element is silently ignored
+### #85 — FIXED at 1ac6db2: padding on a label-only element is warned about, once
+
+**Closed by upstream `cc26cbc` "Name the label inset, and say when padding is ignored"**:
+`warn_ignored_label_padding` (`src/plugins/ui/rendering.h:327-349`) fires once per run
+naming the element, the fixed inset and the two fixes (margin, or padding on a wrapper),
+which is exactly the warn-once this entry asked for instead of silence. The inset
+itself is now a named constant, `ui::kTextInset` (`rendering.h:315`), with
+`text_inset_for(rect)` for boxes too small to spend it; hanabi's three copies of the
+number (`kLabelInset`, `kAhTextInset`, `text_wrap_width`'s `10.0f`) are bound to it so
+they cannot drift. What this entry never asked for -- honouring the padding -- stays
+deliberately unasked (it would move every existing label), and the live asks about the
+inset itself are #75 (cannot be turned off per widget on the single-line path) and #91
+(a label is not a layout participant). Kept in place because seven source comments
+cite this number. The text below is the record.
+
+---
+
+#### As filed — Padding on a label-only element is silently ignored
 
 *(See also #91, which found the same wall from the composer and states it more
 completely: padding is one of three ways a label refuses to be laid out.)*
@@ -5040,7 +5086,13 @@ CLASS: WORKAROUND
 
 ---
 
-### #103 — `measure_text` returns the ink BOX, not the advance, so every hug-to-text box is short by its own side bearings
+### #103 — FIXED at 1ac6db2: `measure_text` returns the ink BOX, not the advance, so every hug-to-text box is short by its own side bearings
+
+**Closed by upstream `82145f9`** (in the 9ff9079..1ac6db2 range): the same change: ink box → advance, one measure for hug, ellipsis and wrap. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — `measure_text` returns the ink BOX, not the advance, so every hug-to-text box is short by its own side bearings
 
 **What was wanted.** A code line's chip sized to exactly the surface the
 reference draws behind that line. hanabi computes it the only way #87 leaves
@@ -5796,7 +5848,21 @@ CLASS: MISSING
 
 ---
 
-### #112 — There is no tooltip and no accessible name, so an icon-only button is unlabelled in every sense
+### #112 — PARTIAL at 1ac6db2: a tooltip exists (`with_tooltip`); the accessible name does not
+
+**Narrowed by upstream `e221b77` "Add a tooltip"**: `.with_tooltip("text")` on any
+element (`src/plugins/ui/tooltip.h`), placed through `overlay::place` with edge
+flipping, hover walking up from a child to the labelled ancestor, and the delay
+restarting per element. hanabi's `src/ecs/tooltip_system.h` predates it and carries
+the app's own dwell, wording table and the `expect_tooltips` audit; it is NOT swapped
+in this wave (the audit asserts every wordless control names itself through hanabi's
+table, and the two tooltip systems would double-draw). The other half -- a platform
+accessible name/role so VoiceOver can read an icon button -- is still absent
+(`src/a11y_bridge.mm` remains hanabi's). The text below is the record as filed.
+
+---
+
+#### As filed — There is no tooltip and no accessible name, so an icon-only button is unlabelled in every sense
 
 **What was wanted.** Puffin's four footer elements, each of which carries a
 `.help()`: the version label ("About Puffin"), `info.circle` (the same),
@@ -5997,7 +6063,24 @@ always is.
 
 CLASS: PERFORMANCE
 
-### #136 — Nothing sizes a box to its own text, so a hug costs a wrap plus a measure per line — and forces every memo of that measurement to hold two widths, not one
+### #136 — PARTIAL at 1ac6db2: `with_fit_content(max, font_size)` exists and wraps at the kept width; hanabi's bubble memo is not migrated
+
+**Narrowed by upstream `404c8e6` "Add with_fit_content for boxes that hug their text"
+and `c1c1eac` "Wrap text against the width the box will keep"**: `ComponentConfig::
+with_fit_content` bundles `Dim::Text` + `with_max_width` + `TextOverflow::Wrap` + a
+pinned font size, and `c1c1eac` makes the Y measure read `max_size[X]` so the line
+count matches the final width -- the exact `fit_content(max)` this entry asked for
+(named in the commit). #87's "measures unwrapped, clamps nothing" is that same fix,
+so #87 and #69 narrow with it. hanabi's chat bubbles still measure in app code
+(`src/ecs/transcript_render_cache.h`, `hanabi::text::TextKeyCache`): adopting
+`with_fit_content` there moves every bubble through a different sizing path, and this
+wave's rule was to migrate only what is demonstrably pixel- and allocation-neutral --
+the bubble is neither provable in the time nor cheap to re-baseline. Recorded as the
+next lever. The text below is the record as filed.
+
+---
+
+#### As filed — Nothing sizes a box to its own text, so a hug costs a wrap plus a measure per line — and forces every memo of that measurement to hold two widths, not one
 
 **What was wanted.** A user's chat bubble that is as wide as its longest
 wrapped line and no wider, capped at a maximum. The universal chat layout.
@@ -6065,7 +6148,13 @@ sizing mode removes both memos and the entire class of bug.
 
 CLASS: PERFORMANCE
 
-### #137 — The measure that IS cached and the measure the app can call answer different questions, so routing app measurement through `TextMeasureCache` moves pixels
+### #137 — FIXED at 1ac6db2: The measure that IS cached and the measure the app can call answer different questions, so routing app measurement through `TextMeasureCache` moves pixels
+
+**Closed by upstream `82145f9` measures text by advance** (in the 9ff9079..1ac6db2 range): sokol `measure_text` returns the pen advance (`src/backends/sokol/font_helper.h:62-95`, "Advance, not the ink box"), so the shared `TextMeasureCache`, layout and the app's own measure now answer one question. Measured here as the 2px this entry predicted: every centred label moved 1px, the narrow approval card packs one more glyph per row (six scripts re-pinned), 162 of 164 baselines re-captured. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — The measure that IS cached and the measure the app can call answer different questions, so routing app measurement through `TextMeasureCache` moves pixels
 
 **What was wanted.** hanabi measures text constantly (#79 / #87 / #103 / #136).
 afterhours ships `TextMeasureCache`, an LRU with a 4096 default, wired up as a
@@ -7400,7 +7489,22 @@ CLASS: WORKAROUND
 
 ---
 
-### #210 — the SAMPLER is the one GPU resource with neither a size knob nor a creation check
+### #210 — FIXED at 1ac6db2: the sampler pool is sized and a failed sampler is rejected
+
+**Closed by upstream `865c4e6` "Reject a texture whose sampler could not be made"** (in
+the 9ff9079..1ac6db2 range): `load_texture` now checks `sg_query_sampler_state(smp)
+!= SG_RESOURCESTATE_VALID` (`src/backends/sokol/drawing_helpers.h:1078`) and the pool
+is settable through `AFTERHOURS_SG_SAMPLER_POOL_SIZE`, sized with the images it pairs
+with (`:1482`). The proof patch `210-reject-unsamplable-textures.patch` no longer
+applies to the pin (`git apply --check`: "patch failed: drawing_helpers.h:1412") and
+is deleted; `scripts/verify_vendor_patches.py` no longer lists it. hanabi's own
+sampler check in `src/ui/icons.h` is kept as defence in depth (it costs one query per
+load and its comments cite this number), which is why this entry is rewritten in
+place rather than removed. The text below is the record of the defect as filed.
+
+---
+
+#### As filed — the SAMPLER is the one GPU resource with neither a size knob nor a creation check
 
 **Scope after `11e7338`.** Upstream added `AFTERHOURS_SG_PIPELINE_POOL_SIZE`
 (128), `AFTERHOURS_SG_IMAGE_POOL_SIZE` (256) and
@@ -7422,10 +7526,7 @@ entry used to make is closed for them.
 proof patch — verified absent from the pin and applying cleanly to it by
 `make verify-vendor-patches`, which is what keeps this entry honest.
 
-**Hanabi reference.** `vendor_patches/210-reject-unsamplable-textures.patch` —
-the check upstream does not make. Measurement/gate:
-`scripts/verify_vendor_patches.py` — proves the patch still applies, so the
-gap is still open.
+**Hanabi reference.** `src/ui/icons.h` (`sampler`) — hanabi's own post-load sampler check, kept as defence in depth now that the pin checks too. The proof patch that was here is deleted (landed upstream as `865c4e6`).
 
 CLASS: SHARP EDGE
 
@@ -7760,6 +7861,12 @@ the fixed timestep that makes the script deadline deterministic here.
 **Minimal upstream fix.** Count the script deadline in ticks, the way
 `wait_frames` now does.
 
+**Re-tested at 1ac6db2 (2026-09-12): still open, adjacent landed.** `11b9493` gives
+`RunConfig` a fixed timestep so a run's `dt` is reproducible -- which is what hanabi's
+own `kDt` does by hand -- but the deadline is still `elapsed_time_ += dt` against
+`timeout_seconds_` (`runner.h:364,656`). #591 is the wall-clock half of the same
+question.
+
 CLASS: SHARP EDGE
 
 ---
@@ -8035,7 +8142,23 @@ Gabe, testing the build: no Shift+Enter for a newline, Alt+Backspace does
 nothing ("i thought we added these already?"), no Cmd+A. The first and third
 were true. The second had never landed, and #255 is why nobody noticed.
 
-### #255 — a text-editing feature is opted into by ENUMERATOR NAME, and opting out is silent
+### #255 — FIXED at 1ac6db2: the missing editing actions are named, and the opt-in can be asserted
+
+**Closed by upstream `6daa71b` + `7208d0c`**: `text_input::has_editing_action<InputAction>(name)`
+(`src/plugins/ui/text_input/component.h:34`) lets a consumer `static_assert` the names
+it ships, and `report_missing_editing_actions<InputAction>()` (`:40`, called on the first
+focused frame at `:551`) logs once whatever resolved to nothing, naming the enum and the
+actions. hanabi now asserts its four word-editing names in `src/preload.cpp`, beside the enum's header
+(`static_assert(afterhours::text_input::has_editing_action<InputAction>("TextWordLeft"))`
+and three more), which is the adoption. The proof patch `255-word-editing-capability.patch`
+(trait `supports_word_editing`) and `tests/vendor_probes/word_editing_capability_probe.cpp`
+are deleted: the patch still applied, but its trait name was its own, so the verifier's
+red-before check would have kept reporting an absence the pin no longer has. Kept in
+place because `src/input_mapping.h` cites this number. The text below is the record.
+
+---
+
+#### As filed — a text-editing feature is opted into by ENUMERATOR NAME, and opting out is silent
 
 **What was wanted.** Word motion and word delete in a text field. The library
 has both, and has had them the whole time: `move_cursor_word_left`,
@@ -8084,7 +8207,7 @@ assertions is the one that matters — it is the only thing standing between a
 tidy-up of the enum and the silent removal of the feature.
 
 
-**Hanabi reference.** `src/input_mapping.h::TextDeleteWordBack` — Hanabi's InputAction enum now declares the word-editing enumerators the library checks by name. `src/input_mapping.h::bind(InputAction::TextDeleteWordBack` — The shipping keymap binds the word-editing actions. Tests: `tests/unit/test_input_pipeline.cpp::test_word_chords_are_bound_to_option` — Unit tests assert word-editing chords are present and use Option. Proof patch: `vendor_patches/255-word-editing-capability.patch`; `tests/vendor_probes/word_editing_capability_probe.cpp` is a compile failure before and verifies complete/incomplete enums after through `make verify-vendor-patches`.
+**Hanabi reference.** `src/input_mapping.h::TextDeleteWordBack` — Hanabi's InputAction enum now declares the word-editing enumerators the library checks by name. `src/input_mapping.h::bind(InputAction::TextDeleteWordBack` — The shipping keymap binds the word-editing actions. Tests: `tests/unit/test_input_pipeline.cpp::test_word_chords_are_bound_to_option` — Unit tests assert word-editing chords are present and use Option. Since 1ac6db2 the opt-in is asserted through the library's own trait: `src/preload.cpp` (`has_editing_action<InputAction>("TextWordLeft")`). The proof patch and its probe are deleted (landed upstream as `7208d0c`).
 
 
 **Minimal upstream fix.** Any of three, cheapest first:
@@ -8184,7 +8307,13 @@ The threshold override is a second, smaller field on the same config.
 
 ---
 
-### #275 — Nothing in the stack asks whether a widget is inside its PARENT: the one warning is main-axis only and goes to a log, and the one assertion measures the viewport
+### #275 — FIXED at 1ac6db2: Nothing in the stack asks whether a widget is inside its PARENT: the one warning is main-axis only and goes to a log, and the one assertion measures the viewport
+
+**Closed by upstream `0c67090`** (in the 9ff9079..1ac6db2 range): `assert_within_parents`: the same walk as `assert_no_overflow` with the parent content-box comparison beside the viewport one (`command_handlers.h:732`), skipping scrolling/clipping parents, absolute children and the root. Adopted in `tests/ui/settings_segments_fit_their_row.e2e` and `tests/ui/a_compaction_divider_opens_its_summary.e2e`. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — Nothing in the stack asks whether a widget is inside its PARENT: the one warning is main-axis only and goes to a log, and the one assertion measures the viewport
 
 **What was wanted.** To answer "which widgets are drawing outside their own
 box", after a one-sentence report — *"many buttons are going outside the
@@ -8908,7 +9037,13 @@ CLASS: FOOTGUN
 
 ---
 
-### #277 — The 5px a label is drawn at is hard-coded, unexposed and unqueryable, so a text child and a drawn child of one parent are on different columns and the app carries two different constants for the one number
+### #277 — FIXED at 1ac6db2: The 5px a label is drawn at is hard-coded, unexposed and unqueryable, so a text child and a drawn child of one parent are on different columns and the app carries two different constants for the one number
+
+**Closed by upstream `cc26cbc`** (in the 9ff9079..1ac6db2 range): the inset is `ui::kTextInset` (`rendering.h:315`) with `text_inset_for(rect)` for the boxes too small to spend it; hanabi's three copies (`kLabelInset`, `kAhTextInset`, `text_wrap_width`) are bound to the library's name. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — The 5px a label is drawn at is hard-coded, unexposed and unqueryable, so a text child and a drawn child of one parent are on different columns and the app carries two different constants for the one number
 
 **What was wanted.** A pulsing dot in an assistant bubble whose leftmost lit
 pixel is the column the bubble's prose starts on — so that when the first token
@@ -8976,7 +9111,7 @@ spends some of it". That idiom now appears four times in the file, with two
 different values for the one constant.
 
 
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`constexpr float kLabelInset = 5.0f;`) — composer path names label inset. `src/ecs/main_pane_system.h` (`static constexpr float kLabelInsetX = 6.0f;`) — transcript path carries measured inset. Tests: `tests/ui/thinking_indicator_sits_on_the_text_column.e2e` (`kLabelInsetX (6), because afterhours adds that 6 back`) — e2e pins alignment. Proof-patch decision: `vendor_patches/README.md` rejects #85/#277 because a coherent setting must reach every plain/wrapped/styled and immediate/batched 5px/10px calculation; changing only the visible literal would create divergent pixels.
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`constexpr float kLabelInset = afterhours::ui::kTextInset;`) — composer path names the label inset by the library's own name since 1ac6db2. `src/ecs/main_pane_system.h` (`static constexpr float kLabelInsetX = 6.0f;`) — transcript path carries measured inset. Tests: `tests/ui/thinking_indicator_sits_on_the_text_column.e2e` (`kLabelInsetX (6), because afterhours adds that 6 back`) — e2e pins alignment. Proof-patch decision: `vendor_patches/README.md` rejects #85/#277 because a coherent setting must reach every plain/wrapped/styled and immediate/batched 5px/10px calculation; changing only the visible literal would create divergent pixels.
 
 
 **Minimal upstream fix.** Name it and expose it: a
@@ -10040,7 +10175,13 @@ CLASS: NOT A GAP
 
 ---
 
-### #340 — PERF: every styled text element re-wraps and re-allocates on the RENDER path, once per frame, and it is the single biggest allocation site in the app
+### #340 — FIXED at 1ac6db2: PERF: every styled text element re-wraps and re-allocates on the RENDER path, once per frame, and it is the single biggest allocation site in the app
+
+**Closed by upstream `b9844c2`** (in the 9ff9079..1ac6db2 range): `draw_runs_in_rect` and its batched twin go through an LRU keyed on the runs and the width (the same shape as `measure_memo`), so the draw pass no longer re-wraps unchanged text every frame; the commit cites this entry. Measured here (scripts/find_gate.sh's closed arm, 1180x949, 180 frames, both binaries on one machine): a 480-message transcript's steady frame fell from 4108 to 2240 `operator new` calls, a 3672-message one from 4742 to 2875 -- about 45% of every idle frame's allocations were this re-wrap. The find gate's ratio had to be re-based on the absolute extra because of it (its header carries the table). Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — PERF: every styled text element re-wraps and re-allocates on the RENDER path, once per frame, and it is the single biggest allocation site in the app
 
 **What happens.** `RenderImm::render_me` calls `draw_runs_in_rect`
 (`rendering.h:1622`) for any label with spans, and that calls
@@ -11626,7 +11767,13 @@ CLASS: PERF PROOF (app-side)
 
 ---
 
-### #435 — PERF: `draw_text_in_rect` reconstructs plain wrapped lines on every draw and exposes no reusable layout
+### #435 — FIXED at 1ac6db2: PERF: `draw_text_in_rect` reconstructs plain wrapped lines on every draw and exposes no reusable layout
+
+**Closed by upstream `b9844c2`** (in the 9ff9079..1ac6db2 range): the same memo covers the plain wrapped-label path. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — PERF: `draw_text_in_rect` reconstructs plain wrapped lines on every draw and exposes no reusable layout
 
 **What was wanted.** Repaint an unchanged wrapped label and place a find band on
 known byte offsets without rebuilding the same line layout twice.
@@ -11666,7 +11813,13 @@ CLASS: PERFORMANCE · duplicate family upstream 2b207d4/#340
 
 ---
 
-### #436 — PERF: styled-label drawing rebuilds a nested run layout every frame, independently of the plain-label wrap
+### #436 — FIXED at 1ac6db2: PERF: styled-label drawing rebuilds a nested run layout every frame, independently of the plain-label wrap
+
+**Closed by upstream `b9844c2`** (in the 9ff9079..1ac6db2 range): the same memo covers the styled-run path. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — PERF: styled-label drawing rebuilds a nested run layout every frame, independently of the plain-label wrap
 
 **What was wanted.** Repaint unchanged markdown spans without reconstructing a
 `vector<vector<TextSpan>>` and its concatenated strings every frame.
@@ -11881,7 +12034,26 @@ CLASS: NOT A GAP
 
 ---
 
-### #420 — `virtual_list` cannot index variable-height rows, so a transcript must rebuild or own its geometry tree
+### #420 — PARTIAL at 1ac6db2: `virtual_list` takes a `height_of(index)` now; the retained index and range invalidation do not exist
+
+**Narrowed by upstream `4a439b4` "Window a list of measured rows, not just uniform
+ones"** (hanabi #326): a second `imm::virtual_list` entry point takes
+`height_of(index)` and binary-searches the running total (`imm_components.h`), the
+recycle pool sizes against the shortest row, and uniform rows keep the O(1) path
+byte-identically. The commit names hanabi's `measure_config` (#224) as what an app
+would feed it. What this entry asked for beyond that -- a RETAINED prefix-height index
+the library owns, with range invalidation when one row's height changes -- is not
+there: the running total is summed per call. hanabi's three hand-rolled windows
+(`src/ecs/transcript_item_index.h`, the sidebar and digest windows) are NOT migrated
+in this wave: the transcript's window carries fold state, live-row exemptions and the
+mutation-kind reconcile that the library's `height_of` has no slot for, and a swap
+would have to be proved pixel- and allocation-neutral against
+`scripts/perf_text_gate.sh` and the 164-scene suite. Recorded as the next lever, not
+taken. The text below is the record as filed.
+
+---
+
+#### As filed — `virtual_list` cannot index variable-height rows, so a transcript must rebuild or own its geometry tree
 
 **What was wanted.** A list of mixed transcript rows whose layout cost is paid
 when message geometry changes, not once per loaded message per frame. Rows are
@@ -12500,7 +12672,13 @@ CLASS: MISSING / FOOTGUN
 
 ---
 
-### #573 — `FontManager::load_font` stores failure as a valid-looking key
+### #573 — FIXED at 1ac6db2: `FontManager::load_font` stores failure as a valid-looking key
+
+**Closed by upstream `1586a17`** (in the 9ff9079..1ac6db2 range): `get_active_font` and `get_font` fall back to the default face with a warning instead of `.at()`-throwing on a missing name. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — `FontManager::load_font` stores failure as a valid-looking key
 
 The backend logs a failed `fonsAddFont`, but `load_font` returns the manager and stores `FONS_INVALID`. A later map lookup succeeds and the failure appears only at render time.
 
@@ -12520,7 +12698,13 @@ CLASS: FOOTGUN / CRITICAL
 
 ---
 
-### #575 — Advance and ink bounds are different answers under similar APIs
+### #575 — FIXED at 1ac6db2: Advance and ink bounds are different answers under similar APIs
+
+**Closed by upstream `30c6ad6` + `82145f9`** (in the 9ff9079..1ac6db2 range): `measure_text_internal` is gone (hanabi's two callers in `src/util/soak.h` and `src/main.cpp` now call `measure_text(Font{}, …)`), and the one that remains returns the advance. Kept in place rather than removed because other files cite this number; the text below is the record as filed.
+
+---
+
+#### As filed — Advance and ink bounds are different answers under similar APIs
 
 At point-correct 13-point samples, fontstash's ink width was 1-2 logical pixels wider than pen advance. `measure_text_internal` returns advance; `measure_text` discards it and computes `bounds[2]-bounds[0]`. Layout needs advance and density analysis needs ink.
 
@@ -13235,6 +13419,16 @@ past 30 ticks inside a declared wall budget is not failed as a hang;
 **Status.** Proposal with a measured reproducer; not a defect in what the
 runner promises, a capability it lacks. Extends #223.
 
+**Re-tested at 1ac6db2 (2026-09-12): still open.** The range brought two runner
+changes near this: `13881e5` names the stalled command when a script times out
+(the message, not the clock) and `11b9493` adds a fixed timestep to `RunConfig`
+(reproducibility, still frame time). `runner.h:146-158` still stores `wait` as
+seconds of `dt` and `wait_frames` as ticks, `pending_command.h:60,70-72` still has
+`MAX_FRAMES = 30` with the two-name exemption read at `command_handlers.h:874`, and
+the script deadline is still `timeout_seconds_ = 10.0f` fed by `dt`
+(`runner.h:331,364,656`). No `wait_wall`, no `steady_clock`, no sleep anywhere in
+`e2e_testing/`. The latch workaround stands.
+
 CLASS: MISSING
 
 ---
@@ -13289,5 +13483,15 @@ the callback; without the flag, behaviour is unchanged.
 **Status.** Confirmed at the pin by source and probe; the workaround ships.
 Sideways of the #83 focus family (a ring where nobody looked) — this entry is
 about WHERE focus goes, not how it is painted.
+
+**Re-tested at 1ac6db2 (2026-09-12): still open.** `HandleClicks` still calls
+`context->set_focus(entity.id)` before the callback on both the keyboard-press and
+the `mouse_activates` path (`systems.h:835,841`; the drag twin at `:1165,1171`).
+`7736594` added `has_interacted` (`context.h:188`, set on any non-Grab
+`set_focus` at `:296` and on a click at `systems.h:291`), which changes whether the
+ring is PAINTED at rest, not where a click PUTS focus -- and it is set by the click
+this entry is about. Nothing on `ComponentConfig` says "activate without taking
+focus". hanabi's `refocusComposer` workaround stands;
+`tests/ui/a_compaction_divider_opens_its_summary.e2e` still passes on it.
 
 CLASS: FOOTGUN

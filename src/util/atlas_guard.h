@@ -72,8 +72,8 @@ inline const char* fault_name(Fault f) {
 
 struct State {
     // Measurement is only trustworthy once a font is loaded. Before that,
-    // `measure_text_internal` returns 0 by design (no context, no active
-    // font), and treating the whole of launch as a fault would drown the
+    // `measure_text` returns 0 by design (no context, no active font), and
+    // treating the whole of launch as a fault would drown the
     // signal in the noise that made a silent atlas fill invisible.
     bool armed = false;
     unsigned long long faults = 0;

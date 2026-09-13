@@ -14,13 +14,16 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
-BASE = "9ff9079556c86d0fffb7bbc11c17898a74961c26"
-PIN = "9ff9079556c86d0fffb7bbc11c17898a74961c26"
+BASE = "1ac6db21da8768af6bc27248fb6f9484e810a614"
+PIN = "1ac6db21da8768af6bc27248fb6f9484e810a614"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
+# 210 and 255 are gone: both landed upstream between 9ff9079 and 1ac6db2
+# (865c4e6 checks the sampler and sizes its pool; 7208d0c exposes
+# has_editing_action, which src/preload.cpp now static_asserts). The
+# 210 patch no longer applies to the pin and the 255 probe's trait name was
+# the patch's own, so neither could be kept honest here.
 PATCHES = {
-    "210-reject-unsamplable-textures.patch": "sampler",
     "265-focus-ring-contrast-toggle.patch": "focus",
-    "255-word-editing-capability.patch": "word",
     "266-explicit-disabled-label-color.patch": "label",
 }
 
@@ -209,24 +212,6 @@ def verify_patch(temp: Path, base_tree: Path, pin_tree: Path, contract: Path,
                             temp / "label-after"),
             f"{patch_name}: green probe",
         )
-    elif kind == "word":
-        require_red(
-            compile_probe(
-                base_tree,
-                PROBES / "word_editing_capability_probe.cpp",
-                temp / "word-before",
-            ),
-            f"{patch_name}: red compile",
-        )
-        require_ok(
-            compile_and_run(
-                patched_tree,
-                "word_editing_capability_probe.cpp",
-                temp / "word-after",
-            ),
-            f"{patch_name}: green probe",
-        )
-
     else:
         raise SystemExit(f"{patch_name}: unknown patch kind {kind!r}")
 
