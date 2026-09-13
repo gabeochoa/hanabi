@@ -6,7 +6,12 @@ expect_no_text "SETTINGS"
 click_ui sb_settings
 wait_frames 10
 expect_text "SETTINGS"
-expect_no_text "VIEWS"
+# The shelf STAYS now -- Settings swaps the lower half of the column only,
+# which is how you get back to a conversation (the reference's own rule,
+# confirmed against its capture). What must not be there is the
+# conversation list.
+expect_text "VIEWS"
+expect_no_ui chat_row
 assert_ui sb_settings_nav_general w=268
 expect_text "Send message with"
 
@@ -15,7 +20,7 @@ wait_frames 10
 expect_text "Keep at most on disk"
 expect_no_text "Send message with"
 
-click_ui settings_close
+click_ui tab_close
 wait_frames 10
 expect_text "VIEWS"
 expect_no_text "SETTINGS"

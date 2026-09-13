@@ -10,9 +10,12 @@
 # sidebar's 280), which is the second, independent half of the same claim.
 resize 600 500
 wait_frames 8
-assert_ui settings_panel x=24 y=24 w=552 h=452
+# Too narrow to host the pane list in the sidebar: the panel carries its
+# own nav rail (96 wide) and the sidebar does NOT draw the list -- one of
+# the two draws it, never both. The sheet's x/y margins are gone with the
+# sheet; the rail width is the claim.
 assert_ui settings_nav w=96
-expect_no_text "SETTINGS"
+expect_no_ui sb_settings_nav
 expect_text "General"
 expect_text "Storage"
 expect_text "Send message with"

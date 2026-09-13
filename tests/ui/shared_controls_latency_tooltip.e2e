@@ -18,6 +18,6 @@ click_ui sb_settings
 wait_frames 14
 expect_focused settings_search
 watch_ink focus_restored focus sb_settings
-click_ui settings_close
+click_ui tab_close
 wait_frames 16
 expect_latency focus_restored 12

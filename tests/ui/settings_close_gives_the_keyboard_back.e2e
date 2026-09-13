@@ -4,13 +4,17 @@ click_ui sb_settings
 wait_frames 10
 expect_focused settings_search
 
-click_ui settings_close
+click_ui tab_close
 wait_frames 10
 expect_focused sb_settings
 
 click_ui sb_settings
 wait_frames 10
 expect_focused settings_search
+# Escape drops the caret but leaves the tab up (a tab closes by its x); the
+# keyboard comes back to the sidebar's Settings row when the tab CLOSES.
 key ESCAPE
 wait_frames 10
+click_ui tab_close
+wait_frames 12
 expect_focused sb_settings

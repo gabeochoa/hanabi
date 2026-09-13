@@ -26,7 +26,7 @@ click_ui sb_settings_nav_shortcuts
 wait_frames 10
 click_ui settings_chord_switch_toggle_sidebar
 wait_frames 10
-click_ui settings_close
+click_ui tab_close
 wait_frames 10
 
 key CMD+B

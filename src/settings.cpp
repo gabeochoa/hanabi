@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "util/acknowledged.h"
 #include <branding.h>
 
 #include <afterhours/src/plugins/files.h>
@@ -203,6 +204,13 @@ bool Settings::load_save_file() {
                 if (e.is_string()) muted_ids_.push_back(e.get<std::string>());
             muted_set_ = {muted_ids_.begin(), muted_ids_.end()};
         }
+        acknowledged_blocked_.clear();
+        if (j.contains("acknowledged_blocked") &&
+            j["acknowledged_blocked"].is_array()) {
+            for (const auto& e : j["acknowledged_blocked"])
+                if (e.is_string())
+                    acknowledged_blocked_.push_back(e.get<std::string>());
+        }
         collapsed_shelves_.clear();
         if (j.contains("collapsed_shelves") &&
             j["collapsed_shelves"].is_array()) {
@@ -306,6 +314,7 @@ void Settings::write_save_file() {
     j["archived"] = archived_;
     j["muted"] = muted_ids_;
     j["collapsed_shelves"] = collapsed_shelves_;
+    j["acknowledged_blocked"] = acknowledged_blocked_;
     j["row_order"] = row_order_;
     j["last_read"] = last_read_;
     j["tool_fold"] = tool_fold_;
@@ -588,6 +597,20 @@ void Settings::set_row_order(const std::string& folder,
         row_order_[folder] = std::move(ids);
     }
     if (auto_save_enabled) write_save_file();
+}
+
+const std::vector<std::string>& Settings::get_acknowledged_blocked() const {
+    return acknowledged_blocked_;
+}
+
+bool Settings::is_blocked_acknowledged(const std::string& localId) const {
+    return hanabi::model::acknowledged(acknowledged_blocked_, localId);
+}
+
+void Settings::set_blocked_acknowledged(const std::string& localId) {
+    if (hanabi::model::acknowledge(acknowledged_blocked_, localId) &&
+        auto_save_enabled)
+        write_save_file();
 }
 
 const std::vector<std::string>& Settings::get_collapsed_shelves() const {

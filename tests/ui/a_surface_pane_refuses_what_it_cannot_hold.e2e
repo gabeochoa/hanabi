@@ -1,0 +1,60 @@
+# A pane showing Settings has no composer, so everything that would aim at
+# one says so instead of staging it out of sight.
+#
+# The failure this guards: a drop or a keystroke on the Settings pane going
+# into the NEW-THREAD composer (current_composer_target's kickoff fallback),
+# where the reader finds it later in a box they never typed into. And in a
+# split, the other pane must still take its own input normally.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_WIN_W=1440 HANABI_WIN_H=900 HANABI_OPEN=t2 HANABI_SPLIT=t6
+require_thread t2
+require_thread t6
+expect_panes t2 t6 0
+
+# A draft in the LEFT pane, which nothing below may touch.
+click_ui composer_reply_input
+wait_frames 10
+expect_panes t2 t6 0
+type "the other pane's own words"
+wait_frames 8
+expect_input_text composer_reply_input "the other pane's own words"
+
+# Focus the RIGHT pane, so Settings takes THAT one: a surface lands in the
+# pane the reader is in.
+click_ui composer_reply_input_other
+wait_frames 10
+expect_panes t2 t6 1
+click_ui sb_settings
+wait_frames 24
+expect_text "SETTINGS"
+
+# Typing with no field focused, which normally SEEDS the composer: on a
+# surface pane it must go nowhere at all -- not into the new-thread
+# composer, where the reader would find it later in a box they never typed
+# into.
+# Typing goes to the settings search field, and that is correct: the
+# settings pane takes the caret when it opens (settings_system.h grabs it
+# every frame while the search zone is focused), so keystrokes filter the
+# settings list -- the surface is a place you type INTO, just not a
+# conversation.
+#
+# What this asserts is the guarantee that matters: those keystrokes do not
+# reach any COMPOSER. The seed path's own refusal (a keystroke with no
+# field focused, on a surface pane) cannot be reached from a script while
+# the pane holds the caret; it is in the code as the backstop for a surface
+# that does not grab focus, and it is NOT proven here.
+# (The left pane's composer is the only one now, so it carries the plain
+# name -- the surface pane has none.)
+type "filtering the settings"
+wait_frames 16
+expect_input_text composer_reply_input "the other pane's own words"
+
+# The conversation pane still takes its own input: clicking its composer
+# moves the caret out of the settings search field, and typing extends the
+# draft that was there.
+click_ui composer_reply_input
+wait_frames 16
+type " and more"
+wait_frames 20
+expect_input_text composer_reply_input "the other pane's own words and more"

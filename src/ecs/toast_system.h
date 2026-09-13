@@ -13,6 +13,9 @@
 
 #include <string>
 
+#include <afterhours/src/plugins/clipboard.h>
+#include "../api/disk_cache.h"
+#include "../settings.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/icons.h"
 #include "ui_imports.h"
@@ -24,10 +27,12 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
         auto* app = find_singleton<AppComponent>();
         if (!app || app->toastMessage.empty()) return;
 
-        app->toastSecondsLeft -= dt;
-        if (app->toastSecondsLeft <= 0.0f) {
-            app->dismiss_toast();
-            return;
+        if (!app->toastHolds) {
+            app->toastSecondsLeft -= dt;
+            if (app->toastSecondsLeft <= 0.0f) {
+                app->dismiss_toast();
+                return;
+            }
         }
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
@@ -36,9 +41,10 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
         const float sh =
             hanabi::viewport::height();
 
+        const bool copyable = app->toastUndoKind == AppComponent::ToastUndo::CopyText;
         const bool undoable = !app->toastUndoSessionId.empty();
         const float barW = hanabi::surface::toast_width(
-            sw, app->toastMessage.size(), undoable);
+            sw, app->toastMessage.size(), undoable || copyable);
         const float barH = 50.0f;
         const auto* layout = find_singleton<LayoutComponent>();
         const float desiredY = layout == nullptr
@@ -72,7 +78,37 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("toast_message"));
 
-        if (undoable) {
+        if (copyable) {
+            // The one affordance a blocked-unsent message gets: take the
+            // words back. No retry -- there is no thread to retry to -- and
+            // no destination invented for it.
+            auto copy = button(ctx, mk(bar.ent(), 2),
+                hanabi::surface::action_button(68.0f, false, 21)
+                    .with_label(app->toastCopyHasFiles ? "Copy text" : "Copy")
+                    .with_margin(Margin{.left = pixels(8)})
+                    .with_font_size(theme::type::ROW)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_debug_name("toast_copy"));
+            if (copy) {
+                afterhours::clipboard::set_text(app->toastCopyText);
+                // Nothing is removed here, ever. Copy takes the words and
+                // the NAMES of any files that were staged -- not the files
+                // themselves -- so retiring the record would trade a
+                // recovered paragraph for lost bytes. Copying is also not
+                // being DONE with it: the record stays unseen and is raised
+                // again next launch. The x below is the explicit "quiet
+                // this one".
+                // Copy acknowledges this record as well, so the notice it
+                // just closed cannot be re-selected on the same frame, and
+                // the next unacknowledged one takes its place. The record
+                // itself stays: acknowledgement is about the NOTICE, never
+                // about the words or the files.
+                app->note_blocked_seen(app->toastCopyLocalId);
+                app->dismiss_toast();
+                app->requestNextBlockedNotice = true;
+            }
+        } else if (undoable) {
             auto undo = button(ctx, mk(bar.ent(), 2),
                 hanabi::surface::action_button(68.0f, false, 21)
                     .with_label("Undo")
@@ -89,6 +125,11 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
                 // restores the durable state as well as the on-screen one, and
                 // undoing an undo is simply doing the thing again.
                 switch (app->toastUndoKind) {
+                    // Not reachable: a CopyText toast takes the branch above
+                    // and never has an undo session. Named so the switch
+                    // stays exhaustive.
+                    case AppComponent::ToastUndo::CopyText:
+                        break;
                     case AppComponent::ToastUndo::Archive:
                         app->requestToggleArchive = app->toastUndoSessionId;
                         break;
@@ -122,7 +163,21 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
                 .with_on_draw_fg(hanabi::icons::draw_fg(
                     "close", "\xc3\x97", theme::text_faint(), 12.0f))
                 .with_debug_name("toast_close"));
-        if (close) app->dismiss_toast();
+        if (close) {
+            // Dismissing a blocked-unsent notice means "seen and quiet", not
+            // "delete": the record stays on disk, it is simply not raised at
+            // the person again, and the next unseen one takes its place.
+            if (copyable) {
+                // The × is the explicit "I am done with this one": the
+                // record STAYS on disk, it is marked seen so it is not
+                // raised again, and the next unseen one takes its place.
+                app->note_blocked_seen(app->toastCopyLocalId);
+                app->dismiss_toast();
+                app->requestNextBlockedNotice = true;
+            } else {
+                app->dismiss_toast();
+            }
+        }
     }
 };
 

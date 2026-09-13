@@ -32,7 +32,7 @@ wait_frames 8
 expect_text "Show timestamps"
 click_ui settings_timestamps_0
 wait_frames 8
-click_ui settings_close
+click_ui tab_close
 wait_frames 10
 
 expect_no_text "proration.   ·   4h"

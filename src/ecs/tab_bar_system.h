@@ -22,6 +22,7 @@
 #include "../util/format.h"
 #include "tab_colors.h"
 #include "tab_model.h"
+#include "surface_tabs.h"
 #include "../keys.h"
 #include "ui_imports.h"
 
@@ -87,10 +88,15 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 auto opt = EntityHelper::getEntityForID(
                     strip.tabOrder[static_cast<size_t>(at)]);
                 if (opt.valid() && opt->has<Tab>()) {
-                    if (opt->has<ActiveTab>())
+                    if (opt->has<ActiveTab>()) {
                         model::keep_tab(opt.asE());
-                    else
+                        // Same rule as the chip click: the slot chord is
+                        // also a way back from a shelf view.
+                        if (app.view != SmartView::Chat)
+                            switch_to_tab(app, opt.asE());
+                    } else {
                         switch_to_tab(app, opt.asE());
+                    }
                 }
             }
         }
@@ -291,8 +297,17 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 // second look that keeps it.
                 auto o = EntityHelper::getEntityForID(strip.dragCandidate);
                 if (o.valid() && o->has<Tab>()) {
-                    if (o->has<ActiveTab>()) model::keep_tab(o.asE());
-                    else switch_to_tab(app, o.asE());
+                    // A click on the tab you are already on is normally the
+                    // second look that KEEPS it -- but if the reader has
+                    // since gone somewhere that is not a conversation (a
+                    // shelf view), that same click is how they come back,
+                    // and keep_tab alone would leave them looking at Home
+                    // with the tab still lit.
+                    if (o->has<ActiveTab>()) {
+                        model::keep_tab(o.asE());
+                        if (app.view != SmartView::Chat)
+                            switch_to_tab(app, o.asE());
+                    } else switch_to_tab(app, o.asE());
                 }
             }
             strip.clear_drag();
@@ -738,7 +753,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                              : tab_colors::close_ink(),
                                 tab_colors::kCloseGlyphPx,
                                 tab_colors::kCloseYBias))
-                            .with_debug_name("tab_close"));
+                            // The ACTIVE tab's close carries a fixed name
+                            // ("tab_close", what every script means by "the
+                            // close button"); the others are named per
+                            // session, so a script can close a specific
+                            // background tab without depending on order.
+                            .with_debug_name(isActive
+                                                 ? std::string("tab_close")
+                                                 : "tab_close_" + tab.sessionId));
                     hanabi::a11y::set_name(closeBtn.ent(), closeAccessible);
                     if (closeBtn) {
                         strip.clear_drag();
@@ -934,7 +956,11 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             auto* strip = find_singleton<TabStripComponent>();
             if (strip && !app.restoreTabIds.empty()) {
                 for (const auto& id : app.restoreTabIds)
-                    if (app.find_summary(id))
+                    // A surface tab has no summary to find -- it is not a
+                    // conversation -- so the summary test would drop it on
+                    // every relaunch while the saved active tab still named
+                    // it, leaving the strip without the tab it selects.
+                    if (model::is_surface_tab(id) || app.find_summary(id))
                         TabBarSystem::open_session_in_tab(
                             *strip, app, id, /*keep=*/true,
                             /*pinned=*/

@@ -37,6 +37,7 @@
 #include "transcript_ledger.h"
 #include "transcript_render_cache.h"
 #include "composer_strip.h"
+#include "surface_tabs.h"
 #include "../ui/accessibility.h"
 #include "../ui/control_state.h"
 #include "../ui/overlay_lifecycle.h"
@@ -186,12 +187,41 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       std::clamp(app->focusedPane, 0, 1))];
         app->lastComposerChromeH = kComposerBaseH + attachH +
                                    composer_extra_h(rows);
+        // Settings is a tab, and a tab showing Settings has no composer:
+        // there is nothing to write to. The row's height goes to zero so the
+        // pane owns the whole content area, exactly as any other tab's
+        // content would.
+        // Which pane, if any, is showing the Settings surface -- either of
+        // them, in a split. -1 for none.
+        const int settingsPane = [&]() -> int {
+            if (app->view != SmartView::Chat) return -1;
+            if (splitView) {
+                for (int i = 0; i < 2; ++i)
+                    if (model::is_settings_tab(app->panes[static_cast<std::size_t>(i)].selectedId))
+                        return i;
+                return -1;
+            }
+            return model::is_settings_tab(app->pane().selectedId)
+                       ? std::clamp(app->focusedPane, 0, 1)
+                       : -1;
+        }();
+        const bool settingsTab = settingsPane >= 0 && !splitView;
+        app->showSettings = settingsPane >= 0;
+        if (settingsPane < 0) app->settingsHostW = 0.0f;
         layout->composerHeight =
-            app->lastComposerChromeH + ask_card_h(*app);
+            settingsTab ? 0.0f
+                        : app->lastComposerChromeH + ask_card_h(*app);
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
         // a new session). Split view still replies to its primary open thread.
+        // A pane showing a SURFACE is neither a reply nor a kickoff: it has
+        // no openSession, so this rule alone called it kickoff, and every
+        // path that asks "what is the composer aimed at" -- a dropped file,
+        // a keystroke with no field focused -- would quietly aim at the
+        // new-thread composer instead of refusing. Said here once, rather
+        // than left to the two places that skip the draw.
         const bool composerKickoff =
-            !(app->view == SmartView::Chat && app->pane().openSession);
+            !(app->view == SmartView::Chat && app->pane().openSession) &&
+            !model::is_surface_tab(app->pane().selectedId);
 
         // Content fills the pane (layout->main already excludes the composer).
         auto content = div(ctx, mk(panel.ent(), 1),
@@ -235,6 +265,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (splitView) {
                     render_split(ctx, content.ent(), *app, r.width, contentH,
                                  layout->composer.height);
+                } else if (settingsTab) {
+                    // The settings pane draws itself (settings_system.h); it
+                    // is handed this pane's rect and fills it. Nothing else
+                    // goes in the content area -- no transcript behind it,
+                    // no scrim over the window: it is the tab's content.
+                    app->settingsHostX = r.x;
+                    app->settingsHostY = r.y;
+                    app->settingsHostW = r.width;
+                    app->settingsHostH = contentH;
                 } else {
                     render_transcript(ctx, content.ent(), *app, app->pane(),
                                       r.width, contentH);
@@ -291,6 +330,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // the row's top with the card's space empty beneath it.
                 const float askH = ask_card_h(*app);
                 for (int i = 0; i < 2; ++i) {
+                    // No composer over a surface: there is nothing to write
+                    // to, and its pane gives the row's height back.
+                    if (i == settingsPane) continue;
                     const RectangleType pr = pane_screen_rect(*app, i);
                     const bool focusedHere = i == std::clamp(app->focusedPane, 0, 1);
                     const float ownH = focusedHere ? cr.height : cr.height - askH;
@@ -298,7 +340,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     composerKickoff, pr.x,
                                     cr.y + (cr.height - ownH));
                 }
-            } else {
+            } else if (!settingsTab) {
                 render_composer(ctx, uiRoot, *app, app->focusedPane, cr.width,
                                 cr.height, composerKickoff, cr.x, cr.y);
             }
@@ -2743,7 +2785,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.paneFocusPending = index;
         }
 
-        render_transcript(ctx, col.ent(), app, pane, w, h);
+        if (model::is_settings_tab(pane.selectedId)) {
+            // The surface fills this pane, exactly as it fills the window
+            // when there is only one: settings_system.h reads the rect.
+            const RectangleType pr = pane_screen_rect(app, pane_index(app, pane));
+            app.settingsHostX = pr.x;
+            app.settingsHostY = pr.y;
+            app.settingsHostW = w;
+            app.settingsHostH = h;
+        } else {
+            render_transcript(ctx, col.ent(), app, pane, w, h);
+        }
 
         // Which pane the keyboard is in. A hairline down the pane's inside
         // edge rather than a full border: two boxed panes read as two windows,
@@ -6556,7 +6608,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the caret's pane.
         paneIndex = std::clamp(paneIndex, 0, 1);
         Pane& ownPane = app.panes[static_cast<std::size_t>(paneIndex)];
-        const bool activeComposer = paneIndex == std::clamp(app.focusedPane, 0, 1);
+        // Which composer is THE composer, for naming and for the widgets
+        // that only one pane may own. Normally the focused pane's -- but a
+        // pane showing a surface HAS no composer, so when the caret is over
+        // there the live composer is the other pane's, and it takes the
+        // plain name rather than leaving the only usable box called
+        // "_other".
+        const int focused = std::clamp(app.focusedPane, 0, 1);
+        const bool focusedIsSurface =
+            model::is_surface_tab(app.panes[static_cast<std::size_t>(focused)].selectedId);
+        const bool activeComposer =
+            focusedIsSurface ? paneIndex != focused : paneIndex == focused;
         const auto cname = [activeComposer](const char* base) {
             return activeComposer ? std::string(base) : std::string(base) + "_other";
         };
@@ -7774,7 +7836,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool gainedFocus =
             composerFocused && !composerFocusedLast_[static_cast<size_t>(paneIndex)];
         composerFocusedLast_[static_cast<size_t>(paneIndex)] = composerFocused;
-        if (gainedFocus && !activeComposer && !ctx.mouse.just_pressed)
+        // The caret decides which pane is focused -- normally only when
+        // this is NOT already the active composer, since the active one is
+        // in the focused pane by definition. The exception is a surface:
+        // the focused pane has no composer, so this pane's composer is
+        // "active" while `focusedPane` still points at the surface, and
+        // everything keyed on focusedPane (a focus request, the typed seed)
+        // would aim at a pane that refuses it. A caret here means the
+        // reader is HERE.
+        if (gainedFocus && (!activeComposer || focusedIsSurface) &&
+            !ctx.mouse.just_pressed)
             app.focusedPane = paneIndex;
         // No accent edge on focus: the reference's field keeps its one hairline
         // whether or not it has the caret (liveComposerField's overlay is the

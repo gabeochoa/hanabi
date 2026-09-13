@@ -11,7 +11,9 @@ expect_no_text 2.1M
 # "SKU backfill — my name for it" is the sixth row of the activity list, whose
 # band is y=460..492 at this window size; "61% through 2.1M rows" is a line of
 # ITS transcript and of no other.
-click 120 475
+# By TEXT, not a y coordinate: the row pitch is the reference's 34 now and
+# the list has section headers, so a hardcoded y names a different row.
+click_text "SKU backfill"
 wait_frames 8
 expect_text "61% through 2.1M rows"
 

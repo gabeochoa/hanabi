@@ -62,6 +62,7 @@
 #include "api/http_client.h"
 #include "api/token_store.h"
 #include "ecs/components.h"
+#include "ecs/surface_tabs.h"
 #include "ecs/auth_system.h"
 #include "ecs/new_thread.h"
 #include "ecs/command_system.h"
@@ -734,7 +735,9 @@ static void app_frame_body() {
             if (!qs.empty()) {
                 auto& a = qs[0].get().get<ecs::AppComponent>();
                 a.settingsRoute = settingsPane;
-                a.showSettings = true;
+                a.requestOpenTab =
+                    ecs::model::surface_tab_id(ecs::model::Surface::Settings);
+                a.requestOpenTabKeep = true;
                 metal_activate_app();
             }
         }
@@ -1331,7 +1334,11 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     // keyboard- or pointer-only secondary surface for deterministic capture.
     if (const char* ov = std::getenv("HANABI_TEST_OVERLAY"); ov && *ov) {
         std::string os(ov);
-        if (os == "settings") app->showSettings = true;
+        if (os == "settings") {
+            app->requestOpenTab =
+                ecs::model::surface_tab_id(ecs::model::Surface::Settings);
+            app->requestOpenTabKeep = true;
+        }
         else if (os == "composer") app->requestNewThread = true;
         else if (os == "shortcuts") app->showShortcuts = true;
         else if (os == "shortcuts-recording") {

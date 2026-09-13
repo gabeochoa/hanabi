@@ -16,13 +16,17 @@
 # The control arm at the bottom presses the SAME key with the overlay closed
 # and requires it to submit. Delete the Enter presses and that arm fails.
 #
+# The overlay here is the SHORTCUTS sheet. It used to be Settings, which is
+# a TAB now and covers nothing -- the ask card behind it is not on screen,
+# so the premise ("a sheet over a live ask card") needs a sheet that is
+# still one.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=settings
+# env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=shortcuts
 
 require_thread t2
 expect_text "The agent is asking"
 expect_text "Answer any one of these to submit"
-expect_text "How the app looks, what it keeps, and where it points"
+expect_text "Keyboard shortcuts"
 
 focus_ui ask_option_q1_0
 # The row is out of the focus ring while the sheet is up -- the same treatment
@@ -46,9 +50,9 @@ click_ui ask_option_q1_1
 wait_frames 12
 expect_text "Answer any one of these to submit"
 
-click_ui settings_close
+click_ui tab_close
 wait_frames 20
-expect_no_text "How the app looks, what it keeps, and where it points"
+expect_no_text "Keyboard shortcuts"
 
 # Control arm. With the settings sheet gone the card has its keys back: SPACE picks...
 focus_ui ask_option_q1_0

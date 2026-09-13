@@ -25,6 +25,7 @@
 #include "../api/attachments.h"
 #include "../api/disk_cache.h"
 #include "../keys.h"
+#include "surface_tabs.h"
 #include "../native_extras.h"
 #include "components.h"
 #include "keyboard_focus.h"

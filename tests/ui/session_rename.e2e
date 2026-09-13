@@ -22,7 +22,9 @@
 expect_text "SKU backfill — my name for it"
 
 # Open the thread first, so the rename has a tab caption to reach as well.
-click 120 475
+# By TITLE, not a y coordinate: the row pitch is the reference's 34 now and
+# the list carries section headers, so a hardcoded y names the neighbour.
+click_text "SKU backfill"
 wait_frames 8
 expect_text "Backfill in progress"
 

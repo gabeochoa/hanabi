@@ -49,6 +49,7 @@
 #include "../ui/status_mark.h"
 #include <afterhours/src/plugins/ui/text_input/text_input.h>
 #include "sidebar_buckets.h"
+#include "surface_tabs.h"
 #include "folder_state.h"
 #include "line_draw_state.h"
 #include "subagent_parent_index.h"
@@ -208,10 +209,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        // Settings navigation, hosted here rather than only behind a modal
-        // toggle. While the sheet is open the sidebar draws the PANE LIST and
-        // nothing else: the reader's place in the app is the pane they are
-        // editing, and two competing lists in one column is two places.
+        // Unfolded: the measured order — traffic-light gap, VIEWS strip,
+        // view rows, rule, then EITHER the settings pane list or the search
+        // and the conversations.
+        views_header(ctx, panel.ent(), *app, *layout, r.width);
+        const bool viewsOpen = app->collapsedFolders.count(kViewsKey) == 0;
+        if (viewsOpen) render_smart_views(ctx, panel.ent(), *app, folded, r.width);
+        section_rule(ctx, panel.ent());
+
+        // Settings swaps the LOWER HALF of the column and nothing above it.
+        // This used to replace the whole sidebar, which took the way out
+        // with it: with Settings up there was no Home to click and no view
+        // to switch to. The reference is explicit -- "Settings swaps the
+        // LOWER half only... the shelf stays put, because it is how you get
+        // back" (SidebarColumn) -- and its own capture shows the shelf live
+        // beside an open Settings tab, with Settings marked as the current
+        // view.
         if (app->showSettings && hosts_settings(r.width)) {
             settings_header(ctx, panel.ent(), r.width);
             render_settings_pane_list(ctx, panel.ent(), *app, r.width, false);
@@ -220,12 +233,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        // Unfolded: the measured order — traffic-light gap, VIEWS strip,
-        // view rows, rule, search, list, footer.
-        views_header(ctx, panel.ent(), *app, *layout, r.width);
-        const bool viewsOpen = app->collapsedFolders.count(kViewsKey) == 0;
-        if (viewsOpen) render_smart_views(ctx, panel.ent(), *app, folded, r.width);
-        section_rule(ctx, panel.ent());
         render_search(ctx, panel.ent(), *app, r.width);
         // The 4px the list is offset by, as a real child so the column keeps
         // stacking (afterhours has no margin-collapse to lean on).
@@ -331,10 +338,28 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     /*archivedStyle=*/false, /*catchAll=*/false,
                     /*headerless=*/false);
             }
-            shown += render_folder(ctx, scroll.ent(), 900000, "", "recent",
-                                   buckets_.recent(), *app, q, r.width,
+            // PINNED then RECENTS, each with its own header and count --
+            // the reference's arrangement (SidebarSection over the list,
+            // "PINNED (7)", "RECENTS (32)"). hanabi drew one unheaded run
+            // of everything, so a pinned thread was findable only by its
+            // star. The two lists come out of the same catch-all bucket, so
+            // the ordering, the cap and the search behaviour are unchanged;
+            // only which of the two a session falls into is new.
+            pinnedMembers_.clear();
+            recentMembers_.clear();
+            for (const auto* s : buckets_.recent())
+                (s->starred ? pinnedMembers_ : recentMembers_).push_back(s);
+            if (!pinnedMembers_.empty())
+                shown += render_folder(ctx, scroll.ent(), 880000, "Pinned",
+                                       "pinned", pinnedMembers_, *app, q,
+                                       r.width, /*archivedStyle=*/false,
+                                       /*catchAll=*/true,
+                                       /*headerless=*/false,
+                                       /*cap=*/fillCap);
+            shown += render_folder(ctx, scroll.ent(), 900000, "Recents",
+                                   "recent", recentMembers_, *app, q, r.width,
                                    /*archivedStyle=*/false,
-                                   /*catchAll=*/true, /*headerless=*/true,
+                                   /*catchAll=*/true, /*headerless=*/false,
                                    /*cap=*/fillCap);
         }
 
@@ -875,7 +900,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr int kSpacerBelowIdOffset = 198;
     // The fixed on-screen height of one session row — the MEASURED Puffin
     // pitch. Used by the fill-the-viewport cap so the list reaches the footer.
-    static constexpr float kRowHeight = theme::chrome::ROW;
+    // 34, from the reference's own measurement of its row
+    // (SessionRowView.measuredHeight: 6pt above, 6 below, and the text's
+    // resolved line height between). hanabi's chrome ROW is 32, which is the
+    // rest of the app's control pitch -- the sidebar row is its own thing.
+    static constexpr float kRowHeight = 34.0f;
     // The snippet line a row grows while the list is being searched.
     static constexpr float kSnippetH = 16.0f;
     // A session row's left inset and its leading status-glyph slot. Puffin puts
@@ -1000,25 +1029,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // blank rather than lying. Pure + now-injected for headless testing.
     static std::string row_time_label(int64_t updated_at, int64_t now) {
         if (updated_at <= 0 || updated_at > now) return "";
-        // Sub-week ages use the ONE canonical relative-time ladder (shared with
-        // the transcript header etc.) so they can never drift; only the
-        // older-than-a-week ABSOLUTE-date tail is bespoke to the sidebar.
-        if (now - updated_at < 7 * fmtutil::kDaySecs)
-            return fmtutil::relative_time(updated_at, now);
-        // Older than a week: absolute short date ("Jul 28"), and append the
-        // year when it differs from now's year so an old row is unambiguous.
-        std::time_t ut = static_cast<std::time_t>(updated_at);
-        std::time_t nt = static_cast<std::time_t>(now);
-        std::tm utm{};
-        std::tm ntm{};
-        localtime_r(&ut, &utm);
-        localtime_r(&nt, &ntm);
-        char buf[24];
-        if (utm.tm_year == ntm.tm_year)
-            std::strftime(buf, sizeof(buf), "%b %-d", &utm);
-        else
-            std::strftime(buf, sizeof(buf), "%b %-d %Y", &utm);
-        return std::string(buf);
+        return ecs::model::sidebar_age(updated_at, now);
     }
 
     // ---- display-only title normalization (defect #10: "[P]" prefix leak) --
@@ -1686,7 +1697,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (!hit) continue;
             if (k == 0) app.requestNewThread = true;
             else if (k == 1) app.paletteOpen = true;
-            else app.showSettings = true;
+            else {
+                app.requestOpenTab =
+                    model::surface_tab_id(model::Surface::Settings);
+                app.requestOpenTabKeep = true;
+            }
         }
 
         // The live cluster — activity light + session count — where hanabi's
@@ -1997,6 +2012,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // state is untouched, this only decides which row draws lit.
     SmartView lit_view(const AppComponent& app) {
         if (app.view != SmartView::Chat) lastListView_ = app.view;
+        // With the Settings surface up, the Settings ROW is what is lit and
+        // no view row is: two lit rows would say the reader is in two
+        // places. `Chat` is never a shelf row, so returning it lights none.
+        if (app.showSettings) return SmartView::Chat;
         return lastListView_;
     }
     SmartView lastListView_ = SmartView::Home;
@@ -2004,6 +2023,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // Group-membership scratch reused sequentially across groups. render_folder
     // consumes it synchronously before the next group recollects it.
     std::vector<const api::SessionSummary*> members_;
+    // The catch-all split into the reference's two sections. Scratch, reused
+    // every frame like members_, so the split costs no allocation.
+    std::vector<const api::SessionSummary*> pinnedMembers_;
+    std::vector<const api::SessionSummary*> recentMembers_;
     model::SidebarBuckets buckets_;
     std::vector<const api::SessionSummary*> subagentMembers_;
     model::SubagentParentIndex parentIndex_;
@@ -2095,6 +2118,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // that control still reaches it.
     void settings_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
                        AppComponent& app, float panelW) {
+        // Lit while the Settings surface is what the reader is looking at.
+        // The shelf's job is to say where you are, and with Settings open
+        // the answer is Settings -- the reference lights this row and dims
+        // Home (captured at bffecaf6); hanabi kept Home lit, which said the
+        // reader was somewhere they were not.
+        const bool active = app.showSettings;
+        const theme::Color settingsFill =
+            active ? theme::chrome::selected_on(theme::chrome::sidebar())
+                   : theme::chrome::sidebar();
         auto row = div(ctx, mk(parent, 100 + idx),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kSbViewRowH)})
@@ -2105,14 +2137,27 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                       .right = pixels(kCountRightPad),
                                       .bottom = pixels(5),
                                       .left = pixels(kSbInset)})
-                .with_custom_background(theme::chrome::sidebar())
+                .with_custom_background(settingsFill)
                 .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_settings"));
+        // A marker a script can assert on: the row's NAME stays stable
+        // (thirty-five scripts click it), so "is it lit" gets its own
+        // zero-width child rather than a second name for the same row.
+        if (active)
+            div(ctx, mk(row.ent(), 9),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(0), pixels(0)})
+                    .with_transparent_bg()
+                    .with_debug_name("sb_settings_selected"));
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
-        if (pointer_click(ctx, row.ent())) app.showSettings = true;
+        if (pointer_click(ctx, row.ent())) {
+            app.requestOpenTab =
+                model::surface_tab_id(model::Surface::Settings);
+            app.requestOpenTabKeep = true;
+        }
         const theme::Color txt = theme::text_secondary();
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
@@ -2328,9 +2373,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sv_label"));
 
         if (svShowCount) {
-            theme::Color countColor = theme::accent();
-            if (view == SmartView::Blocked) countColor = theme::status_blocked();
-            if (view == SmartView::Review) countColor = theme::status_review();
+            // ONE colour for every shelf row's count, not one per view: the
+            // reference badges Home, Blocked and Review alike on its single
+            // attention colour (SmartViewSidebar.badgeView takes
+            // PuffinTheme.Chrome.attention, no per-filter branch), deepened
+            // until white digits clear contrast on it. The per-view status
+            // colours stay where the reference also varies them -- the row
+            // glyphs and the transcript -- but a count is a count.
+            const theme::Color countColor = theme::attention_badge();
+            // A FILLED pill, not bare digits: the reference draws a shelf
+            // row's attention count on the attention colour with white
+            // digits (SmartViewSidebar.badgeView -> filledPill, a capsule,
+            // 1pt vertical and 5pt horizontal padding, monospaced). The
+            // count is the thing on this row that asks for something, and a
+            // faint number beside a faint label does not ask.
             div(ctx, mk(row.ent(), 3),
                 ComponentConfig{}
                     .with_label(countText)
@@ -2339,11 +2395,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                         .right = pixels(0.0f),
                                         .bottom = pixels(kBadgeLift),
                                         .left = pixels(0.0f)})
-                    .with_transparent_bg()
-                    .with_custom_text_color(countColor)
+                    .with_custom_background(countColor)
+                    .with_custom_text_color(theme::on_fill(countColor))
                     .with_font_size(badge_font_px())
                     .with_alignment(TextAlignment::Center)
-                    .with_roundness(0.0f)
+                    .with_roundness(1.0f)
                     .with_debug_name("sv_count"));
         }
     }
@@ -2654,7 +2710,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // lines up with the smart-view / other-group counts (unified column).
         auto head = div(ctx, mk(parent, base),
             ComponentConfig{}
-                .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                // A section header is a CLICK TARGET (it folds the section),
+                // so it owes the same minimum as every other control. It
+                // was 26 and never noticed, because the catch-all had no
+                // header until the sections landed.
+                .with_size(ComponentSize{percent(1.0f),
+                                         pixels(hanabi::control::kMinHitTarget)})
                 .with_flex_direction(FlexDirection::Row)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_align_items(AlignItems::Center)
@@ -2712,8 +2773,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // for the reason spelled out over the smart-view count: right-aligned
         // text can never be flush (afterhours_gaps.md #84).
         const float kHeadContent = panelW - 10.0f - kCountRightPad;
-        const std::string headCountText =
+        std::string headCountText =
             model::folder_count_label(folderState);
+        // "(7)", the reference's own spelling of a section's count
+        // (SidebarSection.headerDetail: `count.map { "(\($0))" }`). The
+        // wordier readings -- "empty", "3 hidden", "2 need you / 9" -- stay
+        // for the states the reference has no equivalent of, because a
+        // number in parentheses cannot say them.
+        if (!headCountText.empty() &&
+            headCountText.find_first_not_of("0123456789") == std::string::npos)
+            headCountText = "(" + headCountText + ")";
         const float headCountW =
             std::ceil(theme::text_px(headCountText.c_str(), theme::type::SM)) +
             kAhTextInset;
@@ -2724,7 +2793,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (headNameW < 16.0f) headNameW = 16.0f;
         div(ctx, mk(head.ent(), 4),
             ComponentConfig{}
-                .with_label(name)
+                .with_label(fmtutil::to_upper(std::string(name)))
                 .with_size(ComponentSize{pixels(headNameW), pixels(18)})
                 .with_transparent_bg()
                 .with_custom_text_color(headColor)

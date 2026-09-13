@@ -3,8 +3,9 @@
 # env: HANABI_WEB_BASE_URL=https://navi.test/session
 
 expect_text "needs a decision before it can go on"
-mouse_move 120 567
-right_click 120 567
+# By TITLE, not a y coordinate: the row pitch is the reference's 34 now and
+# the list carries section headers, so a hardcoded y names the neighbour.
+right_click_text "needs a decision before it can go on"
 wait_frames 4
 expect_text "Copy session link"
 expect_text "Copy session ID"
@@ -12,8 +13,7 @@ reset_clipboard_probe
 click_ui row_menu_copy_link
 expect_clipboard "https://navi.test/session/t2"
 
-mouse_move 120 567
-right_click 120 567
+right_click_text "needs a decision before it can go on"
 wait_frames 4
 reset_clipboard_probe
 click_ui row_menu_copy_id

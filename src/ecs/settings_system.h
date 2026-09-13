@@ -49,6 +49,7 @@
 #include <afterhours/src/plugins/files.h>
 
 #include "../api/disk_cache.h"
+#include "surface_tabs.h"
 #include "../settings.h"
 #include "../version.h"
 #include "../native_extras.h"  // hanabi::os_is_dark_mode (System theme)
@@ -141,7 +142,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 clear_query(*app);
                 return;
             }
-            app->showSettings = false;
+            // Escape leaves the SURFACE alone: the reference's Escape in a
+            // settings pane clears the query and drops focus, and a tab is
+            // not something Escape closes (its × is). Nothing to set here --
+            // showSettings is derived from the pane's selected id.
             release_focus(ctx, *app);
             wasOpen_ = false;
             return;
@@ -164,6 +168,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
         const cat::Focus focus = read_focus(*app, stops);
 
+        // Hosted by a TAB: the pane hands over its content rect and the
+        // panel fills it. No scrim, no floating card, no close button of its
+        // own -- the tab's × is how it closes, the way every other tab does.
+        const bool hostedInTab = app->settingsHostW > 0.0f;
         const bool rail = sw < kRailBelowWindowW;
         const float navW = rail ? kNavRailW : kNavW;
         const float wantedPh = kPadV * 2.0f + kHeaderH + kSearchRowH + kBodyH;
@@ -179,6 +187,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::surface::Rect panelRect = hanabi::surface::centered(
             sw - hostW, sh, kPanelW, wantedPh);
         panelRect.x += hostW;
+        if (hostedInTab)
+            panelRect = hanabi::surface::Rect{app->settingsHostX,
+                                              app->settingsHostY,
+                                              app->settingsHostW,
+                                              app->settingsHostH};
         active_panel_w_ = panelRect.width;
         const float ph = panelRect.height;
         const float bodyViewH = std::max(
@@ -198,10 +211,15 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // dismiss when the cursor is genuinely OUTSIDE the panel rect. Esc-close
         // still works (handled above); clicks on rows/labels/empty panel space
         // now do nothing.
-        auto backdrop = button(
-            ctx, mk(uiRoot, 8000),
-            hanabi::surface::scrim(sw, sh, 10)
-                .with_debug_name("settings_backdrop"));
+        // The scrim belongs to a sheet over the window. A tab has no scrim:
+        // the pane IS the settings surface, and the sidebar beside it stays
+        // live, which is how the reader gets back to a conversation.
+        bool backdrop = false;
+        if (!hostedInTab)
+            backdrop = static_cast<bool>(
+                button(ctx, mk(uiRoot, 8000),
+                       hanabi::surface::scrim(sw, sh, 10)
+                           .with_debug_name("settings_backdrop")));
         if (backdrop) {
             const bool insidePanel = afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, RectangleType{px, py, panelRect.width, ph});
@@ -214,6 +232,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 layout_sidebar_rect().width > 0.0f &&
                 afterhours::ui::is_mouse_inside(ctx.mouse.pos,
                                                 layout_sidebar_rect());
+            // Dead while hosted in a tab (backdrop is false above): a tab
+            // has no outside to click. Kept for the sheet path.
             if (!insidePanel && !insideHost) {
                 app->showSettings = false;
                 release_focus(ctx, *app);
@@ -255,10 +275,36 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (focusAnchor_ == 0 && hosted_focus_anchor() != 0)
             focusAnchor_ = hosted_focus_anchor();
         hosted_focus_anchor() = 0;
+        // A SHEET may hold the keyboard for as long as it is up -- nothing
+        // else is reachable behind it. A TAB may not: the other pane's
+        // composer is right there, and re-taking the caret every frame made
+        // it impossible to type in it while Settings was open in the pane
+        // beside it. Hosted in a tab, the grab is spent once (the frames
+        // counter the open sets) and then the caret belongs to whoever
+        // takes it.
         if (!ctx.mouse.just_pressed) {
             if (focus.zone == cat::Zone::Search) {
+                // Only the SEARCH grab is one-shot when hosted in a tab.
+                // A sheet may hold the keyboard for as long as it is up --
+                // nothing else is reachable behind it -- but a tab may not:
+                // the other pane's composer is right there and could not be
+                // typed into at all while this re-took the caret every
+                // frame. Keyboard navigation WITHIN the panel (the anchor
+                // branch below) is untouched, or a Tab between rows would
+                // stop moving.
+                // Hosted in a tab, the grab may KEEP the caret but never
+                // TAKE it: re-focusing the field it already owns is what
+                // makes keyboard navigation in the results work, while
+                // stealing it back from another pane's composer is what
+                // made that composer untypable. A sheet still grabs
+                // unconditionally -- nothing else is reachable behind it.
+                const bool holdsIt = ctx.focus_id == searchFieldId_;
+                const bool nobodyHasIt = ctx.focus_id == ctx.ROOT;
+                const bool mayGrab = app->settingsHostW <= 0.0f ||
+                                     searchFocusFrames_ > 0 || holdsIt ||
+                                     nobodyHasIt;
                 if (searchFocusFrames_ > 0) --searchFocusFrames_;
-                ctx.set_focus(searchFieldId_);
+                if (mayGrab) ctx.set_focus(searchFieldId_);
             } else if (focusAnchor_ != 0) {
                 ctx.set_focus(focusAnchor_);
             }
@@ -355,6 +401,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
   public:
     void render_header(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app) {
+        // Hosted in a TAB, the pane has no title block and no close of its
+        // own: the chip in the strip already says "Settings" and its x is
+        // the close, so a second title and a second x are two copies of
+        // what the tab is. The reference's Settings tab starts straight
+        // into its content (captured at bffecaf6). The sheet path keeps
+        // both, because a sheet has neither.
+        if (app.settingsHostW > 0.0f) return;
         auto header = div(ctx, mk(parent, 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kHeaderH)})
@@ -412,7 +465,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("settings_subtitle"));
-        if (closeBtn) app.showSettings = false;
+        if (closeBtn) app.requestCloseActiveTab = true;
     }
 
     static RectangleType layout_sidebar_rect() {
@@ -755,7 +808,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 std::string(info.label) + (isSelected ? ", selected" : ""));
             if (btn) {
                 select_pane(app, info.pane);
-                if (hosted) app.showSettings = true;
+                if (hosted) {
+                    app.requestOpenTab =
+                        model::surface_tab_id(model::Surface::Settings);
+                    app.requestOpenTabKeep = true;
+                }
             }
         }
     }
@@ -2444,6 +2501,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_debug_name("settings_open_shortcuts"));
         if (open) {
+            app.requestCloseActiveTab = true;
             app.showSettings = false;
             app.showShortcuts = true;
             app.shortcutRecording = -1;
@@ -3210,10 +3268,18 @@ inline void render_settings_pane_list(UIContext<InputAction>& ctx,
     cat::Focus live;
     live.zone = static_cast<cat::Zone>(app.settingsFocusZone);
     live.index = app.settingsFocusIndex;
+    // While a search is live the Nav zone indexes the RESULTS, not the
+    // panes -- so the pane list must not read "Nav, 0" as its first row.
+    // It did: after Down moved the caret to the first result, the sidebar
+    // focused General's button, and Enter pressed THAT (select General)
+    // right after the panel had revealed the result (select Notifications).
+    // The button ran last and won, so search-and-Enter always landed on
+    // General. No pane row is focused while searching.
+    const bool searching = !cat::normalize_query(app.settingsQuery).empty();
     host.render_nav(ctx, parent, app, cat::pane_from_slug(app.settingsPane),
-                    width, 0.0f, rail, live, /*hosted=*/true);
+                    width, 0.0f, rail, searching ? none : live,
+                    /*hosted=*/true);
     hosted_focus_anchor() = host.focusAnchor_;
-    (void)none;
 }
 
 }  // namespace ecs

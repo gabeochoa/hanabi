@@ -32,7 +32,7 @@ wait_frames 8
 expect_text "Finished sub-agents"
 click_ui settings_subagents_1
 wait_frames 8
-click_ui settings_close
+click_ui tab_close
 wait_frames 10
 
 # Now the finished one has its own chip and there is nothing left to account

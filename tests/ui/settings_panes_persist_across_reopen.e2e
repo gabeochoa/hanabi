@@ -5,9 +5,11 @@ expect_no_text "BACKEND"
 click_ui sb_settings
 wait_frames 8
 
-assert_ui settings_panel w=720
-assert_ui sb_settings_nav w=280
-assert_ui settings_search_row w=672
+# Hosted in a TAB the panel fills the pane, so a fixed sheet width is not a
+# fact about it any more; what is: the pane list is in the sidebar and the
+# search row is drawn.
+assert_ui sb_settings_nav hidden=false
+assert_ui settings_search_row hidden=false
 
 expect_text "APP"
 expect_text "BACKEND"
@@ -38,7 +40,7 @@ expect_text "Keep at most on disk"
 expect_text "Export conversations"
 expect_no_text "Rotate theme"
 
-click_ui settings_close
+click_ui tab_close
 wait_frames 8
 expect_no_text "Keep at most on disk"
 
@@ -47,7 +49,9 @@ wait_frames 8
 expect_text "Keep at most on disk"
 expect_no_text "Send message with"
 
-key ESCAPE
+# A tab closes by its x, not Escape; the selected pane must survive the
+# close and come back on reopen.
+click_ui tab_close
 wait_frames 8
 expect_no_text "Keep at most on disk"
 

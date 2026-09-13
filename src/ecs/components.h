@@ -27,6 +27,8 @@
 #include "transcript_cache.h"
 #include "transcript_ledger.h"
 
+#include "surface_tabs.h"
+
 namespace ecs {
 
 // Which pane the transcript view is showing.
@@ -610,7 +612,15 @@ struct AppComponent : public afterhours::BaseComponent {
     // Phase K (settings/composer): settings overlay visibility + the theme
     // currently selected in the panel ("dark"/"light"/"system"); composer
     // open state + its draft text for kicking off a new task.
+    // Settings is a TAB (surface_tabs.h): this is the derived fact "the
+    // focused pane is showing it", recomputed every frame from the pane's
+    // selected id, and the rect it was given to draw in. Every reader that
+    // used to toggle the sheet now opens or closes the tab instead.
     bool showSettings = false;
+    float settingsHostX = 0.0f;
+    float settingsHostY = 0.0f;
+    float settingsHostW = 0.0f;
+    float settingsHostH = 0.0f;
     std::string settingsPane;
     std::string settingsRoute;
     std::string settingsQuery;
@@ -799,7 +809,15 @@ struct AppComponent : public afterhours::BaseComponent {
         api::OutgoingTarget target;
         target.pane_index = std::clamp(paneIndex, 0, 1);
         const Pane& owner = panes[static_cast<std::size_t>(target.pane_index)];
-        const bool reply = view == SmartView::Chat && !owner.selectedId.empty();
+        // A surface tab (Settings) is NOT a thread: it has no session to
+        // reply to, and treating its reserved id as one would post
+        // "hanabi:surface/settings" to the backend as a session id. The
+        // composer is not drawn over a surface, but the target is read by
+        // the brake, the steer and Stop as well, so the refusal belongs
+        // here rather than at the one call site that happens to be visible.
+        const bool reply = view == SmartView::Chat &&
+                           !owner.selectedId.empty() &&
+                           !model::is_surface_tab(owner.selectedId);
         target.session_id = reply ? owner.selectedId : std::string();
         target.draft_key = reply ? target.session_id : std::string("__kickoff__");
         return target;
@@ -1237,7 +1255,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // Which toggle Undo re-runs is carried HERE rather than inferred from the
     // message text: the bar knew only how to unarchive, so a mute toast wired
     // to the same button would have archived the thread instead of unmuting it.
-    enum class ToastUndo { None, Archive, Mute, Star };
+    enum class ToastUndo { None, Archive, Mute, Star, CopyText };
     static constexpr float kToastSeconds = 10.0f;
     std::string toastMessage;
     std::string toastUndoSessionId;  // empty = no Undo affordance
@@ -1245,6 +1263,11 @@ struct AppComponent : public afterhours::BaseComponent {
     float toastSecondsLeft = 0.0f;
     void raise_toast(std::string message, std::string undoSessionId,
                      ToastUndo kind) {
+        // An acknowledgement ("Archived", "Muted") must not erase the one
+        // notice holding words the person cannot otherwise reach. The held
+        // notice wins; the acknowledgement is dropped, which is the right
+        // way round -- its action is already done and undoable from the row.
+        if (toastHolds) return;
         toastMessage = std::move(message);
         toastUndoSessionId = std::move(undoSessionId);
         // An id with no action behind it would paint an Undo button that does
@@ -1253,7 +1276,61 @@ struct AppComponent : public afterhours::BaseComponent {
         if (toastUndoKind == ToastUndo::None) toastUndoSessionId.clear();
         toastSecondsLeft = kToastSeconds;
     }
+    // The text a Copy toast puts on the clipboard, plus the names of any
+    // files that were staged with it, so a message that could not be sent
+    // can be taken back by the person who wrote it rather than sitting in a
+    // file they will never look in. Held here, not on disk, because it is
+    // what the one visible affordance copies.
+    std::string toastCopyText;
+    // A Copy toast does NOT time out. Every other toast is an
+    // acknowledgement -- archived, muted -- and ten seconds is right for
+    // those. This one holds the only words the person can still get back,
+    // and a notice that expires is not access: it stays until they copy it
+    // or dismiss it, and it is raised again from the retained record after
+    // a restart.
+    bool toastHolds = false;
+    // The outbox record this notice speaks for, so copying it can retire the
+    // record and dismissing it cannot.
+    std::string toastCopySessionId;
+    std::string toastCopyLocalId;
+    // Whether files rode with the message. Copy takes their NAMES, never
+    // their bytes, so the button says "Copy text" when that distinction
+    // matters and the record is never retired on a copy.
+    bool toastCopyHasFiles = false;
+    // Acknowledging a blocked-unsent record: by the message's own local_id
+    // (stable, unique per composed message -- keying on text would merge
+    // two messages that say the same thing), persisted in Settings so it
+    // survives a restart. The record itself is never removed by this: Copy
+    // cannot take file bytes, so the text and its attachments stay in the
+    // outbox either way. This is only "do not raise that one at me again".
+    [[nodiscard]] bool blocked_seen(const std::string& localId) const {
+        return Settings::get().is_blocked_acknowledged(localId);
+    }
+    // Set when a blocked notice is retired, so the loader raises the next
+    // unseen record on its own next pass -- the queue, without a queue.
+    bool requestNextBlockedNotice = false;
+    void note_blocked_seen(const std::string& localId) {
+        Settings::get().set_blocked_acknowledged(localId);
+    }
+    void raise_copy_toast(std::string message, std::string copyText,
+                          std::string recordId = {}, std::string recordLocalId = {},
+                          bool hasFiles = false) {
+        toastCopyHasFiles = hasFiles;
+        toastMessage = std::move(message);
+        toastCopyText = std::move(copyText);
+        toastCopySessionId = std::move(recordId);
+        toastCopyLocalId = std::move(recordLocalId);
+        toastUndoSessionId.clear();
+        toastUndoKind = ToastUndo::CopyText;
+        toastHolds = true;
+        toastSecondsLeft = kToastSeconds;
+    }
     void dismiss_toast() {
+        toastCopyText.clear();
+        toastCopySessionId.clear();
+        toastCopyLocalId.clear();
+        toastCopyHasFiles = false;
+        toastHolds = false;
         toastMessage.clear();
         toastUndoSessionId.clear();
         toastUndoKind = ToastUndo::None;
@@ -1727,8 +1804,12 @@ struct TabStripComponent : public afterhours::BaseComponent {
 // Is a modal sheet covering the app? Keyboard navigation behind one moves
 // something the reader cannot see, so every key owner asks this first.
 inline bool overlay_up(const AppComponent& app) {
-    return app.renameOpen || app.showShortcuts ||
-           app.showSettings || app.showAuth || app.paletteOpen;
+    // Settings is NOT here any more: it is a tab, not a sheet over the app.
+    // The sidebar beside it stays live -- reaching a conversation from
+    // Settings is a click, the same as from any other tab -- and keyboard
+    // owners behind it are not covering anything the reader cannot see.
+    return app.renameOpen || app.showShortcuts || app.showAuth ||
+           app.paletteOpen;
 }
 
 inline bool composer_strip_surface_up(const AppComponent& app) {

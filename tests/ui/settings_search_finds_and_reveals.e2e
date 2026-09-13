@@ -23,10 +23,14 @@ wait_frames 8
 expect_text "Quiet hours"
 expect_text "Notifications"
 
-key DOWN
+# The field keeps the caret while it has it, so DOWN walks the results and
+# ENTER opens the one that is lit.
+click_ui settings_search
 wait_frames 4
+key DOWN
+wait_frames 6
 key ENTER
-wait_frames 8
+wait_frames 12
 expect_text "When this Mac may interrupt you, and when it may not"
 expect_text "Quiet hours"
 expect_no_text "Rotate theme"
@@ -43,6 +47,11 @@ wait_frames 8
 expect_no_text "No settings match"
 expect_text "When this Mac may interrupt you, and when it may not"
 
+# A second Escape does NOT close Settings: it is a tab, and tabs close by
+# their x. The pane stays; the chip's close takes it away.
 key ESCAPE
 wait_frames 8
+expect_text "When this Mac may interrupt you, and when it may not"
+click_ui tab_close
+wait_frames 12
 expect_no_text "When this Mac may interrupt you, and when it may not"

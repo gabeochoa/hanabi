@@ -1,0 +1,43 @@
+# The Settings surface is a SINGLETON with a reserved id, and the pane it
+# leaves behind is the one it took.
+#
+# Three things the id buys, all of which broke in obvious ways while this was
+# a sheet: asking twice gives one tab, not two; closing it hands the pane
+# back to the conversation that was there, with its draft; and the thread the
+# surface covered was never marked read behind it.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIN_W=1440 HANABI_WIN_H=900
+require_thread t2
+wait_frames 10
+expect_open t2
+
+# A draft in the conversation the surface is about to cover.
+click_ui composer_reply_input
+wait_frames 6
+type "half-written thought"
+wait_frames 8
+expect_input_text composer_reply_input "half-written thought"
+
+click_ui sb_settings
+wait_frames 24
+expect_text "SETTINGS"
+expect_no_ui composer_reply_input
+
+# Asked twice, three times: still one Settings tab. (Two would leave a second
+# chip in the strip, and closing one would leave the other behind.)
+click_text "Home"
+wait_frames 12
+click_ui sb_settings
+wait_frames 20
+click_ui sb_settings
+wait_frames 20
+expect_text "SETTINGS"
+click_ui tab_close
+wait_frames 20
+expect_no_text "SETTINGS"
+
+# The pane came back to t2, with the draft exactly as it was left.
+expect_open t2
+assert_ui composer_reply_input hidden=false
+expect_input_text composer_reply_input "half-written thought"

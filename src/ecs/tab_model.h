@@ -20,6 +20,7 @@
 #include <afterhours/src/core/entity_helper.h>
 #include <afterhours/src/core/entity_query.h>
 #include "../util/format.h"
+#include "surface_tabs.h"
 #include "components.h"
 
 namespace ecs::model {
@@ -57,6 +58,10 @@ inline void switch_to_tab(AppComponent& app, afterhours::Entity& newTab) {
 // session. Resolved fresh on every render instead.
 inline std::string_view tab_label_view_for(const AppComponent& app,
                                            const std::string& id) {
+    // A surface tab (Settings) names itself: there is no thread behind it to
+    // read a title from, and its id is a scheme, not something to show.
+    if (const auto surface = surface_of(id))
+        return surface_title(*surface);
     const auto* sum = app.find_summary(id);
     if (sum && !sum->title.empty())
         return fmtutil::display_title_view(sum->title);

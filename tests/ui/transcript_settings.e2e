@@ -23,17 +23,20 @@ expect_text "Reasoning blocks"
 expect_text "Date dividers"
 expect_text "Long messages"
 
-# The thread behind the sheet has its reasoning row, folded as always.
-expect_text "Thought for a moment"
-
+# Settings is a TAB now, so the transcript is not on screen while it is up:
+# each setting is changed in the Settings tab and read back in the
+# conversation's tab. The chip for the conversation is the way back; the
+# Settings chip is the way in again.
 click_ui settings_reasoning_0
 wait_frames 10
+click_text "why the retry budget ran o"
+wait_frames 12
 expect_no_text Thought
-
-# The answer the reasoning sat above is untouched.
 expect_text "The budget is per-request"
-
-# And back: the row returns.
+click_text "Settings"
+wait_frames 12
 click_ui settings_reasoning_1
 wait_frames 10
+click_text "why the retry budget ran o"
+wait_frames 12
 expect_text "Thought for a moment"

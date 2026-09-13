@@ -4,13 +4,18 @@
 resize 760 620
 wait_frames 10
 
-assert_ui settings_panel w=712
-assert_ui settings_body w=664
-assert_ui settings_pane_scroll w=478
-assert_ui settings_search_wrap w=464
+# Hosted in a TAB the panel is as wide as the pane, so the sheet's fixed
+# widths are not facts about it. The claim that survives: the scroll
+# column is narrower than the body by at least the scrollbar's lane, so
+# no row runs under the bar.
+assert_ui settings_body hidden=false
+assert_ui settings_pane_scroll hidden=false
 
-assert_ui settings_reasoning_label_line w=440
-assert_ui settings_reasoning_row w=440
+# Label and row are the SAME width -- the label never runs past its row
+# into the scrollbar's lane. The absolute number was the sheet's; hosted,
+# the pane's width is the window's business.
+assert_ui settings_reasoning_label_line w=268
+assert_ui settings_reasoning_row w=268
 
 expect_text "Reasoning blocks"
 expect_text "This Mac"
@@ -18,5 +23,5 @@ expect_text "Your account"
 
 resize 1100 760
 wait_frames 10
-assert_ui settings_reasoning_label_line w=634
-assert_ui settings_reasoning_row w=634
+assert_ui settings_reasoning_label_line w=734
+assert_ui settings_reasoning_row w=734

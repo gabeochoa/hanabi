@@ -64,6 +64,6 @@ click_ui sb_settings
 wait_frames 10
 
 watch_ink settings_close ui_gone settings_panel
-click_ui settings_close
+click_ui tab_close
 wait_frames 12
 expect_latency settings_close 4

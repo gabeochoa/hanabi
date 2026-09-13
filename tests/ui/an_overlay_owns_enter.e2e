@@ -21,15 +21,19 @@
 # whatever Enter did. It could not fail, on any build, and it read like the
 # assertion that was doing the work.
 #
+# The overlay here is the SHORTCUTS sheet. It used to be Settings, which is
+# a TAB now and covers nothing -- the ask card behind it is not on screen,
+# so the premise ("a sheet over a live ask card") needs a sheet that is
+# still one.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_ASK_DEMO=approval HANABI_TEST_OVERLAY=settings
+# env: HANABI_ASK_DEMO=approval HANABI_TEST_OVERLAY=shortcuts
 
 require_thread t2
 expect_text "The agent needs approval"
 expect_text "./scripts/release_batch.sh --force"
 # The sheet really is up -- otherwise the arms below would be testing an
 # unobstructed card and passing for the wrong reason.
-expect_text "How the app looks, what it keeps, and where it points"
+expect_text "Keyboard shortcuts"
 
 # Deny is asked for focus and takes a real Enter. Two things stop it, and
 # `focus_ui` failing to stick is the first: while the sheet is up the card's
@@ -51,7 +55,7 @@ expect_text "./scripts/release_batch.sh --force"
 
 key ESCAPE
 wait_frames 20
-expect_no_text "How the app looks, what it keeps, and where it points"
+expect_no_text "Keyboard shortcuts"
 
 # Control arm. With the sheet gone the button takes the same key it just
 # refused, and a successful resolve retires the ask -- so the card goes. If

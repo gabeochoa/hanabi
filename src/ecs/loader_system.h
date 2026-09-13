@@ -17,6 +17,7 @@
 #include "../api/create_outcome.h"
 #include "../api/disk_cache.h"
 #include "load_older_model.h"
+#include "surface_tabs.h"
 #include "transcript_reconcile.h"
 #include "pane_state.h"
 #include "ui_imports.h"
@@ -381,6 +382,28 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             std::string id = pane.requestOpenId;
             pane.requestOpenId.clear();
             pane.selectedId = id;
+            // A surface tab (Settings) has no thread behind it: there is
+            // nothing to fetch, nothing to cache, and the pane keeps the
+            // session it was last showing so closing the surface returns to
+            // it. Everything below is about a conversation.
+            if (model::is_surface_tab(id)) {
+                // And the pane holds NO conversation while it shows one.
+                // Leaving the previous thread in `openSession` kept every
+                // reader that asks "what is open here" -- the read-stamp
+                // advance at the bottom, the follow latch, find, the ask
+                // card, the stream-target check -- acting on a thread the
+                // reader cannot see. "No session open" is a state they all
+                // already handle: it is what Home is. The transcript cache
+                // still holds it, so coming back is a cache hit.
+                // Client-side only, and the same thing a tab switch already
+                // does: `supersede_transcript_loads` drops THIS pane's
+                // in-flight transcript reads and stream drain. Nothing is
+                // cancelled on the backend -- the thread keeps running, and
+                // coming back re-reads it.
+                pane.openSession.reset();
+                pane.supersede_transcript_loads();
+                return;
+            }
             // Refresh this thread's disk-cache recency (mtime) so the cache-cap
             // eviction's LRU ordering reflects OPENS, not just saves — the
             // least-recently-OPENED thread is trimmed first when over cap.
@@ -570,6 +593,60 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // to the existing immediate START below (no behavior change for the
         // common single-send case). drive_send_queue only ever re-sets the flag
         // when the session is free, so this intercept never re-captures it.
+        // Nothing outbound may ever carry a SURFACE id. composer_target_for
+        // refuses to build one, and this is the backstop for every other
+        // path that can fill a request (a restored outbox, a retry, a
+        // steer): the id is a scheme, not a session, and the backend would
+        // be asked about a thread that does not exist.
+        // Nothing outbound may carry a SURFACE id, and nothing the person
+        // wrote may be lost to that refusal. The text and its attachments go
+        // back into the draft of the pane the message came from -- the same
+        // restore a refused send uses -- and the notice row says why. Not a
+        // kickoff: redirecting a message to a NEW thread because its target
+        // was nonsense would start a conversation nobody asked for.
+        const auto refuse_surface_target =
+            [&](std::optional<api::OutgoingMessage>& request) {
+                if (!request || !model::is_surface_tab(request->target.session_id))
+                    return;
+                // Kept, not placed. There is no honest destination for it:
+                // the target names a surface, and the thread that happens to
+                // occupy that pane NOW is not the one it was written for --
+                // dropping the text into that composer could overwrite a
+                // draft the reader is in the middle of. So the message is
+                // parked in the outbox under the id it carried, where it is
+                // recoverable on disk and where the refusal above keeps it
+                // from ever being sent, and the notice says exactly that
+                // rather than claiming it is "back in the composer".
+                api::disk_cache::outbox_add(request->target.session_id, *request);
+                // And the words come BACK to the person, from the surface
+                // they are already looking at: bytes on disk they cannot
+                // reach are not recovery. Copy takes the text and the names
+                // of anything staged with it; there is no Retry, because
+                // there is no thread to retry to.
+                std::string copy = request->text;
+                if (!request->attachments.empty()) {
+                    copy += "\n\n[attachments kept: ";
+                    for (std::size_t i = 0; i < request->attachments.size(); ++i) {
+                        if (i) copy += ", ";
+                        copy += request->attachments[i].name;
+                    }
+                    copy += "]";
+                }
+                app.raise_copy_toast(
+                    "That message had no conversation to go to, so it was not "
+                    "sent and will not be retried. Its text (and the names of "
+                    "any files with it) can be copied; the message is kept.",
+                    std::move(copy), request->target.session_id,
+                    request->local_id, !request->attachments.empty());
+                request.reset();
+            };
+        refuse_surface_target(app.requestSend);
+        refuse_surface_target(app.requestStream);
+        refuse_surface_target(app.requestKickoff);
+        // An interrupt carries no text, so there is nothing to give back.
+        if (model::is_surface_tab(app.requestInterruptId))
+            app.requestInterruptId.clear();
+
         const auto queue_if_busy = [&](std::optional<api::OutgoingMessage>& request) {
             if (!request || request->target.session_id.empty() ||
                 !app.sending_for(request->target.session_id))
@@ -1516,6 +1593,34 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // after a relaunch: the server never heard the prompt, so no refetch will
     // ever produce it, and without this the user's words are on disk and
     // nowhere else.
+    // The next blocked-unsent record the person has not already quieted,
+    // raised as the notice that offers its words back. One at a time, each
+    // with its own dismiss; nothing is ever removed here.
+    static bool raise_next_blocked_notice(AppComponent& app) {
+        for (const auto& id : api::disk_cache::outbox_sessions()) {
+            if (!model::is_surface_tab(id)) continue;
+            for (const auto& kept : api::disk_cache::outbox_messages(id)) {
+                if (app.blocked_seen(kept.local_id)) continue;
+                std::string copy = kept.text;
+                if (!kept.attachments.empty()) {
+                    copy += "\n\n[attachments kept: ";
+                    for (std::size_t k = 0; k < kept.attachments.size(); ++k) {
+                        if (k) copy += ", ";
+                        copy += kept.attachments[k].name;
+                    }
+                    copy += "]";
+                }
+                app.raise_copy_toast(
+                    "A message had no conversation to go to. It was never "
+                    "sent; its text can be copied here, and it is kept.",
+                    std::move(copy), id, kept.local_id,
+                    !kept.attachments.empty());
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void restore_outbox_bubbles(AppComponent& app, Pane& pane) {
         if (!pane.openSession) return;
         const std::string id = pane.openSession->summary.id;
@@ -1562,10 +1667,27 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // client to send with. outbox_sessions() is the function that had to
         // be added for this: outbox_list can only answer about an id somebody
         // already named, and after a restart nothing in memory names any.
+        if (app.requestNextBlockedNotice) {
+            app.requestNextBlockedNotice = false;
+            raise_next_blocked_notice(app);
+        }
+
         if (!app.outboxRestored) {
             app.outboxRestored = true;
             std::vector<api::outbox::Entry> found;
-            for (const auto& id : api::disk_cache::outbox_sessions())
+            for (const auto& id : api::disk_cache::outbox_sessions()) {
+                // A SURFACE id never enters the retry queue. The refusal
+                // above parks a misaddressed message on disk so its words
+                // are not lost, and this is the other half of that promise:
+                // nothing replays it, at this launch or any later one,
+                // because there is no thread for it to be replayed to.
+                if (model::is_surface_tab(id)) {
+                    // Never replayed -- and never silently dropped either:
+                    // the notice that offers the words back is raised again
+                    // from the retained record, so a restart does not take
+                    // the only way to reach them.
+                    continue;
+                }
                 for (auto message : api::disk_cache::outbox_messages(id)) {
                     if (!message.target.valid()) {
                         message.target.session_id = id;
@@ -1581,6 +1703,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     found.push_back(
                         api::outbox::Entry{id, message.text, 0, 0, message});
                 }
+            }
+            // And, after the replayable ones are queued, the first blocked
+            // record the person has not quieted yet.
+            raise_next_blocked_notice(app);
             if (!found.empty()) {
                 app.outboxRetry.restore(found);
                 fprintf(stderr,

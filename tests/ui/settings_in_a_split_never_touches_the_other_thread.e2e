@@ -1,0 +1,59 @@
+# Settings opened into ONE pane of a split is a surface, not a conversation:
+# the pane it takes holds no thread, its composer is gone, the reserved id
+# never reaches the backend however you press, and the other pane carries on
+# with its own thread and its own draft.
+#
+# The shape this guards against: the surface's reserved id ("hanabi:surface/
+# settings") standing in for a session id. A composer over it would post that
+# string to the backend as a thread, and a Stop would ask the backend to
+# interrupt it.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_WIN_W=1440 HANABI_WIN_H=900 HANABI_OPEN=t2 HANABI_SPLIT=t9
+require_thread t2
+require_thread t9
+expect_panes t2 t9 0
+
+# A draft in the LEFT pane, which must survive all of this untouched.
+# NOTE the naming rule: the FOCUSED pane's composer is `composer_reply_input`
+# and the other one carries `_other`; the names swap as the caret moves, and
+# when the focused pane shows a SURFACE (no composer at all) the other
+# pane's composer takes the plain name, because it is the only one.
+click_ui composer_reply_input
+wait_frames 10
+expect_panes t2 t9 0
+type "left pane keeps this"
+wait_frames 8
+expect_input_text composer_reply_input "left pane keeps this"
+
+# Now focus the RIGHT pane, so Settings opens there -- a surface takes the
+# pane the reader is in, the way any tab does.
+click_ui composer_reply_input_other
+wait_frames 10
+expect_panes t2 t9 1
+
+# Open Settings from the sidebar: it takes the focused (RIGHT) pane.
+click_ui sb_settings
+wait_frames 24
+expect_text "SETTINGS"
+# The right pane is the surface and has no composer; the left pane's is the
+# only one, so it carries the plain name -- with its draft untouched.
+assert_ui composer_reply_input hidden=false
+expect_input_text composer_reply_input "left pane keeps this"
+
+# t9 is still running behind the split, and nothing we can press sends the
+# surface's id anywhere: Enter and the Stop/Send slot in the LIVE pane act on
+# t9, and the backend never hears of the surface.
+key ENTER
+wait_frames 20
+expect_backend_no_message hanabi:surface/settings left pane keeps this
+expect_backend_state t9 running
+
+# Closing Settings gives the pane back to a conversation, and the other pane
+# is exactly as it was.
+click_ui tab_close
+wait_frames 24
+expect_no_ui sb_settings_selected
+# The right pane is a conversation again and focused, so IT holds the plain
+# name now; the left pane's draft is where it was, under `_other`.
+expect_input_text composer_reply_input_other "left pane keeps this"

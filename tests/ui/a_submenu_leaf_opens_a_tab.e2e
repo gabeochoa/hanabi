@@ -3,7 +3,8 @@
 expect_text "needs a decision before it can go on"
 wait_frames 12
 
-right_click 120 410
+# By TITLE, not a y coordinate (row pitch 34, section headers).
+right_click_text "coordinating 3 shard workers"
 wait_frames 10
 expect_text "CONVERSATION"
 

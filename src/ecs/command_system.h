@@ -6,6 +6,7 @@
 #include "../menubar.h"
 #include "../settings.h"
 #include "components.h"
+#include "surface_tabs.h"
 #include "ui_imports.h"
 
 namespace ecs::commands {
@@ -37,7 +38,12 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
             app.requestSplitToggle = true;
             break;
         case Command::OpenSettings:
-            app.showSettings = !app.showSettings;
+            // Settings is a tab: Cmd+, opens it, or focuses the one that
+            // is already open (open_session_in_tab's own rule). Pressing it
+            // again does not close it -- a tab closes by its ×, like any
+            // other, which is the reference's behaviour too.
+            app.requestOpenTab = model::surface_tab_id(model::Surface::Settings);
+            app.requestOpenTabKeep = true;
             break;
         case Command::OpenShortcuts:
             app.showShortcuts = !app.showShortcuts;

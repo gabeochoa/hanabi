@@ -54,6 +54,12 @@ key DOWN
 wait_frames 4
 expect_text "Version, and what this build carries"
 
+# Escape no longer closes Settings: it is a TAB, and a tab closes by its x
+# (the reference's behaviour -- Escape there clears the search and drops
+# focus). The pane is still up afterwards; closing is the chip's job.
 key ESCAPE
 wait_frames 8
+expect_text "Version, and what this build carries"
+click_ui tab_close
+wait_frames 12
 expect_no_text "Version, and what this build carries"

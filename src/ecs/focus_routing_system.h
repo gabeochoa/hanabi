@@ -13,6 +13,7 @@
 #include "components.h"
 #include "focus_routing.h"
 #include "keyboard_focus.h"
+#include "surface_tabs.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -44,6 +45,11 @@ struct FocusRoutingSystem : afterhours::System<UIContext<InputAction>> {
             (model::pane_click_takes_caret(in) ||
              (in.typingLive && in.chatView && caretInComposer)))
             app->request_composer_focus();
+
+        // A pane showing a SURFACE has no composer to seed: a keystroke
+        // here would be stashed for the new-thread composer and appear in a
+        // box the reader is not looking at, the next time they open one.
+        if (model::is_surface_tab(app->pane().selectedId)) return;
 
         if (!model::composer_takes_typing(in)) return;
 

@@ -1,0 +1,56 @@
+# Settings is a TAB, not a sheet over the window.
+#
+# It opens from the sidebar's Settings row into the tab strip beside the
+# conversations, takes the content area (no scrim, no floating card, no
+# composer under it -- there is nothing to write to), leaves the sidebar
+# live so a conversation is one click away, and closes by its own ×. Asking
+# for it again focuses the tab that is already open rather than making a
+# second one: the id is reserved, which is what makes it a singleton.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WIN_W=1440 HANABI_WIN_H=900
+require_thread t2
+wait_frames 10
+expect_open t2
+assert_ui composer_reply_input hidden=false
+
+click_ui sb_settings
+wait_frames 20
+expect_text "SETTINGS"
+assert_ui tab_active hidden=false
+# The conversation's tab is still there, and its composer is not: the pane
+# is showing Settings now.
+assert_ui tab_t2 hidden=false
+expect_no_ui composer_reply_input
+expect_no_ui settings_backdrop
+
+# The sidebar is not covered, but it is not untouched either: the settings
+# pane list takes the LOWER half while the shelf stays put, which is how you
+# get back -- the reference's own arrangement (SidebarColumn: "Settings swaps
+# the LOWER half only... the shelf stays put, because it is how you get back",
+# and SettingsSurfacePane's showsPaneList is the same split). So the
+# conversation rows are gone for now and the Views shelf is what is live.
+# The conversation list is gone from the sidebar -- its rows, not the word,
+# which also appears on the tab chip's accessible label.
+expect_no_ui chat_row
+expect_text "Home"
+# The shelf says where you ARE: Settings is the lit row, not Home.
+assert_ui sb_settings_selected hidden=false
+
+# The shelf takes you out: Home is a view, and the Settings TAB is still open
+# behind it -- clicking its chip comes back to the surface.
+click_text "Home"
+wait_frames 20
+# Home's own landing, not the chat view's empty state.
+expect_text "WAITING ON YOU"
+assert_ui tab_active hidden=false
+click_ui tab_active
+wait_frames 20
+expect_text "SETTINGS"
+
+# And its × closes it, like any tab: the conversation is what is left.
+click_ui tab_close
+wait_frames 20
+expect_no_text "SETTINGS"
+expect_open t2
+assert_ui composer_reply_input hidden=false

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -161,6 +162,24 @@ inline std::string sub_agent_label(const api::SessionSummary& s) {
 // Whether the count should read as live (some child is still working) rather
 // than settled. Drives the colour, which is the only thing distinguishing the
 // two bare-number cases above.
+// The age a sidebar row shows, in the reference's own ladder
+// (AgentcloudSessionList.relativeAge): "now" under a minute, then minutes,
+// then hours, then DAYS for as long as the thread is old -- "412d", never a
+// week, a month, a year or a calendar date. One vocabulary keeps the column
+// one width, and it never has to say what locale it is in. A clock ahead of
+// this machine's reads "now" rather than a negative or a dash, which is the
+// reference's clamp.
+[[nodiscard]] inline std::string sidebar_age(std::int64_t updated_at,
+                                             std::int64_t now) {
+    if (updated_at <= 0) return "";
+    std::int64_t s = now - updated_at;
+    if (s < 0) s = 0;
+    if (s < 60) return "now";
+    if (s < 3600) return std::to_string(s / 60) + "m";
+    if (s < 86400) return std::to_string(s / 3600) + "h";
+    return std::to_string(s / 86400) + "d";
+}
+
 inline bool sub_agents_live(const api::SessionSummary& s) {
     return s.sub_agent_count > 0 && s.sub_agent_running_count > 0;
 }

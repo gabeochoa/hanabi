@@ -691,7 +691,7 @@ inline Color attention_fill(Color backdrop) {
     tint.a = mode() == Mode::Dark ? 28 : 20;
     return over(tint, backdrop);
 }
-}
+}  // namespace chrome
 
 // Real rendered width (logical px) of `s` at font size `px`, measured against
 // the SAME active font draw_text uses (fontstash bounds). Replaces the
@@ -700,6 +700,31 @@ inline Color attention_fill(Color backdrop) {
 // the text, and the status activity dot floated in the gutter left of the
 // count. Falls back to a conservative per-glyph estimate only if the font
 // context isn't ready yet (very first frame / headless before font load).
+// The one colour a COUNT is badged on, whichever shelf row it sits on. The
+// reference has a single attention colour and deepens it until white text
+// clears 4.5:1 on the fill (PuffinTheme.deepenedForWhiteText, a binary
+// search on the fill's brightness), rather than picking a colour per view.
+// The hue here is hanabi's own warm attention orange; the EXACT rendered
+// value in the reference is a pixel question, and docs/sidebar-parity.md
+// records it as awaiting the pinned capture rather than guessing it from a
+// scaled screenshot.
+inline Color attention_badge() {
+    return mode() == Mode::Dark ? Color{201, 82, 0, 255}
+                                : Color{183, 74, 0, 255};
+}
+
+// Ink for text sitting ON a filled swatch: white unless the fill is light
+// enough that white would wash out, then the darkest ink. Rec. 709 luma,
+// the same rule the reference's filled pill follows (white on a deepened
+// fill).
+inline Color on_fill(Color fill) {
+    const float luma = (0.2126f * static_cast<float>(fill.r) +
+                        0.7152f * static_cast<float>(fill.g) +
+                        0.0722f * static_cast<float>(fill.b)) /
+                       255.0f;
+    return luma > 0.62f ? Color{16, 16, 20, 255} : Color{255, 255, 255, 255};
+}
+
 inline float text_px(
     const char* s, float px,
     afterhours::colors::FontWeight weight =

@@ -9,15 +9,17 @@
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_FOLDER_DEMO=1
+# Section titles are UPPERCASE now (the reference's SidebarSection.textCase),
+# so a workspace folder reads "SUBSCRIPTIONS".
 
 wait_frames 10
-expect_text "subscriptions"
+expect_text "SUBSCRIPTIONS"
 expect_text "1 need you · 3"
-expect_text "monetization"
+expect_text "MONETIZATION"
 
 # Hide automated threads: monetization stays, and says why it is bare.
 click_ui sb_search_filter
 wait_frames 8
-expect_text "monetization"
+expect_text "MONETIZATION"
 expect_text "1 hidden"
 expect_text "1 need you · 3"

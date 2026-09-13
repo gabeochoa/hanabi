@@ -14,7 +14,7 @@ expect_text "Semibold"
 expect_text "Bold"
 click_ui settings_font_weight_bold
 wait_frames 4
-click_ui settings_close
+click_ui tab_close
 wait_frames 4
 click_ui sb_settings
 wait_frames 4

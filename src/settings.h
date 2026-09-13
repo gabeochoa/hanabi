@@ -194,6 +194,17 @@ struct Settings {
     bool is_shelf_collapsed(const std::string& key) const;
     void set_shelf_collapsed(const std::string& key, bool collapsed);
 
+    // Messages that could not be sent because their destination was not a
+    // conversation, and which the person has already been shown and
+    // acknowledged -- by the message's own local_id, which is stable and
+    // unique per composed message. The MESSAGE itself is never removed by
+    // this (its text and any files stay in the outbox record); this is only
+    // "do not raise that one at me again", and it survives a restart so a
+    // notice cannot come back forever. Auto-persists.
+    const std::vector<std::string>& get_acknowledged_blocked() const;
+    bool is_blocked_acknowledged(const std::string& localId) const;
+    void set_blocked_acknowledged(const std::string& localId);
+
     // Quiet hours: minutes since local midnight, half-open [start, end).
     // Equal ends mean "no quiet window" (see util/quiet_hours.h). Persisted as
     // minutes rather than a preset index so a real time picker can replace the
@@ -459,6 +470,7 @@ struct Settings {
     std::unordered_set<std::string> muted_set_;
     std::map<std::string, std::vector<std::string>> row_order_;
     std::vector<std::string> collapsed_shelves_;
+    std::vector<std::string> acknowledged_blocked_;
     std::map<std::string, int64_t> last_read_;
     // Drop the oldest stamps down to kMaxLastRead. Called after an insert and
     // after a load, so a file written by an older build shrinks on first run.

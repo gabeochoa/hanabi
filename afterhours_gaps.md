@@ -3296,7 +3296,7 @@ assertable. Change a title's length and a passing test quietly starts measuring
 a card.
 
 
-**Hanabi reference.** `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text takes whichever entity the query reaches first`) — the current sidebar-order test is written around the duplicate-label ambiguity and documents why only initial-viewport rows are safe. Tests: `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text "SKU backfill — my name for it" y=316`) — the workaround pins row order by positional text assertions on rows whose sidebar entities win over main-pane cards.
+**Hanabi reference.** `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text takes whichever entity the query reaches first`) — the current sidebar-order test is written around the duplicate-label ambiguity and documents why only initial-viewport rows are safe. Tests: `tests/ui/sidebar_row_drag.e2e` (`assert_ui_text "SKU backfill — my name for it" y=345`) — the workaround pins row order by positional text assertions on rows whose sidebar entities win over main-pane cards.
 
 
 **Minimal upstream fix.** A scope argument on both commands —
@@ -4611,7 +4611,7 @@ fade the component has nowhere to keep, so hanabi would have to hold a
 per-scroll-view clock of its own beside every panel.
 
 
-**Hanabi reference.** `src/ecs/sidebar_system.h` (`has no auto-hide mode, only a show_scrollbar bool`) — documents the overlay-scroller limitation at the current sidebar scroll panel. `src/ecs/sidebar_system.h` (`scroll.ent().get<afterhours::ui::HasScrollView>().show_scrollbar =`) — drives the afterhours scrollbar boolean from the app's current/previous subtree hover state. Tests: `tests/ui/sidebar_scroll_keeps_row_text.e2e` (`assert_ui_text "PSC daily post generator" y=706`) — pins row visibility after sidebar scrolling under the current scrollbar/list implementation.
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`has no auto-hide mode, only a show_scrollbar bool`) — documents the overlay-scroller limitation at the current sidebar scroll panel. `src/ecs/sidebar_system.h` (`scroll.ent().get<afterhours::ui::HasScrollView>().show_scrollbar =`) — drives the afterhours scrollbar boolean from the app's current/previous subtree hover state. Tests: `tests/ui/sidebar_scroll_keeps_row_text.e2e` (`assert_ui_text "PSC daily post generator" y=705`) — pins row visibility after sidebar scrolling under the current scrollbar/list implementation.
 
 
 **Minimal upstream fix.** Replace the bool with a three-state enum —
@@ -10760,7 +10760,7 @@ hours, and the risk is entirely in the accumulator's reset point.
 
 
 
-**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/sidebar_system.h` (`/*headerless=*/true`) — catch-all group is headerless. `src/ecs/sidebar_system.h` (`The count in the header is still the true number`) — visible_limit rationale depends on header count. Measurement/gate: `docs/SEARCH.md` (`The sidebar truncates silently`) — docs record issue as open.
+**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/sidebar_system.h` (`shown += render_folder(ctx, scroll.ent(), 900000, "Recents",`) — the catch-all is the RECENTS section now; it was headerless when this was written. `src/ecs/sidebar_system.h` (`The count in the header is still the true number`) — visible_limit rationale depends on header count. Measurement/gate: `docs/SEARCH.md` (`The sidebar truncates silently`) — docs record issue as open.
 
 ---
 
@@ -13840,5 +13840,47 @@ Super modifier; with it unset, it reports nothing and the app is told why.
 `tests/ui/native_open_switch_close_tabs.e2e`.
 
 CLASS: SHARP EDGE
+
+---
+
+### APP #H1 — Hanabi-only parity limitation: no saved-filter store, so the reference's "save this filter as a view" has nothing behind it
+
+NOT an afterhours gap. Filed here because this file is where the project's
+limitations are read, and one of them is an APP capability the reference has
+and hanabi does not. Classified apart from every upstream entry so a reader
+counting library defects does not count this one: the library offers
+everything needed to build it.
+
+**The reference.** The Views section header carries exactly two controls
+(`SmartViewSidebar.swift:465-478`, pinned source bffecaf665af): a "+" whose
+help reads "Save the current filter as a view", and a `sidebar.leading`
+toggle that collapses the column to the rail. The "+" runs
+`SidebarColumn.saveCurrentAsView` (`SidebarColumn.swift:980+`): prompt for a
+name with a derived suggestion, build a saved filter out of the current
+shelf, its workspace, its attention match and the words in the search box,
+add it to the store, SELECT the new shelf, and clear the search field.
+"Restore Default Views" is NOT in this header -- it is a MENU action
+(`SavedFilterStore.restoreDefaultViews`), and it appears only when built-in
+views have been deleted (`hasDeletedBuiltIns`). The shelf's rows are the
+store: renameable, deletable, reorderable.
+
+**hanabi.** Five fixed smart views (Home, Blocked, Review, Pinned,
+Archived), no store, no user-defined views, and so nothing for a "+" to save
+into. The button is NOT drawn: a control that does nothing is worse than an
+absent one, the same rule that keeps a microphone out of the composer.
+
+**What it would take.** A saved-filter model (name, base view, workspace,
+attention match, query), persistence beside the other sidebar settings, a
+name prompt, add/rename/delete/reorder over the store, selecting the new
+shelf on save, and -- only once built-ins can be deleted -- a conditional
+menu action to restore them. The reference's `SavedFilterStore` is the shape
+to copy.
+
+**Status.** OPEN. `docs/sidebar-parity.md` row 9 carries the same finding
+with the exact source lines; this entry exists so the gaps file shows it
+too. Not a pixel difference, not deferred polish: a feature hanabi does not
+have yet.
+
+CLASS: HANABI-ONLY PARITY LIMITATION
 
 ---

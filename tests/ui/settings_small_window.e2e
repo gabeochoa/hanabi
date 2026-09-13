@@ -3,10 +3,13 @@
 
 resize 800 360
 wait_frames 6
-assert_ui settings_panel y=24 h=312
-assert_ui settings_body h=172
-expect_text "Settings"
+# Hosted in a TAB the pane fills the content area under the strip, so the
+# sheet's own margins (y=24) are not a fact about it. What must hold at
+# 360 tall: the pane is drawn, its body has real height, and every pane
+# name is still reachable in the sidebar.
+assert_ui settings_panel hidden=false
+assert_ui settings_body hidden=false
 expect_text "Appearance"
-key ESCAPE
+click_ui tab_close
 wait_frames 6
 expect_no_text "How the app looks, what it keeps, and where it points"

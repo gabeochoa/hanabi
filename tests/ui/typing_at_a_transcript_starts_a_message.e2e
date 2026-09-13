@@ -41,6 +41,6 @@ click_ui sb_settings
 wait_frames 12
 type "zz"
 wait_frames 12
-click_ui settings_close
+click_ui tab_close
 wait_frames 12
 expect_input_text composer_reply_input "hello there"

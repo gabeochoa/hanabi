@@ -1,9 +1,13 @@
+# The overlay here is the SHORTCUTS sheet. It used to be Settings, which is
+# a TAB now and covers nothing -- the ask card behind it is not on screen,
+# so the premise ("a sheet over a live ask card") needs a sheet that is
+# still one.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=settings
+# env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=shortcuts
 
 require_thread t2
 expect_text "The agent is asking"
-expect_text "How the app looks, what it keeps, and where it points"
+expect_text "Keyboard shortcuts"
 
 focus_ui ask_text_q3
 type "leaked"
@@ -15,9 +19,9 @@ type "leaked"
 wait_frames 12
 expect_input_text ask_other_q1 ""
 
-click_ui settings_close
+click_ui tab_close
 wait_frames 20
-expect_no_text "How the app looks, what it keeps, and where it points"
+expect_no_text "Keyboard shortcuts"
 expect_input_text ask_text_q3 ""
 expect_input_text ask_other_q1 ""
 
