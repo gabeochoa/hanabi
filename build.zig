@@ -95,6 +95,7 @@ const tests = [_]TestSpec{
     .{ .name = "test_minimap_marks", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_minimap_marks.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_minimap_scrub", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_minimap_scrub.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_frame_activity", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_frame_activity.cpp" }, .frameworks = &.{  } },
+    .{ .name = "test_native_e2e_guard", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_native_e2e_guard.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_latency", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_latency.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_new_thread", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_new_thread.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_focus_routing", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_focus_routing.cpp" }, .frameworks = &.{  } },

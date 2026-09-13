@@ -1,0 +1,36 @@
+# A native Cmd chord is a HELD modifier across frames, not a flag on one key
+# event: with "Send message with" set to Cmd+Return, Return alone must not
+# send and Cmd+Return must -- and the app decides that by POLLING whether Cmd
+# is down when the Return arrives (settings.h enter_sends, keys.h cmd_down),
+# so the chord only works if the modifier is still down on the frame the key
+# is read. This is the polled half of native_key's lifecycle; the menu half
+# (Cmd+W, Cmd+digit) is answered synchronously inside performKeyEquivalent
+# and would pass even if the poll never saw the modifier.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","send_key":"cmd-return"}
+# env: HANABI_E2E_WINDOWED=1
+require_thread t2
+wait_frames 10
+expect_open t2
+native_mode on
+native_click_ui composer_reply_input
+wait_frames 6
+native_key 0 a
+native_key 11 b
+native_key 8 c
+wait_frames 6
+expect_input_text composer_reply_input "abc"
+
+# Return alone: a newline in the draft, nothing sent (the field reads
+# "abc" plus a line break, which the harness's quoted string cannot spell,
+# so the draft's survival is asserted through the send below: the message
+# that finally goes is the draft with its trailing break trimmed).
+native_key 36 -
+wait_frames 30
+expect_backend_no_message t2 abc
+
+# Cmd+Return: the poll sees Cmd down on the frame Return arrives.
+native_key 36 - cmd
+wait_frames 60
+expect_input_text composer_reply_input ""
+expect_backend_message t2 abc

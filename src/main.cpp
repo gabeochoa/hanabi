@@ -3,6 +3,7 @@
 #include "build_stamp.h"
 #include "resize_drive.h"
 #include "pointer_probe.h"
+#include "native_e2e_guard.h"
 
 #include <algorithm>
 #include <chrono>
@@ -2970,6 +2971,17 @@ int main(int argc, char* argv[]) {
         if (const char* ew = std::getenv("HANABI_WIN_W"); ew && *ew) sw = atoi(ew);
         if (const char* eh = std::getenv("HANABI_WIN_H"); eh && *eh) sh = atoi(eh);
         if (const char* w = std::getenv("HANABI_E2E_WINDOWED"); w && *w && std::string_view(w) != "0") {
+            // Before app_init reads a config, adopts a token or opens a
+            // store: a windowed script posts real input into a real window,
+            // and the only backend it may reach is the offline mock in a
+            // private HOME. Decided from the environment alone
+            // (native_e2e_guard.h); exit 3, nothing touched.
+            if (const auto why = hanabi::native_e2e::refusal(
+                    hanabi::native_e2e::from_process())) {
+                std::fprintf(stderr, "hanabi: refusing the windowed e2e run: %s\n",
+                             why->c_str());
+                return 3;
+            }
             windowed_e2e_arm(script);
             // Falls through to the windowed run below; the runner's verdict
             // is the exit code.

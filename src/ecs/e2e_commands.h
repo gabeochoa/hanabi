@@ -1862,8 +1862,44 @@ struct HandleReleaseCompactionCommand
 
 // Registered BEFORE afterhours' builtins, so the resize handler above sees
 // `resize` first. Everything else hanabi owns goes in the function below.
+// The wrong door, refused. While `native_mode on` holds, the harness's
+// injected commands (click, type, key ...) write the injector's state, which
+// nothing reads in that mode: the command "runs", moves nothing, and the run
+// stays green until some later assertion happens to notice. Registered ahead
+// of the library's handlers (register_hanabi_pre_handlers), so the refusal
+// is at the line that mixed the two paths, not at the assertion after it.
+struct HandleInjectedInputWhileNativeCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    static bool is_injected_input(const afterhours::testing::PendingE2ECommand& cmd) {
+        static constexpr const char* kNames[] = {
+            "click", "click_ui", "click_text", "click_button", "double_click",
+            "triple_click", "right_click", "right_click_ui", "right_click_text",
+            "middle_click", "middle_down", "middle_up", "mouse_move",
+            "mouse_down", "mouse_up", "drag", "drag_to", "pinch",
+            "scroll_wheel", "type", "key", "hold", "release", "arrow", "enter",
+            "escape", "tab", "shift_tab", "action", "select_all",
+            "toggle_checkbox", "set_slider", "select_dropdown", "focus_ui"};
+        for (const char* n : kNames)
+            if (cmd.is(n)) return true;
+        return false;
+    }
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !native_mode_on()) return;
+        if (!is_injected_input(cmd)) return;
+        cmd.fail(std::format(
+            "`{}` is injected input, and this script is in native mode: nothing "
+            "reads the injector while `native_mode on` holds, so the command "
+            "would move nothing. Use its native_* form, or `native_mode off` first.",
+            cmd.name));
+    }
+};
+
 inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleResizeDeferredCommand>());
+    sm.register_update_system(
+        std::make_unique<HandleInjectedInputWhileNativeCommand>());
     sm.register_update_system(
         std::make_unique<HandleExpectResizesAppliedCommand>());
     sm.register_update_system(std::make_unique<LatencyInputEventSystem>());
