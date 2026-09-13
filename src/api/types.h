@@ -479,10 +479,13 @@ struct SessionPlan {
         return false;
     }
 
+    // The composer chip's words, the reference's PlanChipText.label: "2 of
+    // 5" beside a checklist glyph that says what is counted, so the noun is
+    // not repeated. A finished plan keeps its outcome word (the reference's
+    // glyph changes to a checked list; hanabi has the one glyph and says it).
     [[nodiscard]] std::string chip_label() const {
         if (finished()) return has_cancelled() ? "Plan cancelled" : "Plan complete";
-        return "Plan " + std::to_string(completed()) + "/" +
-               std::to_string(steps.size());
+        return std::to_string(completed()) + " of " + std::to_string(steps.size());
     }
 };
 

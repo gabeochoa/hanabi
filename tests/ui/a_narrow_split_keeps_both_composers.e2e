@@ -1,0 +1,23 @@
+# Both composers survive a narrow split: each sits under its own pane, neither
+# overlaps the other, and both still take text.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t6
+require_thread t2
+require_thread t6
+resize 820 620
+wait_frames 24
+assert_ui composer_reply_input hidden=false
+assert_ui composer_reply_input_other hidden=false
+assert_ui composer_send hidden=false
+assert_ui composer_send_other hidden=false
+expect_children_inside composer_bar
+expect_children_inside composer_bar_other
+click_ui composer_reply_input
+type "a"
+wait_frames 4
+click_ui composer_reply_input_other
+type "b"
+wait_frames 6
+expect_input_text composer_reply_input "b"
+expect_input_text composer_reply_input_other "a"

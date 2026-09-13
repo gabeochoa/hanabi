@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <branding.h>
 
 // Renders the main pane (right of the sidebar, below the tab strip). Dispatches
@@ -33,6 +34,7 @@
 #include "../util/text_cache.h"
 #include "../util/wrap_count.h"
 #include "transcript_render_cache.h"
+#include "composer_strip.h"
 #include "../ui/accessibility.h"
 #include "../ui/control_state.h"
 #include "../ui/overlay_lifecycle.h"
@@ -170,8 +172,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                          ? layout->composer.width
                                          : layout->main.width;
         app->lastPaneContentH = layout->main.height + layout->composer.height;
-        app->lastComposerChromeH = kComposerBaseH + attachments_h(*app) +
-                                   composer_extra_h(composerRows_);
+        // The composer row is one height for both split panes: the taller of
+        // the two attachment strips, so neither pane's chips are clipped.
+        float attachH = attachments_h(*app);
+        if (splitView)
+            attachH = std::max(attachments_h(*app, app->composer_target_for(0)),
+                               attachments_h(*app, app->composer_target_for(1)));
+        const size_t rows = splitView
+                                ? std::max(composerRows_[0], composerRows_[1])
+                                : composerRows_[static_cast<size_t>(
+                                      std::clamp(app->focusedPane, 0, 1))];
+        app->lastComposerChromeH = kComposerBaseH + attachH +
+                                   composer_extra_h(rows);
         layout->composerHeight =
             app->lastComposerChromeH + ask_card_h(*app);
         // Reply mode iff a real thread is open in Chat; otherwise kickoff (start
@@ -267,16 +279,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // sits UNDER that pane: full-width under two panes gave no clue
             // which conversation you were typing into, and a composer nailed
             // to the left pane meant the right one could never be replied to.
-            float cw = cr.width;
-            float cx = cr.x;
             if (splitView) {
-                const RectangleType pr =
-                    pane_screen_rect(*app, app->focusedPane);
-                cw = pr.width;
-                cx = pr.x;
+                // One composer UNDER EACH pane (the reference draws one per
+                // pane): each targets its own pane's thread and keeps its own
+                // draft; the focused pane's is the active one.
+                // The ask card is drawn by the focused pane's composer only,
+                // and the row is sized for it; the other pane's composer is
+                // that much shorter and sits at the bottom, not floating at
+                // the row's top with the card's space empty beneath it.
+                const float askH = ask_card_h(*app);
+                for (int i = 0; i < 2; ++i) {
+                    const RectangleType pr = pane_screen_rect(*app, i);
+                    const bool focusedHere = i == std::clamp(app->focusedPane, 0, 1);
+                    const float ownH = focusedHere ? cr.height : cr.height - askH;
+                    render_composer(ctx, uiRoot, *app, i, pr.width, ownH,
+                                    composerKickoff, pr.x,
+                                    cr.y + (cr.height - ownH));
+                }
+            } else {
+                render_composer(ctx, uiRoot, *app, app->focusedPane, cr.width,
+                                cr.height, composerKickoff, cr.x, cr.y);
             }
-            render_composer(ctx, uiRoot, *app, cw, cr.height, composerKickoff,
-                            cx, cr.y);
         }
     }
 
@@ -1392,7 +1415,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // second wrap of the same string against a width this side has to derive
     // from the widget's padding rules, and it can disagree by a line. This
     // cannot.
-    size_t composerRows_ = 1;
+    // Last frame's wrapped row count of each pane's field, for next frame's
+    // box; one per pane, because two composers with one count grew each
+    // other's field.
+    std::array<size_t, 2> composerRows_ = {1, 1};
+    // Whether each pane's field had the caret last frame (the caret-follow
+    // rule acts on the rising edge).
+    std::array<bool, 2> composerFocusedLast_ = {false, false};
     float listY_ = 0.0f;
     float listCursorY_ = -1.0f;
     float listCursorH_ = 0.0f;
@@ -2554,8 +2583,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("split_row"));
 
-        const float leftH = app.focusedPane == 0 ? paneH - composerH : paneH;
-        const float rightH = app.focusedPane == 1 ? paneH - composerH : paneH;
+        // Both panes carry a composer now, so both give up the strip's
+        // height (this used to be the focused pane's alone). The ask card
+        // rides only the focused pane's composer, so the other pane keeps
+        // the card's share of the row for its transcript.
+        const float askH = ask_card_h(app);
+        const float leftH = paneH - composerH + (app.focusedPane == 0 ? 0.0f : askH);
+        const float rightH = paneH - composerH + (app.focusedPane == 1 ? 0.0f : askH);
         pane_column(ctx, rowWrap.ent(), app, 0, leftW, leftH);
         divider_bar(ctx, rowWrap.ent(), app, paneW);
         pane_column(ctx, rowWrap.ent(), app, 1, rightW, rightH);
@@ -2675,8 +2709,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto* layout = find_singleton<LayoutComponent>();
         if (layout == nullptr) return RectangleType{0, 0, 0, 0};
         const auto& r = layout->main;
-        const float paneH =
-            r.height + (index == app.focusedPane ? 0.0f : layout->composer.height);
+        // The whole column, composer row included: a click in a pane's
+        // composer is a click in that pane (each pane has its own now).
+        (void)index;
+        const float paneH = r.height + layout->composer.height;
         const float leftW = split_left_width(app, r.width);
         if (index == 0) return RectangleType{r.x, r.y, leftW, paneH};
         return RectangleType{r.x + leftW + kDividerW, r.y,
@@ -4587,8 +4623,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       kAttachMinSlotW)));
         return std::min(count, fit);
     }
+    // The strip's height for the FOCUSED pane's composer; the two-target form
+    // below is what a split's shared row uses (the taller of the two).
     static float attachments_h(AppComponent& app) {
-        auto& state = staged_state(app);
+        return attachments_h(app, app.current_composer_target());
+    }
+    static float attachments_h(AppComponent& app, const api::OutgoingTarget& target) {
+        auto& state = staged_state(target);
         const std::size_t count = state.attachments.size();
         if (count == 0) {
             if (state.attachmentLayoutGrace > 0) {
@@ -5769,15 +5810,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Staged files stay attached to one pane. The capability line below tells
     // the truth for adapters that can still send only the text.
     void render_attachments(UIContext<InputAction>& ctx, Entity& parent,
-                            AppComponent& app, float gutter) {
-        auto& state = staged_state(app);
+                            AppComponent& app, float gutter,
+                            const api::OutgoingTarget& target,
+                            const std::string& debugName) {
+        auto& state = staged_state(target);
         auto& attachments = state.attachments;
         if (attachments.empty()) return;
 
         auto strip = div(ctx, mk(parent, 4),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f),
-                                         pixels(attachments_h(app))})
+                                         pixels(attachments_h(app, target))})
                 // The gutter is carried per-row now that the composer bar has
                 // none of its own (it gave it up so the hairline could span
                 // the pane), so this block asks for the same inset the meter
@@ -5788,7 +5831,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("composer_attachments"));
+                .with_debug_name(debugName));
 
         const float contentW = attachment_content_w(app);
         const std::size_t columns = attachment_columns(app, attachments.size());
@@ -6344,11 +6387,75 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // The strip's rungs and chip labels: src/ecs/composer_strip.h (pure, so
+    // tests/unit/test_composer_strip.cpp can hold them to the reference's rules).
+    using StripFit = ecs::model::StripFit;
+    static StripFit strip_fit(float paneW) { return ecs::model::strip_fit(paneW); }
+    static std::string sub_agents_chip_label(int total, int running, const StripFit& fit) {
+        return ecs::model::sub_agents_chip_label(total, running, fit);
+    }
+    static std::string nodes_chip_label(std::size_t n, const StripFit& fit) {
+        return ecs::model::nodes_chip_label(n, fit);
+    }
+    static std::string skills_chip_label(std::size_t distinct, const StripFit& fit) {
+        return ecs::model::skills_chip_label(distinct, fit);
+    }
+    static std::size_t distinct_skills_loaded(const api::Session& s) {
+        return ecs::model::distinct_skills_loaded(s);
+    }
+
+    // One strip chip, the reference's StripChipFace: a glyph and a label, no outline
+    // ("an outlined capsule made the two counting chips the loudest things in
+    // a row"). The label's ink is the chip's tint; the glyph shares it.
+    static ComponentConfig strip_chip_cfg(const std::string& label,
+                                          const char* icon, theme::Color tint,
+                                          const std::string& debugName) {
+        constexpr float kIcon = 12.0f;
+        constexpr float kIconGap = 4.0f;
+        constexpr float kPad = 4.0f;
+        const float textX = kPad + kIcon + kIconGap;
+        std::string iconName = icon;
+        return ComponentConfig{}
+            .with_label(label)
+            .with_size(ComponentSize{
+                pixels(textX + theme::text_px(label, theme::type::SM) + kPad),
+                pixels(hanabi::control::kMinHitTarget)})
+            .with_margin(Margin{.right = pixels(6)})
+            .with_transparent_bg()
+            .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+            .with_custom_text_color(tint)
+            .with_font_size(theme::type::SM)
+            .with_cursor(afterhours::ui::CursorType::Pointer)
+            .with_alignment(TextAlignment::Left)
+            .with_click_activation(ClickActivationMode::Press)
+            .with_corner_radius(6.0f)
+            .with_on_draw_fg([iconName, tint](RectangleType rr) {
+                hanabi::icons::draw_at(iconName, rr.x + kPad + kIcon * 0.5f,
+                                       rr.y + rr.height * 0.5f, kIcon, tint);
+            })
+            .with_debug_name(debugName);
+    }
+    static constexpr float kStripChipTextX = 4.0f + 12.0f + 4.0f;
+
     void render_composer(UIContext<InputAction>& ctx, Entity& parent,
-                         AppComponent& app, float paneW, float composerH,
-                         bool kickoff = false, float absX = -1.0f,
-                         float absY = -1.0f) {
+                         AppComponent& app, int paneIndex, float paneW,
+                         float composerH, bool kickoff = false,
+                         float absX = -1.0f, float absY = -1.0f) {
         (void)kickoff;
+        // THIS pane's composer. In a split there are two, one under each
+        // pane, each with its own draft, attachments and target; the one in
+        // the focused pane is "active" and keeps the unsuffixed debug names
+        // every script addresses, the other's carry `_other` -- so a click on
+        // the other pane's field, which focuses that pane, swaps the names
+        // the next frame and "composer_reply_input" is always the field with
+        // the caret's pane.
+        paneIndex = std::clamp(paneIndex, 0, 1);
+        Pane& ownPane = app.panes[static_cast<std::size_t>(paneIndex)];
+        const bool activeComposer = paneIndex == std::clamp(app.focusedPane, 0, 1);
+        const auto cname = [activeComposer](const char* base) {
+            return activeComposer ? std::string(base) : std::string(base) + "_other";
+        };
+        const bool ownsPopovers = app.composerPopoverPane == paneIndex;
         // KICKOFF mode: rendered on the Home landing screen (no thread open) so
         // you can start typing the moment the app opens — every daily-driver
         // chat app has a persistent input on its landing view. In kickoff mode
@@ -6362,7 +6469,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // keeps its own in-progress reply (kept function-local to avoid growing
         // AppComponent; the map is small — one short string per opened thread).
         const api::OutgoingTarget composerTarget =
-            app.current_composer_target();
+            app.composer_target_for(paneIndex);
         const bool targetKickoff = composerTarget.session_id.empty();
         const std::string& draftKey = composerTarget.draft_key;
         const std::string composerStateKey = model::pane_key(
@@ -6428,7 +6535,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         static bool attachmentDemoSeeded = false;
         if (!attachmentDemoSeeded && app.view == SmartView::Chat &&
-            app.pane().openSession) {
+            ownPane.openSession) {
             if (const char* a = std::getenv("HANABI_ATTACH_DEMO"); a && *a) {
                 auto staged = api::attachments::stage(a);
                 if (staged.ok) {
@@ -6497,7 +6604,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         std::optional<AppComponent::ComposerSubmission> slashSubmit;
         bool clearFieldAfterSubmit = false;
-        if (app.composerSubmit) {
+        // A submission is taken by the composer of the pane it targets, so
+        // the field that was typed in is the one cleared; with one composer
+        // on screen (no split) that composer takes whatever is pending.
+        const bool submissionIsMine =
+            app.composerSubmit &&
+            (!app.splitOpen ||
+             app.composerSubmit->message.target.pane_index == paneIndex);
+        if (submissionIsMine) {
             AppComponent::ComposerSubmission submitted =
                 std::move(*app.composerSubmit);
             app.composerSubmit.reset();
@@ -6608,7 +6722,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // never paint over the composer — it is always on top and
                 // always visible (Gabe: "it should just always render").
                 .with_render_layer(2)
-                .with_debug_name("composer_bar");
+                .with_debug_name(cname("composer_bar"));
         // ABSOLUTE-PIN to the pane bottom in SCREEN coords when the caller
         // passes absX/absY. As a flex sibling, a tall transcript that overflows
         // the content box pushed the composer off the bottom edge (the windowed
@@ -6632,7 +6746,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool createLocked = targetKickoff && app.kickoffPending;
         if (createLocked) barCfg = barCfg.with_opacity(0.55f);
         app.lastComposerPaneW = paneW;
-        auto bar = div(ctx, mk(parent, 3), barCfg);
+        auto bar = div(ctx, mk(parent, 3 + paneIndex * 64), barCfg);
 
         // A hairline top border sold via a 1px divider row so the composer
         // reads as a distinct footer strip separated from the message column.
@@ -6645,9 +6759,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(1)})
                 .with_custom_background(theme::border())
                 .with_roundness(0.0f)
-                .with_debug_name("composer_divider"));
+                .with_debug_name(cname("composer_divider")));
 
-        render_ask_card(ctx, bar, app, composerGutter);
+        // The ask card reads the FOCUSED pane's ask and resolves it there; one
+        // card, under the active composer, until ask ownership is parameterised
+        // by pane.
+        if (activeComposer) render_ask_card(ctx, bar, app, composerGutter);
 
         // Whether Send is really STEER: the agent is running and the backend
         // can interrupt it. Read here because both the meter row's caption
@@ -6683,7 +6800,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_justify_content(JustifyContent::SpaceBetween)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("composer_meta"));
+                .with_debug_name(cname("composer_meta")));
         // LEFT cluster: the context meter and the status caption. Puffin puts
         // a track + a "0%" figure here; hanabi's figure is a token count over
         // the compaction budget, which three tests assert by text.
@@ -6696,7 +6813,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("composer_leftmeta"));
+                .with_debug_name(cname("composer_leftmeta")));
 
         // RIGHT cluster: the live controls. Puffin's three pills are `Tools`,
         // `Thinking`, `Deliveries`; hanabi's are the model picker, the effort
@@ -6712,7 +6829,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("composer_rightmeta"));
+                .with_debug_name(cname("composer_rightmeta")));
 
         // afterhours draws a widget's label at a HARD-CODED 5px inset from the
         // widget's own rect — `Vector2Type margin_px{5.f, 5.f}` inside
@@ -6747,10 +6864,64 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //
         // No trailing room in the box: the effort run butts straight onto it,
         // and its own 5px inset is the word space between them.
+        // The strip in the reference's order (ComposerControlStrip.controlStrip):
+        // sub-agents (when there are any), nodes, model, context, skills
+        // (when any loaded), plan (when there is one); glyph + count each,
+        // units shed by width (strip_fit). The nodes chip used to hide under
+        // 560 and the plan chip sat at the right; both were the old strip.
+        const StripFit fit = strip_fit(paneW);
+        const api::Session* stripSession =
+            ownPane.openSession ? &*ownPane.openSession : nullptr;
+        if (stripSession && stripSession->summary.sub_agent_count > 0) {
+            const int total = stripSession->summary.sub_agent_count;
+            const int running = stripSession->summary.sub_agent_running_count;
+            const std::string label = sub_agents_chip_label(total, running, fit);
+            // the reference tints the face with the running group's accent while a
+            // child runs, the muted ink otherwise (SubAgentChip.faceColor).
+            const theme::Color tint =
+                running > 0 ? theme::accent() : theme::text_secondary();
+            auto subChip = button(ctx, mk(leftMeta.ent(), 21),
+                strip_chip_cfg(label, "subagents", tint, cname("composer_subagents")));
+            if (subChip.ent().has<afterhours::ui::HasLabel>())
+                subChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                    kStripChipTextX - kLabelInset;
+            // the reference opens the sub-agent roster; hanabi's roster is the
+            // sub-agent sidebar, so the chip opens (or closes) that.
+            if (subChip) {
+                app.subagentSidebarOpen = !app.subagentSidebarOpen;
+                Settings::get().set_subagent_sidebar_open(app.subagentSidebarOpen);
+            }
+        }
+        {
+            std::size_t n = 0;
+            if (stripSession) n = stripSession->attached_nodes.size();
+            else if (!app.pendingNodeId.empty()) n = 1;
+            const std::string nodeText = nodes_chip_label(n, fit);
+            auto nodeChip = button(ctx, mk(leftMeta.ent(), 22),
+                strip_chip_cfg(nodeText, "node", theme::text_secondary(),
+                               cname("composer_nodes")));
+            if (nodeChip.ent().has<afterhours::ui::HasLabel>())
+                nodeChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                    kStripChipTextX - kLabelInset;
+            if (nodeChip) {
+                app.nodePopoverOpen = !app.nodePopoverOpen;
+                app.composerPopoverPane = paneIndex;
+                if (app.nodePopoverOpen && !app.nodeRosterFuture.valid()) {
+                    app.nodeRosterLoaded = false;
+                    std::shared_ptr<api::Client> c = app.client;
+                    app.nodeRosterFuture = std::async(
+                        std::launch::async, [c] { return c->list_nodes(); });
+                }
+            }
+            if (app.escape == EscapeIntent::CloseNodePicker)
+                app.nodePopoverOpen = false;
+            if (ownsPopovers)
+                render_node_popover(ctx, parent, app, nodeChip.ent(), stripSession);
+        }
         {
             const std::string currentModel = Settings::get().get_default_model();
             const api::Session::ServingModel* serving =
-                app.pane().openSession ? &app.pane().openSession->model : nullptr;
+                ownPane.openSession ? &ownPane.openSession->model : nullptr;
             const bool servingKnown = serving && !serving->serving.empty();
             std::string modelText = hanabi::models::display_name(
                 servingKnown ? serving->serving : currentModel);
@@ -6764,16 +6935,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
                     .with_custom_text_color(fellBack ? theme::status_review()
-                                                     : theme::text_primary())
+                                                     : theme::text_secondary())
                     .with_font_size(theme::type::SM)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_alignment(TextAlignment::Left)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_debug_name("composer_model"));
-            if (modelChip) app.modelPopoverOpen = !app.modelPopoverOpen;
+                    .with_debug_name(cname("composer_model")));
+            if (modelChip) {
+                app.modelPopoverOpen = !app.modelPopoverOpen;
+                app.composerPopoverPane = paneIndex;
+            }
             if (app.escape == EscapeIntent::CloseModelPicker)
                 app.modelPopoverOpen = false;
-            render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
+            if (ownsPopovers)
+                render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
 
             // The effort, parenthesised directly onto the model the way Puffin
             // renders it — its `ModelChipLabel` is one `HStack(spacing: 0)` of
@@ -6801,11 +6976,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_alignment(TextAlignment::Left)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_debug_name("composer_effort"));
-            if (effortChip) app.effortPopoverOpen = !app.effortPopoverOpen;
+                    .with_debug_name(cname("composer_effort")));
+            if (effortChip) {
+                app.effortPopoverOpen = !app.effortPopoverOpen;
+                app.composerPopoverPane = paneIndex;
+            }
             if (app.escape == EscapeIntent::CloseEffortPicker)
                 app.effortPopoverOpen = false;
-            render_effort_popover(ctx, parent, app, effortChip.ent(),
+            if (ownsPopovers)
+                render_effort_popover(ctx, parent, app, effortChip.ent(),
                                   currentEffort);
         }
 
@@ -6815,21 +6994,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 static_cast<int>(api::UploadPhase::Uploading) &&
             app.transfer->sentBytes.load() < app.transfer->totalBytes.load();
         if (!compactComposer) {
+            // the reference's strip has no attach button: files arrive by drop and
+            // paste, which hanabi also takes (AttachmentIntakeSystem). The
+            // button stays because it is the one pointer path to the file
+            // picker -- as a bare glyph at the strip's right, where the reference
+            // keeps its own optional controls, rather than a worded pill.
             auto attachButton = button(ctx, mk(rightMeta.ent(), 1),
                 ComponentConfig{}
-                    .with_label("Attach")
+                    .with_label("")
                     .with_size(ComponentSize{
-                        pixels(52), pixels(hanabi::control::kMinHitTarget)})
+                        pixels(hanabi::control::kMinHitTarget),
+                        pixels(hanabi::control::kMinHitTarget)})
                     .with_transparent_bg()
-                    .with_border(theme::border(), pixels(1.0f))
                     .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_alignment(TextAlignment::Center)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_corner_radius(9.0f)
-                    .with_debug_name("composer_attach"));
+                    .with_corner_radius(6.0f)
+                    .with_on_draw_fg([](RectangleType rr) {
+                        hanabi::icons::draw_at("paperclip",
+                                               rr.x + rr.width * 0.5f,
+                                               rr.y + rr.height * 0.5f, 13.0f,
+                                               theme::text_secondary());
+                    })
+                    .with_debug_name(cname("composer_attach")));
+            hanabi::a11y::set_name(attachButton.ent(), "Attach files");
             if (attachButton) native_pick_attachments();
             if (uploadCancelable) {
                 auto cancel = button(ctx, mk(rightMeta.ent(), 4),
@@ -6848,193 +7036,35 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Center)
                         .with_click_activation(ClickActivationMode::Press)
                         .with_corner_radius(9.0f)
-                        .with_debug_name("composer_upload_cancel"));
+                        .with_debug_name(cname("composer_upload_cancel")));
                 if (cancel) app.transfer->cancel.store(true);
             }
         }
 
-        const api::Session* stripSession =
-            app.pane().openSession ? &*app.pane().openSession : nullptr;
-        const bool hasPlan = stripSession && stripSession->plan &&
-                             !stripSession->plan->steps.empty();
-        const bool hasGoal = stripSession && stripSession->goal &&
-                             stripSession->goal->phase != api::GoalPhase::Cleared;
-        if (hasPlan || hasGoal) {
-            constexpr float kPillPad = 6.0f;
-            constexpr float kPillIcon = 10.0f;
-            constexpr float kPillIconGap = 3.0f;
-            constexpr float kPillTextX = kPillPad + kPillIcon + kPillIconGap;
-            std::string planText;
-            if (hasPlan) {
-                planText = stripSession->plan->chip_label();
-            } else {
-                planText = "Goal";
-            }
-            auto planChip = button(ctx, mk(rightMeta.ent(), 2),
-                ComponentConfig{}
-                    .with_label(planText)
-                    .with_size(ComponentSize{
-                        pixels(kPillTextX +
-                               theme::text_px(planText, theme::type::SM) +
-                               kPillPad),
-                        pixels(18)})
-                    .with_margin(Margin{.left = pixels(4)})
-                    .with_transparent_bg()
-                    .with_border(theme::border(), pixels(1.0f))
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
-                    .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_alignment(TextAlignment::Left)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_corner_radius(9.0f)
-                    .with_on_draw_fg([](RectangleType rr) {
-                        hanabi::icons::draw_at(
-                            "layers", rr.x + kPillPad + kPillIcon * 0.5f,
-                            rr.y + rr.height * 0.5f, kPillIcon,
-                            theme::text_secondary());
-                    })
-                    .with_debug_name("composer_plan"));
-            if (planChip.ent().has<afterhours::ui::HasLabel>())
-                planChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
-                    kPillTextX - kLabelInset;
-            if (planChip) app.planPopoverOpen = !app.planPopoverOpen;
-            if (app.escape == EscapeIntent::ClosePlanPicker)
-                app.planPopoverOpen = false;
-            render_plan_popover(ctx, parent, app, planChip.ent(), *stripSession);
-        } else {
-            app.planPopoverOpen = false;
-        }
-
-
-        // The nodes chip: which machine this thread runs on, or which one the
-        // next thread will be born with. Present when nothing is attached, and
-        // says so, because not choosing a node is a fact the reader should see.
-        if (!compactComposer) {
-            constexpr float kPillPad = 6.0f;
-            constexpr float kPillIcon = 10.0f;
-            constexpr float kPillIconGap = 3.0f;
-            constexpr float kPillTextX = kPillPad + kPillIcon + kPillIconGap;
-            const api::Session* nodeSession =
-                app.pane().openSession ? &*app.pane().openSession : nullptr;
-            std::string nodeText;
-            if (nodeSession) {
-                const size_t n = nodeSession->attached_nodes.size();
-                nodeText = n == 0   ? "0 nodes"
-                           : n == 1 ? nodeSession->attached_nodes.front()
-                                    : std::to_string(n) + " nodes";
-            } else {
-                nodeText = app.pendingNodeId.empty() ? "0 nodes"
-                                                     : app.pendingNodeId;
-            }
-            nodeText = fmtutil::ellipsize(nodeText, 28);
-            auto nodeChip = button(ctx, mk(rightMeta.ent(), 5),
-                ComponentConfig{}
-                    .with_label(nodeText)
-                    .with_size(ComponentSize{
-                        pixels(kPillTextX +
-                               theme::text_px(nodeText, theme::type::SM) +
-                               kPillPad),
-                        pixels(hanabi::control::kMinHitTarget)})
-                    .with_margin(Margin{.left = pixels(4)})
-                    .with_transparent_bg()
-                    .with_border(theme::border(), pixels(1.0f))
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
-                    .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_alignment(TextAlignment::Left)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_corner_radius(9.0f)
-                    .with_on_draw_fg([](RectangleType rr) {
-                        const float cx = rr.x + kPillPad + kPillIcon * 0.5f;
-                        const float cy = rr.y + rr.height * 0.5f;
-                        afterhours::draw_rectangle_outline(
-                            RectangleType{cx - 4.5f, cy - 3.0f, 9.0f, 6.0f},
-                            theme::text_secondary());
-                        afterhours::draw_line_ex({cx - 2.5f, cy + 4.5f},
-                                                 {cx + 2.5f, cy + 4.5f}, 1.2f,
-                                                 theme::text_secondary());
-                    })
-                    .with_debug_name("composer_nodes"));
-            if (nodeChip.ent().has<afterhours::ui::HasLabel>())
-                nodeChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
-                    kPillTextX - kLabelInset;
-            if (nodeChip) {
-                app.nodePopoverOpen = !app.nodePopoverOpen;
-                if (app.nodePopoverOpen && !app.nodeRosterFuture.valid()) {
-                    app.nodeRosterLoaded = false;
-                    std::shared_ptr<api::Client> c = app.client;
-                    app.nodeRosterFuture = std::async(
-                        std::launch::async, [c] { return c->list_nodes(); });
-                }
-            }
-            if (app.escape == EscapeIntent::CloseNodePicker)
-                app.nodePopoverOpen = false;
-            render_node_popover(ctx, parent, app, nodeChip.ent(), nodeSession);
-        } else {
-            app.nodePopoverOpen = false;
-        }
-
-        // The tool-fold chip, at the right: how much of a tool call this
-        // thread shows by default. Only where there is a thread to set it on —
-        // on the welcome screen there is no session to key the mode to.
-        //
-        // ICON IN THE PILL. Puffin's three pills each lead with a 9pt SF
-        // Symbol (`wrench.and.screwdriver`, `brain`, `tray.and.arrow.down`) 3pt
-        // before the label, inside 6pt of horizontal padding — see
-        // `ToggleChip` and `StripMetrics`. hanabi has one pill where Puffin has
-        // three, but the pill TREATMENT is the thing being matched, and a
-        // bordered capsule of bare words was the visible difference.
-        //
-        // The icon is blitted rather than laid out, because a `button` holds
-        // one string and no child elements. Reserving its space needs BOTH
-        // halves of the workaround: the box is measured by hand, and the label
-        // is pushed off the pill's left edge through `HasLabel::text_x_offset`
-        // — a public field on the vendored component that `ComponentConfig`
-        // exposes no setter for, so it is written after the widget exists. The
-        // renderer adds its own 5px on top of the offset, which is why the
-        // offset is the inset MINUS that. afterhours_gaps.md #91.
-        if (app.pane().openSession && !compactComposer) {
-            constexpr float kPillPad = 6.0f;
-            constexpr float kPillIcon = 10.0f;
-            constexpr float kPillIconGap = 3.0f;
-            constexpr float kPillTextX = kPillPad + kPillIcon + kPillIconGap;
+        if (ownPane.openSession && !compactComposer) {
+            // the reference draws its disclosure chips (Tools / Thinking /
+            // Deliveries) only behind a preference and the reference has
+            // them off; hanabi's tool-fold control has no such preference
+            // yet and five scripts drive it, so it stays -- in the chip
+            // face the rest of the strip wears, not the old outlined pill.
             const hanabi::fold::Mode currentFold = fold_mode();
             const std::string foldText =
                 "Tools: " + hanabi::fold::chip_label(currentFold);
             auto foldChip = button(ctx, mk(rightMeta.ent(), 3),
-                ComponentConfig{}
-                    .with_label(foldText)
-                    .with_size(ComponentSize{
-                        pixels(kPillTextX +
-                               theme::text_px(foldText, theme::type::SM) +
-                               kPillPad),
-                        pixels(hanabi::control::kMinHitTarget)})
-                    .with_margin(Margin{.left = pixels(4)})
-                    .with_transparent_bg()
-                    .with_border(theme::border(), pixels(1.0f))
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
-                    .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_alignment(TextAlignment::Left)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_corner_radius(9.0f)
-                    .with_on_draw_fg([](RectangleType rr) {
-                        hanabi::icons::draw_at(
-                            "layers", rr.x + kPillPad + kPillIcon * 0.5f,
-                            rr.y + rr.height * 0.5f, kPillIcon,
-                            theme::text_secondary());
-                    })
-                    .with_debug_name("composer_fold"));
+                strip_chip_cfg(foldText, "layers", theme::text_secondary(),
+                               cname("composer_fold"))
+                    .with_margin(Margin{.left = pixels(4), .right = pixels(0)}));
             if (foldChip.ent().has<afterhours::ui::HasLabel>())
                 foldChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
-                    kPillTextX - kLabelInset;
-            if (foldChip) app.foldPopoverOpen = !app.foldPopoverOpen;
+                    kStripChipTextX - kLabelInset;
+            if (foldChip) {
+                app.foldPopoverOpen = !app.foldPopoverOpen;
+                app.composerPopoverPane = paneIndex;
+            }
             if (app.escape == EscapeIntent::CloseFoldPicker)
                 app.foldPopoverOpen = false;
-            render_fold_popover(ctx, parent, app, foldChip.ent(), currentFold);
+            if (ownsPopovers)
+                render_fold_popover(ctx, parent, app, foldChip.ent(), currentFold);
         }
         std::string caption;
         // Two-step Escape's own sentence outranks everything: the reader
@@ -7073,7 +7103,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         } else {
             notices.outbox.clear();
         }
-        notices.command = app.slashNotice;
+        notices.command =
+            app.slashNoticePane == paneIndex ? app.slashNotice : std::string();
         notices.attachment = composerState.attachmentNotice;
         const bool noticeHere = notices.any();
 
@@ -7131,11 +7162,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // The denominator is the session's compaction budget, or the declared
         // one for a backend that reports none; with neither, the bar is absent
         // rather than filled to something invented.
-        if (!compactComposer && canSend && app.pane().openSession) {
-            const api::ContextUsage& usage = app.pane().openSession->context;
+        if (!compactComposer && canSend && ownPane.openSession) {
+            const api::ContextUsage& usage = ownPane.openSession->context;
             const bool counted = usage.counted();
             const int64_t tok =
-                counted ? usage.used_tokens : estimated_tokens(*app.pane().openSession);
+                counted ? usage.used_tokens : estimated_tokens(*ownPane.openSession);
             const int64_t budget = usage.has_denominator()
                                        ? usage.budget_tokens
                                        : app.configuredContextBudget;
@@ -7177,7 +7208,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                     theme::over(theme::accent(),
                                                 theme::panel_bg_2()));
                             })
-                            .with_debug_name("composer_meter"));
+                            .with_debug_name(cname("composer_meter")));
                 }
                 div(ctx, mk(leftMeta.ent(), 12),
                     ComponentConfig{}
@@ -7196,7 +7227,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_custom_text_color(theme::text_secondary())
                         .with_font_size(theme::type::SM)
                         .with_alignment(TextAlignment::Left)
-                        .with_debug_name("composer_size"));
+                        .with_debug_name(cname("composer_size")));
             }
         }
 
@@ -7233,7 +7264,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                                 : theme::text_faint())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_debug_name("composer_status"));
+                    .with_debug_name(cname("composer_status")));
         }
         // DISMISS. It clears exactly the slot that is showing, so the next
         // notice takes the row rather than everything vanishing at once. Only
@@ -7252,7 +7283,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_click_activation(ClickActivationMode::Press)
                     .with_on_draw_fg(hanabi::icons::draw_fg(
                         "close", "\xc3\x97", theme::text_faint(), 11.0f))
-                    .with_debug_name("composer_notice_dismiss"));
+                    .with_debug_name(cname("composer_notice_dismiss")));
             hanabi::a11y::set_name(dismiss.ent(), "Dismiss this notice");
             if (dismiss) app.requestComposerNoticeDismiss = true;
         }
@@ -7276,7 +7307,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_alignment(TextAlignment::Left)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_debug_name("composer_retry"));
+                    .with_debug_name(cname("composer_retry")));
             if (retry) app.requestComposerRetry = true;
         }
         // A live selection says how much is on the clipboard's doorstep. It
@@ -7293,14 +7324,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_custom_text_color(theme::text_secondary())
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_debug_name("composer_selected"));
+                    .with_debug_name(cname("composer_selected")));
         }
 
-        const auto& attachmentState = staged_state(app);
+        const auto& attachmentState = staged_state(composerTarget);
         if (attachmentState.attachments.empty() ||
             composerH + 0.5f >=
                 kComposerBaseH + attachmentState.attachmentLayoutHeight)
-            render_attachments(ctx, bar.ent(), app, composerGutter);
+            render_attachments(ctx, bar.ent(), app, composerGutter,
+                               composerTarget, cname("composer_attachments"));
 
         // Puffin's input is an OUTLINED box on the window colour, with a 19px
         // circular send button 9px to its right. Measured on the reference: the
@@ -7329,8 +7361,48 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // further row adds one line height, to a ceiling of six. The row count
         // is last frame's, from the field's own layout cache, for the reason
         // composerRows_ carries.
-        const float kInputH = composer_box_h(composerRows_);
+        const float kInputH = composer_box_h(composerRows_[paneIndex]);
 
+
+        // The strip's tail, after the context reading: skills loaded, then the
+        // plan -- the reference's order. Created here, after the caption, so they
+        // follow it in the row.
+        if (stripSession) {
+            const std::size_t skills = distinct_skills_loaded(*stripSession);
+            if (skills > 0) {
+                const std::string label = skills_chip_label(skills, fit);
+                auto skillChip = button(ctx, mk(leftMeta.ent(), 23),
+                    strip_chip_cfg(label, "skills", theme::text_secondary(),
+                                   cname("composer_skills")));
+                if (skillChip.ent().has<afterhours::ui::HasLabel>())
+                    skillChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                        kStripChipTextX - kLabelInset;
+            }
+        }
+        const bool hasPlan = stripSession && stripSession->plan &&
+                             !stripSession->plan->steps.empty();
+        const bool hasGoal = stripSession && stripSession->goal &&
+                             stripSession->goal->phase != api::GoalPhase::Cleared;
+        if (hasPlan || hasGoal) {
+            const std::string planText =
+                hasPlan ? stripSession->plan->chip_label() : std::string("Goal");
+            auto planChip = button(ctx, mk(leftMeta.ent(), 24),
+                strip_chip_cfg(planText, "checklist", theme::text_secondary(),
+                               cname("composer_plan")));
+            if (planChip.ent().has<afterhours::ui::HasLabel>())
+                planChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                    kStripChipTextX - kLabelInset;
+            if (planChip) {
+                app.planPopoverOpen = !app.planPopoverOpen;
+                app.composerPopoverPane = paneIndex;
+            }
+            if (app.escape == EscapeIntent::ClosePlanPicker)
+                app.planPopoverOpen = false;
+            if (ownsPopovers)
+                render_plan_popover(ctx, parent, app, planChip.ent(), *stripSession);
+        } else if (ownsPopovers) {
+            app.planPopoverOpen = false;
+        }
         auto row = div(ctx, mk(bar.ent(), 2),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kInputH)})
@@ -7342,7 +7414,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_align_items(AlignItems::Center)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("composer_row"));
+                .with_debug_name(cname("composer_row")));
 
         const float inputRoom = paneW - (composerGutter * 2.0f) - sendW -
                                 kSendGap;
@@ -7369,8 +7441,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // single term left in this strip once the geometry lined up.
                 .with_custom_background(theme::panel_bg())
                 .with_border(theme::border_soft(), pixels(1.0f))
-                .with_corner_radius(7.0f)
-                .with_debug_name("composer_input_wrap"));
+                .with_corner_radius(6.0f)
+                .with_debug_name(cname("composer_input_wrap")));
 
         // text_area paints an opaque Theme::Usage::Secondary fill over its
         // rect and drops the caller's with_transparent_bg
@@ -7424,7 +7496,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // glyphs land on the same pixel either way (measured: byte-identical).
         // Past one row it is the field's grown height, the same number
         // with_auto_grow computes from the same cache.
-        const float kFieldH = composer_field_h(composerRows_);
+        const float kFieldH = composer_field_h(composerRows_[paneIndex]);
         // The PLACEHOLDER's ink, scoped by save/restore. text_input hardcodes
         // `field_label.explicit_text_color = ctx.theme.font_muted` (vendor
         // text_input/component.h:194) and offers no with_placeholder_color, so
@@ -7508,7 +7580,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::BODY)
                 .with_alignment(TextAlignment::Left)
                 .with_corner_radius(7.0f)
-                .with_debug_name("composer_reply_input"));
+                .with_debug_name(cname("composer_reply_input")));
         ctx.theme.font_muted = savedMuted;
 
         if (compactComposer) {
@@ -7529,7 +7601,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Center)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_corner_radius(10.0f)
-                    .with_debug_name("composer_attach"));
+                    .with_debug_name(cname("composer_attach")));
             if (compactAttach) native_pick_attachments();
             if (uploadCancelable) {
                 auto compactCancel = button(ctx, mk(inputWrap.ent(), 5),
@@ -7548,7 +7620,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Center)
                         .with_click_activation(ClickActivationMode::Press)
                         .with_corner_radius(10.0f)
-                        .with_debug_name("composer_upload_cancel"));
+                        .with_debug_name(cname("composer_upload_cancel")));
                 if (compactCancel) app.transfer->cancel.store(true);
             }
         }
@@ -7573,9 +7645,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const size_t rows = inputRes.ent()
                                     .get<afterhours::text_input::HasTextAreaState>()
                                     .layout_cache.line_count();
-            composerRows_ = rows < 1 ? 1
-                            : rows > kComposerMaxRows ? kComposerMaxRows
-                                                      : rows;
+            composerRows_[paneIndex] = rows < 1 ? 1
+                                       : rows > kComposerMaxRows ? kComposerMaxRows
+                                                                 : rows;
         }
 
         const auto composerFieldId = focusable_field(inputRes.ent());
@@ -7586,8 +7658,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .is_focused;
         hanabi::ui::field_chrome::clear_forced_fill(composerFieldId);
         if (composerFocused) ctx.theme.focus_ring_thickness = 0.0f;
-        hanabi::ui::field_chrome::apply_focus_edge(
-            inputWrap.ent().id, composerFocused, ctx.theme.accent);
+        // The caret landing in this pane's field IS the pane taking focus:
+        // sends, steer and Stop from here go to this pane's thread, and the
+        // other pane's composer keeps its own draft untouched.
+        // Not on the frame of a press: that frame belongs to the pane's own
+        // click-to-focus, and a field still focused from BEFORE the press
+        // would otherwise pull the pane straight back.
+        // And only on the frame the field GAINS focus: a field that has held
+        // focus since before the pane changed hands is history, not a claim.
+        const bool gainedFocus =
+            composerFocused && !composerFocusedLast_[static_cast<size_t>(paneIndex)];
+        composerFocusedLast_[static_cast<size_t>(paneIndex)] = composerFocused;
+        if (gainedFocus && !activeComposer && !ctx.mouse.just_pressed)
+            app.focusedPane = paneIndex;
+        // No accent edge on focus: the reference's field keeps its one hairline
+        // whether or not it has the caret (liveComposerField's overlay is the
+        // same 25% mutedText stroke in both states), and the caret is what
+        // says the field is focused. The :focus-visible ring for keyboard
+        // travel is a separate indicator and untouched.
+        (void)inputWrap;
 
         // Faint hint text ON TOP of the empty field, via an absolutely
         // positioned on_draw_fg child -- the same pattern the sidebar search
@@ -7622,7 +7711,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         afterhours::draw_text(placeholder, rect.x + 10.0f, ty,
                                               px, theme::text_secondary());
                     })
-                    .with_debug_name("composer_placeholder"));
+                    .with_debug_name(cname("composer_placeholder")));
         }
 
         // A SHADOW HasTextInputState, for the scripted-UI harness only.
@@ -7674,7 +7763,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // end of every frame and text_input's `state.is_focused` was never
         // true. It is the same call session_search_system and
         // rename_modal_system already make.
-        if (hanabi::test_hooks::focus_composer())
+        if (activeComposer && hanabi::test_hooks::focus_composer())
             ctx.set_focus(focusable_field(inputRes.ent()));
 
         // A served focus REQUEST, not a flag: every New Thread entry point
@@ -7731,8 +7820,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         //
         // Typing anything at all retires the last command's notice; it is a
         // reply to one keystroke, not a state the strip should keep.
-        static std::string lastSlashDraft;
-        if (replyDraft != lastSlashDraft) app.slashNotice.clear();
+        if (replyDraft != composerState.lastSlashDraft &&
+            app.slashNoticePane == paneIndex)
+            app.slashNotice.clear();
         // Putting the caret back in the composer. The focusable element is
         // the text_input's inner FIELD, not the wrapper this call returns:
         // focus set on the wrapper is dropped at end of frame, because only
@@ -7877,7 +7967,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.escapeDismissedTransient || notices.any();
             escapeIn.field_focused = true;
             escapeIn.surface_can_close =
-                targetKickoff && !app.pane().newThreadReturnId.empty();
+                targetKickoff && !ownPane.newThreadReturnId.empty();
             switch (model::resolve_composer_escape(app.composerEscape,
                                                    escapeIn)) {
                 case model::ComposerEscapeStep::Cleared:
@@ -7909,6 +7999,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.forkRestoreSessionId == openId && !app.forkError.empty()) {
             set_field(app.forkRestoreDraft);
             app.slashNotice = app.forkError;
+            app.slashNoticePane = paneIndex;
             app.forkRestoreDraft.clear();
             app.forkRestoreSessionId.clear();
             app.forkError.clear();
@@ -7933,6 +8024,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const hanabi::slash::Command* cmd = hanabi::slash::find(p.verb);
             if (cmd == nullptr) {
                 app.slashNotice = "/" + p.verb + " is not a command";
+                app.slashNoticePane = target.pane_index;
                 set_target_field(target, typed);
                 return;
             }
@@ -7953,6 +8045,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (cmd->name == "btw") {
                 if (p.args.empty()) {
                     app.slashNotice = "Type a question after /btw.";
+                app.slashNoticePane = target.pane_index;
                     set_target_field(target, typed);
                     return;
                 }
@@ -7970,6 +8063,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 }
                 if (app.forkPending || !app.requestForkSourceId.empty()) {
                     app.slashNotice = "A fork is already being created.";
+                app.slashNoticePane = target.pane_index;
                     set_target_field(target, typed);
                     return;
                 }
@@ -7987,6 +8081,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.forkRestoreDraft = typed;
                 app.forkRestoreSessionId = target.session_id;
                 app.slashNotice = "Creating BTW fork\xe2\x80\xa6";
+                app.slashNoticePane = target.pane_index;
                 set_target_field(target, "");
                 return;
             }
@@ -8140,7 +8235,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             inputEnt.addComponentIfMissing<
                 afterhours::text_input::HasTextInputListener>(
                 nullptr,  // on_change: not needed (imm syncs replyDraft)
-                [appPtr = &app](Entity& e) {
+                // The pane, not the target: the listener is installed once
+                // for the widget's life and the pane's thread changes under
+                // it, so the target is resolved at the moment of the send.
+                [appPtr = &app, paneIndex](Entity& e) {
                     // Read the CURRENT field text off the input state (the most
                     // up-to-date value, incl. the char typed just before Enter).
                     std::string text;
@@ -8154,8 +8252,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         text.pop_back();
                     if (text.empty()) return;
                     AppComponent::ComposerSubmission submitted;
-                    submitted.message =
-                        snapshot_composer_message(*appPtr, std::move(text));
+                    submitted.message = snapshot_composer_message(
+                        *appPtr, std::move(text),
+                        appPtr->composer_target_for(paneIndex));
                     submitted.withCmd = hanabi::keys::cmd_down();
                     appPtr->composerSubmit = std::move(submitted);
                 });
@@ -8196,8 +8295,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // steer mark: an invitation to steer an agent that cannot be reached.
         // The plain arrow, disabled, is the honest face.
         const bool steerIcon = steerMode && !brake.refuses_input;
+        // Send, or stop, or wait -- one button (the reference's sendButton). STOP
+        // when the agent is running and nothing is staged to send instead
+        // (`session.running && !hasContent`), on a backend that has the bare
+        // interrupt; it draws in the text ink over the text colour's fill
+        // (stop.circle.fill), not the accent, because stopping is not a
+        // commit. With text staged the button is Send-as-steer again. While
+        // the stop is on the wire the slot shows the ring (ProgressView).
+        const bool showsStop = steerIcon && !hasText && !targetKickoff &&
+                               app.client && app.client->supports_interrupt();
+        const bool stopping = app.interruptPending;
+        const bool sendPressable = sendEnabled || (showsStop && !stopping);
         const theme::Color sendFill =
-            sendEnabled ? theme::button_primary() : theme::disabled_bg();
+            sendEnabled ? theme::button_primary()
+            : showsStop ? theme::text_primary()
+                        : theme::disabled_bg();
         auto send = button(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(sendLabel)
@@ -8205,31 +8317,40 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_background(sendFill)
                 .with_custom_hover_bg(sendEnabled
                                           ? theme::hover_over(theme::button_primary())
-                                          : theme::disabled_bg())
-                .with_custom_text_color(sendEnabled ? theme::window_bg()
-                                                    : theme::disabled_text())
+                                      : showsStop ? theme::text_secondary()
+                                                  : theme::disabled_bg())
+                .with_custom_text_color(sendPressable ? theme::window_bg()
+                                                      : theme::disabled_text())
                 .with_font_size(FontSize::Medium)
                 .with_alignment(TextAlignment::Center)
                 .with_justify_content(JustifyContent::Center)
                 .with_align_items(AlignItems::Center)
                 .with_click_activation(ClickActivationMode::Press)
                 .with_corner_radius(kSendDia * 0.5f)
-                .with_on_draw_fg([steerIcon, sending,
-                                  sendEnabled](RectangleType rr) {
-                    const theme::Color ink = sendEnabled
+                .with_cursor(sendPressable ? afterhours::ui::CursorType::Pointer
+                                           : afterhours::ui::CursorType::Default)
+                .with_on_draw_fg([steerIcon, sending, sendEnabled, showsStop,
+                                  stopping](RectangleType rr) {
+                    const theme::Color ink = (sendEnabled || showsStop)
                                                  ? theme::window_bg()
                                                  : theme::disabled_text();
-                    if (sending && !sendEnabled) {
+                    if ((sending && !sendEnabled) || stopping) {
                         afterhours::draw_ring(
                             rr.x + rr.width * 0.5f, rr.y + rr.height * 0.5f,
                             2.5f, 4.5f, 18, ink);
+                    } else if (showsStop) {
+                        hanabi::glyph::stop_square(rr, ink);
                     } else if (steerIcon) {
                         hanabi::glyph::steer(rr, ink);
                     } else {
                         hanabi::glyph::arrow_up(rr, ink);
                     }
                 })
-                .with_debug_name("composer_send"));
+                .with_debug_name(cname("composer_send")));
+        if (send && showsStop && !stopping && !openId.empty()) {
+            app.requestInterruptId = openId;
+            app.requestInterruptPane = paneIndex;
+        }
         // A Retry presses this button. One submit path: a retry that built its
         // own outgoing message would BE a second send path, which is the thing
         // this wave exists to delete.
@@ -8357,7 +8478,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             composerState.persistedReplyDraft = replyDraft;
             composerState.persistedAttachments = composerState.attachments;
         }
-        lastSlashDraft = replyDraft;
+        composerState.lastSlashDraft = replyDraft;
 
     }
 

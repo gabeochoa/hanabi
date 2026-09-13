@@ -13,13 +13,17 @@ require_thread t2
 wait_frames 16
 
 # Both faces answer to the same name on purpose, so a keyboard script reaches
-# the picker at either width; what changes is the SHAPE, which is the only
-# honest discriminator here.
+# the picker at either width. The attach control is a bare glyph at every
+# width now (the reference's strip has no attach button at all; hanabi keeps
+# the glyph as the one pointer path to the picker), so the SHAPE no longer
+# discriminates -- the tool-fold chip does: it leaves the strip under 560 and
+# comes back above it.
 #
-# ABOVE the threshold: the labelled 52x18 pill in the right meta cluster.
-assert_ui composer_attach w=52 h=28
+# ABOVE the threshold: the glyph in the right meta cluster, the fold chip beside it.
+assert_ui composer_attach w=28 h=28
+expect_text "Tools: Folded"
 
-# BELOW it: a 20x20 + inside the input, and the tool-fold pill is gone.
+# BELOW it: a 20x20 + inside the input, and the tool-fold chip is gone.
 resize 520 620
 wait_frames 24
 assert_ui composer_attach w=28 h=28
@@ -28,7 +32,8 @@ expect_no_text "Tools: Folded"
 # And back up again. A threshold that only ever falls is half a rule.
 resize 900 620
 wait_frames 24
-assert_ui composer_attach w=52 h=28
+assert_ui composer_attach w=28 h=28
+expect_text "Tools: Folded"
 
 # THE OUTBOX SAYS SO. The first send of the process is refused and the prompt
 # is held; the composer now has a slot for saying that rather than retrying in

@@ -2169,6 +2169,61 @@ Result<std::string> AgentcloudClient::rename_session(
     }
 }
 
+// The bare interrupt: attach, send `{"cmd":"interrupt"}`, done. No text, no
+// ack -- the same contract as input: the run's end arrives as frames on the
+// live stream the loader already holds (run_finished), which is what turns the
+// thread's state back to idle. the reference's AgentcloudSocket.interrupt() is the
+// same transmit-and-return.
+Result<std::string> AgentcloudClient::interrupt_session(
+    const std::string& session_id) {
+    const auto fail = [](const std::string& why) {
+        return Result<std::string>::failure(why);
+    };
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded()) {
+        auth_.invalidate();
+        return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    }
+    if (str_or(hello, "type", "") == "error") {
+        auth_.invalidate();
+        return fail("attach refused: " + str_or(hello, "message", "(no message)"));
+    }
+    const json env = {{"sub", 1}, {"payload", {{"cmd", "interrupt"}}}};
+    const std::string wire = env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size()))
+        return fail("socket closed before the interrupt was sent");
+    return Result<std::string>::success("interrupt sent");
+}
+
 Result<std::vector<NodeInfo>> AgentcloudClient::list_nodes() {
     std::string error;
     const std::string reply = round_trip(R"({"cmd":"nodes"})", "nodes", &error);

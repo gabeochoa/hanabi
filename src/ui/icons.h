@@ -265,6 +265,15 @@ inline void chevron(RectangleType rect, bool collapsed, theme::Color c,
 // has no U+2191, so a typed one paints nothing at all (afterhours_gaps.md
 // #48) — the composer's circular send button draws this instead of labelling
 // itself. `extent` is the arrow's half-height.
+// A stop mark: the square inside the reference's `stop.circle.fill`, drawn in the
+// button's ink over its filled circle.
+inline void stop_square(RectangleType rect, theme::Color c, float extent = 3.5f) {
+    const float cx = rect.x + rect.width * 0.5f;
+    const float cy = rect.y + rect.height * 0.5f;
+    const float e = viewport::px(extent);
+    afterhours::draw_rectangle(RectangleType{cx - e, cy - e, 2.0f * e, 2.0f * e}, c);
+}
+
 inline void arrow_up(RectangleType rect, theme::Color c, float extent = 4.5f,
                      float thickness = 1.6f) {
     const float cx = rect.x + rect.width * 0.5f;

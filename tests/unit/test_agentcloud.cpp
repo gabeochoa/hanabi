@@ -1331,7 +1331,7 @@ static void test_backward_paging_never_rewinds_the_live_plan() {
     CHECK(session.plan->current() != nullptr);
     CHECK(session.plan->current()->text == "Fix");
     CHECK(!session.plan->finished());
-    CHECK(session.plan->chip_label() == "Plan 1/5");
+    CHECK(session.plan->chip_label() == "1 of 5");
     CHECK(session.goal->objective == "ship the fix");
     CHECK(session.goal->done_when == "all tests pass");
     CHECK(session.goal->phase == api::GoalPhase::Active);

@@ -748,6 +748,16 @@ class Client {
     // a backend without the verb never offers an action that cannot work.
     virtual bool supports_rename() const { return false; }
 
+    // Stop the running turn WITHOUT a message -- the composer's Stop button
+    // (the reference: session.interrupt(), `{"cmd":"interrupt"}` with no text).
+    // steer() is interrupt-with-text; this is the bare form. Gated the same
+    // way rename is: a backend without the verb never draws a Stop.
+    virtual bool supports_interrupt() const { return false; }
+    virtual Result<std::string> interrupt_session(const std::string& session_id) {
+        (void)session_id;
+        return Result<std::string>::failure("this backend cannot stop a run");
+    }
+
     virtual Result<std::string> resolve_ask(const std::string& session_id,
                                             const PendingAsk& ask,
                                             AskAction action,

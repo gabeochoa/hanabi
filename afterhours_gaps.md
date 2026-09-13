@@ -1018,7 +1018,7 @@ code; now wired. bubble_height adds +12px when sync!=None. Verified ✓✓ rende
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** The old overflow description no longer matches the composer path; current source uses text_area with auto-grow/max-lines behavior.
 
-**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`.with_max_lines(kComposerMaxRows)`) — composer field now auto-grows as a multiline text_area bounded by max lines. `src/ecs/main_pane_system.h` (`composerRows_ = rows < 1`) — composer box height follows the text_area layout cache. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`assert_ui composer_input_wrap h=151`) — scripted UI coverage for multiline growth and max height.
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`.with_max_lines(kComposerMaxRows)`) — composer field now auto-grows as a multiline text_area bounded by max lines. `src/ecs/main_pane_system.h` (`composerRows_[paneIndex] = rows < 1`) — composer box height follows the text_area layout cache. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`assert_ui composer_input_wrap h=151`) — scripted UI coverage for multiline growth and max height.
 
 
 
@@ -2846,7 +2846,7 @@ background one, so `with_border_right` survives its own children (this is #63's
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** The text_input padding workaround described by the entry is stale for the composer because it moved to text_area; kFieldH survives for a different text_area sizing reason.
 
-**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`text_area derives neither -- its padding is a fixed 6/4`) — current composer no longer uses text_input's height-derived padding. `src/ecs/main_pane_system.h` (`const float kFieldH = composer_field_h(composerRows_)`) — one-row field height is now derived for text_area row/padding agreement. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`One row, and this is the number the whole composer band is measured against.`) — current composer field/box sizing is pinned by scripted geometry.
+**Hanabi reference.** Current code: `src/ecs/main_pane_system.h` (`text_area derives neither -- its padding is a fixed 6/4`) — current composer no longer uses text_input's height-derived padding. `src/ecs/main_pane_system.h` (`const float kFieldH = composer_field_h(composerRows_[paneIndex])`) — one-row field height is now derived for text_area row/padding agreement. Tests: `tests/ui/composer_box_grows_with_the_draft.e2e` (`One row, and this is the number the whole composer band is measured against.`) — current composer field/box sizing is pinned by scripted geometry.
 
 
 
@@ -8890,7 +8890,7 @@ the typed text does (x=329, y=706), so the two agree — but that is a
 hand-alignment that holds only until either side's padding changes.
 
 
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`with_debug_name("composer_placeholder")`) — composer draws overlay placeholder. `src/ecs/main_pane_system.h` (`text_area does not render one at all`) — source explains overlay.
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`cname("composer_placeholder")`) — composer draws overlay placeholder. `src/ecs/main_pane_system.h` (`text_area does not render one at all`) — source explains overlay.
 
 
 **Minimal upstream fix.** The four lines from `component.h`, in `text_area`'s
@@ -13663,6 +13663,44 @@ the app can. Acceptance: #594's script with `expect_sizes_skipped 0`.
 
 **Hanabi reference.** `src/sokol_impl.mm` (`resized:`) — the same-step draw;
 `scripts/resize_drive_gate.sh` — the count that guards it.
+
+CLASS: SHARP EDGE
+
+---
+
+### #596 — An imm subtree built twice from one call site collides on its ids unless the caller salts `otherID` by hand
+
+**Expected.** Building the same widget subtree once per pane (a composer under
+each split pane) from one function should give each instance its own
+entities, or the library should say how to key an instance.
+
+**Observed.** `mk(parent, otherID, location)` hashes `(parent.id, otherID,
+source_location)`: two calls of the same function under the same parent
+produce the same hash for every widget and the second instance reuses the
+first's entities -- the second composer's field is the first's, with its
+text. Nothing warns. The fix is to salt `otherID` at the subtree's root
+(`mk(parent, 3 + paneIndex * 64)`), after which every descendant hashes from
+the distinct root id; that rule is not written anywhere and the number has to
+avoid every other `otherID` the parent's children use.
+
+**Reproducer.** `src/ecs/main_pane_system.h` render_composer: remove the
+`+ paneIndex * 64` on the bar's `mk` and open a split -- the right pane's
+composer shows the left pane's draft (`two_composers_keep_their_own_drafts`
+fails).
+
+**Cost.** A magic offset per repeated subtree; an hour finding why the
+second composer echoed the first.
+
+**Minimal upstream fix.** `mk_instance(parent, instance_key, location)` (or
+an `ImmScope` that salts every `mk` inside it), documented as THE way to
+build one subtree N times; `EntityParent` could carry the instance so
+descendants need no change. Acceptance: build the same `div` twice under one
+parent from one function with two instance keys and assert two entities.
+
+**Status.** Confirmed at 1ac6db2.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (render_composer, the
+bar's `mk`) — the salt.
 
 CLASS: SHARP EDGE
 

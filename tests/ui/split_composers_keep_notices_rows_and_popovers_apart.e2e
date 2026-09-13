@@ -1,0 +1,54 @@
+# Two composers, one set of shared strip state -- and none of it leaks:
+#
+#   * a slash refusal raised in the LEFT pane stays under the left pane while
+#     the right pane's draft changes frame after frame (a shared "last draft"
+#     used to clear it every frame the two drafts differed);
+#   * a two-line draft grows the field it was typed in, and only that one;
+#   * the plan chip's picker opens under the pane that has a plan even though
+#     the other pane (no plan) is drawn every frame too.
+#
+# t2 has a plan in the mock; t6 has none.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t6 HANABI_PLAN_DEMO=1
+require_thread t2
+require_thread t6
+expect_panes t2 t6 0
+
+# A refusal in the left pane...
+click_ui composer_reply_input
+type "/nosuchverb"
+wait_frames 6
+key ENTER
+wait_frames 8
+expect_text "/nosuchverb is not a command"
+
+# ...survives the right pane's draft changing for six frames and more.
+click_ui composer_reply_input_other
+wait_frames 6
+expect_panes t2 t6 1
+type "a"
+wait_frames 3
+type "b"
+wait_frames 3
+type "c"
+wait_frames 6
+expect_text "/nosuchverb is not a command"
+# The notice is the left pane's: it sits in the other composer's row.
+assert_ui composer_notice_dismiss_other hidden=false
+
+# A two-line draft in the RIGHT pane grows the right field only.
+key SHIFT+ENTER
+wait_frames 24
+type "second line"
+wait_frames 24
+assert_ui composer_input_wrap h=67
+assert_ui composer_input_wrap_other h=46
+
+# The plan chip is the left pane's (t2 has the plan), and it opens from there
+# while the right pane -- no plan -- is drawn every frame.
+click_ui composer_plan_other
+wait_frames 10
+expect_text "Goal and plan"
+key ESCAPE
+wait_frames 6
+expect_no_text "Goal and plan"

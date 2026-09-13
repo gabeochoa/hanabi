@@ -786,14 +786,21 @@ struct AppComponent : public afterhours::BaseComponent {
     };
     std::optional<ComposerSubmission> composerSubmit;
 
-    [[nodiscard]] api::OutgoingTarget current_composer_target() const {
+    // The composer of a GIVEN pane: what a send from it targets. Each split
+    // pane draws its own composer (the reference draws one per pane), so the
+    // target is the pane's, never "whichever pane is focused when the send
+    // lands".
+    [[nodiscard]] api::OutgoingTarget composer_target_for(int paneIndex) const {
         api::OutgoingTarget target;
-        target.pane_index = std::clamp(focusedPane, 0, 1);
+        target.pane_index = std::clamp(paneIndex, 0, 1);
         const Pane& owner = panes[static_cast<std::size_t>(target.pane_index)];
         const bool reply = view == SmartView::Chat && !owner.selectedId.empty();
         target.session_id = reply ? owner.selectedId : std::string();
         target.draft_key = reply ? target.session_id : std::string("__kickoff__");
         return target;
+    }
+    [[nodiscard]] api::OutgoingTarget current_composer_target() const {
+        return composer_target_for(focusedPane);
     }
     // The prompt currently being sent, for a "sending…" hint while in flight.
     api::OutgoingMessage sendingMessage;
@@ -810,6 +817,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // this menu against every other dismissable thing (escape_system.h).
     bool slashMenuOpen = false;
     int slashMenuIndex = 0;
+    // Which pane's composer the notice row's `command` slot (slashNotice)
+    // belongs to. Two composers, one notice: it shows under the pane whose
+    // command raised it, and only THAT pane's draft changing clears it.
+    int slashNoticePane = 0;
     // The draft Esc dismissed the menu for. The menu stays shut until the
     // draft changes, so Esc is not undone by the very next frame re-deriving
     // "this text starts with a slash".
@@ -1251,6 +1262,24 @@ struct AppComponent : public afterhours::BaseComponent {
     // Set by Return in the field (the listener cannot decide anything — see the
     // composerSubmit note above); routed by the modal on the next frame.
     bool renameSubmit = false;
+    // The composer's Stop: one-shot session id for the loader, then the
+    // future it waits on. `interruptPending` keeps the button's slot showing
+    // a spinner until the server has taken it (the reference: ProgressView in the
+    // send slot); a refusal lands in the notice row's command slot.
+    // Which pane's composer owns the open strip popover (model / effort /
+    // plan / nodes / fold): the flags above are one set, the composers are
+    // two, and a picker belongs to the chip that was pressed.
+    int composerPopoverPane = 0;
+    std::string requestInterruptId;
+    std::future<api::Result<std::string>> interruptFuture;
+    bool interruptPending = false;
+    // The session whose stop the server took; the next list refresh that
+    // shows it no longer running is adopted into the open transcript's
+    // summary (one shot). Nothing is applied before the server says so.
+    std::string interruptSettlingId;
+    // The pane whose composer pressed Stop, so a refusal's notice shows there.
+    int requestInterruptPane = 0;
+    int interruptPane = 0;
     std::string requestRenameId;     // one-shot: what the loader should send
     std::string requestRenameTitle;
     bool renamePending = false;      // in flight; the modal shows a spinner

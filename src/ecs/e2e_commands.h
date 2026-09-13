@@ -608,6 +608,90 @@ struct HandleExpectBackendMessageCommand
     }
 };
 
+// expect_backend_state <session> <running|ready|...>: the thread's state as
+// the BACKEND reports it, so a script can prove a control reached the server
+// (the composer's Stop) rather than only repainted.
+struct HandleExpectBackendStateCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    static const char* name_of(api::ThreadState s) {
+        switch (s) {
+            case api::ThreadState::Unknown: return "unknown";
+            case api::ThreadState::Attention: return "attention";
+            case api::ThreadState::Ready: return "ready";
+            case api::ThreadState::Running: return "running";
+            case api::ThreadState::Parked: return "parked";
+            case api::ThreadState::Archived: return "archived";
+            case api::ThreadState::Working: return "working";
+        }
+        return "unknown";
+    }
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_backend_state")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_backend_state requires session and state");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr || !app->client) {
+            cmd.fail("backend state assertion needs an app client");
+            return;
+        }
+        const auto session = app->client->get_session(cmd.arg(0));
+        const std::string actual =
+            session.ok ? name_of(session.value.summary.state) : "(no session)";
+        if (actual == cmd.arg(1)) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("session '{}' is {}, not {}", cmd.arg(0), actual,
+                             cmd.arg(1)));
+    }
+};
+
+// expect_no_ui <name>: no widget carrying that debug name was drawn this
+// frame. assert_ui can only speak about a widget that exists; this is the
+// other half, for a control that must be ABSENT (the other pane's attachment
+// strip, say). Waits a few frames the way assert_ui does before failing, so
+// a widget that is about to disappear is not read as present.
+struct HandleExpectNoUiCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_no_ui")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_no_ui requires <name>");
+            return;
+        }
+        const std::string name = cmd.arg(0);
+        auto opt = afterhours::testing::ui_commands::ui_query()
+                       .whereHasComponent<afterhours::ui::UIComponent>()
+                       .whereHasComponent<afterhours::ui::UIComponentDebug>()
+                       .whereLambda([&](const afterhours::Entity& e) {
+                           return e.get<afterhours::ui::UIComponentDebug>()
+                                          .name_value == name &&
+                                  e.get<afterhours::ui::UIComponent>()
+                                      .was_rendered_to_screen;
+                       })
+                       .gen_first();
+        if (!opt.has_value()) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_no_ui: '{}' is on screen", name));
+    }
+};
+
 struct HandleExpectUploadCancelledCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -1478,6 +1562,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleKickoffThenFocusCommand>());
     sm.register_update_system(std::make_unique<HandleExpectBackendMessageCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUploadCancelledCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectBackendStateCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectNoUiCommand>());
     sm.register_update_system(std::make_unique<HandleHoverUICommand>());
     sm.register_update_system(std::make_unique<HandleMouseDownUICommand>());
     sm.register_update_system(

@@ -17,7 +17,8 @@ render each icon with a BLACK stroke on white, then convert luminance->alpha
 via ImageMagick. Committing the OUTPUT (icons.png + map + LICENSE) is what
 matters; this script is a convenience to regenerate it.
 
-Requires: curl, qlmanage (macOS), magick (ImageMagick 7).
+Requires: curl, magick (ImageMagick 7), and qlmanage (macOS) or swiftc for
+scripts/tools/svg2png.swift when qlmanage cannot start.
 Run:  python3 scripts/gen_icons.py
 """
 import os, subprocess, sys, tempfile, shutil, json
@@ -65,6 +66,14 @@ ICONS = [
     ("pin",          "pin"),              # Pinned    (SF: pin)
     ("panel_left",   "panel-left"),       # the VIEWS strip's panel toggle
     ("sliders",      "sliders-horizontal"), # the search pill's filter affordance
+    # The composer's control strip, as the reference (0.7.1) draws it (user-supplied
+    # reference, 2026-09-12): a glyph and a count per chip. the reference's SF Symbols
+    # and the Lucide drawing of the same thing:
+    ("subagents",    "waypoints"),        # point.3.connected.trianglepath.dotted
+    ("node",         "server"),           # the attached-nodes chip
+    ("skills",       "wand-sparkles"),    # wand.and.stars
+    ("checklist",    "list-checks"),      # checklist
+    ("paperclip",    "paperclip"),        # attachments
 ]
 
 CELL = 32          # px per cell. Icons draw at ~14-16px logical (up to ~32px on
@@ -111,14 +120,25 @@ def rasterize_cell(svg_path, out_png, tmp):
     if os.path.isdir(ql_dir):
         shutil.rmtree(ql_dir)
     os.makedirs(ql_dir)
-    run(["qlmanage", "-t", "-s", str(RENDER), "-o", ql_dir, black_svg])
+    # qlmanage first, the way this always ran; where it cannot start
+    # ("sandbox initialization failed", a shell without a Quick Look session)
+    # the same raster comes from scripts/tools/svg2png.swift -- AppKit's own
+    # SVG loader drawing black-on-white at RENDER px, which is what qlmanage
+    # was doing for us.
     rendered = None
-    for fn in os.listdir(ql_dir):
-        if fn.endswith(".png"):
-            rendered = os.path.join(ql_dir, fn)
-            break
+    try:
+        run(["qlmanage", "-t", "-s", str(RENDER), "-o", ql_dir, black_svg])
+        for fn in os.listdir(ql_dir):
+            if fn.endswith(".png"):
+                rendered = os.path.join(ql_dir, fn)
+                break
+    except subprocess.CalledProcessError:
+        rendered = None
     if not rendered:
-        raise RuntimeError(f"qlmanage produced no PNG for {svg_path}")
+        rendered = os.path.join(ql_dir, "appkit.png")
+        run([svg2png_binary(), black_svg, rendered, str(RENDER)])
+    if not os.path.exists(rendered):
+        raise RuntimeError(f"no raster for {svg_path}")
     # 3) black-on-white -> white-on-transparent. qlmanage renders the SVG at
     #    its native 24px in the top-left of the thumbnail (it does NOT scale to
     #    fill), so we build a white-on-transparent version (alpha := 1 - lum),
@@ -139,6 +159,19 @@ def rasterize_cell(svg_path, out_png, tmp):
         "-type", "TrueColorAlpha", f"PNG32:{out_png}",
     ])
 
+_SVG2PNG = None
+
+def svg2png_binary():
+    """Build scripts/tools/svg2png.swift once per run; returns the binary."""
+    global _SVG2PNG
+    if _SVG2PNG:
+        return _SVG2PNG
+    src = os.path.join(HERE, "tools", "svg2png.swift")
+    out = os.path.join(tempfile.gettempdir(), "hanabi_svg2png")
+    run(["swiftc", "-O", "-o", out, src])
+    _SVG2PNG = out
+    return out
+
 def alpha_mean(png):
     r = run(["magick", png, "-channel", "A", "-separate",
              "-format", "%[fx:mean]", "info:"])
@@ -157,19 +190,41 @@ def main():
     sheet_w = COLS * CELL
     sheet_h = rows * CELL
 
+    # An icon that is already in the committed atlas, at the same cell, keeps
+    # its committed pixels. Two rasterizers (qlmanage, AppKit) do not
+    # anti-alias identically, and re-rendering every icon to add one would
+    # move every screenshot baseline that shows a sidebar for no change a
+    # reader could see. Only NEW names are rasterized; delete the atlas to
+    # re-render everything.
+    kept = {}
+    if os.path.exists(ATLAS_PNG) and os.path.exists(ATLAS_MAP):
+        with open(ATLAS_MAP) as f:
+            for line in f:
+                if line.startswith("#") or not line.strip():
+                    continue
+                n, x, y, w, h = line.split()
+                kept[n] = (int(x), int(y), int(w), int(h))
+
     cell_pngs = []
     entries = []  # (name, x, y, w, h)
     for idx, (name, lucide) in enumerate(ICONS):
+        col = idx % COLS
+        row = idx // COLS
+        x, y = col * CELL, row * CELL
+        cell = os.path.join(tmp, f"cell_{name}.png")
+        if kept.get(name) == (x, y, CELL, CELL):
+            run(["magick", ATLAS_PNG, "-crop", f"{CELL}x{CELL}+{x}+{y}", "+repage",
+                 "-type", "TrueColorAlpha", f"PNG32:{cell}"])
+            entries.append((name, x, y, CELL, CELL))
+            cell_pngs.append((cell, x, y))
+            print(f"  {name:13s} kept from the committed atlas cell=({x},{y})")
+            continue
         svg = os.path.join(tmp, f"{lucide}.svg")
         fetch(RAW.format(lucide), svg)
-        cell = os.path.join(tmp, f"cell_{name}.png")
         rasterize_cell(svg, cell, tmp)
         am = alpha_mean(cell)
         if am <= 0.0:
             raise RuntimeError(f"BLANK cell for {name} ({lucide}) — alpha mean 0")
-        col = idx % COLS
-        row = idx // COLS
-        x, y = col * CELL, row * CELL
         entries.append((name, x, y, CELL, CELL))
         cell_pngs.append((cell, x, y))
         print(f"  {name:13s} <- {lucide:18s} cell=({x},{y}) alpha_mean={am:.4f}")

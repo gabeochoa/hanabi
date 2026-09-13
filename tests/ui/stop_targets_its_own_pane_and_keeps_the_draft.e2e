@@ -1,0 +1,43 @@
+# In a split, Stop belongs to the pane whose agent is running, and opening a
+# strip chip costs the composer nothing.
+#
+# t9 (running) in the left pane, t2 (waiting on a decision, not running) in the right. The left composer's
+# slot is Stop while its draft is empty; pressing it stops t9 and only t9 --
+# t2 was never running and gets no message. Before that, a draft typed in the
+# left composer survives opening the nodes chip's picker and closing it: the
+# text is still there and the field still takes the caret.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9","t2"],"active_tab":"t9","split_open":true,"split_ratio":0.5,"split_panes":["t9","t2"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t9 HANABI_SPLIT=t2
+require_thread t9
+require_thread t2
+expect_panes t9 t2 0
+expect_backend_state t9 running
+expect_backend_state t2 attention
+
+# The strip's chips open their surfaces without touching the draft.
+click_ui composer_reply_input
+type "keep this"
+wait_frames 6
+expect_input_text composer_reply_input "keep this"
+click_ui composer_nodes
+wait_frames 10
+key ESCAPE
+wait_frames 6
+expect_input_text composer_reply_input "keep this"
+click_ui composer_reply_input
+type " too"
+wait_frames 6
+expect_input_text composer_reply_input "keep this too"
+
+# Clear the draft: the slot is Stop, and it stops the LEFT pane's agent.
+key CMD+A
+key BACKSPACE
+wait_frames 6
+expect_input_text composer_reply_input ""
+click_ui composer_send
+wait_frames 12
+expect_backend_state t9 ready
+expect_backend_state t2 attention
+expect_backend_no_message t2 keep
+expect_panes t9 t2 0

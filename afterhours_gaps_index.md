@@ -26,11 +26,11 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **263** |
-| Distinct numeric gap numbers | **258** (several numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **264** |
+| Distinct numeric gap numbers | **259** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **267** rows, **267** unique identifiers — includes index-only ids with no detailed entry |
-| Standalone live asks | **145** (152 less the ten fixed at 1ac6db2, plus #593–#595) |
+| **Rows in the triage table (§6)** | **268** rows, **268** unique identifiers — includes index-only ids with no detailed entry |
+| Standalone live asks | **146** (152 less the ten fixed at 1ac6db2, plus #593–#596) |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
@@ -857,6 +857,7 @@ correction narrows them rather than closing them.
 | 593 | `System<>`'s six overrides lack `override`; a consumer compiling the library as user code gets 18 warnings per TU | SHARP EDGE | LOW | XS | live · app workaround (every include via `-isystem`) |
 | 594 | No way to drive a LIVE window resize (AppKit's tracking loop) from the library or its e2e runner | MISSING | HIGH | S | live · app driver (`HANABI_RESIZE_DRIVE`) + gate |
 | 595 | The macOS backend paints a live-resize step on the next display-link tick, so applied sizes go unpainted | SHARP EDGE | HIGH | XS | live · app workaround (same-step draw, default on) |
+| 596 | An imm subtree built twice from one call site collides on its ids unless the caller salts `otherID` | SHARP EDGE | MEDIUM | XS | live · app workaround (salted root `mk`) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

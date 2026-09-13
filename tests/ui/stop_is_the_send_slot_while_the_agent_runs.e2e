@@ -1,0 +1,32 @@
+# The composer's one button is Send, or Stop, or wait -- the reference's sendButton.
+# With the agent running and NOTHING staged to send, the slot is Stop: a
+# press sends the bare interrupt and the thread leaves Running. With text
+# staged, the same slot is Send-as-steer, so a reader who has typed a
+# redirect is never one click from killing the run instead.
+#
+# t9 is the mock's running thread; the mock's interrupt turns it Ready.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark"}
+require_thread t9
+wait_frames 14
+expect_backend_state t9 running
+# Typed text: the slot is Send (steer). Nothing is stopped by pressing it
+# with a draft -- the draft goes as a steer instead, which the existing
+# steer script covers; here we only assert the state survives the frame.
+click_ui composer_reply_input
+type "hold on"
+wait_frames 6
+expect_text "Enter to steer"
+expect_backend_state t9 running
+# Clear the draft: the slot becomes Stop.
+key CMD+A
+key BACKSPACE
+wait_frames 6
+expect_input_text composer_reply_input ""
+click_ui composer_send
+wait_frames 12
+expect_backend_state t9 ready
+# Not running any more: typed text is a plain send, not a steer.
+type "x"
+wait_frames 6
+expect_no_text "Enter to steer"

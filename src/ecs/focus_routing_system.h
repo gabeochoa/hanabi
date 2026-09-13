@@ -18,7 +18,7 @@
 namespace ecs {
 
 struct FocusRoutingSystem : afterhours::System<UIContext<InputAction>> {
-    void for_each_with(Entity&, UIContext<InputAction>&, float) override {
+    void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* app = find_singleton<AppComponent>();
         if (app == nullptr) return;
         auto* strip = find_singleton<TabStripComponent>();
@@ -27,6 +27,13 @@ struct FocusRoutingSystem : afterhours::System<UIContext<InputAction>> {
         in.typingLive =
             composer_typing_live(*app, strip != nullptr && strip->menuOpen);
         in.textFieldFocused = any_text_field_focused();
+        // A caret already in a COMPOSER does not withdraw the pane click's
+        // offer: with a composer under each split pane, the caret a pane
+        // click finds is usually the other pane's, and the offer is how it
+        // comes across. Only the OFFER reads this; the typing rule below
+        // keeps the plain "a field is focused", or it would swallow the
+        // keystrokes meant for the field that has the caret.
+        const bool caretInComposer = caret_in_composer(ctx.focus_id);
         in.chatView = app->view == SmartView::Chat;
         in.modifierHeld =
             hanabi::keys::cmd_or_ctrl_down() || hanabi::keys::option_down();
@@ -34,7 +41,8 @@ struct FocusRoutingSystem : afterhours::System<UIContext<InputAction>> {
         const int pending = app->paneFocusPending;
         app->paneFocusPending = -1;
         if (pending >= 0 && pending == std::clamp(app->focusedPane, 0, 1) &&
-            model::pane_click_takes_caret(in))
+            (model::pane_click_takes_caret(in) ||
+             (in.typingLive && in.chatView && caretInComposer)))
             app->request_composer_focus();
 
         if (!model::composer_takes_typing(in)) return;

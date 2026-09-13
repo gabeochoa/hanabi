@@ -33,9 +33,11 @@ wait_frames 20
 # The divider is 5px WIDE and paints a 1px line down its middle. The width is
 # the hit target: a 1px bar is not something a person can grab. Puffin has no
 # 5px rules anywhere, which is why the ink and the target are different sizes.
+# Both panes give the composer row its height now: each pane carries its own
+# composer (the reference draws one per pane), so neither runs to the bottom.
 assert_ui split_left x=280 w=408 h=595
 assert_ui split_divider x=688 w=5 h=693
-assert_ui split_right x=693 w=407 h=693
+assert_ui split_right x=693 w=407 h=595
 
 # Each pane has its own scroll view, and the second one has its own NAME. That
 # is not cosmetic: a scroll view is reachable from outside this app only by
@@ -47,19 +49,21 @@ assert_ui transcript_scroll_2 w=407
 # The keyboard is in the left pane, and the marker says which.
 assert_ui split_focus_edge x=280
 
-# Clicking the reclaimed lower area of the right pane moves focus there.
+# Clicking into the right pane's COMPOSER moves focus there: the caret's
+# pane is the focused pane, and both panes keep their height (each has a
+# composer of its own now, the reference's shape).
 click 900 700
 wait_frames 10
 assert_ui split_focus_edge x=693
-assert_ui split_left h=693
+assert_ui split_left h=595
 assert_ui split_right h=595
 
-# The same reclaimed area on the left moves focus back.
+# The same on the left moves focus back.
 click 400 700
 wait_frames 10
 assert_ui split_focus_edge x=280
 assert_ui split_left h=595
-assert_ui split_right h=693
+assert_ui split_right h=595
 
 # The divider drags, and the panes follow it.
 #

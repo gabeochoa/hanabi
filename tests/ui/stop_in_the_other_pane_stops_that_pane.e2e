@@ -1,0 +1,28 @@
+# Stop belongs to the composer it sits under. With t9 running in the LEFT pane
+# and the RIGHT pane focused, the left composer's slot is Stop (its draft is
+# empty) and pressing it stops t9 and nothing else. A click in a pane focuses
+# that pane, so the left pane is the focused one afterwards -- and the right
+# pane's draft is untouched by any of it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9","t2"],"active_tab":"t9","split_open":true,"split_ratio":0.5,"split_panes":["t9","t2"],"split_focused_pane":1,"theme":"dark"}
+# env: HANABI_OPEN=t9 HANABI_SPLIT=t2
+require_thread t9
+require_thread t2
+expect_panes t9 t2 1
+expect_backend_state t9 running
+expect_backend_state t2 attention
+
+click_ui composer_reply_input
+type "right side note"
+wait_frames 6
+expect_input_text composer_reply_input "right side note"
+
+# The LEFT pane's send slot is Stop; press it from here.
+click_ui composer_send_other
+wait_frames 14
+expect_backend_state t9 ready
+expect_backend_state t2 attention
+expect_panes t9 t2 0
+expect_input_text composer_reply_input_other "right side note"
+expect_input_text composer_reply_input ""
+expect_backend_no_message t2 right side note

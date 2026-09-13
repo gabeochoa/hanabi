@@ -2,7 +2,7 @@
 # env: HANABI_PLAN_DEMO=1
 
 require_thread t2
-expect_text "Plan 2/5"
+expect_text "2 of 5"
 
 click_ui composer_reply_input
 type "keep this draft"

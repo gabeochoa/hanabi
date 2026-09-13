@@ -835,6 +835,20 @@ class MockClient : public Client {
     // settled on (trimmed), so the caller applies the echo rather than its own
     // request. Refusals are real refusals — an empty or over-long title comes
     // back as a failure with the reason, which is what the rename modal shows.
+    bool supports_interrupt() const override { return true; }
+    // The mock's stop: the thread's state leaves Running. Enough for the
+    // composer to show what Stop does and for a script to assert it.
+    Result<std::string> interrupt_session(const std::string& session_id) override {
+        Session* target = find_mutable(session_id);
+        if (!target)
+            return Result<std::string>::failure("no such session: " + session_id);
+        if (target->summary.state != ThreadState::Running &&
+            target->summary.state != ThreadState::Working)
+            return Result<std::string>::failure("nothing is running");
+        target->summary.state = ThreadState::Ready;
+        return Result<std::string>::success("interrupt sent");
+    }
+
     Result<std::string> rename_session(const std::string& session_id,
                                        const std::string& title) override {
         Session* target = find_mutable(session_id);

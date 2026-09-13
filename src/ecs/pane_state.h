@@ -71,6 +71,11 @@ namespace ecs::model {
 inline constexpr std::size_t kMaxPaneStates = 64;
 
 struct PaneState {
+    // The draft the notice row's command slot was last checked against, for
+    // THIS composer: a change here clears a notice this pane raised. It was
+    // one static for the one composer; two composers alternating drafts
+    // cleared each other's notice every frame.
+    std::string lastSlashDraft;
     // ---- The unread divider ------------------------------------------------
     // Computed ONCE per thread and held, because recomputing it every frame
     // deleted the line while the reader was looking at it.

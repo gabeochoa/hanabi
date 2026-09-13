@@ -625,6 +625,24 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.overlay_attach_brakes(r.value);
                     app.overlay_attach_refusals(r.value);
                     app.replace_sessions(std::move(r.value));
+                    // A stop the server took, settled by the list saying the
+                    // thread is no longer running: the open transcript's
+                    // summary adopts that state (the stream would carry a
+                    // run_finished frame for the same fact on a live backend).
+                    if (!app.interruptSettlingId.empty()) {
+                        for (const api::SessionSummary& row : app.sessions) {
+                            if (row.id != app.interruptSettlingId) continue;
+                            if (row.state == api::ThreadState::Running ||
+                                row.state == api::ThreadState::Working)
+                                break;
+                            for (Pane& p : app.panes)
+                                if (p.openSession &&
+                                    p.openSession->summary.id == row.id)
+                                    p.openSession->summary.state = row.state;
+                            app.interruptSettlingId.clear();
+                            break;
+                        }
+                    }
                     app.listState = LoadState::Loaded;
                     app.listError.clear();
                     app.liveListSeen = true;
@@ -959,6 +977,36 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 }
             } else {
                 app.nodeAttachError = r.error;
+            }
+        }
+
+        // --- Stop the running turn (composer Stop) ------------------------
+        // Sent once; the run's end arrives on the live stream like any other
+        // frame, so nothing is applied here except the pending flag and, on a
+        // refusal, the composer notice.
+        if (!app.requestInterruptId.empty() && !app.interruptFuture.valid()) {
+            const std::string id = app.requestInterruptId;
+            app.requestInterruptId.clear();
+            app.interruptPending = true;
+            app.interruptSettlingId = id;
+            app.interruptPane = app.requestInterruptPane;
+            std::shared_ptr<api::Client> c = app.client;
+            app.interruptFuture = std::async(std::launch::async, [c, id] {
+                return c->interrupt_session(id);
+            });
+        }
+        if (app.interruptFuture.valid() &&
+            app.interruptFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.interruptFuture.get();
+            app.interruptPending = false;
+            // The notice row's `command` slot: an answer to something the
+            // reader just did at the composer, dismissible (composer_notice.h).
+            if (!r.ok) {
+                app.slashNotice = "Stop: " + r.error;
+                app.slashNoticePane = app.interruptPane;
+            } else {
+                app.requestListRefresh = true;
             }
         }
 

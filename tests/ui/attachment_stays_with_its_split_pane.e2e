@@ -1,15 +1,27 @@
-# A staged file belongs to the focused pane, even when both panes show live
-# composers. Focusing the other pane must not borrow it.
+# A staged file belongs to the pane it was dropped on, and stays under that
+# pane's own composer when focus moves to the other one. Both panes show
+# their composers now (the reference draws one per pane), so "stays" is
+# visible: the chip is in the left pane's strip, the right pane's strip has
+# no chips, and focusing the right pane does not borrow it.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
 # env: HANABI_DROP_TEST=tests/fixtures/attachments/sample.md HANABI_SPLIT=t6
 
 require_thread t2
 expect_text "sample.md"
+assert_ui composer_attachments hidden=false
 
+# Focus the right pane: the chip is still drawn, under the LEFT pane's
+# composer (now the `_other` one); the active composer has none.
 click 850 350
 wait_frames 10
-expect_no_text "sample.md"
+expect_panes t2 t6 1
+expect_text "sample.md"
+assert_ui composer_attachments_other hidden=false
+expect_no_ui composer_attachments
 
+# And back.
 click 420 350
 wait_frames 10
-expect_text "sample.md"
+expect_panes t2 t6 0
+assert_ui composer_attachments hidden=false
+expect_no_ui composer_attachments_other

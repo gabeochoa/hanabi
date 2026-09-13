@@ -63,6 +63,8 @@ class AgentcloudClient : public Client {
     // per session rather than per client: this says the verb exists, and
     // rename_session re-checks the hello it actually got before sending.
     bool supports_rename() const override { return ready(); }
+    bool supports_interrupt() const override { return ready(); }
+    Result<std::string> interrupt_session(const std::string& session_id) override;
     Result<std::string> rename_session(const std::string& session_id,
                                        const std::string& title) override;
 

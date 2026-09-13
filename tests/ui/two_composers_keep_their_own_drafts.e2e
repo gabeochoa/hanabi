@@ -1,0 +1,52 @@
+# A split has TWO composers, one under each pane (the reference draws one per
+# pane), and each keeps its own draft and sends to its own thread.
+#
+# The focused pane's composer is the active one and answers to the plain
+# names; the other pane's carries `_other`. Clicking the other field focuses
+# that pane, so the names swap and "composer_reply_input" is always the field
+# with the caret. Typing in one never reaches the other, a send from the right
+# pane lands on the right pane's thread only, and the left draft is still
+# there afterwards.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t6
+require_thread t2
+require_thread t6
+expect_panes t2 t6 0
+assert_ui composer_reply_input hidden=false
+assert_ui composer_reply_input_other hidden=false
+
+click_ui composer_reply_input
+type "left draft"
+wait_frames 6
+expect_input_text composer_reply_input "left draft"
+expect_input_text composer_reply_input_other ""
+
+# The other field takes the caret and the pane; the names follow the caret.
+click_ui composer_reply_input_other
+wait_frames 8
+expect_panes t2 t6 1
+expect_input_text composer_reply_input ""
+expect_input_text composer_reply_input_other "left draft"
+type "right draft"
+wait_frames 6
+expect_input_text composer_reply_input "right draft"
+expect_input_text composer_reply_input_other "left draft"
+
+# Enter sends the RIGHT pane's draft to the RIGHT pane's thread, and only there.
+key ENTER
+wait_frames 60
+expect_backend_message t6 right draft
+expect_backend_no_message t2 right draft
+expect_input_text composer_reply_input ""
+expect_input_text composer_reply_input_other "left draft"
+
+# Back to the left: its draft is where it was, and it goes to t2.
+click_ui composer_reply_input_other
+wait_frames 8
+expect_panes t2 t6 0
+expect_input_text composer_reply_input "left draft"
+key ENTER
+wait_frames 60
+expect_backend_message t2 left draft
+expect_backend_no_message t6 left draft

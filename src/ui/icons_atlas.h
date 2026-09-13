@@ -9,10 +9,10 @@ namespace hanabi::icons {
 struct AtlasEntry { std::string_view name; float x, y, w, h; };
 
 inline constexpr int kSheetWidth  = 128;
-inline constexpr int kSheetHeight = 192;
+inline constexpr int kSheetHeight = 224;
 inline constexpr int kCell        = 32;
 
-inline constexpr std::array<AtlasEntry, 23> kAtlas = {{
+inline constexpr std::array<AtlasEntry, 28> kAtlas = {{
     {"brand", 0.f, 0.f, 32.f, 32.f},
     {"gear", 32.f, 0.f, 32.f, 32.f},
     {"plus", 64.f, 0.f, 32.f, 32.f},
@@ -36,6 +36,11 @@ inline constexpr std::array<AtlasEntry, 23> kAtlas = {{
     {"pin", 0.f, 160.f, 32.f, 32.f},
     {"panel_left", 32.f, 160.f, 32.f, 32.f},
     {"sliders", 64.f, 160.f, 32.f, 32.f},
+    {"subagents", 96.f, 160.f, 32.f, 32.f},
+    {"node", 0.f, 192.f, 32.f, 32.f},
+    {"skills", 32.f, 192.f, 32.f, 32.f},
+    {"checklist", 64.f, 192.f, 32.f, 32.f},
+    {"paperclip", 96.f, 192.f, 32.f, 32.f},
 }};
 
 } // namespace hanabi::icons
