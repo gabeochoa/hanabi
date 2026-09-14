@@ -1,0 +1,54 @@
+# INJECTION ONLY (not a real-input script) -- this proves the app's request
+# -> result -> intent path with a result INJECTED into the adapter's slot
+# (native_menu_inject), exactly as an NSMenuItem target would write it. It
+# is NOT evidence of AppKit's menu; the real-input scripts beside this one
+# are. (It asserts `busy`/`idle` -- ownership -- and the app's observable
+# state; never `open`, which only AppKit's menuWillOpen: can make true.)
+#
+# What it proves that the real-input scripts cannot cheaply:
+#   (1) a dismissal delivered through the slot closes with no intent;
+#   (2) a pick whose row is NOT in the snapshot (row 40; the snapshot has 9)
+#       resolves to no action id and is REFUSED -- the menu closes and
+#       nothing toggles -- rather than being applied to whatever this
+#       frame's list holds;
+#   (3) a pick that IS in the snapshot (row 8 = "mute") lands as the intent.
+# Each menu here is opened by a real right-click, so AppKit's menu IS on
+# screen while the result is injected; the injection ends it (cancelTracking)
+# the way an item's action would. A second right-click while a menu tracks
+# is NOT a replacement -- it is a click outside the menu, which AppKit
+# dismisses (the reference's behaviour); so each case opens on a clean
+# state after the previous one closed.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+# (1) dismissal through the slot: open, inject dismiss, nothing happens.
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject dismiss
+wait_frames 8
+native_menu_expect idle
+expect_no_ui row_menu_native_eater
+expect_no_text "Session muted"
+# (2) out-of-snapshot pick refused: row 40 is nothing; menu closes, no toggle.
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject 40
+wait_frames 10
+native_menu_expect idle
+expect_no_ui row_menu_native_eater
+expect_no_text "Session muted"
+expect_no_text "Session archived"
+# (3) in-snapshot pick lands: row 8 is "mute" for t6; the intent applies.
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject 8
+wait_frames 10
+native_menu_expect idle
+expect_text "Session muted"
+native_menu_expect drained

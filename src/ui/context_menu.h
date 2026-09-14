@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,6 +14,7 @@
 #include "control_state.h"
 #include "div.h"
 #include "menu_keys.h"
+#include "../native_menu.h"
 #include "overlay_lifecycle.h"
 #include "secondary_surface.h"
 #include "theme.h"
@@ -35,6 +39,14 @@ struct MenuItem {
     bool destructive = false;
     bool disabled = false;
     std::vector<MenuLeaf> children;
+    // What picking this row MEANS, as a stable name ("archive", "mute",
+    // "open:tab"), decided by the caller when it builds the item. A result
+    // that arrives a frame or more after the menu opened (the native menu
+    // closes on its own run-loop turn) is resolved by this id against the
+    // snapshot the menu was opened with -- never by a row index into a
+    // vector the caller may have rebuilt since. Empty = the row's index is
+    // its only identity (the drawn menu, same frame).
+    std::string action_id;
     // A group boundary, drawn as a hairline in a row slot of its own: no
     // label, no press, skipped by the keyboard (it is `disabled` to the
     // cursor), not announced. The reference's menus separate their groups
@@ -306,6 +318,132 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
     }
 
     return out;
+}
+
+// ---- the native arm -------------------------------------------------------
+//
+// A menu that was OPENED as a native NSMenu (hanabi::native_menu) is not
+// drawn by the app; the caller still runs every frame while its open-state
+// says so, and this shim gives it the same MenuResult the drawn menu would:
+// nothing until the native menu closes, then the pick or the dismissal, once.
+// The caller keeps its snapshot (`NativeMenuOpen`) in its own open-state, so
+// a result is applied to the items the menu was OPENED with, by action_id.
+//
+// While the native menu tracks, the app still draws the drawn menu's
+// full-window transparent eater under it: afterhours has no notion of an
+// external tracker owning the pointer (recorded in afterhours_gaps.md), so
+// this is how nothing underneath registers hover or press. The eater's own
+// press is ignored here -- AppKit decides dismissal, not the eater -- it
+// only swallows.
+// The caller's record of an open native menu (generation, scope, the
+// snapshot of action ids by row); see native_menu.h.
+using NativeMenuOpen = hanabi::native_menu::Open;
+
+// Focus return on close (see native_menu::focus_to_restore): AppKit handing
+// key status back to the view does not touch the UI's focus_id, and a press
+// on the eater moves focus onto it -- so the element focused when the menu
+// opened is restored once, if it still exists and no menu action moved
+// focus elsewhere.
+template <typename Ctx>
+void native_menu_restore_focus(Ctx& ctx, const hanabi::native_menu::Open& open) {
+    const long long now = static_cast<long long>(ctx.focus_id);
+    const bool exists =
+        open.focus_before >= 0 &&
+        afterhours::ui::UICollectionHolder::getEntityForID(
+            static_cast<afterhours::EntityID>(open.focus_before))
+            .valid();
+    const long long to = hanabi::native_menu::focus_to_restore(
+        open.focus_before, open.eater_id, now, static_cast<long long>(ctx.ROOT), exists);
+    if (to >= 0) ctx.set_focus(static_cast<afterhours::EntityID>(to));
+}
+
+// The result the native menu has for `open`, if it closed; the eater is drawn
+// so the pointer underneath is owned. `dismissed` also fires when the menu's
+// scope no longer matches `expectScope` (the target changed under it): the
+// caller cancels and closes rather than applying a pick to a new target.
+template <typename Ctx>
+MenuResult native_menu_frame(Ctx& ctx, afterhours::Entity& root, int baseKey,
+                             const char* debugName, NativeMenuOpen& open,
+                             std::string_view expectScope,
+                             int layer = kContextMenuLayer) {
+    using afterhours::ui::imm::button;
+    using afterhours::ui::imm::mk;
+    MenuResult out;
+    if (!open.open()) return out;
+    // Ownership of the pointer while AppKit tracks: swallow, never decide.
+    auto eater = button(ctx, mk(root, baseKey),
+           ComponentConfig{}
+               .with_label(" ")
+               .with_size(ComponentSize{pixels(ctx.screen_width), pixels(ctx.screen_height)})
+               .with_absolute_position()
+               .with_translate(0.0f, 0.0f)
+               .with_transparent_bg()
+               .with_custom_hover_bg(afterhours::Color{0, 0, 0, 0})
+               .with_click_activation(ClickActivationMode::Press)
+               .with_skip_tabbing(true)  // owns the pointer, never the keyboard focus
+               .with_roundness(0.0f)
+               .with_render_layer(layer - 1)
+               .with_debug_name(std::string(debugName) + "_native_eater"));
+    open.eater_id = eater.ent().id;
+    ctx.set_hot(ctx.ROOT);  // nothing underneath is hot while the menu owns input
+
+    if (open.scope != expectScope) {
+        if (std::getenv("HANABI_NATIVE_MENU_LOG"))
+            std::fprintf(stderr, "[native-menu] scope changed under %s (now %.*s): cancelling\n",
+                         open.scope.c_str(), static_cast<int>(expectScope.size()),
+                         expectScope.data());
+        hanabi::native_menu::cancel(open.generation);
+        out.dismissed = true;
+        out.cancelled = true;
+        native_menu_restore_focus(ctx, open);
+        return out;
+    }
+    hanabi::native_menu::Result r;
+    if (!hanabi::native_menu::take_result(open.generation, &r)) return out;
+    if (r.dismissed) {
+        out.dismissed = true;
+        out.cancelled = true;
+        native_menu_restore_focus(ctx, open);
+        return out;
+    }
+    out.activated = r.row;
+    out.activated_child = r.child;
+    // A pick: the caller's action may set its own focus (rename opens a
+    // modal, say) AFTER this returns, so the restore happens first and that
+    // later request wins by ordering.
+    native_menu_restore_focus(ctx, open);
+    return out;
+}
+
+// Open a native menu for `items`, recording the snapshot in `open`. Returns
+// false (and leaves `open` empty) when the native arm is unavailable or a
+// menu is already up -- the caller then draws its own menu as before.
+inline bool native_menu_open(NativeMenuOpen& open, std::string scope, const char* debugName,
+                             const std::vector<MenuItem>& items, float contentX,
+                             float contentY, long long focusBefore = -1) {
+    if (!hanabi::native_menu::available()) return false;
+    hanabi::native_menu::Request req;
+    req.scope = scope;
+    req.debug_name = debugName;
+    req.items.reserve(items.size());
+    for (const MenuItem& m : items) {  // copied, flattened to the adapter's type
+        hanabi::native_menu::Item it{m.label, m.debug_name, m.disabled, m.destructive,
+                                     m.separator, {}};
+        for (const MenuLeaf& c : m.children)
+            it.children.push_back({c.label, c.debug_name, c.disabled, c.destructive, false, {}});
+        req.items.push_back(std::move(it));
+    }
+    req.content_x = contentX;
+    req.content_y = contentY;
+    const std::uint64_t gen = hanabi::native_menu::request(std::move(req));
+    if (gen == 0) return false;
+    open.generation = gen;
+    open.scope = std::move(scope);
+    open.action_ids.clear();
+    for (const MenuItem& m : items) open.action_ids.push_back(m.action_id);
+    open.focus_before = focusBefore;
+    open.eater_id = -1;
+    return true;
 }
 
 }  // namespace hanabi::surface

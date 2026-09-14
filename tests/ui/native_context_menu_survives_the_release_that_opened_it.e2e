@@ -1,0 +1,42 @@
+# NATIVE ARM, real input: the two ways a right-click's RELEASE can meet the
+# menu, and the menu must open and HOLD through both.
+#
+# (1) Delayed release -- the realistic gesture: right button down on the row,
+# the app queues the menu and AppKit pops it on the next run-loop turn, the
+# button is still down, and the release arrives INSIDE tracking, stationary.
+# Opened with the press (popUpContextMenu:withEvent:forView:) AppKit treats
+# that release as the end of the opening press: the menu stays up. (The
+# programmatic popUpMenuPositioningItem: read the same release as "released
+# outside" and dismissed -- measured, ~20 driven frames in.)
+# (2) Fast click: release on the next frame, before the menu tracks; the
+# menu opens afterwards and must hold just the same.
+# Each is followed by a bracketed heartbeat and a real Escape.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+# (1) delayed release: default native_right_click_ui (down, two frames, up)
+native_right_click_ui tab_t6
+wait_frames 8
+native_menu_expect open
+wait_frames 12
+native_menu_expect open
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+expect_open t2
+# (2) fast click: down, next frame up, then the menu appears and holds
+native_right_click_ui_quick tab_t6
+wait_frames 8
+native_menu_expect open
+wait_frames 12
+native_menu_expect open
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+expect_open t2
+assert_ui tab_t6 hidden=false

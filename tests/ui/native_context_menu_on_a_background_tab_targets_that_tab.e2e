@@ -1,0 +1,39 @@
+# NATIVE ARM, real input (no injection), on a BACKGROUND target: two tabs open, t2 active; a
+# right-click on the inactive t6 tab opens the tab menu as an NSMenu scoped
+# to THAT tab; Escape closes it; the active tab is unchanged. Then the same on
+# t6 with a keyboard pick of "Close Tab" (first row: Return with nothing
+# highlighted picks nothing in AppKit, so Down then Return): t6 closes, t2
+# stays active. The intent is resolved by action id against the snapshot
+# scoped "tab:<t6's entity id>", so it cannot land on the active tab.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+wait_frames 10
+expect_open t2
+native_mode on
+wait_frames 4
+native_right_click_ui tab_t6
+wait_frames 6
+native_menu_expect open
+native_menu_expect frames_driven>=4
+expect_no_ui tab_menu_title
+native_key 53
+wait_frames 12
+native_menu_expect closed
+expect_open t2
+assert_ui tab_t6 hidden=false
+# Keyboard pick of Close Tab on the background tab.
+native_right_click_ui tab_t6
+wait_frames 6
+native_menu_expect open
+native_menu_expect frames_driven>=4
+native_key 125
+# Bracketed heartbeat: open before and after the wait.
+wait_frames 8
+native_menu_expect open
+native_menu_expect frames_driven>=4
+native_key 36
+wait_frames 14
+native_menu_expect closed
+expect_no_ui tab_t6
+expect_open t2

@@ -14091,3 +14091,65 @@ across a real restart by `scripts/saved_view_restart.sh`. Still open on the
 shelf: Rename / Delete / Restore Default Views on the row menu.
 
 ---
+
+### #601 — the UI plugin has no notion of an external tracker owning the pointer: while a native menu (NSMenu) tracks, hot/active are last frame's and a press underneath still registers
+
+**Class:** library model (`plugins/ui/context.h` hot/active, `plugins/ui/systems.h`
+hit-testing; d90db15). The UI resolves `hot_id` / `active_id` from the pointer
+it reads each frame; there is no way to tell it "input belongs to someone else
+for a while". On macOS, `[NSMenu popUpMenuPositioningItem:]` takes the pointer
+into a nested run loop in NSEventTrackingRunLoopMode. MTKView's display link is
+NOT serviced in that mode (measured on the first windowed run: the app's last
+frame was the one that popped the menu, and nothing advanced until a watchdog
+killed it), so without help the app freezes for the menu's duration; with the
+app driving frames itself from a tracking-mode timer, the UI keeps computing
+hot/active from a pointer that AppKit owns. The menu's own anti-aliasing, keyboard, and tracking
+are AppKit's and cannot be reproduced in the drawn menu (sample_count = 1 since
+40cd028); the only route to the reference's menu appearance and behaviour is
+the native menu, and the library offers no seam for it.
+
+**Cost.** Without a workaround: a click that closes the NSMenu by clicking
+outside also lands on whatever hanabi widget is under it (AppKit consumes the
+mouse-up, sokol sees the press); a row under the menu shows hover.
+
+**Reproducer.** Any app widget under an NSMenu popped from a sokol frame's
+post-frame hook: hover the widget through the menu; click outside the menu on
+a button: the button's press fires.
+
+**Workaround (hanabi, `surface::native_menu_frame` in `src/ui/context_menu.h`).**
+While the native menu is open the app draws the drawn menu's full-window
+transparent eater (a Press-activated button at the menu's layer minus one)
+and sets `ctx.set_hot(ctx.ROOT)` each frame, so nothing underneath is hot or
+pressed; the eater's own press is not read as a dismissal — AppKit's
+`menuDidClose:` is. The pop-up itself never runs inside the frame:
+`native_menu::pump_after_frame()` (main.cpp, after `resize_drive::frame_end`)
+hands the copied request to `dispatch_async(main queue)` so the nested loop
+starts on the next run-loop turn, outside `drawRect`; while the menu is up an
+NSTimer in NSEventTrackingRunLoopMode drives one frame per tick via
+`metal_drive_one_frame()` (sokol_impl.mm, the live-resize sync draw). What the
+library would need: a `ctx.pointer_owned_externally` flag the hit-test honours,
+and a backend hook to drive a frame from a foreign run-loop mode.
+
+**Hanabi reference.** `src/native_menu.h` / `src/native_menu.mm` (adapter), `src/ui/context_menu.h`
+(`native_menu_frame`, `native_menu_open`, `MenuItem::action_id`),
+`src/ecs/sidebar_system.h` / `src/ecs/tab_bar_system.h` (the three call sites),
+tests `tests/unit/test_native_menu.cpp` (routing), `test_native_menu_snapshot.cpp`
+(action identity), `tests/ui/native_context_menu_opens_as_an_nsmenu_and_escape_closes_it.e2e`,
+`tests/ui/native_context_menu_picks_by_keyboard_and_the_intent_lands.e2e`,
+`tests/ui/native_context_menu_on_a_background_tab_targets_that_tab.e2e`,
+`tests/ui/native_context_menu_escape_returns_focus_and_the_next_key_types.e2e`,
+`tests/ui/native_context_menu_survives_the_release_that_opened_it.e2e` (real input, windowed).
+
+**Measured since the draft (2026-09-14, windowed runs on this Mac).** Frame
+drive from an NSTimer in NSEventTrackingRunLoopMode: 18-58 app frames per
+tracked menu. The right-down must be handed to AppKit
+(`popUpContextMenu:withEvent:`) for a stationary release to keep the menu up;
+the release AppKit consumes must be reported back to the toolkit or the next
+right-click never reads as a press. The toolkit's echo of the same key events
+(arrows / Return / Escape as menu intents for the DRAWN arm) must be drained
+while a native menu tracks. Five real-input scripts pass with all three;
+authored by the theme lane, run and measured here.
+
+CLASS: WORKAROUND (app-side adapter); the library keeps no "external tracker
+owns input" state.
+

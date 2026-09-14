@@ -12,6 +12,7 @@
 #include <array>
 #include <bitset>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <string>
@@ -327,6 +328,32 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 if (afterhours::ui::is_mouse_inside(
                         ctx.mouse.pos,
                         RectangleType{hitX, tabY, hitR - hitX, tabH})) {
+                    // A repeat press on the SAME tab while its native menu
+                    // tracks is not a re-open (AppKit has the pointer; the
+                    // press edge sokol sees is the one that opened it, or a
+                    // release/press pair it observed late) -- leave the menu.
+                    const auto pressedTab = EntityHelper::getEntityForID(strip.tabOrder[i]);
+                    const std::string pressedScope =
+                        pressedTab.valid() && pressedTab->has<Tab>()
+                            ? "tab:" + pressedTab->get<Tab>().sessionId
+                            : std::string();
+                    if (strip.nativeMenu.open() && !pressedScope.empty() &&
+                        strip.nativeMenu.scope == pressedScope) {
+                        if (std::getenv("HANABI_NATIVE_MENU_LOG"))
+                            std::fprintf(stderr, "[native-menu] tab right-press repeated on %s while tracking: ignored\n",
+                                         strip.nativeMenu.scope.c_str());
+                        break;
+                    }
+                    // A re-open on ANOTHER tab while a native menu tracks:
+                    // cancel the old one; its close is a stale result.
+                    if (strip.nativeMenu.open()) {
+                        if (std::getenv("HANABI_NATIVE_MENU_LOG"))
+                            std::fprintf(stderr, "[native-menu] tab menu re-opened on another tab: cancelling %s\n",
+                                         strip.nativeMenu.scope.c_str());
+                        hanabi::native_menu::cancel(strip.nativeMenu.generation);
+                    }
+                    strip.nativeMenu.clear();
+                    strip.menuNativeTried = false;
                     strip.menuOpen = true;
                     strip.menuTabId = strip.tabOrder[i];
                     strip.menuX = ctx.mouse.pos.x;
@@ -879,9 +906,17 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         };
         std::vector<hanabi::surface::MenuItem> items;
         std::vector<Act> actions;
+        // The action id is the debug name minus its "tab_menu_" prefix, with
+        // a toggle's DIRECTION spelled out ("pin" / "unpin", "keep" /
+        // "unkeep"): the native menu's pick is resolved by id against the
+        // snapshot it opened with, so a Pin picked under the old state cannot
+        // unpin a tab someone pinned meanwhile (see render_row_menu).
         const auto add = [&](const char* label, const char* name, Act act,
-                             bool disabled = false, bool destructive = false) {
-            items.push_back({label, name, destructive, disabled});
+                             bool disabled = false, bool destructive = false,
+                             const char* actionId = nullptr) {
+            hanabi::surface::MenuItem m{label, name, destructive, disabled};
+            m.action_id = actionId != nullptr ? actionId : std::string(name).substr(9);
+            items.push_back(std::move(m));
             actions.push_back(act);
         };
         const std::size_t others = model::closable_others(strip, keepId);
@@ -899,7 +934,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // the session block. It does not say "Pin" on purpose: Pin is
             // the thread word, and a surface can never reach the shelf.
             add(tab.pinned ? "Stop Keeping Open" : "Keep Tab Open", "tab_menu_keep",
-                Pin);
+                Pin, false, false, tab.pinned ? "unkeep" : "keep");
         } else {
             add("Rename\xe2\x80\xa6", "tab_menu_rename", Rename,
                 !(app.client && app.client->supports_rename()));
@@ -907,21 +942,51 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             add("Copy Weblink", "tab_menu_copy", CopyLink);
             add("Copy Session ID", "tab_menu_copy_id", CopyId);
             add("Open in Web", "tab_menu_open_web", OpenWeb);
-            add(tab.pinned ? "Unpin" : "Pin", "tab_menu_pin", Pin);
+            add(tab.pinned ? "Unpin" : "Pin", "tab_menu_pin", Pin, false, false,
+                tab.pinned ? "unpin" : "pin");
             add("Open in split", "tab_menu_split", Split);
         }
 
         hanabi::surface::MenuMetrics metrics;
         metrics.width = hanabi::surface::kContextMenuW;
         metrics.header_h = 0.0f;
+        // Taken on BOTH arms: on the drawn arm they drive the cursor; on the
+        // native arm AppKit owns the keyboard and the intents are discarded
+        // (see SidebarSystem::render_row_menu).
         const hanabi::surface::MenuKeys keys = take_menu_keys(app);
-        const auto result = hanabi::surface::context_menu(
-            ctx, uiRoot, 966, metrics, strip.menuX, strip.menuY, "", "tab_menu",
-            items, app.menuCursor, keys);
+        const std::string scope = "tab:" + keepId;
+        hanabi::surface::MenuResult result;
+        std::string pickedAction;
+        if (!strip.menuNativeTried) {
+            strip.menuNativeTried = true;
+            hanabi::surface::native_menu_open(strip.nativeMenu, scope, "tab_menu", items,
+                                              strip.menuX, strip.menuY,
+                                              static_cast<long long>(ctx.focus_id));
+        }
+        if (strip.nativeMenu.open()) {
+            result = hanabi::surface::native_menu_frame(ctx, uiRoot, 966, "tab_menu",
+                                                        strip.nativeMenu, scope);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = strip.nativeMenu.action_of(result.activated);
+        } else {
+            result = hanabi::surface::context_menu(
+                ctx, uiRoot, 966, metrics, strip.menuX, strip.menuY, "", "tab_menu",
+                items, app.menuCursor, keys);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = items[result.activated].action_id;
+        }
 
         bool clickedItem = false;
         if (result.activated != hanabi::surface::kNoMenuRow) {
-            switch (actions[result.activated]) {
+            std::size_t row = hanabi::surface::kNoMenuRow;
+            for (std::size_t i = 0; i < items.size(); ++i)
+                if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
+            if (row == hanabi::surface::kNoMenuRow) {
+                strip.close_menu();
+                app.menuCursor = {};
+                return;
+            }
+            switch (actions[row]) {
                 case CloseTab: {
                     for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
                         if (strip.tabOrder[i] != tabEntity.id) continue;

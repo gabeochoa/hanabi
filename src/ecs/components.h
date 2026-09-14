@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -20,6 +22,7 @@
 #include "../api/outbox.h"
 #include "../settings.h"
 #include "../search/find_memo.h"
+#include "../native_menu.h"
 #include "../ui/menu_keys.h"
 #include "ask_card.h"
 #include "composer_escape.h"
@@ -1298,6 +1301,13 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string rowMenuViewId;
     float rowMenuX = 0.0f;
     float rowMenuY = 0.0f;
+    // The native arm's state for the row/view menu: whether this opening has
+    // asked AppKit yet (once per opening), and the snapshot + generation of
+    // the NSMenu if it did. Cleared with the menu; a close while AppKit still
+    // tracks cancels the NSMenu.
+    bool rowMenuNativeTried = false;
+    std::string rowMenuNativeScope;  // the opening the native state belongs to
+    hanabi::native_menu::Open nativeRowMenu;
     void open_view_menu(std::string viewId, float x, float y) {
         rowMenuOpen = true;
         rowMenuSessionId.clear();
@@ -1305,12 +1315,24 @@ struct AppComponent : public afterhours::BaseComponent {
         rowMenuX = x;
         rowMenuY = y;
         menuCursor = {};
+        rowMenuNativeTried = false;
+        rowMenuNativeScope.clear();
+        nativeRowMenu.clear();
     }
     void close_row_menu() {
         rowMenuOpen = false;
         rowMenuSessionId.clear();
         rowMenuViewId.clear();
         menuCursor = {};
+        if (nativeRowMenu.open()) {
+            if (std::getenv("HANABI_NATIVE_MENU_LOG"))
+                std::fprintf(stderr, "[native-menu] close_row_menu while native %s tracks: cancelling\n",
+                             nativeRowMenu.scope.c_str());
+            hanabi::native_menu::cancel(nativeRowMenu.generation);
+        }
+        rowMenuNativeTried = false;
+        rowMenuNativeScope.clear();
+        nativeRowMenu.clear();
     }
 
     // ==== Toast (a transient bar with one action) ==========================
@@ -2031,9 +2053,20 @@ struct TabStripComponent : public afterhours::BaseComponent {
         std::numeric_limits<afterhours::EntityID>::max();
     float menuX = 0.0f;         // cursor x at right-click (menu top-left)
     float menuY = 0.0f;         // cursor y at right-click
+    // The native arm's state for this menu (see AppComponent::nativeRowMenu).
+    bool menuNativeTried = false;
+    hanabi::native_menu::Open nativeMenu;
     void close_menu() {
         menuOpen = false;
         menuTabId = std::numeric_limits<afterhours::EntityID>::max();
+        if (nativeMenu.open()) {
+            if (std::getenv("HANABI_NATIVE_MENU_LOG"))
+                std::fprintf(stderr, "[native-menu] tab close_menu while native %s tracks: cancelling\n",
+                             nativeMenu.scope.c_str());
+            hanabi::native_menu::cancel(nativeMenu.generation);
+        }
+        menuNativeTried = false;
+        nativeMenu.clear();
     }
 };
 

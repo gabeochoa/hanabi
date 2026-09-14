@@ -63,6 +63,28 @@ extern "C" void metal_mark_frame_begin(void) { g_hanabi_in_frame.store(true); }
 extern "C" void metal_mark_frame_end(void) { g_hanabi_in_frame.store(false); }
 extern "C" unsigned metal_sync_draw_count(void) { return g_hanabi_sync_draws.load(); }
 
+// Drive ONE app frame synchronously -- the same `[MTKView draw]` the live
+// resize path uses when the display link is starved. Returns 1 when a frame
+// ran, 0 when none could (no window / not an MTKView / a frame is already in
+// progress). The native context menu's tracking loop (AppKit's
+// NSEventTrackingRunLoopMode) does not service the display link, so the
+// menu adapter calls this from a run-loop timer in that mode to keep the app
+// rendering while a menu is up.
+extern "C" int metal_drive_one_frame(void) {
+    if (g_hanabi_in_frame.load()) return 0;
+    NSWindow* win = [NSApp mainWindow];
+    if (win == nil) win = [NSApp keyWindow];
+    if (win == nil)
+        for (NSWindow* c in [NSApp windows])
+            if ([c isVisible]) { win = c; break; }
+    if (win == nil) return 0;
+    NSView* view = [win contentView];
+    if (![view isKindOfClass:[MTKView class]]) return 0;
+    g_hanabi_sync_draws.fetch_add(1);
+    [(MTKView*)view draw];
+    return 1;
+}
+
 @implementation HanabiWindowActivityObserver
 - (void)resized:(NSNotification*)note {
     g_hanabi_window_resize.store(true);

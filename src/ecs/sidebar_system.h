@@ -756,6 +756,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_row_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
                          AppComponent& app) {
         if (!app.rowMenuOpen) return;
+        // A new OPENING (a different target than the one the native state
+        // was built for) resets the native arm, whichever site set
+        // rowMenuOpen -- the sidebar row, the home card, the view shelf.
+        {
+            const std::string want = !app.rowMenuViewId.empty()
+                                         ? "view:" + app.rowMenuViewId
+                                         : "session:" + app.rowMenuSessionId;
+            if (app.rowMenuNativeScope != want) {
+                if (app.nativeRowMenu.open())
+                    hanabi::native_menu::cancel(app.nativeRowMenu.generation);
+                app.nativeRowMenu.clear();
+                app.rowMenuNativeTried = false;
+                app.rowMenuNativeScope = want;
+            }
+        }
         if (!app.rowMenuViewId.empty()) {
             render_view_menu(ctx, uiRoot, app);
             return;
@@ -780,51 +795,106 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         };
         std::vector<Action> actions;
         std::vector<hanabi::surface::MenuItem> items;
+        // Every row carries a stable action_id: the native menu's pick lands a
+        // frame or more after this list was built, and is resolved against
+        // the SNAPSHOT the menu opened with, by id -- never by index into
+        // this frame's vector. A toggle's id names its DIRECTION ("archive" /
+        // "unarchive"), so a pick made under the old state is refused if the
+        // state changed underneath rather than inverting the new one.
         const auto add = [&](const char* label, const char* name, Action a,
-                             bool disabled = false, bool destructive = false) {
-            items.push_back({label, name, destructive, disabled});
+                             const char* actionId, bool disabled = false,
+                             bool destructive = false) {
+            hanabi::surface::MenuItem m{label, name, destructive, disabled};
+            m.action_id = actionId;
+            items.push_back(std::move(m));
             actions.push_back(a);
         };
-        items.push_back({"Open\xe2\x80\xa6",
-                         "row_menu_open",
-                         false,
-                         false,
-                         {{"Open in a tab", "row_menu_open_tab", false, false},
-                          {"Open in split", "row_menu_open_split", false,
-                           false}}});
-        actions.push_back(Action::Open);
-        add("Rename\xe2\x80\xa6", "row_menu_rename", Action::Rename,
+        {
+            hanabi::surface::MenuItem open{"Open\xe2\x80\xa6",
+                                           "row_menu_open",
+                                           false,
+                                           false,
+                                           {{"Open in a tab", "row_menu_open_tab", false, false},
+                                            {"Open in split", "row_menu_open_split", false,
+                                             false}}};
+            open.action_id = "open";
+            items.push_back(std::move(open));
+            actions.push_back(Action::Open);
+        }
+        add("Rename\xe2\x80\xa6", "row_menu_rename", Action::Rename, "rename",
             !(app.client && app.client->supports_rename()));
-        add("Copy title", "row_menu_copy_title", Action::CopyTitle,
+        add("Copy title", "row_menu_copy_title", Action::CopyTitle, "copy_title",
             target->title.empty());
-        add("Fork session", "row_menu_fork", Action::Fork,
+        add("Fork session", "row_menu_fork", Action::Fork, "fork",
             !(app.client && app.client->supports_fork()));
-        add("Copy session link", "row_menu_copy_link", Action::CopyLink);
-        add("Copy session ID", "row_menu_copy_id", Action::CopyId);
-        add("Open in browser", "row_menu_open_web", Action::OpenWeb);
-        add(model::is_archived(*target) ? "Unarchive" : "Archive",
-            "row_menu_archive", Action::Archive, false,
-            !model::is_archived(*target));
-        add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute);
-        // Only for a folder that has actually been hand-arranged: on every
-        // other row this would be an item that undoes nothing.
+        add("Copy session link", "row_menu_copy_link", Action::CopyLink, "copy_link");
+        add("Copy session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
+        add("Open in browser", "row_menu_open_web", Action::OpenWeb, "open_web");
+        const bool archivedNow = model::is_archived(*target);
+        add(archivedNow ? "Unarchive" : "Archive", "row_menu_archive", Action::Archive,
+            archivedNow ? "unarchive" : "archive", false, !archivedNow);
+        add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute,
+            target->muted ? "unmute" : "mute");
         const std::string orderKey = group_key_for(*target);
         if (app.rowOrder.count(orderKey) != 0)
-            add("Reset order", "row_menu_reset_order", Action::ResetOrder);
+            add("Reset order", "row_menu_reset_order", Action::ResetOrder, "reset_order");
 
         hanabi::surface::MenuMetrics metrics;
         metrics.width = hanabi::surface::kContextMenuW;
         const std::string targetId = target->id;
+        const std::string scope = "session:" + targetId;
         const char* subOverlay = std::getenv("HANABI_TEST_SUBMENU");
-        const auto result = hanabi::surface::context_menu(
-            ctx, uiRoot, 8890, metrics, app.rowMenuX, app.rowMenuY,
-            "CONVERSATION", "row_menu", items, app.menuCursor,
-            menu_keys_for(app), hanabi::surface::kContextMenuLayer,
-            subOverlay != nullptr ? std::string_view(subOverlay)
-                                  : std::string_view());
+
+        // The native arm: on the frame the menu opens, hand it to AppKit and
+        // keep only the snapshot; on later frames read AppKit's answer. When
+        // the native arm is unavailable (headless, another platform, a
+        // window we do not own) the drawn menu below is the menu, as before.
+        hanabi::surface::MenuResult result;
+        std::string pickedAction;  // the pick, as an id
+        if (!app.rowMenuNativeTried) {
+            app.rowMenuNativeTried = true;
+            hanabi::surface::native_menu_open(app.nativeRowMenu, scope, "row_menu", items,
+                                              app.rowMenuX, app.rowMenuY,
+                                              static_cast<long long>(ctx.focus_id));
+        }
+        if (app.nativeRowMenu.open()) {
+            // AppKit owns the keyboard while it tracks: the Escape / arrows /
+            // Return a person presses are the menu's. sokol still sees the
+            // key events and the intent systems turn them into
+            // CloseContextMenu / arrow / activate for the DRAWN menu -- which
+            // is not drawn. Left standing, Escape's intent closed this menu
+            // state under AppKit and Return's activated the drawn arm's row.
+            // Drained and discarded here, every frame, as the drawn arm's
+            // take_menu_keys would have consumed them.
+            (void)menu_keys_for(app);
+            result = hanabi::surface::native_menu_frame(ctx, uiRoot, 8890, "row_menu",
+                                                        app.nativeRowMenu, scope);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = app.nativeRowMenu.action_of(result.activated);
+        } else {
+            result = hanabi::surface::context_menu(
+                ctx, uiRoot, 8890, metrics, app.rowMenuX, app.rowMenuY,
+                "CONVERSATION", "row_menu", items, app.menuCursor,
+                menu_keys_for(app), hanabi::surface::kContextMenuLayer,
+                subOverlay != nullptr ? std::string_view(subOverlay)
+                                      : std::string_view());
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = items[result.activated].action_id;
+        }
 
         if (result.activated != hanabi::surface::kNoMenuRow) {
-            switch (actions[result.activated]) {
+            // Resolve the pick by its ID against THIS frame's items: the row
+            // index belonged to the snapshot; the action belongs to the id. A
+            // toggle whose direction no longer matches the target's state is
+            // absent from this frame's items and so is refused, not inverted.
+            std::size_t row = hanabi::surface::kNoMenuRow;
+            for (std::size_t i = 0; i < items.size(); ++i)
+                if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
+            if (row == hanabi::surface::kNoMenuRow) {
+                app.close_row_menu();
+                return;
+            }
+            switch (actions[row]) {
                 case Action::Open:
                     if (result.activated_child == 0)
                         app.requestOpenTab = targetId;
@@ -903,31 +973,61 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         enum class Action { Rename, Delete, SaveCurrent, RestoreDefaults };
         std::vector<Action> actions;
         std::vector<hanabi::surface::MenuItem> items;
+        // Stable action ids, resolved against the snapshot on the native arm
+        // (see render_row_menu).
         const auto add = [&](const char* label, const char* name, Action a,
-                             bool destructive = false) {
-            items.push_back({label, name, destructive, false});
+                             const char* actionId, bool destructive = false) {
+            hanabi::surface::MenuItem m{label, name, destructive, false};
+            m.action_id = actionId;
+            items.push_back(std::move(m));
             actions.push_back(a);
         };
         if (!target->builtIn)
-            add("Rename\xe2\x80\xa6", "view_menu_rename", Action::Rename);
-        add("Delete", "view_menu_delete", Action::Delete, true);
+            add("Rename\xe2\x80\xa6", "view_menu_rename", Action::Rename, "rename");
+        add("Delete", "view_menu_delete", Action::Delete, "delete", true);
         add("Save Current Filter As\xe2\x80\xa6", "view_menu_save_current",
-            Action::SaveCurrent);
+            Action::SaveCurrent, "save_current");
         if (store.has_deleted_built_ins())
             add("Restore Default Views", "view_menu_restore_defaults",
-                Action::RestoreDefaults);
+                Action::RestoreDefaults, "restore_defaults");
 
         hanabi::surface::MenuMetrics metrics;
         metrics.width = hanabi::surface::kContextMenuW;
         const std::string viewId = target->id;
         const std::string viewName = target->name;
-        const auto result = hanabi::surface::context_menu(
-            ctx, uiRoot, 8891, metrics, app.rowMenuX, app.rowMenuY, "VIEW",
-            "view_menu", items, app.menuCursor, menu_keys_for(app),
-            hanabi::surface::kContextMenuLayer, std::string_view());
+        const std::string scope = "view:" + viewId;
+        hanabi::surface::MenuResult result;
+        std::string pickedAction;
+        if (!app.rowMenuNativeTried) {
+            app.rowMenuNativeTried = true;
+            hanabi::surface::native_menu_open(app.nativeRowMenu, scope, "view_menu", items,
+                                              app.rowMenuX, app.rowMenuY,
+                                              static_cast<long long>(ctx.focus_id));
+        }
+        if (app.nativeRowMenu.open()) {
+            (void)menu_keys_for(app);  // AppKit's keys; see render_row_menu
+            result = hanabi::surface::native_menu_frame(ctx, uiRoot, 8891, "view_menu",
+                                                        app.nativeRowMenu, scope);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = app.nativeRowMenu.action_of(result.activated);
+        } else {
+            result = hanabi::surface::context_menu(
+                ctx, uiRoot, 8891, metrics, app.rowMenuX, app.rowMenuY, "VIEW",
+                "view_menu", items, app.menuCursor, menu_keys_for(app),
+                hanabi::surface::kContextMenuLayer, std::string_view());
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = items[result.activated].action_id;
+        }
 
         if (result.activated != hanabi::surface::kNoMenuRow) {
-            switch (actions[result.activated]) {
+            std::size_t row = hanabi::surface::kNoMenuRow;
+            for (std::size_t i = 0; i < items.size(); ++i)
+                if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
+            if (row == hanabi::surface::kNoMenuRow) {
+                app.close_row_menu();
+                return;
+            }
+            switch (actions[row]) {
                 case Action::Rename:
                     // The same prompt as a conversation's rename, on the
                     // view's id; the modal's confirm writes the store.

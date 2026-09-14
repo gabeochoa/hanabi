@@ -70,6 +70,8 @@ const tests = [_]TestSpec{
     .{ .name = "test_theme_contrast", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_theme_contrast.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_theme_tokens", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_theme_tokens.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_font_weights", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_font_weights.cpp" }, .frameworks = &.{  } },
+    .{ .name = "test_native_menu", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_native_menu.cpp", "src/native_menu.mm" }, .frameworks = &.{ "AppKit", "CoreGraphics" } },
+    .{ .name = "test_native_menu_snapshot", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_native_menu_snapshot.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_a11y_bridge", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_a11y_bridge.mm", "src/a11y_bridge.mm" }, .frameworks = &.{ "AppKit" } },
     .{ .name = "test_anchored_surface", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_anchored_surface.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_slash_row", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_slash_row.cpp" }, .frameworks = &.{  } },
@@ -189,6 +191,8 @@ const run_by_default = [_][]const u8{
     "test_theme_contrast",
     "test_theme_tokens",
     "test_font_weights",
+    "test_native_menu",
+    "test_native_menu_snapshot",
     "test_model_menu_cache",
     "test_a11y_bridge",
     "test_anchored_surface",
@@ -220,8 +224,8 @@ const app_stamp_source = [_][]const u8{"src/build_stamp.cpp"};
 const app_objc_sources = [_][]const u8{
     "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_capture_probe.mm", "src/native_extras.mm", "src/pointer_probe.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
 };
-// ws_socket.mm is the one ObjC++ file compiled under ARC.
-const app_arc_sources = [_][]const u8{"src/ws_socket.mm"};
+// The ObjC++ files compiled under ARC (native_menu.mm needs __weak).
+const app_arc_sources = [_][]const u8{ "src/native_menu.mm", "src/ws_socket.mm" };
 
 const frameworks = [_][]const u8{
     "CoreFoundation", "CoreServices", "CoreText",           "Metal",        "MetalKit",

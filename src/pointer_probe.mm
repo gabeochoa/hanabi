@@ -84,6 +84,29 @@ bool inside(float px, float py, const RectangleType& r) {
 
 bool armed() { return spec().on; }
 
+}  // namespace hanabi::pointer_probe
+
+// After a native menu closes: the release that ended it never reached the
+// view. `+[NSMenu popUpContextMenu:withEvent:forView:]` tracks from the
+// right-down and CONSUMES the matching right-up inside AppKit, so sokol's
+// `rightMouseUp:` never runs and the backend's button state stays down --
+// the next right-down is then no press edge and the app opens nothing
+// (measured: a second right-click on the same tab produced no request at
+// all). Every button AppKit may have swallowed is reported released here as
+// one synthetic release edge. Lives in this TU because it already reads the
+// backend's input state.
+extern "C" void metal_release_stuck_mouse_buttons(void) {
+    auto& s = afterhours::graphics::metal_detail::input_state();
+    for (int b = 0; b < afterhours::graphics::metal_detail::MAX_MOUSE_BUTTONS; ++b) {
+        if (s.mouse_down[b]) {
+            s.mouse_down[b] = false;
+            s.mouse_released[b] = true;
+        }
+    }
+}
+
+namespace hanabi::pointer_probe {
+
 void frame() {
     const Spec& s = spec();
     if (!s.on) return;

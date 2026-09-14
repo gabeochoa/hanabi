@@ -30,7 +30,7 @@ that do not exist, and `make source-checks` runs it.
 | Distinct numeric gap numbers | **259** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
 | **Rows in the triage table (§6)** | **270** rows, **270** unique identifiers — includes index-only ids with no detailed entry |
-| Standalone live asks | **148** (152 less the ten fixed at 1ac6db2, less #593 fixed at d90db15, plus #594–#599) |
+| Standalone live asks | **150** (152 less the ten fixed at 1ac6db2, less #593 fixed at d90db15, plus #594–#601) |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |

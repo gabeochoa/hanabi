@@ -1,0 +1,18 @@
+# control: fail expect_no_text 18
+# FAILURE CONTROL for the native-mode text registry -- this script must FAIL
+# at line 18 and nowhere else. Property under test: in native mode the
+# visible-text registry is cleared once per frame by the app
+# (NativeModeTextRegistrySystem) so its generation advances and
+# `expect_no_text` can reach a decision at all. That fix must NOT turn the
+# assertion into a no-op: text that IS on screen must still fail it. Line 17
+# is the paired positive (absent text advances, cleanly); line 18 asserts the
+# absence of a sidebar title that is drawn -- it must fail with "IS visible",
+# not with a timeout and not at startup.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 6
+expect_no_text "this text is on no screen"
+expect_no_text "SKU backfill"

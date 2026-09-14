@@ -1,0 +1,48 @@
+# NATIVE ARM, real input: open the row menu as an NSMenu, walk to "Mute" with
+# the arrow keys (real key events into NSApp; AppKit does the navigation) and
+# press Return. The pick is delivered through the adapter's slot and resolved
+# by ACTION ID against the snapshot the menu opened with; the intent lands as
+# app.requestToggleMute and the row shows muted. The row list here:
+#   Open… / Rename… / Copy title / Fork session / Copy session link /
+#   Copy session ID / Open in browser / Archive / Mute  (+ Reset order only if
+#   the row was reordered; not in this fixture)
+# so Mute is the 9th row: Down ×8 from the top, then Return. A submenu row
+# (Open…) is passed over by Down like any other.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect open session:t6
+native_menu_expect frames_driven>=4
+# Down arrow = key code 125, Return = 36.
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+# Heartbeat while AppKit tracks, BRACKETED: the menu is open before the wait
+# and still open after it, so an early close cannot pass as frames running.
+native_menu_expect open session:t6
+wait_frames 8
+native_menu_expect open session:t6
+native_menu_expect frames_driven>=4
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_no_ui row_menu_native_eater
+# The intent landed on t6 -- and on t6 only.
+expect_text "Session muted"
+# On real AppKit menuDidClose: fires BEFORE the picked item's action; the
+# adapter defers the dismissal one run-loop turn and drops it once the pick
+# has landed. Several frames later the slot must hold NOTHING for this menu:
+# a trailing `dismissed` would sit there untaken.
+wait_frames 12
+native_menu_expect drained

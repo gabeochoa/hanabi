@@ -59,6 +59,6 @@ for s in "$DIR"/control_*.e2e; do
     fi
     echo "  ok: $name refused at $want_cmd line $want_line"
 done
-[ "$seen" -ge 7 ] || { echo "CONTROL BROKEN: only $seen controls ran"; bad=1; }
+[ "$seen" -ge 8 ] || { echo "CONTROL BROKEN: only $seen controls ran"; bad=1; }
 [ "$bad" = 0 ] && echo "ui controls: every helper refused its wrong expectation at the declared line; tokeniser control clean"
 exit $bad

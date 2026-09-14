@@ -1,0 +1,35 @@
+# NATIVE ARM, real input: focus is in the composer; a native right-click on
+# a sidebar row opens the NSMenu; Escape closes it; the NEXT key typed through
+# NSApp lands in the composer -- focus came back to where it was. AppKit
+# returning key status to the view does not touch the UI's focus_id, and a
+# press on the eater would have moved it there; the shim restores the element
+# focused at open, once, if a menu action did not move it (the pure rule is
+# unit-tested in test_native_menu_snapshot.cpp; this is the runtime half).
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+native_click_ui composer_reply_input
+wait_frames 6
+expect_focused composer_reply_input
+native_key 0 a
+wait_frames 4
+expect_input_text composer_reply_input "a"
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect open session:t6
+native_menu_expect frames_driven>=4
+# Bracketed heartbeat before the Escape.
+wait_frames 8
+native_menu_expect open session:t6
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+expect_no_ui row_menu_native_eater
+expect_focused composer_reply_input
+native_key 11 b
+wait_frames 6
+expect_input_text composer_reply_input "ab"

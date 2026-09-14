@@ -2,6 +2,7 @@
 #include <branding.h>
 #include "build_stamp.h"
 #include "resize_drive.h"
+#include "native_menu.h"
 #include "pointer_probe.h"
 #include "native_e2e_guard.h"
 
@@ -852,6 +853,10 @@ static void app_frame_body() {
     hanabi::prof::frame_cpu(hanabi::prof::cpu_nanos() - frameCpu0);
     hanabi::prof::frame();
     hanabi::resize_drive::frame_end();
+    // A context menu the frame queued for AppKit is handed to the run loop
+    // HERE, after rendering -- never popped up inside the frame. No-op when
+    // nothing is queued (every headless frame).
+    hanabi::native_menu::pump_after_frame();
     hanabi::pointer_probe::frame();
     if (hanabi::resize_drive::finished()) afterhours::graphics::request_quit();
 
@@ -1188,6 +1193,10 @@ static void windowed_e2e_register_handlers(afterhours::SystemManager& sm) {
     namespace t = afterhours::testing;
     hanabi::latency::reset();
     hanabi::e2e::delayed_latency_inputs().clear();
+    // Registered before build_systems, so it runs before the frame's render
+    // pass: in native mode the visible-text registry is cleared here once per
+    // frame (afterhours only clears it in test mode).
+    sm.register_update_system(std::make_unique<hanabi::e2e::NativeModeTextRegistrySystem>());
     hanabi::e2e::register_hanabi_pre_handlers(sm);
     t::register_builtin_handlers(sm);
     t::ui_commands::register_ui_commands<InputAction>(sm);

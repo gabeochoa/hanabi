@@ -1,0 +1,44 @@
+# NATIVE ARM, real input: a right-click on a sidebar row through NSApp opens
+# the row menu as an NSMenu (the app draws no menu of its own -- only the
+# transparent eater that owns the pointer while AppKit tracks); Escape, posted
+# as a real key event, closes it with no pick; the app's own state says the
+# menu is gone and nothing changed. The menu is AppKit's: nothing here
+# asserts its pixels. What is asserted is the app's observable state on each
+# side of the native menu, and that the app kept rendering while it tracked
+# (wait_frames advances only if frames run, and the adapter's heartbeat
+# count is asserted -- a tracking loop that starved frames times the wait out).
+#
+# Windowed, mock-only: the adapter refuses anything else, and headless runs
+# of this script would draw the sokol menu instead -- which is why the arm is
+# asserted with native_menu_expect, not with the drawn menu's names.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+expect_text "SKU backfill — my name for it"
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+# The adapter has the menu for THIS session; the drawn menu is not up.
+native_menu_expect open session:t6
+expect_no_ui row_menu_title
+assert_ui row_menu_native_eater hidden=false
+# The app is still rendering under the NSMenu's tracking loop. NOT from the
+# display link -- measured on the first run, AppKit's tracking mode does not
+# service it and the app froze until the watchdog -- but from the adapter's
+# heartbeat: a timer in NSEventTrackingRunLoopMode drives one app frame per
+# tick. `wait_frames` advances only when frames actually run, and
+# `frames_driven>=N` reads the heartbeat's own count.
+wait_frames 12
+native_menu_expect open session:t6
+native_menu_expect frames_driven>=4
+# Escape (key code 53), a real key event into NSApp: AppKit closes the menu.
+native_key 53
+wait_frames 12
+native_menu_expect closed
+expect_no_ui row_menu_native_eater
+# Nothing was picked: the row is unchanged, the same thread is open.
+expect_open t2
+expect_no_text "Session archived"
+expect_no_text "Session muted"

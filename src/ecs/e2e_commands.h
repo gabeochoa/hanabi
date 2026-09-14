@@ -71,6 +71,7 @@
 #include "../build_stamp.h"
 #include "../native_capture_probe.h"
 #include "capture_marker_system.h"
+#include "../native_menu.h"
 #include "../resize_drive.h"
 #include "../test_hooks.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
@@ -806,9 +807,55 @@ struct HandleResizeDeferredCommand
 // Whether a script has handed input over to the native path. Read by the
 // native commands (which refuse without a window) and by the injected ones
 // (which refuse while it is on, rather than quietly doing nothing).
+// The visible-text registry in NATIVE mode. afterhours both clears and FILLS
+// that registry only under test_mode (rendering.h:743/2480 register a label
+// inside `if (test_mode)`; utilities.h:375 clears there too), and native
+// mode turns test_mode off so the backend's real pointer is read. So in
+// native mode nothing was ever registered: the thousands-long visible list
+// the first run showed was the LAST test-mode frame's, frozen (and a plain
+// clear left every text assertion staring at an empty registry). This pass
+// is the registration afterhours would have done, scoped to native mode and
+// to RENDER data only -- no synthetic input is enabled, nothing about the
+// pointer or keys changes: after the frame's layout, clear the registry and
+// register each painted label's visible rect (its screen rect intersected
+// with its clip, the same rule rendering.h applies) against the viewport.
+// Validated by the paired control (absent text advances; drawn text still
+// fails expect_no_text) and by the native pointer/key scripts, whose text
+// assertions read this registry.
+struct NativeModeTextRegistrySystem
+    : afterhours::System<afterhours::ui::UIContext<InputAction>> {
+    void for_each_with(afterhours::Entity&, afterhours::ui::UIContext<InputAction>& ctx,
+                       float) override;
+};
+
 inline bool& native_mode_on() {
     static bool on = false;
     return on;
+}
+inline void NativeModeTextRegistrySystem::for_each_with(
+    afterhours::Entity&, afterhours::ui::UIContext<InputAction>& ctx, float) {
+    if (!native_mode_on()) return;
+    auto& reg = afterhours::testing::VisibleTextRegistry::instance();
+    reg.clear();
+    for (const auto& e :
+         afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+        if (!e || !e->has<afterhours::ui::UIComponent>() ||
+            !e->has<afterhours::ui::HasLabel>())
+            continue;
+        const auto& cmp = e->get<afterhours::ui::UIComponent>();
+        // `was_rendered_to_screen` is set by the render pass, which runs AFTER
+        // this update system: the registry describes the PREVIOUS frame's
+        // paint, one frame behind -- the text assertions retry across frames,
+        // and the paired control proves both directions still decide.
+        if (!cmp.was_rendered_to_screen) continue;
+        const std::string& label = e->get<afterhours::ui::HasLabel>().label;
+        if (label.empty()) continue;
+        RectangleType vis = afterhours::testing::ui_commands::get_screen_rect(*e);
+        const auto [hasClip, clip] = afterhours::ui::detail::compute_intersected_clip_rect(*e);
+        if (hasClip) vis = afterhours::ui::detail::intersect_rects(vis, clip);
+        reg.register_text_if_visible(label, vis.x, vis.y, vis.width, vis.height,
+                                     ctx.screen_width, ctx.screen_height);
+    }
 }
 
 // expect_open <id>: the focused pane's SELECTED session is <id>, its loaded
@@ -957,15 +1004,29 @@ struct HandleNativeMouseCommand
 struct HandleNativeClickTargetCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     std::optional<std::pair<float, float>> target_;
+    bool quick_ = false;
     void for_each_with(afterhours::Entity&,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
         if (cmd.is_consumed()) return;
-        const bool byName = cmd.is("native_click_ui");
-        const bool byText = cmd.is("native_click_text");
+        // native_right_click_ui/_text: the same native press/release, secondary
+        // button -- the path a context menu opens on.
+        // The right-click's release is posted two frames after the press --
+        // the realistic gesture: the button is still down when the queued
+        // NSMenu appears (the app pops it on the next run-loop turn), so the
+        // release lands INSIDE AppKit's tracking. Opened with the press
+        // (popUpContextMenu:withEvent:), a stationary release keeps the menu
+        // up; the scripts assert that. `native_right_click_ui_quick` releases
+        // on the next frame instead -- before the menu tracks -- and must
+        // open and hold the menu too.
+        const bool rightByName = cmd.is("native_right_click_ui") || cmd.is("native_right_click_ui_quick");
+        const bool rightByText = cmd.is("native_right_click_text");
+        const bool byName = cmd.is("native_click_ui") || rightByName;
+        const bool byText = cmd.is("native_click_text") || rightByText;
         if (!byName && !byText) return;
+        const int right = (rightByName || rightByText) ? 1 : 0;
         if (!cmd.has_args(1)) {
-            cmd.fail("native_click_ui/native_click_text require a target");
+            cmd.fail("native_click_ui/native_right_click_ui/native_click_text require a target");
             return;
         }
         if (!hanabi_native_has_window() || !native_mode_on()) {
@@ -989,15 +1050,33 @@ struct HandleNativeClickTargetCommand
             }
             target_ = std::make_pair(static_cast<float>(pos->x), static_cast<float>(pos->y));
             hanabi_native_mouse_move(target_->first, target_->second);
-            hanabi_native_mouse_down(target_->first, target_->second, 0);
+            hanabi_native_mouse_down(target_->first, target_->second, right);
+            if (right && cmd.is("native_right_click_ui_quick")) {
+                // The FAST click: release on the very next frame, so the row's
+                // release-activated hit test (`is_right_click` needs one frame
+                // with the button down and the next with it up) sees a real
+                // press edge, yet the release still lands before the NSMenu --
+                // popped on the run-loop turn after the request -- is
+                // tracking. A same-TURN down+up shows the UI no down-frame at
+                // all and opens nothing (measured), which is not a click a
+                // person can make; this is the fastest one that is.
+                quick_ = true;
+            }
             cmd.retry();
+            return;
+        }
+        if (quick_ && cmd.frames_alive == 1) {
+            if (target_) hanabi_native_mouse_up(target_->first, target_->second, right);
+            target_.reset();
+            quick_ = false;
+            cmd.consume();
             return;
         }
         if (cmd.frames_alive < 2) {
             cmd.retry();
             return;
         }
-        if (target_) hanabi_native_mouse_up(target_->first, target_->second, 0);
+        if (target_) hanabi_native_mouse_up(target_->first, target_->second, right);
         target_.reset();
         cmd.consume();
     }
@@ -1658,6 +1737,130 @@ struct HandleCaptureReceiptCommand
             std::round(sw * k), std::round(sh * k), fill.c_str(), vp.dest.x, vp.dest.y,
             vp.dest.width, vp.dest.height, vp.scale);
         std::fflush(stdout);
+        cmd.consume();
+    }
+};
+
+// native_menu_inject <row> [child] | dismiss: deliver a typed result into the
+// native context-menu adapter's slot for the menu that is open, exactly as an
+// NSMenuItem target would. ROUTING evidence only -- it proves the app's
+// request -> result -> intent path, and says nothing about AppKit's menu.
+// Refuses when no native menu is queued or tracking.
+//
+// native_menu_expect <open|closed|busy|idle|drained> [scope]: the adapter's
+// state. `open` = AppKit has the menu ON SCREEN (menuWillOpen: fired, no
+// close yet) -- and, with `scope`, the caller's snapshot is for that target;
+// `closed` = not on screen; `busy`/`idle` = a generation is / is not owned
+// (queued, dispatched or shown) -- a request that never appears is busy,
+// never open; `drained` = idle AND no result lingers in the slot (the
+// pick-vs-delayed-close guard); `frames_driven>=N` = the adapter's heartbeat
+// drove at least N frames while the menu tracked (rendering continued).
+struct HandleNativeMenuInjectCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("native_menu_expect")) {
+            if (!cmd.has_args(1)) {
+                cmd.fail("native_menu_expect requires <open|closed> [scope]");
+                return;
+            }
+            if (cmd.arg(0) == "drained") {
+                // No result left in the slot: after a pick was consumed, a
+                // trailing `dismissed` for the same menu would sit here.
+                if (!hanabi::native_menu::has_pending_result() &&
+                    !hanabi::native_menu::busy()) {
+                    cmd.consume();
+                    return;
+                }
+                if (cmd.frames_alive < kGiveUpFrame) {
+                    cmd.retry();
+                    return;
+                }
+                cmd.fail("native_menu_expect drained: a result is still pending in the "
+                         "adapter's slot (a trailing dismissal after a pick?)");
+                return;
+            }
+            // `busy`: a generation is owned (queued / dispatched / shown);
+            // `open`: AppKit has the menu ON SCREEN (menuWillOpen: fired, no
+            // close yet) -- the only state a heartbeat bracket may read.
+            // `closed`: not on screen (may still be busy for a turn).
+            std::string scope;
+            if (const ecs::AppComponent* app = app_component()) {
+                if (app->nativeRowMenu.open()) scope = app->nativeRowMenu.scope;
+            }
+            if (scope.empty())
+                if (auto* strip = afterhours::EntityHelper::get_singleton_cmp<
+                        ecs::TabStripComponent>())
+                    if (strip->nativeMenu.open()) scope = strip->nativeMenu.scope;
+            // `frames_driven>=N`: the adapter's heartbeat drove at least N app
+            // frames while the current/last menu tracked -- the runtime proof
+            // that rendering continued under AppKit's tracking loop.
+            if (cmd.arg(0).rfind("frames_driven>=", 0) == 0) {
+                const auto want = static_cast<std::uint64_t>(std::atoll(cmd.arg(0).c_str() + 15));
+                const auto got = hanabi::native_menu::frames_while_tracking();
+                if (got >= want) {
+                    cmd.consume();
+                    return;
+                }
+                if (cmd.frames_alive < kGiveUpFrame) {
+                    cmd.retry();
+                    return;
+                }
+                cmd.fail(std::format("native_menu_expect {}: the heartbeat drove {} frames while tracking",
+                                     cmd.arg(0), got));
+                return;
+            }
+            const bool scopeOk = cmd.args.size() < 2 || scope == cmd.arg(1);
+            const std::string& want = cmd.arg(0);
+            const bool isBusy = hanabi::native_menu::busy();
+            const bool isOpen = hanabi::native_menu::tracking();  // ON SCREEN, per AppKit
+            bool ok = false;
+            if (want == "busy") ok = isBusy && scopeOk;
+            else if (want == "idle") ok = !isBusy;
+            else if (want == "open") ok = isOpen && scopeOk;
+            else if (want == "closed") ok = !isOpen;
+            else {
+                cmd.fail("native_menu_expect requires <open|closed|busy|idle|drained> [scope]");
+                return;
+            }
+            if (ok) {
+                cmd.consume();
+                return;
+            }
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("native_menu_expect: adapter is {}{} (scope '{}'), expected {}{}",
+                                 isBusy ? "busy" : "idle", isOpen ? "+on-screen" : "", scope,
+                                 want, cmd.args.size() >= 2 ? " for " + cmd.arg(1) : std::string()));
+            return;
+        }
+        if (!cmd.is("native_menu_inject")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("native_menu_inject requires <row> [child] | dismiss");
+            return;
+        }
+        const std::uint64_t gen = hanabi::native_menu::current_generation();
+        if (gen == 0) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail("native_menu_inject: no native menu is queued or tracking");
+            return;
+        }
+        hanabi::native_menu::Result r;
+        r.generation = gen;
+        if (cmd.arg(0) == "dismiss") {
+            r.dismissed = true;
+        } else {
+            r.row = static_cast<std::size_t>(std::atoi(cmd.arg(0).c_str()));
+            if (cmd.args.size() >= 2) r.child = static_cast<std::size_t>(std::atoi(cmd.arg(1).c_str()));
+        }
+        hanabi::native_menu::inject_result_for_test(r);
         cmd.consume();
     }
 };
@@ -3247,6 +3450,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectContentSizeCommand>());
     sm.register_update_system(std::make_unique<HandleCaptureReceiptCommand>());
     sm.register_update_system(std::make_unique<HandleCaptureMarkerCommand>());
+    sm.register_update_system(std::make_unique<HandleNativeMenuInjectCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRowsJoinCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRelCommand>());
     sm.register_update_system(std::make_unique<HandleDoubleClickWordCommand>());
