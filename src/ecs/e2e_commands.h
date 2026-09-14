@@ -53,8 +53,10 @@
 // ---------------------------------------------------------------------------
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <format>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -68,7 +70,9 @@
 #include "../resize_drive.h"
 #include "../test_hooks.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
+#include "../ui/font_system.h"
 #include "../ui/link_detect.h"
+#include "../ui/text_select.h"
 #include "../ui_context.h"
 #include "../util/clipboard.h"
 #include "../util/gfx_resize.h"
@@ -1070,6 +1074,391 @@ struct HandleNativeKeyCommand
     }
 };
 
+// Was this UI entity BUILT by the most recent UI build? The library clears
+// `was_rendered_to_screen` every frame but never clears an element's rect,
+// and an element whose imm call stopped survives with its old rect and label
+// for `ui_retire_grace_frames` (90) frames before it is retired -- so "has a
+// rect" is stale for a second and a half. The build ledger is the truth:
+// `existing_ui_elements` records each element's `last_built_frame`, stamped
+// with `ui_build_frame`, which advances once per frame in the UI post-layout
+// pass. Whether an E2E handler runs before or after this frame's build, the
+// element's most recent stamp is `ui_build_frame` (built this frame, handler
+// after the build) or `ui_build_frame - 1` (handler before the build); a
+// withdrawn element's stamp is older than both by the frame after. A row
+// scrolled below the viewport was built (its imm call ran) and passes.
+inline bool built_last_frame(afterhours::EntityID id) {
+    using namespace afterhours::ui::imm;
+    const size_t floor = ui_build_frame == 0 ? 0 : ui_build_frame - 1;
+    for (const auto& [hash, rec] : existing_ui_elements)
+        if (rec.id == id) return rec.last_built_frame >= floor;
+    return false;
+}
+
+// double_click_word "<line substring>" <word> [nth=1]: a double-click ON A WORD
+// of a transcript line, placed by the same layout the selection code uses
+// (text_select::detail::layout_of over the active face at the line's own
+// size), so a script names the word it means -- "ledger" -- instead of the
+// pixel a given face put it at. The line is the one painted label whose text
+// contains <line substring>; the <nth> occurrence of <word> in it is the
+// target and the click lands on that word's centre. Two clicks three frames
+// apart, exactly as `double_click` does.
+struct HandleDoubleClickWordCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    int phase = 0;
+    float sx = 0, sy = 0;
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("double_click_word")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("double_click_word requires \"<line substring>\" <word> [nth]");
+            return;
+        }
+        if (phase == 0) {
+            // The runner hands a custom command its tokens as typed and split
+            // on spaces, quotes included: the WORD is the last token, an
+            // all-digit final token before it is <nth>, and everything
+            // earlier re-joined with spaces and stripped of its quote pair is
+            // the line text.
+            // The line text is the QUOTED run: from the first token that opens
+            // a quote to the token that closes it (a word can be all digits,
+            // so the quotes, not a digit test, decide where the text ends).
+            // Then the word; then an optional all-digit <nth>.
+            std::string needle;
+            size_t after = 0;
+            const std::string& t0 = cmd.arg(0);
+            const char q = (!t0.empty() && (t0.front() == '"' || t0.front() == '\'')) ? t0.front() : 0;
+            if (q != 0) {
+                size_t i = 0;
+                for (; i < cmd.args.size(); ++i) {
+                    if (!needle.empty()) needle.push_back(' ');
+                    needle += cmd.arg(i);
+                    const std::string& t = cmd.arg(i);
+                    const bool closes = t.size() >= (i == 0 ? 2u : 1u) && t.back() == q;
+                    if (closes) break;
+                }
+                if (i >= cmd.args.size()) {
+                    cmd.fail("double_click_word: the quoted line text never closes");
+                    return;
+                }
+                needle = needle.substr(1, needle.size() - 2);
+                after = i + 1;
+            } else {
+                needle = t0;
+                after = 1;
+            }
+            if (after >= cmd.args.size()) {
+                cmd.fail("double_click_word requires \"<line substring>\" <word> [nth]");
+                return;
+            }
+            const std::string word = cmd.arg(after);
+            int nth = 1;
+            if (after + 1 < cmd.args.size()) {
+                const std::string& t = cmd.arg(after + 1);
+                if (t.empty() || !std::all_of(t.begin(), t.end(), ::isdigit)) {
+                    cmd.fail(std::format("double_click_word: <nth> must be digits, got '{}'", t));
+                    return;
+                }
+                nth = std::atoi(t.c_str());
+            }
+            if (needle.empty() || word.empty()) {
+                cmd.fail("double_click_word requires \"<line substring>\" <word> [nth]");
+                return;
+            }
+            const afterhours::Entity* line = nullptr;
+            for (const auto& e :
+                 afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+                if (!e || !e->has<afterhours::ui::UIComponent>() ||
+                    !e->has<afterhours::ui::HasLabel>())
+                    continue;
+                if (!e->get<afterhours::ui::UIComponent>().was_rendered_to_screen) continue;
+                if (e->get<afterhours::ui::HasLabel>().label.find(needle) == std::string::npos)
+                    continue;
+                line = e.get();
+                break;
+            }
+            if (line == nullptr) {
+                if (cmd.frames_alive < kGiveUpFrame) {
+                    cmd.retry();
+                    return;
+                }
+                cmd.fail(std::format("double_click_word: no painted line containing \"{}\"", needle));
+                return;
+            }
+            const std::string& text = line->get<afterhours::ui::HasLabel>().label;
+            size_t at = std::string::npos, from = 0;
+            for (int k = 0; k < nth; ++k) {
+                at = text.find(word, from);
+                if (at == std::string::npos) break;
+                from = at + 1;
+            }
+            if (at == std::string::npos) {
+                cmd.fail(std::format("double_click_word: \"{}\" has no #{} \"{}\"", text, nth, word));
+                return;
+            }
+            const auto& cmp = line->get<afterhours::ui::UIComponent>();
+            const RectangleType r = cmp.rect();
+            const float fontPx = cmp.font_size.value;
+            const auto lay = hanabi::text_select::detail::layout_of(r, text, fontPx);
+            if (!lay.ok) {
+                cmd.fail("double_click_word: the line has no layout this frame");
+                return;
+            }
+            // Which wrapped row holds the word, and where along it.
+            size_t consumed = 0;
+            int row = 0;
+            size_t col = at;
+            for (size_t li = 0; li < lay.lines.size(); ++li) {
+                const size_t n = lay.lines[li].size();
+                if (at < consumed + n) {
+                    row = static_cast<int>(li);
+                    col = at - consumed;
+                    break;
+                }
+                consumed += n;
+                // wrap_text_to_width drops the break's whitespace; skip it
+                while (consumed < text.size() && std::isspace(static_cast<unsigned char>(text[consumed]))) ++consumed;
+            }
+            auto* fm = afterhours::EntityHelper::get_singleton_cmp<afterhours::ui::FontManager>();
+            const afterhours::Font font = fm->get_active_font();
+            const std::string& ln = lay.lines[static_cast<size_t>(row)];
+            const float xa = lay.x0 + afterhours::measure_text(font, ln.substr(0, col).c_str(), fontPx, 1.0f).x;
+            const float xb = lay.x0 + afterhours::measure_text(font, ln.substr(0, col + word.size()).c_str(), fontPx, 1.0f).x;
+            sx = (xa + xb) * 0.5f;
+            sy = lay.y0 + lay.lineH * (static_cast<float>(row) + 0.5f);
+            std::printf("[double_click_word] \"%s\" in \"%s\" -> row %d col %zu at (%.1f,%.1f)\n",
+                        word.c_str(), needle.c_str(), row, col, sx, sy);
+            afterhours::testing::test_input::simulate_click(sx, sy);
+            phase = 1;
+            cmd.retry();
+            return;
+        }
+        if (phase < 3) {
+            ++phase;
+            cmd.retry();
+            return;
+        }
+        afterhours::testing::test_input::simulate_click(sx, sy);
+        phase = 0;
+        cmd.consume();
+    }
+};
+
+// expect_ui_rel <a> <relation> <b> [tolerance=1]: a GEOMETRIC RELATION between
+// two named widgets, so a script states the invariant it means ("the bubble
+// hugs the pane's right edge", "the last row is below the viewport", "after
+// the scroll it is inside it") instead of a pixel a given face produced.
+// Both widgets must have been built by the most recent UI build (a row below
+// the fold counts: its builder ran; a widget whose builder stopped does not,
+// whatever rect it still carries). Relations:
+//   inside        a's rect lies within b's (each edge, within tolerance)
+//   outside_below a's top edge is at or below b's bottom edge
+//   above         a's bottom edge is at or above b's top edge
+//   right_edge    a.right == b.right   (within tolerance)
+//   left_edge     a.left  == b.left
+//   left_of_by:N  a.right + N == b.left  (a sits N px clear, left of b)
+//   same_y        a.y == b.y            same_h  a.h == b.h
+// A missing widget retries until the give-up frame, then fails by name.
+struct HandleExpectUiRelCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    // Built by the most recent build (see built_last_frame): an off-screen
+    // row qualifies, a retired-in-grace one does not. The rect is the SCREEN
+    // rect -- modifiers and the enclosing scroll offset applied, the same
+    // `get_screen_rect` assert_ui reads -- so a row inside a scrolled body is
+    // where it is drawn, not where it was laid out.
+    static std::optional<RectangleType> find(const std::string& name) {
+        std::optional<RectangleType> out;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!e || !e->has<afterhours::ui::UIComponent>() ||
+                !e->has<afterhours::ui::UIComponentDebug>())
+                continue;
+            if (e->get<afterhours::ui::UIComponentDebug>().name() != name) continue;
+            if (!built_last_frame(e->id)) continue;
+            out = afterhours::testing::ui_commands::get_screen_rect(*e);
+        }
+        return out;
+    }
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_ui_rel")) return;
+        if (!cmd.has_args(3)) {
+            cmd.fail("expect_ui_rel requires <a> <relation> <b> [tolerance]");
+            return;
+        }
+        const float tol = cmd.args.size() >= 4 ? std::atof(cmd.arg(3).c_str()) : 1.0f;
+        const auto A = find(cmd.arg(0));
+        const auto B = find(cmd.arg(2));
+        if (!A || !B) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("expect_ui_rel: no widget named '{}'",
+                                 !A ? cmd.arg(0) : cmd.arg(2)));
+            return;
+        }
+        const auto a = *A;
+        const auto b = *B;
+        const std::string& rel = cmd.arg(1);
+        const auto eq = [tol](float p, float q) { return std::fabs(p - q) <= tol; };
+        bool ok = false;
+        if (rel == "inside")
+            ok = a.x >= b.x - tol && a.y >= b.y - tol &&
+                 a.x + a.width <= b.x + b.width + tol &&
+                 a.y + a.height <= b.y + b.height + tol;
+        else if (rel == "outside_below")
+            ok = a.y >= b.y + b.height - tol;
+        else if (rel == "above")
+            ok = a.y + a.height <= b.y + tol;
+        else if (rel == "right_edge")
+            ok = eq(a.x + a.width, b.x + b.width);
+        else if (rel == "left_edge")
+            ok = eq(a.x, b.x);
+        else if (rel == "same_y")
+            ok = eq(a.y, b.y);
+        else if (rel == "same_h")
+            ok = eq(a.height, b.height);
+        else if (rel.rfind("left_of_by:", 0) == 0)
+            ok = eq(a.x + a.width + std::atof(rel.c_str() + 11), b.x);
+        else {
+            cmd.fail(std::format("expect_ui_rel: unknown relation '{}'", rel));
+            return;
+        }
+        if (ok) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format(
+            "expect_ui_rel: '{}' [{:.0f},{:.0f} {:.0f}x{:.0f}] is not {} '{}' [{:.0f},{:.0f} {:.0f}x{:.0f}] (tol {})",
+            cmd.arg(0), a.x, a.y, a.width, a.height, rel, cmd.arg(2), b.x, b.y, b.width,
+            b.height, tol));
+    }
+};
+
+// expect_ui_rows_join <prefix> <text...>: the labels of <prefix>_0, _1, ...
+// (every row BUILT this frame, in index order -- a row scrolled below the
+// viewport counts: it exists and is reachable, which is the opposite of
+// clipped) hold the given text, allowing ONLY what a line wrapper is allowed
+// to do: at a row boundary the text's whitespace may be dropped (a break at a
+// space) or a token may continue on the next row (a break inside a long
+// token). Whitespace INSIDE a row is compared as written -- a space lost or
+// added inside a row fails; a space lost exactly AT a break point is not
+// observable from rendered rows (see `mismatch`). Nothing clipped: every
+// character present; nothing invented: no character extra; an ellipsised
+// last row fails (the ellipsis is not in the text). `<text>` = `-` asserts
+// that NO row under the prefix was built by the most recent build.
+struct HandleExpectUiRowsJoinCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    // Match `rows` against `want`: rows concatenate exactly, except that at
+    // each row boundary any run of whitespace in `want` may be absent from the
+    // rows (the wrapper dropped it). Returns the first mismatch description or
+    // "" on success.
+    struct Row {
+        float y, x;
+        std::string label;
+    };
+    // Match `rows` against `want`. Rows concatenate exactly; at a row boundary
+    // the wrapper is allowed to have dropped whitespace that is in `want`, or
+    // to have continued a token onto the next row. What the rendered rows
+    // CANNOT tell is whether a boundary with no whitespace in `want` was a
+    // break inside a token or a space the text lost: two source strings that
+    // differ only by a space at a break point render the same rows. rows_join
+    // asserts rendered content and order; a space's presence is provable only
+    // where both sides of it are inside ONE row, and a control for that first
+    // asserts the pair is visible on one row (expect_text) before asserting
+    // the lost-space text. Exact source semantics beyond that come from a
+    // source receipt (the backend's own copy of the command), not the rows.
+    // Returns "" on success.
+    static std::string mismatch(const std::vector<Row>& rows, const std::string& want) {
+        size_t w = 0;
+        for (size_t ri = 0; ri < rows.size(); ++ri) {
+            const std::string& row = rows[ri].label;
+            for (size_t i = 0; i < row.size(); ++i, ++w) {
+                if (w >= want.size())
+                    return std::format("row {} has extra text starting \"{}\"", ri, row.substr(i, 24));
+                if (row[i] != want[w])
+                    return std::format("row {} col {}: got '{}' expected '{}'", ri, i, row[i], want[w]);
+            }
+            if (ri + 1 < rows.size())
+                while (w < want.size() && std::isspace(static_cast<unsigned char>(want[w]))) ++w;
+        }
+        while (w < want.size() && std::isspace(static_cast<unsigned char>(want[w]))) ++w;
+        if (w < want.size())
+            return std::format("rows end before the text; missing \"{}\"", want.substr(w, 32));
+        return "";
+    }
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_ui_rows_join")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_ui_rows_join requires <prefix> <text...>");
+            return;
+        }
+        const std::string prefix = cmd.arg(0) + "_";
+        // `-` = expect NO rows built under the prefix: the negative case, so a
+        // script can prove rows that were built and then withdrawn do not
+        // count while their old rects and labels linger in the grace window.
+        const std::string want = joined_args(cmd, 1);
+        const bool wantNone = want == "-";
+        // Only rows the most recent build produced (built_last_frame): a
+        // row scrolled below the viewport counts, a row whose builder stopped
+        // does not -- however long its old rect and label linger.
+        // Rows in VISUAL order (y, then x) -- the index suffix is a build
+        // key, not a reading order, and the same prefix can be built by more
+        // than one card in a frame. Only names of the exact shape
+        // <prefix>_<digits> count (no `_line`, no `_body`).
+        std::vector<Row> rows;
+        int named = 0;  // candidates by name, before the build-ledger gate
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!e || !e->has<afterhours::ui::UIComponent>() ||
+                !e->has<afterhours::ui::UIComponentDebug>() ||
+                !e->has<afterhours::ui::HasLabel>())
+                continue;
+            const std::string& n = e->get<afterhours::ui::UIComponentDebug>().name();
+            if (n.rfind(prefix, 0) != 0) continue;
+            const std::string tail = n.substr(prefix.size());
+            if (tail.empty() || !std::all_of(tail.begin(), tail.end(), ::isdigit)) continue;
+            ++named;
+            if (!built_last_frame(e->id)) continue;
+            const auto r = afterhours::testing::ui_commands::get_screen_rect(*e);
+            rows.push_back({r.y, r.x, e->get<afterhours::ui::HasLabel>().label});
+        }
+        std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+            return a.y != b.y ? a.y < b.y : a.x < b.x;
+        });
+        std::string why;
+        if (wantNone)
+            why = rows.empty() ? std::string()
+                               : std::format("{} rows still built, first \"{}\"", rows.size(),
+                                             rows.front().label.substr(0, 24));
+        else if (rows.empty())
+            why = named == 0 ? std::string("no rows by name")
+                             : std::format("{} rows by name, none stamped by the last build "
+                                           "(ui_build_frame={})",
+                                           named, afterhours::ui::imm::ui_build_frame);
+        else
+            why = mismatch(rows, want);
+        if (why.empty()) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_ui_rows_join: {} rows under '{}': {}", rows.size(),
+                             cmd.arg(0), why));
+    }
+};
+
 struct HandleExpectContentSizeCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -1171,6 +1560,7 @@ inline bool latency_input_command(std::string_view name) {
         "click",          "click_ui",
         "click_text",     "click_button",
         "double_click",   "double_click_ui",
+        "double_click_word",
         "triple_click",   "right_click",
         "right_click_ui", "right_click_text",
         "middle_click",   "key",
@@ -1881,7 +2271,7 @@ struct HandleInjectedInputWhileNativeCommand
         static constexpr const char* kNames[] = {
             "click", "click_ui", "click_text", "click_button", "double_click",
             "triple_click", "right_click", "right_click_ui", "right_click_text",
-            "middle_click", "middle_down", "middle_up", "mouse_move",
+            "double_click_word", "middle_click", "middle_down", "middle_up", "mouse_move",
             "mouse_down", "mouse_up", "drag", "drag_to", "pinch",
             "scroll_wheel", "type", "key", "hold", "release", "arrow", "enter",
             "escape", "tab", "shift_tab", "action", "select_all",
@@ -2139,6 +2529,53 @@ struct HandleExpectMockOutboundCallsCommand
     }
 };
 
+// expect_font_face <alias> <weight> <real|fallback> [family]: what the font
+// loader REGISTERED under a weight alias (`semibold` = `__default@semibold`,
+// `regular` = `__default`), from its own report -- the weight of the face file
+// it landed on, whether that was a fallback down the ladder, that the file
+// loaded, and (optionally) which family the face came from -- so a script
+// proves a heavier face is really behind the alias rather than reading pixels.
+struct HandleExpectFontFaceCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_font_face")) return;
+        if (!cmd.has_args(3)) {
+            cmd.fail("expect_font_face requires <alias> <weight> <real|fallback> [family]");
+            return;
+        }
+        const std::string alias = cmd.arg(0) == "regular"
+                                      ? std::string(hanabi::fonts::kDefaultFontName)
+                                      : std::string(hanabi::fonts::kDefaultFontName) + "@" + cmd.arg(0);
+        const hanabi::fonts::AliasReport* found = nullptr;
+        for (const auto& r : hanabi::fonts::report())
+            if (r.plan.alias == alias) found = &r;
+        std::string got = "(not registered)";
+        bool ok = false;
+        if (found != nullptr) {
+            got = found->plan.weight + (found->plan.fallback ? " fallback" : " real") +
+                  (found->loaded ? "" : " NOT LOADED") + " from " + found->family +
+                  " " + found->plan.path;
+            const bool wantFallback = cmd.arg(2) == "fallback";
+            ok = found->loaded && found->plan.weight == cmd.arg(1) &&
+                 found->plan.fallback == wantFallback &&
+                 (cmd.args.size() < 4 || found->family == cmd.arg(3));
+        }
+        if (ok) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("font alias {} is [{}], expected {} {}{}", alias, got,
+                             cmd.arg(1), cmd.arg(2),
+                             cmd.args.size() >= 4 ? " from " + cmd.arg(3) : std::string()));
+    }
+};
+
 // expect_saved_views <id=name,...> <removed,...|->: the saved-view STORE, as
 // records, in order -- the exact list a restart would read back, and the
 // built-ins the reader deleted -- so a shelf-menu script asserts what was
@@ -2310,6 +2747,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectOutboxRetryCountCommand>());
     sm.register_update_system(std::make_unique<HandleExpectBackendTuningCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleSeedReplyDraftCommand>());
@@ -2329,6 +2767,9 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleNativeDragResizeCommand>());
     sm.register_update_system(std::make_unique<HandleNativeKeyCommand>());
     sm.register_update_system(std::make_unique<HandleExpectContentSizeCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectUiRowsJoinCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectUiRelCommand>());
+    sm.register_update_system(std::make_unique<HandleDoubleClickWordCommand>());
     sm.register_update_system(std::make_unique<HandleHoverUICommand>());
     sm.register_update_system(std::make_unique<HandleMouseDownUICommand>());
     sm.register_update_system(

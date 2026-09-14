@@ -9,5 +9,11 @@
 # env: HANABI_SPLIT=t6 HANABI_WIN_W=760 HANABI_WIN_H=620
 
 require_thread t6
-expect_text "Task: backfill the entitlement table"
+# Ellipsised, not cut: the caption is present up to a break the face's own
+# width decides, and ENDS in the ellipsis -- never a mid-word cut running
+# under the close button. The exact break moves with the face (Roboto broke
+# after "table"; the reference face a glyph earlier), so the invariant is the
+# head plus the mark, not one break point.
+expect_text "Task: backfill the entitlement tab"
+expect_text "…"
 expect_no_text "legacy subscribers."

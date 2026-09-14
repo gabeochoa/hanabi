@@ -22,6 +22,13 @@ expect_text "Reading width"
 expect_text "Accent   ·   Default"
 expect_text "Find highlight   ·   Default"
 
+# Under the reference face the Theme rows sit below the pane's fold at 760
+# tall (the Accent row's centre is outside the scroll viewport, so a click on
+# it lands on nothing); a person scrolls first, so does the script.
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -200
+wait_frames 6
 click_ui settings_accent_violet
 wait_frames 8
 expect_text "Accent   ·   Violet"

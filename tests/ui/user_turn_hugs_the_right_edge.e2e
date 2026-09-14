@@ -37,13 +37,20 @@ expect_text "Reconcile this cycle's Stars payouts"
 # The reading column the turn is laid out in.
 assert_ui user_row x=322 w=736
 
-# Flush right, and narrower than the column.
-assert_ui user_bubble x=598 w=460 h=35
+# Flush right, and narrower than the column: the bubble's RIGHT edge is the
+# column's right edge, and it starts to the right of the column's left edge.
+# Its width is the text's width in the face in use (460 in Roboto, 518 in the
+# reference face) and is not the thing this asserts.
+expect_ui_rel user_bubble right_edge user_row
+expect_ui_rel user_bubble inside user_row
+assert_ui user_bubble h=35
 
 # Beside the bubble, 6px clear of it and 6px down from its top.
 # The two y's moved 4px down with the transcript's top inset (8 -> 12, which is
 # Puffin's own `EdgeInsets(top: 12, ...)`) on feat/vis-fixture; the 6px
 # relationship between them is what this pair is actually asserting and it is
 # unchanged.
-assert_ui user_avatar x=572 y=145 w=20 h=20
+# The avatar sits 6px left of the bubble whatever the bubble's width.
+assert_ui user_avatar y=145 w=20 h=20
 assert_ui user_bubble y=139
+expect_ui_rel user_avatar left_of_by:6 user_bubble 0

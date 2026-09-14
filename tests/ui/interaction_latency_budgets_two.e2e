@@ -20,7 +20,8 @@ enter
 wait_frames 24
 expect_latency attachment_stage 7
 
-right_click_text "needs a decision before it can go on"
+# The row, by its session -- the title is drawn ellipsised at this width.
+right_click_ui chat_row_id_t2
 wait_frames 8
 watch_ink sheet_open ui rename_panel
 click_ui row_menu_rename

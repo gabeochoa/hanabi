@@ -1,0 +1,10 @@
+# control: fail expect_ui_rows_join 10
+# FAILURE CONTROL -- this script must FAIL. Same characters, two flags
+# swapped ("--skip-reconcile-check" before "--notify"): content equal as a
+# multiset, order different. rows_join compares in row order, so it must
+# refuse. If it passes, order is not being asserted.
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
+require_thread t2
+expect_text "The agent needs approval  ·  bash"
+expect_ui_rows_join ask_approval_input '{"command":"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --skip-reconcile-check --notify=payout-owner@example.test --allow-outside-workspace"}'

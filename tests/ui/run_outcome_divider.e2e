@@ -26,4 +26,9 @@ expect_text "failed"
 # half of what is left each, so the three add up to the column and the word
 # sits on its centre line.
 assert_ui run_outcome_divider w=736 h=22
-assert_ui run_outcome_label w=38
+# The label box is the word's width in the face in use plus the 16px of
+# spacing (38 in Roboto, 39 in the reference face); what the divider promises
+# is that the word sits INSIDE the divider on its centre line with a rule each
+# side, and that is what is asserted.
+expect_ui_rel run_outcome_label inside run_outcome_divider
+assert_ui run_outcome_label h=22

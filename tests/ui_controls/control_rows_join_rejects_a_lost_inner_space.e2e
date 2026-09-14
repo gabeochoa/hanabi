@@ -1,0 +1,16 @@
+# control: fail expect_ui_rows_join 16
+# FAILURE CONTROL -- this script must FAIL at line 16. The join text drops the
+# space between "these" and "to" in the ask card's caveat note. rows_join
+# compares a row's characters as written, so a space lost INSIDE a row is
+# refused. A space lost exactly at a row break is not observable from
+# rendered rows, so line 15 first asserts that "these to submit" IS visible
+# on one row (the visible-text index is per label): if the wrapper ever broke
+# inside that phrase, line 15 fails first and the driver reports the control
+# BROKEN, never passed -- then move the pair, not the rule. The approval
+# command at 340 has no such pair: every row there is one token, so the
+# fixture is the caveat note at 1100, whose first row holds the whole clause.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_WIN_W=1100 HANABI_WIN_H=760
+require_thread t2
+expect_text "these to submit"
+expect_ui_rows_join ask_note_line "Answer any one of theseto submit — the file question will be left unanswered"

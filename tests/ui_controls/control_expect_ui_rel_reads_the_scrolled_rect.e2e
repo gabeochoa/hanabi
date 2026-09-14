@@ -1,0 +1,15 @@
+# control: fail expect_ui_rel 15
+# FAILURE CONTROL -- this script must FAIL. After the wheel the last flag row
+# is INSIDE the body (the positive script asserts that). This asserts it is
+# still outside_below -- true of the LAYOUT rect, false of the SCREEN rect. A
+# rel that read the layout rect would pass this; it must not.
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
+require_thread t2
+expect_text "The agent needs approval  ·  bash"
+expect_ui_rel ask_approval_input_18 outside_below ask_body
+mouse_move 250 400
+scroll_wheel 0 -40
+wait_frames 30
+expect_text "--allow-outside-"
+expect_ui_rel ask_approval_input_18 outside_below ask_body

@@ -1,0 +1,12 @@
+# control: fail expect_text 12
+# FAILURE CONTROL -- this script must FAIL. The word named is "8842" (4
+# glyphs), so a correct double_click_word selects 4 characters and the
+# "6 selected" readout -- the word "ledger" -- must NOT appear. If it passes,
+# the click landed by pixel on "ledger" regardless of the word named.
+# env: HANABI_SELECT_AUDIT=1
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+expect_no_text selected
+double_click_word "acct 8842 - ledger" 8842
+wait_frames 20
+expect_text "6 selected"

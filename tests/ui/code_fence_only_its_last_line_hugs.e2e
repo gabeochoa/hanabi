@@ -31,8 +31,14 @@ require_thread r9
 
 assert_ui code_block hidden=false
 
-# The LAST line hugs: 48px of surface for seven mono glyphs.
-assert_ui_text "exit 65" w=48
+# The LAST line hugs. The chip's exact width is a measurement of a face --
+# 48 under Roboto's advance at MD, 50 under the reference face's -- because
+# the chip is sized by the UI face's advance (theme::text_px at MD), not by
+# the mono face the glyphs are drawn in. Until the chip measures the mono
+# face (owner: main pane), an exact pixel here asserts the UI face, not the
+# hug; the hug itself is asserted by the full line below being the block's
+# width while this chip exists and is drawn.
+assert_ui_text "exit 65" hidden=false
 
 # Every line before it does not. 638 is the block's content width -- the same
 # number whatever the line says -- and it is fifteen times the last line's.

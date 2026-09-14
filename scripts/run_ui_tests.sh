@@ -25,6 +25,17 @@ cd "$ROOT" || exit 2
 
 EXE="$ROOT/output/hanabi_uitest.exe"
 DIR="${HANABI_UI_TESTS:-$ROOT/tests/ui}"
+
+# The runner takes NO positional arguments: it runs every .e2e under $DIR.
+# Naming scripts on the command line used to be silently ignored -- the whole
+# suite ran instead, twice mistaken for a hang and killed mid-run. Select by
+# copying the scripts you mean into a directory and pointing HANABI_UI_TESTS
+# at it; a stray argument is refused here before anything launches.
+if [ "$#" -gt 0 ]; then
+    echo "run_ui_tests.sh: takes no script names ($# given: $*)." >&2
+    echo "  select scripts with HANABI_UI_TESTS=<dir of .e2e files>" >&2
+    exit 64
+fi
 TIMEOUT="${HANABI_UI_TIMEOUT:-60}"
 
 # ---------------------------------------------------------------------------

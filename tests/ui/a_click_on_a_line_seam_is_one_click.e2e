@@ -69,6 +69,10 @@ expect_no_text selected
 click 700 300
 wait_frames 6
 
-double_click 415 234
+# The WORD, not a pixel: "ledger" on the first account line, placed by the
+# selection code's own layout in the face in use. (415,234 was that word's
+# centre under Roboto; under the reference face the same pixel is the space
+# after "8842", and the double would select nothing this test means.)
+double_click_word "acct 8842 - ledger" ledger
 wait_frames 20
 expect_text "6 selected"

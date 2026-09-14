@@ -3993,7 +3993,7 @@ bubble's computed width is its text's (460) and not the cap (644) or the column
 without a test.
 
 
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`UserBox user_box`) — computes user bubble width from wrapped text and cap in app code. `src/ecs/transcript_render_cache.h` (`user_box() asks at the bubble's MAXIMUM text width`) — documents the two-width memoization shape caused by app-side hug measurement. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`assert_ui user_bubble x=598 w=460 h=35`) — pins a right-aligned shrink-to-fit user bubble rather than a cap-width or column-width bubble.
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`UserBox user_box`) — computes user bubble width from wrapped text and cap in app code. `src/ecs/transcript_render_cache.h` (`user_box() asks at the bubble's MAXIMUM text width`) — documents the two-width memoization shape caused by app-side hug measurement. Tests: `tests/ui/user_turn_hugs_the_right_edge.e2e` (`expect_ui_rel user_bubble right_edge user_row` + `expect_ui_rel user_bubble inside user_row`, `assert_ui user_bubble h=35`) — pins a right-aligned shrink-to-fit user bubble (flush to the column's right edge, narrower than it) rather than a cap-width or column-width bubble; the width itself is the face's measurement and is not pinned.
 
 
 **Minimal upstream fix.** Give `get_text_size_for_axis` the max constraint that
@@ -4477,6 +4477,41 @@ render texture keeps matching its pass. Two struct fields and one plumb; no
 call site changes for anyone who does not set it.
 
 CLASS: WORKAROUND
+
+**Re-measured 2026-09-14 on the model panel, native 2x, same face and state
+(reference `model.png` @2x vs a windowed hanabi capture `screencapture -l`,
+own PID, dpi=2.00; crops at `/tmp/hz-ref5/strip/pair_model_panel_2x.png`).**
+The reference's lit radio, 19x19 px column dump (`#` full, `*`/`:` partial):
+
+```
+ reference (2x)                 hanabi (2x)
+   .....:**::::**:....           ......******.......
+   ...**..:****:..**..           ...****....****....
+   .*:.************.::           .**..********..**..
+```
+
+Two separate findings, kept apart:
+
+1. **Coverage (this gap).** Every reference edge carries partial coverage
+   (`:`/`*` around a `#`/`*` core); every hanabi edge is binary. Unchanged
+   cause: `sample_count = 1` in both backend setup paths. Still no app-side
+   feather is acceptable (a second dimmer pass reads as a halo at 2x too).
+   An app-side path that IS legitimate: an anti-aliased icon-atlas sprite for
+   a fixed-size glyph (the atlas is sampled bilinearly like text) -- the
+   model panel's radio/tick/lock are candidates for that, the sidebar marks
+   in the original entry likewise.
+2. **Geometry (NOT this gap; app-side).** Reference lit radio = 1-px ring,
+   1-px gap, filled disc r≈6 px @2x (a filled accent disc with a thin ring);
+   hanabi = 2-px ring, 2-px gap, disc r≈4 px (a ring with a small dot). The
+   reference's `default` capsule and Locked capsule are true pills (corner
+   radius = half the height); hanabi drew them at roundness 0.5 = quarter
+   height. Those are parameter fixes in `render_model_popover`, independent
+   of sampling, and are tracked with the panel, not here.
+
+Upstream acceptance for the coverage half: `sgl` context created with the
+swapchain's sample count (4) in both windowed and headless paths, or a
+`sample_count` field on the backend desc; then the column dump above shows
+partial coverage on hanabi's ring.
 
 ### #93 — An absolutely positioned child can only be placed from the LEADING edge, so a trailing-edge overlay has to re-derive its parent's layout by hand
 

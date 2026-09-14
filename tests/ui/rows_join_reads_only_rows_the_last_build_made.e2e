@@ -1,0 +1,25 @@
+# The semantic gate behind expect_ui_rows_join must not read stale rows.
+#
+# The library clears a widget's "rendered" bit every frame but never its
+# rect or label, and an element whose builder stopped lingers for the retire
+# grace (90 frames) with both intact. A predicate on the rect would keep
+# reassembling a command from rows that are no longer built. This proves the
+# gate reads the BUILD ledger: the approval's rows join to the command while
+# the card is up, and the frame after the card is answered -- long inside the
+# grace window -- the same prefix has no built rows, even though the
+# entities still exist.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval
+require_thread t2
+expect_text "The agent needs approval  ·  bash"
+# The rows draw the approval INPUT as journaled -- the command inside its
+# JSON object -- so that is the text they must reassemble to.
+expect_ui_rows_join ask_approval_input '{"command":"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace"}'
+click_ui ask_submit
+# The submit settles over a few frames (the other approval scripts wait 20
+# before asserting the card is gone); 20 is still far inside the 90-frame
+# retire grace, so the withdrawn rows are still ENTITIES when this reads --
+# and must not count.
+wait_frames 20
+expect_no_text "The agent needs approval"
+expect_ui_rows_join ask_approval_input -

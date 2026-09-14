@@ -25,8 +25,11 @@ expect_text "bash may write"
 # Twenty rows reserved, twenty rows built. Under the old measure the row list
 # stopped at eight and this element did not exist, so this line times out on a
 # revert.
-assert_ui ask_approval_input_18 hidden=false
-assert_ui ask_approval_input_17 text=--allow-outside-
+# Every flag present and in order -- the whole command reassembles from the
+# rows, whatever the face made of the break points.
+# The rows draw the approval INPUT as journaled -- the command inside its
+# JSON object -- so that is the text they must reassemble to.
+expect_ui_rows_join ask_approval_input '{"command":"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace"}'
 
 # Nothing was cut to make it fit. The pre-fix build ended its last row with an
 # ellipsis right here, and that ellipsis was the whole defect: it is what a
@@ -37,5 +40,10 @@ expect_no_text "settled.csv…"
 # The content is taller than the viewport, which is the honest state: the tail
 # is off-screen and reachable, not absent. (a_long_approval_scrolls_to_its_
 # last_flag.e2e walks it into view.)
-expect_text "--out=/var/finan"
+# The tail is below the fold: the last flag's row exists but is not painted
+# in the viewport (the scroll script walks it into view).
+# A flag from the middle of the command is painted (named by a token no wrap
+# can split -- the flag word itself, not a Roboto-era fragment of a path)
+# while the last flag is not.
+expect_text "--ledger="
 expect_no_text "--allow-outside-"

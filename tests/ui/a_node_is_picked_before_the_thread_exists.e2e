@@ -52,7 +52,8 @@ key ESCAPE
 wait_frames 6
 
 # An open thread with nothing attached says so, and a pick attaches.
-click_text "needs a decision before it can go on"
+# The row, by its session -- the title is drawn ellipsised at this width.
+click_ui chat_row_id_t2
 wait_frames 12
 expect_text "0 nodes"
 click_ui composer_nodes

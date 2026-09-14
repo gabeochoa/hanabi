@@ -1,0 +1,34 @@
+# env: HANABI_ALLOW_SYSTEM_FONTS_HEADLESS=1 HANABI_FONT_AUDIT=1
+# The app's EMPHASIS token (with_font_weight SemiBold -> `__default@semibold`)
+# draws a REAL heavier face, not the regular one under another name. With no
+# stored preference the Emphasis default is the reference's SemiBold, the
+# "default" family resolves to the reference's own installed face (falling to
+# the platform face, then the bundled one), and the loader's own report says
+# which file each alias landed on. This runs on the machine's installed faces
+# -- the bundled resources carry Regular only, and nothing here copies a font.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+wait_frames 8
+# Regular is the family's regular face, never a fallback.
+expect_font_face regular regular real
+# Emphasis, by default: the semibold face, for real.
+expect_font_face semibold semibold real
+expect_font_face medium medium real
+expect_font_face bold bold real
+# Light has no face anywhere hanabi looks: it is regular, and says so.
+expect_font_face light regular fallback
+
+# Emphasis OFF is a stored choice: every alias is regular and NOT a fallback.
+click_ui sb_settings
+wait_frames 8
+click_ui sb_settings_nav_appearance
+wait_frames 8
+click_ui settings_font_weight_regular
+wait_frames 6
+expect_font_face semibold regular real
+expect_font_face bold regular real
+
+# The choice is the face emphasis draws in: Bold makes the emphasis alias bold.
+click_ui settings_font_weight_bold
+wait_frames 6
+expect_font_face semibold bold real
+expect_font_face medium medium real

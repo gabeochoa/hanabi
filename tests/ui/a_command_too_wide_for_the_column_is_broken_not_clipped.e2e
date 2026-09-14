@@ -27,13 +27,17 @@
 require_thread t2
 expect_text "The agent needs approval  ·  bash"
 
-# Broken mid-token, on the exact byte the column runs out at.
-assert_ui ask_approval_input_1 text=cripts/release_b
-assert_ui ask_approval_input_2 text=atch.sh
-
-# And not clipped: the row after the last one the old build drew still exists,
-# and no row ends in the truncation ellipsis.
-assert_ui ask_approval_input_8 text=sv
+# Broken, not clipped, stated as the invariant it is: every character of the
+# command is on some row, in order, and no row carries the truncation mark --
+# so the join of the rows IS the command. Where a given face breaks a token
+# is that face's business (Roboto broke "scripts/release_b|atch.sh"; the
+# reference face a glyph later), and the join does not care.
+# The rows draw the approval INPUT as journaled -- the command inside its
+# JSON object -- so that is the text they must reassemble to.
+expect_ui_rows_join ask_approval_input '{"command":"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace"}'
+# More than one row broke inside a token: the first path argument alone is
+# wider than the column, so at least three rows exist before "--force".
+assert_ui ask_approval_input_2 hidden=false
 expect_no_text "ledger.csv…"
 
 assert_ui ask_submit text=OK

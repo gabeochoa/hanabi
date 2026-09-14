@@ -3625,6 +3625,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Release)
                 .with_roundness(0.0f)
                 .with_debug_name("chat_row"));
+        // The row's SESSION identity for a script, as a zero-size marker at
+        // the row's centre: `click_ui chat_row_id_t2` lands on the row it
+        // means whatever the title is drawn as (the title ellipsises by
+        // measured width, and a display string is not an identity). A marker
+        // rather than a per-session row name, so every exact reader of
+        // `chat_row` -- expect_no_ui, hover_ui, the soak ledger's per-name
+        // widget counts -- keeps one name for one kind of row.
+        div(ctx, mk(row.ent(), 97),
+            ComponentConfig{}
+                .with_absolute_position()
+                .with_translate(panelW * 0.5f, kRowHeight * 0.5f)
+                .with_size(ComponentSize{pixels(0), pixels(0)})
+                .with_transparent_bg()
+                .with_debug_name("chat_row_id_" + s.id));
 
         bool rowHot = false;
         // Bake the hover wash into the row's BASE fill whenever the pointer is

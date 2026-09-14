@@ -1,4 +1,5 @@
 #include "font_system.h"
+#include "font_plan.h"
 
 #include <afterhours/src/plugins/files.h>
 
@@ -9,6 +10,8 @@
 #include <cstring>
 #include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "../native_extras.h"
 #include "../rl.h"
@@ -20,7 +23,13 @@
 namespace hanabi::fonts {
 namespace {
 
-static_assert(14 <= afterhours::graphics::metal_detail::MAX_FONTS);
+// Real font files the manager can hold: preload adds three (the bundled
+// regular, mono, hyperlegible); each applied family adds up to four (regular,
+// medium, semibold, bold), de-duplicated by name -- three family switches in
+// one run is the most the slot count allows.
+static_assert(3 + 3 * 4 <= afterhours::graphics::metal_detail::MAX_FONTS);
+static_assert(std::string_view(kDefaultFontName) ==
+              std::string_view(afterhours::ui::UIComponent::DEFAULT_FONT));
 
 const std::array<Choice, 4> kFamilyChoices{{
     {"default", "Standard"},
@@ -48,6 +57,8 @@ struct Runtime {
     std::vector<Choice> visible_families;
     std::string applied_family;
     std::string applied_emphasis;
+    std::string default_source;
+    std::vector<AliasReport> report;
 };
 
 Runtime& runtime() {
@@ -123,7 +134,43 @@ void preload(afterhours::ui::FontManager& manager) {
         Family{kFamilyChoices[0], {{"regular", regular}}, 1.17185f});
     state.catalog.push_back(
         Family{kFamilyChoices[1], {{"regular", hyper}}, 1.24000f});
+    // HANABI_FONT_DEFAULT=bundled: the "default" family is the bundled files
+    // and NOTHING the machine has -- the machine's faces (the reference's, the
+    // platform's, and any installed heavier weights of the bundled family) are
+    // kept out of it, whatever the headless allow flag says, so a test can
+    // stand on a machine with no installed faces. Explicit families (system,
+    // optimistic) still resolve from the catalog as usual.
+    const char* pin = std::getenv("HANABI_FONT_DEFAULT");
+    const bool pinBundled = pin != nullptr && std::strcmp(pin, "bundled") == 0;
     if (allow_native()) add_native_catalog();
+    if (pinBundled) {
+        if (Family* def = find_family("default")) {
+            def->paths = {{"regular", regular}};
+            def->point_scale = 1.17185f;
+        }
+        if (Family* hyp = find_family("hyperlegible")) hyp->paths = {{"regular", hyper}};
+    }
+
+    // "default" (Standard) is the reference's default face where the machine
+    // has it -- the reference names its faces by family and falls back to the
+    // platform UI face where that family is not installed -- and the bundled
+    // face only where neither is. An explicit family choice (system,
+    // optimistic, hyperlegible) is never touched by this.
+    {
+        const Family* reference = pinBundled ? nullptr : find_family("optimistic");
+        const Family* platform = pinBundled ? nullptr : find_family("system");
+        state.default_source = pick_default_source(
+            reference != nullptr && reference->paths.contains("regular"),
+            platform != nullptr && platform->paths.contains("regular"));
+        Family* def = find_family("default");
+        const Family* from = state.default_source == "optimistic" ? reference
+                             : state.default_source == "system"  ? platform
+                                                                  : nullptr;
+        if (def != nullptr && from != nullptr) {
+            def->paths = from->paths;
+            def->point_scale = from->point_scale;
+        }
+    }
 
     manager.load_font(afterhours::ui::UIComponent::DEFAULT_FONT,
                       regular.c_str());
@@ -136,6 +183,21 @@ void preload(afterhours::ui::FontManager& manager) {
         manager.get_font(afterhours::ui::UIComponent::DEFAULT_FONT));
     manager.load_font(registered_name("hyperlegible", "regular"),
                       hyper.c_str());
+    // Until apply() runs, every weight alias draws the bundled regular and the
+    // report says so (fallback): a component asking for a weight before the
+    // preference is applied gets text, not a missing-font warning.
+    {
+        const std::string base = afterhours::ui::UIComponent::DEFAULT_FONT;
+        const afterhours::Font bundled = manager.get_font(base);
+        state.report.clear();
+        for (const char* w : {"light", "medium", "semibold", "bold"}) {
+            const std::string alias = base + "@" + w;
+            manager.load_font(alias, bundled);
+            state.report.push_back(
+                {AliasPlan{alias, w, "regular", regular, true}, "default",
+                 afterhours::is_font_loaded(bundled)});
+        }
+    }
 
     for (const auto& choice : kFamilyChoices)
         if (const Family* family = find_family(choice.key);
@@ -199,24 +261,48 @@ void apply(afterhours::ui::FontManager& manager, std::string_view family,
 
     afterhours::Font regular = load_face(manager, selected_family, "regular",
                                          selected->paths.at("regular"));
+    std::string regular_family = selected_family;
     if (!afterhours::is_font_loaded(regular)) {
         regular = load_face(manager, "default", "regular",
                             fallback->paths.at("regular"));
+        regular_family = "default";
     }
+    const Family* faces_of = find_family(regular_family);
 
+    // One real face per alias, from the family's own files; a weight the
+    // family lacks falls down its ladder and the report says so. The
+    // registration IS the plan: nothing is registered that the report does
+    // not list, and nothing listed that was not registered.
+    std::vector<std::pair<std::string, std::string>> have;
+    for (const auto& [w, path] : faces_of->paths) have.emplace_back(w, path);
+    // The REQUESTED emphasis goes to the plan, not the availability-clamped
+    // one: a chosen Semibold on a family with no such face is a fallback the
+    // report must call a fallback, not "emphasis off by choice".
+    const std::vector<AliasPlan> plan = plan_aliases(have, emphasis);
+    state.report.clear();
     afterhours::Font emphasized = regular;
-    if (selected_emphasis != "regular") {
-        emphasized = load_face(manager, selected_family, selected_emphasis,
-                               selected->paths.at(selected_emphasis));
-        if (!afterhours::is_font_loaded(emphasized)) emphasized = regular;
+    for (const AliasPlan& row : plan) {
+        afterhours::Font face =
+            row.weight == "regular"
+                ? regular
+                : load_face(manager, regular_family, row.weight, row.path);
+        bool loaded = afterhours::is_font_loaded(face);
+        AliasPlan registered = row;
+        if (!loaded) {
+            // The file named a face the loader could not open: honest
+            // fallback to the regular face, recorded as such.
+            face = regular;
+            registered.weight = "regular";
+            registered.path = faces_of->paths.at("regular");
+            registered.fallback = true;
+            loaded = afterhours::is_font_loaded(face);
+        }
+        manager.load_font(row.alias, face);
+        if (row.alias == afterhours::ui::UIComponent::DEFAULT_FONT + std::string("@semibold"))
+            emphasized = face;
+        state.report.push_back({registered, regular_family, loaded});
     }
-
     const std::string base = afterhours::ui::UIComponent::DEFAULT_FONT;
-    manager.load_font(base, regular);
-    manager.load_font(base + "@light", regular);
-    manager.load_font(base + "@medium", emphasized);
-    manager.load_font(base + "@semibold", emphasized);
-    manager.load_font(base + "@bold", emphasized);
     manager.set_active(base);
 
     theme::type::set_point_scale(selected->point_scale);
@@ -244,6 +330,13 @@ void apply(afterhours::ui::FontManager& manager, std::string_view family,
             sample, sampleSize, afterhours::colors::FontWeight::Regular);
         const float emphasisAdvance = measure_advance(
             sample, sampleSize, afterhours::colors::FontWeight::SemiBold);
+        for (const AliasReport& r : state.report)
+            std::fprintf(stderr, "[font] alias=%s wanted=%s got=%s%s family=%s file=%s%s\n",
+                         r.plan.alias.c_str(), r.plan.wanted.c_str(),
+                         r.plan.weight.c_str(), r.plan.fallback ? " (fallback)" : "",
+                         r.family.c_str(), r.plan.path.c_str(),
+                         r.loaded ? "" : " NOT LOADED");
+        std::fprintf(stderr, "[font] default_source=%s\n", state.default_source.c_str());
         std::fprintf(stderr,
                      "[font] requested=%.*s/%.*s effective=%s/%s "
                      "regular_id=%d emphasis_id=%d epoch=%u scale=%.5f dpi=%.2f "
@@ -263,15 +356,16 @@ void apply(afterhours::ui::FontManager& manager, std::string_view family,
         cache->clear();
 }
 
-float measure_advance(const char* text, float size,
-                      afterhours::colors::FontWeight weight) {
+const std::vector<AliasReport>& report() { return runtime().report; }
+const std::string& default_source() { return runtime().default_source; }
+
+namespace {
+float advance_in_registered(const std::string& name, const char* text, float size) {
     if (text == nullptr || *text == '\0') return 0.0f;
     auto* manager = afterhours::EntityHelper::get_singleton_cmp<
         afterhours::ui::FontManager>();
     auto* ctx = afterhours::graphics::metal_detail::g_fons_ctx;
     if (manager == nullptr || ctx == nullptr) return 0.0f;
-    const std::string name = manager->resolve_weighted(
-        afterhours::ui::UIComponent::DEFAULT_FONT, weight);
     const auto it = manager->fonts.find(name);
     if (it == manager->fonts.end() || !afterhours::is_font_loaded(it->second))
         return 0.0f;
@@ -280,6 +374,22 @@ float measure_advance(const char* text, float size,
     fonsSetSize(ctx, size * dpi);
     fonsSetAlign(ctx, FONS_ALIGN_LEFT | FONS_ALIGN_TOP);
     return fonsTextBounds(ctx, 0.0f, 0.0f, text, nullptr, nullptr) / dpi;
+}
+}  // namespace
+
+float measure_advance(const char* text, float size,
+                      afterhours::colors::FontWeight weight) {
+    auto* manager = afterhours::EntityHelper::get_singleton_cmp<
+        afterhours::ui::FontManager>();
+    if (manager == nullptr) return 0.0f;
+    return advance_in_registered(
+        manager->resolve_weighted(afterhours::ui::UIComponent::DEFAULT_FONT, weight), text,
+        size);
+}
+
+float measure_advance_in(const char* font_name, const char* text, float size) {
+    if (font_name == nullptr || *font_name == '\0') return 0.0f;
+    return advance_in_registered(font_name, text, size);
 }
 
 }  // namespace hanabi::fonts

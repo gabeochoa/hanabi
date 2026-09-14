@@ -24,7 +24,8 @@ key ESCAPE
 wait_frames 8
 
 # Open a thread; the server (staged) refuses the change.
-click_text "needs a decision before it can go on"
+# The row, by its session -- the title is drawn ellipsised at this width.
+click_ui chat_row_id_t2
 wait_frames 20
 expect_open t2
 click_ui composer_model

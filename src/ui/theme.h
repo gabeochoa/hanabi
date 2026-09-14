@@ -755,6 +755,24 @@ inline float text_px(
     return text_px(s.c_str(), px, weight);
 }
 
+// The advance of `s` in the MONO face at `px` -- for a fence chip that draws
+// its glyphs in "mono" and must hug them, not the UI face's version of them.
+// Memoised like text_px, keyed apart from it.
+inline float text_px_mono(const char* s, float px) {
+    if (!s || !*s) return 0.0f;
+    constexpr std::size_t kEntries = 256;
+    static hanabi::text::TextKeyCache<float> memo(kEntries);
+    constexpr float kMonoKey = 1000.0f;  // apart from every FontWeight key
+    if (const float* hit = memo.find(s, px, kMonoKey)) return *hit;
+    const float w = hanabi::atlas::check(s, px, hanabi::fonts::measure_advance_in("mono", s, px));
+    if (w > 0.0f) {
+        memo.put(s, px, kMonoKey, w);
+        return w;
+    }
+    return static_cast<float>(std::char_traits<char>::length(s)) * px * 0.6f;
+}
+inline float text_px_mono(const std::string& s, float px) { return text_px_mono(s.c_str(), px); }
+
 // The one shared corner radius for chat surfaces (user prompt bubble + tool
 // card) so they always match -- Gabe: "corners of my prompt must match the tool
 // call". A pixel value, handed straight to with_corner_radius.

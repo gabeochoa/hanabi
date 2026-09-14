@@ -10542,7 +10542,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // difference wrong twenty-one rows deep.
             const bool lastLine = (li + 1 == static_cast<int>(lines.size()));
             const float chipW =
-                std::ceil(theme::text_px(shown.c_str(), theme::type::MD)) +
+                std::ceil(theme::text_px_mono(shown.c_str(), theme::type::MD)) +
                 2.0f * kCodeChipPadX;
             auto cfg =
                 ComponentConfig{}

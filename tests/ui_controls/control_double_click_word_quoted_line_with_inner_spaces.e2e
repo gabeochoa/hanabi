@@ -1,0 +1,12 @@
+# control: pass
+# POSITIVE CONTROL for the tokeniser -- this script must PASS (it is listed
+# in the driver's pass set). The line substring holds three inner spaces and
+# a hyphen token, and an explicit <nth>: the runner splits it into tokens as
+# typed, and the command must re-join them and find the word. The selection
+# readout for "ledger" is 6.
+# env: HANABI_SELECT_AUDIT=1
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+double_click_word "acct 8842 - ledger" ledger 1
+wait_frames 20
+expect_text "6 selected"

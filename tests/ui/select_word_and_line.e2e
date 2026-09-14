@@ -81,11 +81,16 @@ expect_no_text selected
 # way to ask where a piece of text landed), so if this starts selecting the
 # wrong word, re-measure rather than nudge -- render t2 at this script's own
 # 1100x760 and scan the PNG for the bubble's band.
-double_click 415 226
+# The WORD "ledger", placed by the selection code's own layout in the face
+# in use -- not the pixel Roboto put it at (415,226 is now the space after
+# "8842" under the reference face).
+double_click_word "acct 8842 - ledger" ledger
 wait_frames 6
 expect_text "6 selected"
 
-# The whole line is much longer than one word.
+# The whole line is much longer than one word. A line click needs only to
+# land on the line, so the pixel still serves here (the line's band is
+# unchanged; only glyph x positions moved).
 triple_click 415 226
 wait_frames 6
 expect_no_text "6 selected"

@@ -23,7 +23,10 @@ disable_animations
 # row starts at 642 --- 165px below it, unreachable if the extent were the
 # clipped 144px the old measure reported.
 assert_ui ask_body y=300 h=177
-assert_ui ask_approval_input_18 y=624
+# The last row exists and starts BELOW the viewport's bottom edge -- its
+# exact y is the card's header height in the face in use (624 under Roboto,
+# 588 under the reference face; every row moved by that one constant).
+expect_ui_rel ask_approval_input_18 outside_below ask_body
 expect_no_text "--allow-outside-"
 
 mouse_move 250 400
@@ -32,11 +35,13 @@ wait_frames 30
 
 # 183px of travel, all of it used: the last two rows are inside the viewport
 # and the flag this approval is about can finally be read.
-assert_ui ask_approval_input_18 y=459
-assert_ui ask_approval_input_17 y=441
+expect_ui_rel ask_approval_input_18 inside ask_body
+expect_ui_rel ask_approval_input_17 inside ask_body
 expect_text "--allow-outside-"
 expect_text "--skip-reconcile-"
 
 # The first row moved the same 183px the other way, so the body scrolled
 # rather than re-laying itself out at a new height.
-assert_ui ask_approval_input_0 y=135
+# ... and out of the top: the first row is now above the viewport, so the body
+# SCROLLED rather than re-laying itself out at a new height.
+expect_ui_rel ask_approval_input_0 above ask_body

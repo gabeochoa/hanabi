@@ -42,7 +42,12 @@ STAGE_CALLERS="src/ecs/attachment_intake_system.h|the one intake: picker, paste 
 src/ecs/main_pane_system.h|HANABI_ATTACH_DEMO, a screenshot hook that stages a fixture and never runs unset
 src/main.cpp|HANABI_MEMLADDER, the memory-ladder diagnostic"
 
-KICKOFF_SETTERS="src/ecs/main_pane_system.h|the composer's own submit and its slash router
+# The create path is `request_kickoff(` -- AppComponent's one setter (the
+# launch defaults are read there, once, at the action boundary) and its
+# three callers. The raw member write `requestKickoff =` is allowed ONLY
+# inside that setter, in components.h.
+KICKOFF_SETTERS="src/ecs/components.h|AppComponent::request_kickoff, the one setter
+src/ecs/main_pane_system.h|the composer's own submit and its slash router
 src/ecs/e2e_commands.h|the scripted-UI harness, which drives the same submit
 src/main.cpp|HANABI_KICKOFF_DEMO, a screenshot hook"
 
@@ -109,7 +114,7 @@ scan() {
     check_closed_set "$root" "composer field" 'text_area(' "$COMPOSER_FIELDS"
     check_closed_set "$root" "attachment staging" 'attachments::stage(' \
         "$STAGE_CALLERS"
-    check_closed_set "$root" "create path" 'requestKickoff = ' \
+    check_closed_set "$root" "create path" 'requestKickoff = \|request_kickoff(' \
         "$KICKOFF_SETTERS"
     # The member ACCESS, not the declaration: components.h owns the field and
     # is not a servicer of it.
@@ -134,14 +139,17 @@ plant_tree() {
     cat > "$dir/src/ecs/main_pane_system.h" <<'EOF'
 auto inputRes = afterhours::ui::imm::text_area(ctx, mk(row, 1), draft);
 auto staged = api::attachments::stage(a);
-app.requestKickoff = std::move(message);
+app.request_kickoff(std::move(message));
 escapeIn.attachments.push_back(staged.name);
+EOF
+    cat > "$dir/src/ecs/components.h" <<'EOF'
+void request_kickoff(api::OutgoingMessage message) { requestKickoff = std::move(message); }
 EOF
     cat > "$dir/src/ecs/attachment_intake_system.h" <<'EOF'
 auto staged = api::attachments::stage(path);
 EOF
     cat > "$dir/src/ecs/e2e_commands.h" <<'EOF'
-app->requestKickoff = ecs::model::snapshot_outgoing(text);
+app->request_kickoff(ecs::model::snapshot_outgoing(text));
 EOF
     cat > "$dir/src/ecs/new_thread.h" <<'EOF'
 app->requestNewThread = false;
@@ -151,7 +159,7 @@ if (!in.attachments.empty()) return ComposerEscapeStep::KeptStaged;
 EOF
     cat > "$dir/src/main.cpp" <<'EOF'
 auto staged = api::attachments::stage(png);
-app->requestKickoff = api::attachments::outgoing(d, {}, target);
+app->request_kickoff(api::attachments::outgoing(d, {}, target));
 EOF
 }
 
@@ -188,7 +196,7 @@ selftest() {
                    > "$tmp/plant/src/ecs/sidebar_system.h" ;;
             1) echo 'auto s = api::attachments::stage(p);' \
                    > "$tmp/plant/src/ecs/sidebar_system.h" ;;
-            2) echo 'app.requestKickoff = std::move(m);' \
+            2) echo 'app.request_kickoff(std::move(m));' \
                    > "$tmp/plant/src/ecs/sidebar_system.h" ;;
             3) echo 'app->requestNewThread = false;' \
                    > "$tmp/plant/src/ecs/sidebar_system.h" ;;

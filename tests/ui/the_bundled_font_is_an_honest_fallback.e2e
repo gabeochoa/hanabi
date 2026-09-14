@@ -1,0 +1,19 @@
+# env: HANABI_FONT_DEFAULT=bundled
+# Without an installed heavier face -- the bundled resources are Regular only,
+# and HANABI_FONT_DEFAULT=bundled pins the "default" family to them, as a
+# machine with no reference or platform face would resolve -- every weight
+# alias falls to the regular face and the loader SAYS it did: fallback, not a
+# claimed semibold. With one face the Emphasis row is not drawn at all --
+# there is nothing to choose -- so its absence is the assertion.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+wait_frames 8
+expect_font_face regular regular real default
+expect_font_face semibold regular fallback default
+expect_font_face medium regular fallback default
+expect_font_face bold regular fallback default
+click_ui sb_settings
+wait_frames 8
+click_ui sb_settings_nav_appearance
+wait_frames 8
+expect_no_ui settings_font_weight_row
+expect_no_ui settings_font_weight_semibold

@@ -471,7 +471,11 @@ struct Settings {
     int split_focused_pane_ = 0;
     std::string split_panes_[2];
     std::string font_choice_ = "default";
-    std::string font_weight_ = "regular";
+    // The Emphasis preference is the face emphasized text draws in; "regular"
+    // is emphasis OFF. The reference's emphasis is its SemiBold face, so a
+    // reader who never chose gets that; a stored "regular" is a choice and
+    // is kept (the file's value wins over this default when present).
+    std::string font_weight_ = "semibold";
     std::string user_font_;
     std::string assistant_font_;
     std::string accent_choice_ = "default";

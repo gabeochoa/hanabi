@@ -1,0 +1,9 @@
+# control: fail expect_ui_rows_join 9
+# FAILURE CONTROL -- this script must FAIL. The text stops after "ledger.csv":
+# the rows go on, so the join has extra characters. A rows_join that stopped
+# comparing when the expectation ran out would pass this; it must not.
+# settings: {"window_width":340,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=longapproval HANABI_WIN_W=340 HANABI_WIN_H=620
+require_thread t2
+expect_text "The agent needs approval  ·  bash"
+expect_ui_rows_join ask_approval_input '{"command":"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv'
