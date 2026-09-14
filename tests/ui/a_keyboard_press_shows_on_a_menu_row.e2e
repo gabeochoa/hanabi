@@ -12,4 +12,4 @@ watch_ink press_menu_keyboard press row_menu_open
 key ENTER
 wait_frames 12
 expect_latency press_menu_keyboard 8
-expect_text "Open in a tab"
+expect_text "Open in a Tab"

@@ -36,7 +36,7 @@ assert_ui_text "SKU backfill — my name for it" y=515
 right_click_text "profiling the disk"
 wait_frames 4
 expect_text "Archive"
-expect_no_text "Reset order"
+expect_no_text "Reset Order"
 click 650 300
 wait_frames 4
 
@@ -70,7 +70,7 @@ expect_no_text "Backfill in progress"
 # The list now reads as hand-arranged, and saying so undoes it.
 right_click_text "profiling the disk"
 wait_frames 4
-expect_text "Reset order"
+expect_text "Reset Order"
 click_ui row_menu_reset_order
 wait_frames 8
 mouse_move 650 400

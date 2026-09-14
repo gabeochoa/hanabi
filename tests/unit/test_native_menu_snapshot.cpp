@@ -131,7 +131,41 @@ static void test_focus_returns_only_when_the_menu_took_it() {
     CHECK(focus_to_restore(BEFORE, -1, ELSEWHERE, ROOT, true) == -1);
 }
 
+// The request carries the APP's appearance, copied at the boundary; the
+// default is "the window's", and the two themes map one-to-one.
+static void test_appearance_rides_the_request() {
+    hanabi::native_menu::Request r;
+    CHECK(r.appearance == hanabi::native_menu::Appearance::Unspecified);
+    r.appearance = hanabi::native_menu::Appearance::Dark;
+    const hanabi::native_menu::Request copy = r;  // what the adapter keeps
+    CHECK(copy.appearance == hanabi::native_menu::Appearance::Dark);
+}
+
+// A separator occupies a row slot in the snapshot with NO action id, so a
+// pick can never resolve onto it, and the rows around it keep their ids:
+// inserting separators must not shift an action onto a neighbour.
+static void test_separators_hold_a_slot_and_no_action() {
+    NativeMenuOpen open;
+    open.generation = 12;
+    // The row menu's shape: open | rename fork | copy_title copy_link copy_id
+    // open_web | mute | archive, "" = separator.
+    open.action_ids = {"open", "", "rename", "fork", "", "copy_title", "copy_link",
+                       "copy_id", "open_web", "", "mute", "", "archive"};
+    CHECK(open.action_of(1).empty() && open.action_of(4).empty() &&
+          open.action_of(9).empty() && open.action_of(11).empty());
+    CHECK(open.action_of(10) == "mute");
+    CHECK(open.action_of(12) == "archive");
+    CHECK(open.action_of(2) == "rename");
+    // Resolving a separator row against any item list yields nothing.
+    std::vector<MenuItem> now;
+    for (const auto& id : open.action_ids) now.push_back({id, id, id});
+    CHECK(resolve(open, 1, now) == kNoMenuRow);
+    CHECK(resolve(open, 10, now) == 10);
+}
+
 int main() {
+    test_appearance_rides_the_request();
+    test_separators_hold_a_slot_and_no_action();
     test_focus_returns_only_when_the_menu_took_it();
     test_same_state_resolves_to_the_same_action();
     test_a_toggle_that_changed_underneath_is_refused_not_inverted();

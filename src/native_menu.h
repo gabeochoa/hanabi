@@ -71,6 +71,14 @@ struct Item {
 inline constexpr std::size_t kNoRow = static_cast<std::size_t>(-1);
 
 
+// The appearance the menu is drawn in. The app's theme is the app's, not the
+// system's: under a dark app theme the reference's menus are dark whatever
+// the desktop says (measured on its captures), and the NSMenu inherits the
+// window's system appearance unless told otherwise. Resolved at the UI
+// boundary from the app's theme and COPIED into the request, so the AppKit
+// side reads no app state at tracking time.
+enum class Appearance { Unspecified, Light, Dark };
+
 struct Request {
     std::uint64_t generation = 0;
     std::string scope;   // what the menu is FOR: "session:<id>", "view:<id>", "tab:<n>"
@@ -78,6 +86,7 @@ struct Request {
     std::vector<Item> items;  // copied
     float content_x = 0.0f;  // anchor, content-space points, top-left origin
     float content_y = 0.0f;
+    Appearance appearance = Appearance::Unspecified;  // Unspecified = the window's
 };
 
 struct Result {

@@ -6,14 +6,14 @@ right_click 120 400
 wait_frames 8
 
 expect_text "Rename…"
-assert_ui row_menu_rename x=124 y=464 w=176 h=36
-assert_ui row_menu h=360
+assert_ui row_menu_rename x=124 y=437 w=176 h=36
+assert_ui row_menu h=396
 
-click 212 486
+click 212 455
 wait_frames 10
 expect_no_text "Rename session"
 expect_text "CONVERSATION"
 
-click 212 594
+click 212 608
 wait_frames 10
 expect_no_text "CONVERSATION"

@@ -292,9 +292,20 @@ void pop_up(Request req) {
     bridge.generation = req.generation;
     bridge.picked = NO;
     NSMenu* menu = build_menu(req, bridge);
-    // The menu inherits the WINDOW's appearance (dark/light as the window
-    // is), never a hard-coded one.
-    menu.appearance = win.effectiveAppearance;
+    // The APP's appearance, resolved at the UI boundary and carried in the
+    // request: the reference's menus follow its theme, not the desktop's.
+    // Unspecified (no theme known) falls back to the window's.
+    switch (req.appearance) {
+        case Appearance::Dark:
+            menu.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+            break;
+        case Appearance::Light:
+            menu.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+            break;
+        case Appearance::Unspecified:
+            menu.appearance = win.effectiveAppearance;
+            break;
+    }
     NSView* cv = [win contentView];
     const NSPoint at = content_to_view(cv, req.content_x, req.content_y);
     {
@@ -304,8 +315,11 @@ void pop_up(Request req) {
         g_menu = menu;
     }
     if (log_on())
-        std::fprintf(stderr, "[native-menu] popup gen=%llu scope=%s items=%zu at content=(%.1f,%.1f) view=(%.1f,%.1f)\n",
+        std::fprintf(stderr, "[native-menu] popup gen=%llu scope=%s items=%zu appearance=%s at content=(%.1f,%.1f) view=(%.1f,%.1f)\n",
                      (unsigned long long)req.generation, req.scope.c_str(), req.items.size(),
+                     req.appearance == Appearance::Dark    ? "dark"
+                     : req.appearance == Appearance::Light ? "light"
+                                                           : "window",
                      req.content_x, req.content_y, at.x, at.y);
     // The heartbeat. AppKit's menu tracking is a nested run loop in
     // NSEventTrackingRunLoopMode, and MTKView's display link is NOT serviced

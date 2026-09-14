@@ -128,7 +128,9 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
     MenuResult out;
     apply_menu_keys(cursor, keys, items, &out);
 
-    const float menuH = metrics.height_for(items.size());
+    std::vector<bool> seps(items.size());
+    for (std::size_t i = 0; i < items.size(); ++i) seps[i] = items[i].separator;
+    const float menuH = metrics.height_for(items.size(), seps);
     const Placed at = place_at(wantX, wantY, metrics.width, menuH,
                                ctx.screen_width, ctx.screen_height);
     out.rect = Rect{at.x, at.y, metrics.width, menuH};
@@ -187,9 +189,9 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
                 ctx, mk(root, baseKey + 3 + static_cast<int>(k)),
                 ComponentConfig{}
                     .with_size(ComponentSize{pixels(metrics.row_width()),
-                                             pixels(metrics.row_h)})
+                                             pixels(metrics.separator_h)})
                     .with_absolute_position()
-                    .with_translate(metrics.row_x(at.x), metrics.row_y(at.y, k))
+                    .with_translate(metrics.row_x(at.x), metrics.row_y(at.y, k, seps))
                     .with_transparent_bg()
                     .with_roundness(0.0f)
                     .with_render_layer(layer + 1)
@@ -214,7 +216,7 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
                               layer + 1, base);
         row.with_label(item.label)
             .with_absolute_position()
-            .with_translate(metrics.row_x(at.x), metrics.row_y(at.y, k))
+            .with_translate(metrics.row_x(at.x), metrics.row_y(at.y, k, seps))
             .with_font_size(theme::type::ROW)
             .with_alignment(TextAlignment::Left)
             .with_padding(Padding{.left = pixels(10)})
@@ -247,11 +249,11 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
         MenuMetrics sub = metrics;
         sub.header_h = 0.0f;
         const float subH = sub.height_for(item.children.size());
-        const Placed subAt = place_submenu(out.rect, metrics.row_y(at.y, k),
+        const Placed subAt = place_submenu(out.rect, metrics.row_y(at.y, k, seps),
                                            sub.width, subH, ctx.screen_width,
                                            ctx.screen_height);
         const Rect subRect{subAt.x, subAt.y, sub.width, subH};
-        const Rect parentRow{metrics.row_x(at.x), metrics.row_y(at.y, k),
+        const Rect parentRow{metrics.row_x(at.x), metrics.row_y(at.y, k, seps),
                              metrics.row_width(), metrics.row_h};
         const bool keyboardOpen = cursor.row == k && cursor.submenu_open;
         const bool pointerOpen =
@@ -435,6 +437,11 @@ inline bool native_menu_open(NativeMenuOpen& open, std::string scope, const char
     }
     req.content_x = contentX;
     req.content_y = contentY;
+    // The app's theme decides the menu's appearance -- the reference's menus
+    // are dark under its dark theme whatever the desktop is set to. Resolved
+    // HERE, at the UI boundary, from the theme in effect this frame.
+    req.appearance = theme::is_dark() ? hanabi::native_menu::Appearance::Dark
+                                      : hanabi::native_menu::Appearance::Light;
     const std::uint64_t gen = hanabi::native_menu::request(std::move(req));
     if (gen == 0) return false;
     open.generation = gen;

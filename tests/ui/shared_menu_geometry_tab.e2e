@@ -12,7 +12,10 @@ assert_ui tab_menu_eater w=1100 h=760
 assert_ui tab_menu_close w=176 h=36
 assert_ui tab_menu_close_others w=176 h=36
 assert_ui tab_menu_close_right w=176 h=36
-assert_ui tab_menu_divider w=176 h=36
+assert_ui tab_menu_divider w=176 h=9
+assert_ui tab_menu_divider_rename w=176 h=9
+assert_ui tab_menu_divider_copy w=176 h=9
+assert_ui tab_menu_divider_pin w=176 h=9
 assert_ui tab_menu_rename w=176 h=36
 assert_ui tab_menu_copy_title w=176 h=36
 assert_ui tab_menu_copy w=176 h=36

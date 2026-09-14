@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <vector>
 #include <cstddef>
 
 #include "secondary_surface_geometry.h"
@@ -13,20 +14,36 @@ struct MenuMetrics {
     float width = 176.0f;
     float header_h = 28.0f;
     float row_h = kMenuRowH;
+    // A group separator's slot: a hairline with breathing room, not a row.
+    // The reference's menus draw ~9pt around a 1px rule; a full row per
+    // separator made a five-group menu 504px tall and pinned every menu to
+    // the top edge of a 760px window.
+    float separator_h = 9.0f;
     float pad = 4.0f;
 
-    float height_for(std::size_t items) const {
-        return header_h + row_h * static_cast<float>(items) + pad * 2.0f;
+    // Heights by row, from which rows are separators. `separators[i]` true =
+    // row i takes separator_h; absent or false = row_h.
+    float height_for(std::size_t items, const std::vector<bool>& separators = {}) const {
+        float h = header_h + pad * 2.0f;
+        for (std::size_t i = 0; i < items; ++i)
+            h += (i < separators.size() && separators[i]) ? separator_h : row_h;
+        return h;
     }
 
     float row_width() const { return std::max(0.0f, width - pad * 2.0f); }
 
     float row_x(float menuX) const { return menuX + pad; }
 
-    float row_y(float menuY, std::size_t index) const {
-        return menuY + pad + header_h + row_h * static_cast<float>(index);
+    float row_y(float menuY, std::size_t index, const std::vector<bool>& separators = {}) const {
+        float y = menuY + pad + header_h;
+        for (std::size_t i = 0; i < index; ++i)
+            y += (i < separators.size() && separators[i]) ? separator_h : row_h;
+        return y;
     }
 
+    float row_height(std::size_t index, const std::vector<bool>& separators = {}) const {
+        return (index < separators.size() && separators[index]) ? separator_h : row_h;
+    }
 };
 
 struct Placed {

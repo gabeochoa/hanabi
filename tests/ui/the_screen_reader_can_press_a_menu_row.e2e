@@ -9,9 +9,9 @@ wait_frames 12
 right_click_text "coordinating 3 shard workers"
 wait_frames 10
 expect_text "CONVERSATION"
-expect_a11y "Copy session link" role=AXMenuItem parent=CONVERSATION
+expect_a11y "Copy Deeplink" role=AXMenuItem parent=CONVERSATION
 
-a11y_press "Copy session link"
+a11y_press "Copy Deeplink"
 wait_frames 20
 
 expect_no_text "CONVERSATION"

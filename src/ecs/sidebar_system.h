@@ -792,6 +792,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             Archive,
             Mute,
             ResetOrder,
+            Divider,  // a group hairline; never activates
         };
         std::vector<Action> actions;
         std::vector<hanabi::surface::MenuItem> items;
@@ -814,30 +815,51 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                            "row_menu_open",
                                            false,
                                            false,
-                                           {{"Open in a tab", "row_menu_open_tab", false, false},
-                                            {"Open in split", "row_menu_open_split", false,
+                                           {{"Open in a Tab", "row_menu_open_tab", false, false},
+                                            {"Open in Split", "row_menu_open_split", false,
                                              false}}};
             open.action_id = "open";
             items.push_back(std::move(open));
             actions.push_back(Action::Open);
         }
+        // Groups and casing are the reference's session menu (measured on
+        // its dark capture): Open | Rename | the copy/open-elsewhere block |
+        // Pin/Mute | Archive -- a hairline between groups, Title Case, and
+        // Archive an ORDINARY row (the reference does not paint it as
+        // destructive). Fork has no reference row; it sits with the session
+        // operations after Rename. Only rows Hanabi implements are drawn.
+        // A divider takes an `actions` slot too, so a row's index stays its
+        // action's index.
+        const auto divider = [&](const char* name) {
+            items.push_back(hanabi::surface::MenuItem::divider(name));
+            actions.push_back(Action::Divider);
+        };
+        divider("row_menu_divider_open");
         add("Rename\xe2\x80\xa6", "row_menu_rename", Action::Rename, "rename",
             !(app.client && app.client->supports_rename()));
-        add("Copy title", "row_menu_copy_title", Action::CopyTitle, "copy_title",
-            target->title.empty());
-        add("Fork session", "row_menu_fork", Action::Fork, "fork",
+        add("Fork Session", "row_menu_fork", Action::Fork, "fork",
             !(app.client && app.client->supports_fork()));
-        add("Copy session link", "row_menu_copy_link", Action::CopyLink, "copy_link");
-        add("Copy session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
-        add("Open in browser", "row_menu_open_web", Action::OpenWeb, "open_web");
-        const bool archivedNow = model::is_archived(*target);
-        add(archivedNow ? "Unarchive" : "Archive", "row_menu_archive", Action::Archive,
-            archivedNow ? "unarchive" : "archive", false, !archivedNow);
+        divider("row_menu_divider_rename");
+        add("Copy Title", "row_menu_copy_title", Action::CopyTitle, "copy_title",
+            target->title.empty());
+        // "Weblink" only when the copied link IS one: with no web base the app
+        // copies its own navi:// deeplink and says so.
+        add(app.webBaseUrl.empty() ? "Copy Deeplink" : "Copy Weblink", "row_menu_copy_link",
+            Action::CopyLink, "copy_link");
+        add("Copy Session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
+        add("Open in Web", "row_menu_open_web", Action::OpenWeb, "open_web");
+        divider("row_menu_divider_copy");
         add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute,
             target->muted ? "unmute" : "mute");
+        divider("row_menu_divider_mute");
+        const bool archivedNow = model::is_archived(*target);
+        add(archivedNow ? "Unarchive" : "Archive", "row_menu_archive", Action::Archive,
+            archivedNow ? "unarchive" : "archive");
         const std::string orderKey = group_key_for(*target);
-        if (app.rowOrder.count(orderKey) != 0)
-            add("Reset order", "row_menu_reset_order", Action::ResetOrder, "reset_order");
+        if (app.rowOrder.count(orderKey) != 0) {
+            divider("row_menu_divider_archive");
+            add("Reset Order", "row_menu_reset_order", Action::ResetOrder, "reset_order");
+        }
 
         hanabi::surface::MenuMetrics metrics;
         metrics.width = hanabi::surface::kContextMenuW;
@@ -940,6 +962,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::ResetOrder:
                     app.requestResetRowOrder = orderKey;
+                    break;
+                case Action::Divider:
                     break;
             }
             app.close_row_menu();

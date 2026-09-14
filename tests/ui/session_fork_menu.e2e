@@ -4,7 +4,7 @@
 # Fork lives on the sidebar row menu; the tab menu follows the reference and
 # has no fork item.
 require_thread t2
-expect_text "Fork session"
+expect_text "Fork Session"
 click_ui row_menu_fork
 wait_frames 40
 require_thread fork1

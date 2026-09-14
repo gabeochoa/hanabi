@@ -16,7 +16,7 @@ arrow down
 wait_frames 6
 arrow down
 wait_frames 6
-expect_text "Copy session link"
+expect_text "Copy Deeplink"
 
 key ENTER
 wait_frames 20
@@ -29,11 +29,11 @@ arrow down
 wait_frames 6
 arrow right
 wait_frames 8
-expect_text "Open in a tab"
+expect_text "Open in a Tab"
 
 key ESCAPE
 wait_frames 8
-expect_no_text "Open in a tab"
+expect_no_text "Open in a Tab"
 expect_text "CONVERSATION"
 
 arrow down
@@ -51,7 +51,7 @@ arrow down
 wait_frames 6
 arrow right
 wait_frames 8
-expect_text "Open in a tab"
+expect_text "Open in a Tab"
 key ESCAPE
 wait_frames 8
 key ESCAPE

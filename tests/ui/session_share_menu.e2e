@@ -7,8 +7,8 @@ expect_text "needs a decision before it can go on"
 # the list carries section headers, so a hardcoded y names the neighbour.
 right_click_text "needs a decision before it can go on"
 wait_frames 4
-expect_text "Copy session link"
-expect_text "Copy session ID"
+expect_text "Copy Weblink"
+expect_text "Copy Session ID"
 reset_clipboard_probe
 click_ui row_menu_copy_link
 expect_clipboard "https://navi.test/session/t2"

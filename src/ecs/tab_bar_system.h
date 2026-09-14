@@ -936,14 +936,28 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             add(tab.pinned ? "Stop Keeping Open" : "Keep Tab Open", "tab_menu_keep",
                 Pin, false, false, tab.pinned ? "unkeep" : "keep");
         } else {
+            // The reference's groups, for the actions Hanabi implements:
+            // Close trio | Rename | Copy Title / link / Session ID / Open in
+            // Web | Pin | Open in split. Each divider takes an `actions`
+            // slot so a row's index stays its action's index.
+            const auto divider = [&](const char* name) {
+                items.push_back(hanabi::surface::MenuItem::divider(name));
+                actions.push_back(Divider);
+            };
             add("Rename\xe2\x80\xa6", "tab_menu_rename", Rename,
                 !(app.client && app.client->supports_rename()));
+            divider("tab_menu_divider_rename");
             add("Copy Title", "tab_menu_copy_title", CopyTitle);
-            add("Copy Weblink", "tab_menu_copy", CopyLink);
+            // "Weblink" only when the copied link IS one; with no web base the
+            // app copies its own navi:// deeplink and says so.
+            add(app.webBaseUrl.empty() ? "Copy Deeplink" : "Copy Weblink", "tab_menu_copy",
+                CopyLink);
             add("Copy Session ID", "tab_menu_copy_id", CopyId);
             add("Open in Web", "tab_menu_open_web", OpenWeb);
+            divider("tab_menu_divider_copy");
             add(tab.pinned ? "Unpin" : "Pin", "tab_menu_pin", Pin, false, false,
                 tab.pinned ? "unpin" : "pin");
+            divider("tab_menu_divider_pin");
             add("Open in split", "tab_menu_split", Split);
         }
 

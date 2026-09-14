@@ -12,7 +12,7 @@ arrow right
 wait_frames 8
 arrow down
 wait_frames 6
-expect_text "Open in split"
+expect_text "Open in Split"
 key ENTER
 wait_frames 30
 

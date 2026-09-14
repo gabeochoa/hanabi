@@ -15,7 +15,7 @@ arrow down
 wait_frames 6
 arrow right
 wait_frames 8
-expect_text "Open in a tab"
+expect_text "Open in a Tab"
 expect_hit_targets
 
 key ESCAPE

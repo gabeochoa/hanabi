@@ -12,19 +12,19 @@ arrow down
 wait_frames 6
 arrow right
 wait_frames 8
-expect_text "Open in a tab"
-expect_text "Open in split"
+expect_text "Open in a Tab"
+expect_text "Open in Split"
 
 arrow down
 wait_frames 6
 arrow left
 wait_frames 8
-expect_no_text "Open in a tab"
+expect_no_text "Open in a Tab"
 expect_text "CONVERSATION"
 
 arrow right
 wait_frames 8
-expect_text "Open in a tab"
+expect_text "Open in a Tab"
 key ENTER
 wait_frames 30
 expect_no_text "CONVERSATION"
