@@ -988,11 +988,14 @@ void parse_pending_compaction(const std::string& hello_json, Session& out) {
     out.pending_compaction.reset();
     out.compact_keys.clear();
     out.access = SessionAccess::Unknown;
+    out.can_halt = false;
     const json hello = json::parse(hello_json, nullptr, false);
     if (hello.is_discarded() || !hello.is_object()) return;
     // hello.access rides the hello envelope, beside state (optional; a
     // token this build cannot name reads as Unknown, never as read-only).
     out.access = session_access_from_wire(str_or(hello, "access", ""));
+    // The halt advert, per attach: the server pushes it only for the owner.
+    out.can_halt = hello_has_capability(hello_json, "halt_v1");
     const json& state = obj_at(hello, "state");
     const json& keys = obj_at(state, "compact_keys");
     if (keys.is_object())
@@ -1461,6 +1464,16 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
         final_.created_at = static_cast<int64_t>(std::time(nullptr));
     }
     if (str_or(msg, "type", "") != "frame") return true;
+
+    // The halt pair rides beside the turn's own frames: the session's own
+    // flag, from a DURABLE frame past this attach's boundary only.
+    if (str_or(msg, "frame", "") == "durable" && int_or(msg, "seq", 0) > boundary_) {
+        const std::string t = str_or(obj_at(msg, "event"), "type", "");
+        if (t == "session_halted")
+            sink.emit_event({StreamEventKind::HaltChanged, "halted"});
+        else if (t == "session_resumed")
+            sink.emit_event({StreamEventKind::HaltChanged, "resumed"});
+    }
 
     const LiveFrame lf = classify_live_frame_parsed(msg, blocks_);
     switch (lf.kind) {
@@ -2130,6 +2143,7 @@ void AgentcloudClient::run_turn(const std::string& session_id,
     // as long as frames keep arriving we keep reading.
     agentcloud::LiveTurn turn;
     turn.share_child_causes(&childCauses_);
+    turn.set_boundary(int_or(hello, "boundary", 0));
     turn.seed_asks(obj_at(hello, "state"), sink);
 
     const auto deadline_from_now = [] {
@@ -2589,6 +2603,109 @@ Result<std::string> AgentcloudClient::interrupt_session(
     if (!ws_send_text(conn, wire.data(), wire.size()))
         return fail("socket closed before the interrupt was sent");
     return Result<std::string>::success("interrupt sent");
+}
+
+hanabi::halt::Outcome AgentcloudClient::set_halt_state(const std::string& session_id,
+                                                       hanabi::halt::Intent intent) {
+    using namespace hanabi::halt;
+    Outcome out;
+    out.intent = intent;
+    const auto fail = [&](const std::string& why) {
+        out.status = Status::Failed;
+        out.detail = why;
+        return out;
+    };
+    if (session_id.empty()) return fail("no conversation to " + std::string(verb(intent)));
+
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+
+    // A fresh, owner-authorized attach of its own: the `halt_v1` advert is
+    // pushed only for the owner, so its absence on THIS attach is the refusal,
+    // read before anything is sent.
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded()) {
+        auth_.invalidate();
+        return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    }
+    if (str_or(hello, "type", "") == "error") {
+        auth_.invalidate();
+        return fail("attach refused: " + str_or(hello, "message", "(no message)"));
+    }
+    if (!agentcloud::hello_has_capability(hello.dump(), "halt_v1"))
+        return fail("this connection may not halt or resume this conversation");
+
+    // What this attach OBSERVES, before any write: the own flag from the
+    // journal fold, and `halted_by` split into the session's own mark or an
+    // ancestor's containment.
+    {
+        Session seen;
+        apply_brakes_from_state(obj_at(hello, "state"), seen);
+        out.observed = Observation::from_state(session_id, seen.halted, seen.halted_by,
+                                               seen.halted_reason);
+        out.observed_fresh = true;
+    }
+    if (satisfied(intent, out.observed)) {
+        out.status = Status::Satisfied;
+        out.mark_confirmed = true;  // the Hello itself is the fresh observation
+        return out;
+    }
+    if (out.observed.contained() && intent == Intent::Resume) {
+        // A resume from a contained descendant clears only this session's own
+        // state and leaves the ancestor's containment standing -- refused here
+        // rather than sent and reported as a success it is not.
+        out.status = Status::Contained;
+        out.detail = out.observed.contained_by;
+        out.mark_confirmed = true;  // the Hello IS the fresh observation, as on Satisfied
+        return out;
+    }
+
+    // The hello's boundary: only a durable frame beyond it is a change that
+    // happened after this attach.
+    const int64_t boundary = int_or(hello, "boundary", 0);
+
+    json payload = {{"cmd", verb(intent)}};
+    if (subtree(intent)) payload["subtree"] = true;  // omitted when false, as the server's serde
+    const json env = {{"sub", 1}, {"payload", payload}};
+    const std::string wire = env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size()))
+        return fail("socket closed before the " + std::string(verb(intent)) + " was sent");
+
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(kReplyTimeoutSecs);
+    return await_echo(
+        [&q](std::chrono::steady_clock::time_point d) { return q.wait_for_next(d); },
+        deadline, boundary, intent, out.observed, [&q, &session_id, intent] {
+            return q.closed_note(std::string(verb(intent)) + " sent to " + session_id +
+                                 ", not confirmed");
+        });
 }
 
 Result<ModelMenu> AgentcloudClient::model_menu() {

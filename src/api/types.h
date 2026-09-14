@@ -685,6 +685,10 @@ inline SessionAccess session_access_from_wire(std::string_view token) {
     if (token == "owner") return SessionAccess::Owner;
     return SessionAccess::Unknown;
 }
+// The halt pair is advertised only to the OWNER (the server pushes `halt_v1`
+// under `access.is_owner()`), so this is the observation-side twin of the
+// advert: an attach that is not the owner's offers no Halt or Resume.
+inline bool access_is_owner(SessionAccess a) { return a == SessionAccess::Owner; }
 inline bool access_is_read_only(SessionAccess a) {
     return a == SessionAccess::None || a == SessionAccess::Read;
 }
@@ -766,6 +770,10 @@ struct Session {
     std::optional<SessionPlan> plan;
     // This subscription's access, from the attach (hello.access).
     SessionAccess access = SessionAccess::Unknown;
+    // Whether THIS attach's Hello advertised `halt_v1`. The server pushes the
+    // token only for the owner, so it is capability AND permission for the
+    // halt pair; a menu offers Halt or Resume only when it is set.
+    bool can_halt = false;
     // The compaction owed, from the attach (see PendingCompaction).
     std::optional<PendingCompaction> pending_compaction;
     // Every idempotency key a `compact` on this session already carried ->
@@ -827,6 +835,13 @@ struct Session {
         return halted || halt_contained;
     }
 };
+
+// The halt-menu gate over one attached session: the attach advertised the
+// verb AND the attach is the owner's. The advert alone is what the server
+// keys on; the access read guards a server that advertised more widely.
+inline bool session_may_halt(const Session& s) {
+    return s.can_halt && access_is_owner(s.access);
+}
 
 // User/account settings read back from the backend, so the app can verify it
 // is set up correctly (feature #4 — "read the settings from the api"). These

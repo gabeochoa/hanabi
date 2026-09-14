@@ -1,0 +1,11 @@
+# control: fail expect_halt 11
+# FAILURE CONTROL: a command WITHOUT `within=` keeps the runner's 30-frame
+# kill -- the pre-handler touches only commands that asked for a budget, so
+# `within=` is not a blanket increase. The event never arrives; the failure
+# must be at this line, and the log must carry NO "within=" warning for it.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_access t2 owner halt=yes
+expect_halt t2 clear attempts=0
+expect_halt t2 own

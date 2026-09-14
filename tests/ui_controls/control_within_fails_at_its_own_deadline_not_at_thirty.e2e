@@ -1,0 +1,19 @@
+# control: fail expect_halt 13
+# FAILURE CONTROL for `within=`: the event never arrives, so the assertion
+# must FAIL -- at its OWN bounded deadline (90 frames), not at the runner's
+# 30. The receipt is the handler's own "[E2E ERROR] expect_halt (line 13):
+# expect_halt: 't2' is clear, expected own" -- not the vendor's "timed out
+# after 30 frames" -- which the driver matches by command and line.
+# A never-arriving event: t2 is never halted here.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_access t2 owner halt=yes
+expect_halt t2 clear attempts=0
+expect_halt t2 own within=90
+# SENTINEL: a failed within= command is TERMINAL for the script, so these
+# lines must never dispatch. Were they to run, the expect_text would FAIL
+# (the text is nowhere) and add a SECOND error line, which the controls
+# driver refuses (nerr==1); the click is the dependent mutation it guards.
+expect_text "THIS LINE MUST NOT DISPATCH"
+click_text "Halt"

@@ -1,0 +1,29 @@
+# Halt from the row menu: the thread's own flag is proven by the echo, the
+# brake banner appears, and the menu now offers Resume where Halt was (Halt
+# with Sub-agents stays: a root halted alone can still contain its tree).
+# Resume lifts it. Every write is one attempt on the mock: 2 in all.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_access t2 owner halt=yes
+expect_halt t2 clear attempts=0
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Halt"
+expect_text "Halt with 2 Sub-agents"
+expect_no_text "Resume"
+click_text "Halt"
+wait_frames 24
+expect_halt t2 own attempts=1
+expect_text "Halted — no run will start until it is resumed"
+expect_toast "Session halted"
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Resume"
+expect_no_ui row_menu_halt
+assert_ui row_menu_halt_subtree hidden=false
+click_text "Resume"
+wait_frames 24
+expect_halt t2 clear attempts=2
+expect_no_text "Halted — no run will start until it is resumed"
+expect_toast "Session resumed"

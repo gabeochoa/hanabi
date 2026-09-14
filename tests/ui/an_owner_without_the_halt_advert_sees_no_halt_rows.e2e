@@ -1,0 +1,19 @@
+# The OWNER, on a client that serves the verb, against a server whose Hello
+# did not advertise halt_v1 (an older orchestrator): no rows. Owner access
+# plus a capable client cannot stand in for the attach's own advert. The thread is ATTACHED first (the
+# transcript is on screen) so the menu is built from a real observation:
+# an unattached row offers no halt rows for a different reason.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_NO_HALT_ADVERT=1
+require_thread t2
+wait_frames 12
+# The receipt first: the attach landed, its access is read, no halt advert.
+expect_access t2 owner halt=no
+expect_halt t2 clear attempts=0
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Copy Title"
+expect_no_ui row_menu_halt
+expect_no_ui row_menu_halt_subtree
+expect_no_ui row_menu_resume
+key ESCAPE

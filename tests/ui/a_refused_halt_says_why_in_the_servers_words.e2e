@@ -1,0 +1,18 @@
+# A typed refusal on the halt's own connection: nothing changes, the toast
+# carries the server's message verbatim, and the menu still offers Halt.
+# (The env value is a token -- the runner splits `# env:` on whitespace --
+# and the mock speaks the server's sentence for it.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_HALT_REFUSE=frozen_by_operator
+require_thread t2
+wait_frames 12
+right_click_ui chat_row_id_t2
+wait_frames 8
+click_text "Halt"
+wait_frames 24
+expect_toast "Could not halt: halt refused: the session is frozen by an operator"
+expect_halt t2 clear attempts=1
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Halt"
+key ESCAPE

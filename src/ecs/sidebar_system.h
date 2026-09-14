@@ -794,10 +794,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             Archive,
             Mute,
             ResetOrder,
+            Halt,
+            HaltSubtree,
+            Resume,
             Divider,  // a group hairline; never activates
         };
         std::vector<Action> actions;
         std::vector<hanabi::surface::MenuItem> items;
+        std::string haltSubtreeLabel;
         // Every row carries a stable action_id: the native menu's pick lands a
         // frame or more after this list was built, and is resolved against
         // the SNAPSHOT the menu opened with, by id -- never by index into
@@ -839,6 +843,35 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         add("Copy Session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
         add("Open in Web", "row_menu_open_web", Action::OpenWeb, "open_web");
         divider("row_menu_divider_copy");
+        // Halt / Resume: the one group that changes what the SESSION does.
+        // Offered only for a thread this app has ATTACHED (an open pane
+        // carries its fresh observation) on a backend that serves the verb;
+        // a sidebar-only row offers nothing rather than a row that can only
+        // fail. Which rows appear is halt_state.h's rule: a thread contained
+        // by an ancestor gets none (its own Resume would clear only itself),
+        // a root halted alone still gets Halt with Sub-agents. Ids are
+        // directional; a stale pick is refused, never inverted.
+        if (const api::Session* attached = app.session_with_messages(target->id);
+            attached != nullptr && app.client && app.client->supports_halt()) {
+            const auto observed = hanabi::halt::Observation::from_state(
+                target->id, attached->halted, attached->halted_by, attached->halted_reason);
+            // Capability = THIS attach advertised `halt_v1` AND it is the
+            // owner's: the server pushes the token only for the owner, so a
+            // viewer's or writer's attach offers nothing.
+            const auto rows = hanabi::halt::rows_for(
+                observed, api::session_may_halt(*attached), attached->sub_agents.size());
+            const bool busy = app.halt_in_flight_for(target->id);
+            if (rows.resume) add("Resume", "row_menu_resume", Action::Resume, "resume", busy);
+            if (rows.halt) add("Halt", "row_menu_halt", Action::Halt, "halt", busy);
+            if (rows.halt_subtree) {
+                const std::size_t n = attached->sub_agents.size();
+                haltSubtreeLabel = n == 1 ? std::string("Halt with 1 Sub-agent")
+                                          : "Halt with " + std::to_string(n) + " Sub-agents";
+                add(haltSubtreeLabel.c_str(), "row_menu_halt_subtree", Action::HaltSubtree,
+                    "halt_subtree", busy);
+            }
+            if (rows.any()) divider("row_menu_divider_halt");
+        }
         add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute,
             target->muted ? "unmute" : "mute");
         divider("row_menu_divider_mute");
@@ -958,6 +991,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::ResetOrder:
                     app.requestResetRowOrder = orderKey;
+                    break;
+                case Action::Halt:
+                    app.request_halt(targetId, hanabi::halt::Intent::Halt, app.focusedPane);
+                    break;
+                case Action::HaltSubtree:
+                    app.request_halt(targetId, hanabi::halt::Intent::HaltSubtree, app.focusedPane);
+                    break;
+                case Action::Resume:
+                    app.request_halt(targetId, hanabi::halt::Intent::Resume, app.focusedPane);
                     break;
                 case Action::Divider:
                     break;

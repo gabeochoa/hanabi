@@ -1236,7 +1236,12 @@ static void windowed_e2e_tick(float dt) {
     }
     if (!runner.is_finished()) {
         t::test_input::reset_frame();
-        runner.tick(dt);
+        if (hanabi::e2e::within::within_failed()) {
+            hanabi::e2e::within::within_failed() = false;
+            runner.skip_current_script();
+        } else if (!hanabi::e2e::within::within_barrier_holds()) {
+            runner.tick(dt);
+        }
         return;
     }
     runner.print_results();
@@ -2874,7 +2879,14 @@ static int run_e2e(const std::string& path, int w, int h) {
             if (!q.empty())
                 apply_stream_demo(&q[0].get().get<ecs::AppComponent>());
         }
-        runner.tick(kDt);
+        // A `within=` command holds the script until it settles (its handler
+        // still runs every frame; only dispatch waits) -- see within::.
+        if (hanabi::e2e::within::within_failed()) {
+            hanabi::e2e::within::within_failed() = false;
+            runner.skip_current_script();  // terminal: no further line dispatches
+        } else if (!hanabi::e2e::within::within_barrier_holds()) {
+            runner.tick(kDt);
+        }
         hanabi::e2e::stamp_queued_latency_event();
         // The scripted-UI suite runs 85 scripts through this loop and nothing
         // else drains what Metal autoreleases here.

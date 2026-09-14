@@ -65,6 +65,9 @@ class AgentcloudClient : public Client {
     // rename_session re-checks the hello it actually got before sending.
     bool supports_rename() const override { return ready(); }
     bool supports_interrupt() const override { return ready(); }
+    bool supports_halt() const override { return ready(); }
+    hanabi::halt::Outcome set_halt_state(const std::string& session_id,
+                                         hanabi::halt::Intent intent) override;
     Result<std::string> interrupt_session(const std::string& session_id) override;
     Result<std::string> rename_session(const std::string& session_id,
                                        const std::string& title) override;
@@ -351,6 +354,9 @@ class LiveTurn {
     using ChildCauseMap =
         std::map<std::pair<std::string, std::uint64_t>, std::uint64_t>;
     void share_child_causes(ChildCauseMap* causes) { causesShared_ = causes; }
+    // The attach Hello's journal seq: a durable halt/resume frame at or below
+    // it is history the snapshot already folded, never a change.
+    void set_boundary(int64_t boundary) { boundary_ = boundary; }
 
    private:
     bool drop_settled_ask(const std::string& frame_json);
@@ -359,6 +365,7 @@ class LiveTurn {
     void emit_asks(const StreamSink& sink) const;
 
     LiveBlocks blocks_;
+    int64_t boundary_ = 0;
     Message final_;
     // What the sink has already been told about the OPEN text block.
     std::string emitted_;

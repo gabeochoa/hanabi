@@ -1,0 +1,52 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+# The owner halts and resumes a root thread from the REAL NSMenu: right-click,
+# arrow to the row, Return. Receipts are the halt state and the frozen row
+# snapshot the adapter was handed, never the drawn menu.
+require_thread t2
+wait_frames 12
+native_mode on
+wait_frames 4
+expect_halt t2 clear attempts=0
+expect_access t2 owner halt=yes
+native_right_click_ui chat_row_id_t2
+wait_frames 6
+native_menu_expect open session:t2
+native_menu_expect action halt
+native_menu_expect action halt_subtree
+# Open, Open & Pin, (Split disabled), Rename, Fork, Copy Title, Copy Deeplink,
+# Copy Session ID, Open in Web, Halt: nine Downs.
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 4
+native_menu_expect open session:t2
+native_key 36
+wait_frames 30
+native_menu_expect closed
+expect_halt t2 own attempts=1
+expect_text "Halted — no run will start until it is resumed"
+native_right_click_ui chat_row_id_t2
+wait_frames 6
+native_menu_expect open session:t2
+native_menu_expect action resume
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 4
+native_key 36
+wait_frames 30
+native_menu_expect closed
+expect_halt t2 clear attempts=2

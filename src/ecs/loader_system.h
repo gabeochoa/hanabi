@@ -83,6 +83,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             brakes.frozen_by = s.summary.frozen_by;
             brakes.frozen_reason = s.summary.frozen_reason;
             app.apply_attach_brakes(s.summary.id, brakes);
+            // A fresh attach is the one observation that speaks to a halt
+            // MARK; it frees a serializer parked after an unconfirmed write.
+            app.halt_observed(s.summary.id,
+                              hanabi::halt::Observation::from_state(
+                                  s.summary.id, s.halted, s.halted_by, s.halted_reason));
             return;
         }
         if (!brakes.replies_paused) return;
@@ -102,6 +107,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // Returns false when the pane is not showing this thread.
     static bool land_refetch(Pane& pane, api::Session fresh) {
         if (!pane.openSession || pane.openSession->summary.id != fresh.summary.id) {
+            if (AppComponent::halt_log_on())
+                std::fprintf(stderr, "[halt] land_replace %s halted=%d by='%s'\n",
+                             fresh.summary.id.c_str(), fresh.halted ? 1 : 0, fresh.halted_by.c_str());
             pane.openSession = std::move(fresh);
             pane.note_transcript_reset();
             pane.hasMoreOlder = pane.openSession->has_more_older;
@@ -116,8 +124,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         mine.plan = std::move(fresh.plan);
         mine.goal = std::move(fresh.goal);
         mine.sub_agents = std::move(fresh.sub_agents);
+        if (AppComponent::halt_log_on())
+            std::fprintf(stderr, "[halt] land_refetch %s halted %d->%d by='%s'->'%s' contained %d->%d\n",
+                         mine.summary.id.c_str(), mine.halted ? 1 : 0, fresh.halted ? 1 : 0,
+                         mine.halted_by.c_str(), fresh.halted_by.c_str(),
+                         mine.halt_contained ? 1 : 0, fresh.halt_contained ? 1 : 0);
         mine.halted = fresh.halted;
         mine.halt_contained = fresh.halt_contained;
+        // Attach facts, adopted from every fresh Hello like the halt fields:
+        // an access grant or revocation while attached moves the menus at the
+        // next refetch, not at the next open.
+        mine.access = fresh.access;
+        mine.can_halt = fresh.can_halt;
         mine.halted_by = std::move(fresh.halted_by);
         mine.halted_reason = std::move(fresh.halted_reason);
         switch (out.kind) {
@@ -452,6 +470,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 apply_local_overlay(hit->summary);
                 adopt_attach_brakes(app, *hit, /*authoritative=*/false);
                 adopt_attach_asks(app, *hit, /*authoritative=*/false, 0);
+                if (AppComponent::halt_log_on())
+                    std::fprintf(stderr, "[halt] cache_hit %s halted=%d (non-authoritative)\n",
+                                 hit->summary.id.c_str(), hit->halted ? 1 : 0);
                 pane.openSession = std::move(*hit);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;
@@ -1159,6 +1180,142 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
+        // --- Halt / resume (the session brake; halt_state.h) ----------------
+        // The serializers decided what may go out; this is the one worker.
+        // Nothing is applied from the ask: the OWN FLAG lands from the echo
+        // the verb waited for, and a subtree mark only from the next attach.
+        if (!app.haltInFlight && !app.haltWrites.empty() && app.client &&
+            app.client->supports_halt()) {
+            app.haltInFlight = app.haltWrites.front();
+            app.haltWrites.pop_front();
+            const std::string id = app.haltInFlight->sessionId;
+            const hanabi::halt::Intent intent = app.haltInFlight->intent;
+            std::shared_ptr<api::Client> c = app.client;
+            app.haltFuture = std::async(std::launch::async, [c, id, intent] {
+                return c->set_halt_state(id, intent);
+            });
+        }
+        if (app.haltInFlight && app.haltFuture.valid() &&
+            app.haltFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            using hanabi::halt::Status;
+            const AppComponent::HaltWrite w = *app.haltInFlight;
+            app.haltInFlight.reset();
+            const hanabi::halt::Outcome out = app.haltFuture.get();
+            if (AppComponent::halt_log_on())
+                std::fprintf(stderr, "[halt] settled %s intent=%s status=%d fresh=%d observed own=%d mark=%d\n",
+                             w.sessionId.c_str(), hanabi::halt::action_id(out.intent),
+                             static_cast<int>(out.status), out.observed_fresh ? 1 : 0,
+                             out.observed.own_halted ? 1 : 0, out.observed.own_mark ? 1 : 0);
+            // What the verb observed before writing is a fresh attach's word;
+            // what it proved (the flag) lands on the open transcript so the
+            // brake banner and the menu move without a refetch.
+            hanabi::halt::Observation now = out.observed;
+            if (out.flag_settled()) now.own_halted = hanabi::halt::wants_halted(out.intent);
+            if (out.observed_fresh)
+                for (Pane& p : app.panes)
+                    if (p.openSession && p.openSession->summary.id == w.sessionId) {
+                        p.openSession->halted = now.own_halted;
+                        if (out.status == Status::Satisfied || out.mark_confirmed) {
+                            // A fresh Hello spoke to the mark as well.
+                            p.openSession->halted_by =
+                                now.own_mark ? w.sessionId : now.contained_by;
+                            p.openSession->halt_contained = !p.openSession->halted_by.empty();
+                            p.openSession->halted_reason = now.reason;
+                        }
+                    }
+            // A failure before any attach observed nothing: the serializer
+            // keeps its last observation rather than adopting a default.
+            auto& sz = app.haltSerializers[w.sessionId];
+            // A proven flag with an unproven mark parks the serializer on the
+            // same observe-first gate as an unconfirmed write: the mark's
+            // Hello is the observation both wait for.
+            const bool markPending =
+                out.status == Status::Confirmed && !out.mark_confirmed &&
+                (out.intent == hanabi::halt::Intent::HaltSubtree ||
+                 (out.intent == hanabi::halt::Intent::Resume && out.observed.own_mark));
+            if (const auto next = sz.settled(w.ticket,
+                                             markPending ? Status::Unconfirmed : out.status, now,
+                                             out.observed_fresh))
+                app.haltWrites.push_back(
+                    AppComponent::HaltWrite{w.sessionId, next->intent, next->ticket, w.pane});
+            app.haltRetryable.erase(w.sessionId);
+            // The fresh observation everything below may need: a new attach
+            // of the thread, landed through the pane's transcript fetch --
+            // adopt_attach_brakes(authoritative) -> halt_observed. Asked for
+            // directly: no backend Hanabi runs against serves live events, so
+            // a live-sub refetch would never come.
+            // The pane the intent was raised from is asked first (the exact
+            // binding); any other pane showing the thread is the fallback. A
+            // thread no pane shows fetches nothing -- its gate waits for the
+            // next natural open, which is itself a Hello.
+            const auto reobserve = [&] {
+                const auto ask = [&](Pane& pane) {
+                    if (pane.selectedId != w.sessionId || pane.transcriptPending) return false;
+                    pane.transcriptPending = true;
+                    pane.transcriptPendingId = w.sessionId;
+                    pane.askLoadStamp = app.next_ask_load_stamp();
+                    std::shared_ptr<api::Client> c = app.client;
+                    const std::string id = w.sessionId;
+                    pane.transcriptFuture = std::async(std::launch::async, [c, id] {
+                        return c->get_session(id, kMessagesWindow);
+                    });
+                    return true;
+                };
+                const std::size_t first = static_cast<std::size_t>(std::clamp(w.pane, 0, 1));
+                if (first < app.active_pane_count() && ask(app.panes[first])) return;
+                for (std::size_t i = 0; i < app.active_pane_count(); ++i)
+                    if (i != first && ask(app.panes[i])) return;
+            };
+            const char* verb = hanabi::halt::verb(out.intent);
+            switch (out.status) {
+                case Status::Satisfied:
+                case Status::Confirmed:
+                    if (out.intent == hanabi::halt::Intent::HaltSubtree && !out.mark_confirmed) {
+                        // The flag is proven; the subtree mark has no frame.
+                        // The brake caption says so until a Hello speaks to
+                        // the mark; the refetch below is that Hello.
+                        app.haltMarkUnconfirmed.insert(w.sessionId);
+                        app.raise_toast("Session halted", "", AppComponent::ToastUndo::None);
+                        reobserve();
+                    } else if (out.intent == hanabi::halt::Intent::Resume &&
+                               out.observed.own_mark && !out.mark_confirmed) {
+                        app.haltMarkUnconfirmed.insert(w.sessionId);
+                        app.raise_toast("Session resumed", "", AppComponent::ToastUndo::None);
+                        reobserve();
+                    } else {
+                        app.raise_toast(out.intent == hanabi::halt::Intent::Resume
+                                            ? "Session resumed"
+                                            : "Session halted",
+                                        "", AppComponent::ToastUndo::None);
+                    }
+                    break;
+                case Status::Unconfirmed:
+                    // Success is silent server-side: the write may have
+                    // committed. Observe before anything else goes out.
+                    app.haltAwaitingObservation.insert(w.sessionId);
+                    if (AppComponent::halt_log_on())
+                        std::fprintf(stderr, "[halt] awaiting+ %s (unconfirmed %s)\n",
+                                     w.sessionId.c_str(), hanabi::halt::action_id(out.intent));
+                    app.haltRetryable[w.sessionId] = out.intent;
+                    app.raise_toast(std::string(verb) + " sent, not confirmed", "",
+                                    AppComponent::ToastUndo::None);
+                    reobserve();
+                    break;
+                case Status::Contained:
+                    // A legitimate state, not a failure: the thread is held by
+                    // an ancestor's mark and only that root's resume lifts it.
+                    app.raise_toast("Halted by an ancestor thread; resume that conversation", "",
+                                    AppComponent::ToastUndo::None);
+                    break;
+                case Status::Refused:
+                case Status::Failed:
+                    if (out.status == Status::Failed) app.haltRetryable[w.sessionId] = out.intent;
+                    app.raise_toast("Could not " + std::string(verb) + ": " + out.detail, "",
+                                    AppComponent::ToastUndo::None);
+                    break;
+            }
+        }
+
         // --- Session rename (durable echo; no local optimism) ---------------
         // The modal parks the ask here and keeps its spinner up. The title is
         // applied only from what the server echoes back; a refusal goes back to
@@ -1322,10 +1479,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             (onScreen ? " — your answer is in the composer"
                                       : " — reopen that thread to get your "
                                         "answer back"),
-                        "", AppComponent::ToastUndo::None);
+                        "", AppComponent::AppComponent::ToastUndo::None);
                 } else {
                     app.raise_toast(r.error, "",
-                                    AppComponent::ToastUndo::None);
+                                    AppComponent::AppComponent::ToastUndo::None);
                 }
             } else {
                 app.askState.errorId = askId;
@@ -2417,6 +2574,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                             out.servingModel = ev.payload;
                             out.servingFallback = false;
                         }
+                        if (ev.kind == api::StreamEventKind::HaltChanged)
+                            out.ownHalted = ev.payload == "halted";
                         // The summarizer's liveness signal goes straight to
                         // the shared atomics: the frame reads them while this
                         // collect is still open, which is the only time the
@@ -2510,6 +2669,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     m.serving = m.requested;
                     m.fallback = false;
                 }
+            }
+            if (got.ownHalted && streamPane.openSession &&
+                streamPane.openSession->summary.id == id) {
+                // The flag only: a mark (own or an ancestor's) has no frame
+                // and stays whatever the last attach said.
+                streamPane.openSession->halted = *got.ownHalted;
+                app.halt_observed(id,
+                                  hanabi::halt::Observation::from_state(
+                                      id, streamPane.openSession->halted,
+                                      streamPane.openSession->halted_by,
+                                      streamPane.openSession->halted_reason),
+                                  hanabi::halt::Serializer::Source::Frame);
             }
             const bool restoreDraft =
                 got.failureKind == api::SendFailureKind::Cancelled ||

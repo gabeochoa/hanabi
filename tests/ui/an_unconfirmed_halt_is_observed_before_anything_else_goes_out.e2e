@@ -1,0 +1,47 @@
+# The echo never arrives (the socket dropped after the send). Success is
+# silent server-side, so the write MAY have committed: the app says "sent,
+# not confirmed" and asks the thread's live sub for a fresh attach. That
+# refetch is the observation: it shows the halt landed, the banner and the
+# menu follow it, and a Resume then goes out against what was seen.
+# Attempts: 1 (halt) + 1 (resume). (The gate itself -- an opposite intent
+# QUEUED until the observation -- is timing-dependent on a real screen and
+# is proven by test_halt_state.cpp, not here.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_HALT_NO_ECHO=1 HANABI_MOCK_HALT_OBSERVE_LATCH=1 HANABI_HALT_LOG=1
+require_thread t2
+wait_frames 12
+right_click_ui chat_row_id_t2
+wait_frames 8
+click_text "Halt"
+wait_frames 24
+# The mock HOLDS the confirming re-attach (latch in env): while it is held
+# the caption says so and the session is gated: the menu draws the last
+# observed row (Halt) DISABLED, so nothing can be picked against unknown
+# state.
+expect_toast "halt sent, not confirmed"
+expect_text "(sent, not confirmed)"
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Halt"
+expect_a11y "Halt" says="Halt, menuitem, dimmed"
+key ESCAPE
+wait_frames 6
+# Released: the re-attach observes the halt landed; caption clears; the
+# menu now offers Resume; nothing else went out (attempts still 1).
+release_halt_observe
+# The released re-attach lands some 40 frames on -- PAST the runner's own
+# 30-frame command kill. `within=120` is a fixed per-command deadline the
+# app's pre-handler makes the runner honour (one clock; gap #591) AND a
+# barrier that holds the script until it settles.
+expect_halt t2 own attempts=1 within=120
+# `within=` is a BARRIER: the script does not advance past this line until
+# the receipt settles or its deadline fails it, so the caption asserts
+# below read the settled frame -- no wait, no race with the receipt.
+expect_text "Halted — no run will start until it is resumed"
+expect_no_text "(sent, not confirmed)"
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Resume"
+click_text "Resume"
+wait_frames 40
+expect_halt t2 clear attempts=2

@@ -7562,7 +7562,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             .openSession->summary.id == openId
                 ? &*app.panes[static_cast<std::size_t>(composerTarget.pane_index)]
                        .openSession
-                : nullptr);
+                : nullptr,
+            app.halt_confirmation_note(openId));
+        if (AppComponent::halt_log_on() &&
+            (brake.caption.find("confirmed") != std::string::npos ||
+             app.captionLogArm.count(openId))) {
+            // Trace: the composer's brake inputs on every frame after an erase
+            // for this id (armed by `cleared`), and on any provisional draw.
+            const auto& tp = app.panes[static_cast<std::size_t>(composerTarget.pane_index)];
+            std::fprintf(stderr,
+                         "[halt] composer pane=%d openId='%s' engaged=%d full='%s' note='%s' open=%s "
+                         "halted=%d by='%s' contained=%d ui_build_frame=%zu\n",
+                         composerTarget.pane_index, openId.c_str(), brake.engaged ? 1 : 0,
+                         brake.caption.c_str(), app.halt_confirmation_note(openId).c_str(),
+                         tp.openSession ? tp.openSession->summary.id.c_str() : "(none)",
+                         tp.openSession ? (tp.openSession->halted ? 1 : 0) : -1,
+                         tp.openSession ? tp.openSession->halted_by.c_str() : "",
+                         tp.openSession ? (tp.openSession->halt_contained ? 1 : 0) : -1,
+                         afterhours::ui::imm::ui_build_frame);
+        }
 
         std::optional<AppComponent::ComposerSubmission> slashSubmit;
         bool clearFieldAfterSubmit = false;
@@ -8199,6 +8217,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // happening, or which key sends. Puffin has no equivalent — its strip
         // is meter and pills only — but the key hint is the fix for "HOW DO I
         // SEND A MESSAGE" and a scripted test asserts it.
+        if (AppComponent::halt_log_on() && app.captionLogArm.count(openId))
+            std::fprintf(stderr, "[halt] status_div pane=%d built=%d caption='%s'\n",
+                         composerTarget.pane_index, caption.empty() ? 0 : 1, caption.c_str());
         if (!caption.empty()) {
             // A notice carries the server's own sentence and can be as long
             // as the server likes. Every other caption here is a few words and

@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 
+#include "halt_state.h"
 #include "types.h"
 
 namespace api {
@@ -431,6 +432,10 @@ enum class StreamEventKind {
     AsksChanged,
     ModelFallback,  // a refusal handoff; payload = the model now answering
     ModelPinned,    // the session's model pin changed; payload = the pin or ""
+    // The session's OWN halt flag moved on a durable frame past the attach
+    // boundary: payload "halted" or "resumed". Never a containment mark --
+    // that has no frame; only a fresh attach carries it.
+    HaltChanged,
     // A compaction round is in flight (payload = JSON
     // {"started_at_unix_ms":N,"output_tokens":N}; a missing field is one the
     // wire has not carried yet), and the round finished (payload = JSON
@@ -818,6 +823,25 @@ class Client {
     virtual Result<std::string> interrupt_session(const std::string& session_id) {
         (void)session_id;
         return Result<std::string>::failure("this backend cannot stop a run");
+    }
+
+    // Halt / resume the SESSION (not the run): a halt interrupts the open run
+    // AND parks every future one until a resume; `subtree` also contains the
+    // session's descendants through a root-level mark. Owner-only on the
+    // server, advertised as `halt_v1` on the owner's attach. Distinct from
+    // interrupt_session, which stops the open run and lets the next start.
+    // The outcome says what was OBSERVED and what was PROVEN -- a silent
+    // success is proven only by the durable echo, and a subtree mark only by
+    // a fresh attach (see halt_state.h).
+    virtual bool supports_halt() const { return false; }
+    virtual hanabi::halt::Outcome set_halt_state(const std::string& session_id,
+                                                 hanabi::halt::Intent intent) {
+        (void)session_id;
+        hanabi::halt::Outcome out;
+        out.intent = intent;
+        out.status = hanabi::halt::Status::Failed;
+        out.detail = "this backend cannot halt or resume a session";
+        return out;
     }
 
     virtual Result<std::string> resolve_ask(const std::string& session_id,

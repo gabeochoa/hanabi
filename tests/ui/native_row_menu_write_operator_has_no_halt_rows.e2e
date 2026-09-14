@@ -1,0 +1,21 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1 HANABI_MOCK_ACCESS=write
+# A WRITE-level operator's REAL menu (halt is owner-only, as the server's halt_v1 advert) carries no halt rows: asserted on the frozen
+# snapshot the adapter was handed, then Escape.
+require_thread t2
+wait_frames 12
+native_mode on
+wait_frames 4
+# Prove the precondition first: attached, this access level; the server advertises halt_v1 to owners only, so halt=no here.
+expect_access t2 write halt=no
+native_right_click_ui chat_row_id_t2
+wait_frames 6
+native_menu_expect open session:t2
+native_menu_expect action copy_id
+native_menu_expect no_action halt
+native_menu_expect no_action halt_subtree
+native_menu_expect no_action resume
+native_key 53
+wait_frames 12
+native_menu_expect closed
+expect_halt t2 clear attempts=0

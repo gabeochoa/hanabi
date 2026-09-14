@@ -902,10 +902,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
         enum Act {
             CloseTab, CloseOthers, CloseRight, Divider, Rename, CopyTitle,
-            CopyLink, CopyId, OpenWeb, Pin, Split
+            CopyLink, CopyId, OpenWeb, Halt, HaltSubtree, Resume, Pin, Split
         };
         std::vector<hanabi::surface::MenuItem> items;
         std::vector<Act> actions;
+        std::string haltSubtreeLabel;
         // The action id is the debug name minus its "tab_menu_" prefix, with
         // a toggle's DIRECTION spelled out ("pin" / "unpin", "keep" /
         // "unkeep"): the native menu's pick is resolved by id against the
@@ -955,6 +956,25 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             add("Copy Session ID", "tab_menu_copy_id", CopyId);
             add("Open in Web", "tab_menu_open_web", OpenWeb);
             divider("tab_menu_divider_copy");
+            // Halt / Resume, the tab's own attach being the observation
+            // (see SidebarSystem::render_row_menu for the rule).
+            if (const api::Session* attached = app.session_with_messages(keepId);
+                attached != nullptr && app.client && app.client->supports_halt()) {
+                const auto observed = hanabi::halt::Observation::from_state(
+                    keepId, attached->halted, attached->halted_by, attached->halted_reason);
+                const auto rows = hanabi::halt::rows_for(
+                    observed, api::session_may_halt(*attached), attached->sub_agents.size());
+                const bool busy = app.halt_in_flight_for(keepId);
+                if (rows.resume) add("Resume", "tab_menu_resume", Resume, busy);
+                if (rows.halt) add("Halt", "tab_menu_halt", Halt, busy);
+                if (rows.halt_subtree) {
+                    const std::size_t n = attached->sub_agents.size();
+                    haltSubtreeLabel = n == 1 ? std::string("Halt with 1 Sub-agent")
+                                              : "Halt with " + std::to_string(n) + " Sub-agents";
+                    add(haltSubtreeLabel.c_str(), "tab_menu_halt_subtree", HaltSubtree, busy);
+                }
+                if (rows.any()) divider("tab_menu_divider_halt");
+            }
             add(tab.pinned ? "Unpin" : "Pin", "tab_menu_pin", Pin, false, false,
                 tab.pinned ? "unpin" : "pin");
             divider("tab_menu_divider_pin");
@@ -1047,6 +1067,15 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 case Split:
                     app.requestSplitOpen = keepId;
                     app.view = SmartView::Chat;
+                    break;
+                case Halt:
+                    app.request_halt(keepId, hanabi::halt::Intent::Halt, app.focusedPane);
+                    break;
+                case HaltSubtree:
+                    app.request_halt(keepId, hanabi::halt::Intent::HaltSubtree, app.focusedPane);
+                    break;
+                case Resume:
+                    app.request_halt(keepId, hanabi::halt::Intent::Resume, app.focusedPane);
                     break;
                 case Divider:
                     break;

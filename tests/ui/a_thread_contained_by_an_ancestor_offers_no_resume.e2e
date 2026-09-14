@@ -1,0 +1,20 @@
+# A descendant held shut by an ancestor's mark: its own Resume would clear
+# only its own state and leave the containment standing, with an echo that
+# says success. So the row menu offers NO halt rows at all, and the banner
+# keeps naming the ancestor. (A viewer's attach carries no halt_v1 either:
+# the second half opens the same menu read-only and sees none.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["bz5"],"active_tab":"bz5","theme":"dark"}
+# env: HANABI_BRAKES_DEMO=1
+require_thread bz5
+wait_frames 12
+expect_text "Halted by an ancestor thread — the parent halted the whole subtree"
+expect_halt bz5 contained attempts=0
+right_click_ui chat_row_id_bz5
+wait_frames 8
+expect_text "Copy Title"
+expect_no_ui row_menu_resume
+expect_no_ui row_menu_halt
+expect_no_ui row_menu_halt_subtree
+key ESCAPE
+wait_frames 6
+expect_halt bz5 contained attempts=0

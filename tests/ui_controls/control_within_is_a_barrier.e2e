@@ -1,0 +1,20 @@
+# control: pass
+# `within=` is a BARRIER: after the release, `expect_halt ... within=120`
+# holds the script until the receipt settles (the runner would otherwise
+# dispatch the next line the very next tick and run both concurrently), so
+# the `expect_no_text` right after it -- with NO wait -- reads the settled
+# frame and PASSES. Before the barrier this exact sequence was the flake.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_HALT_NO_ECHO=1 HANABI_MOCK_HALT_OBSERVE_LATCH=1
+require_thread t2
+wait_frames 12
+expect_access t2 owner halt=yes
+right_click_ui chat_row_id_t2
+wait_frames 8
+click_text "Halt"
+wait_frames 24
+expect_text "(sent, not confirmed)"
+release_halt_observe
+expect_halt t2 own attempts=1 within=120
+expect_text "Halted — no run will start until it is resumed"
+expect_no_text "(sent, not confirmed)"

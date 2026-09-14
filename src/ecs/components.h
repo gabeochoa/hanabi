@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <unordered_set>
+#include <unordered_map>
+#include <deque>
 #include <chrono>
 #include <future>
 #include <limits>
@@ -1160,6 +1163,9 @@ struct AppComponent : public afterhours::BaseComponent {
         std::string asksJson;
         std::optional<std::string> servingModel;
         bool servingFallback = false;
+        // The session's own halt flag, when a durable frame moved it during
+        // this collect: the LAST value seen wins.
+        std::optional<bool> ownHalted;
         // Every compaction marker the turn journaled, in order: each lands as
         // its own divider row between the echo and the reply when the drain
         // begins, the same place the server put it, under the server's id.
@@ -1495,6 +1501,109 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string requestInterruptId;
     std::future<api::Result<std::string>> interruptFuture;
     bool interruptPending = false;
+    // --- Halt / resume: the session-level brake (not the run's Stop) -------
+    // One serializer per session (halt_state.h): at most one write in flight,
+    // an opposite intent queued behind it, same-kind intents coalesced, and
+    // after an unconfirmed write nothing else goes out until a fresh attach
+    // has been observed. The worker is one future at a time app-wide; the
+    // write it carries names its session and ticket so a late answer from an
+    // older attempt cannot settle a newer one.
+    struct HaltWrite {
+        std::string sessionId;
+        hanabi::halt::Intent intent = hanabi::halt::Intent::Halt;
+        std::uint64_t ticket = 0;
+        int pane = 0;
+    };
+    std::unordered_map<std::string, hanabi::halt::Serializer> haltSerializers;
+    std::deque<HaltWrite> haltWrites;   // issued by the serializers, waiting for the worker
+    std::optional<HaltWrite> haltInFlight;
+    std::future<hanabi::halt::Outcome> haltFuture;
+    // Sessions whose last write was UNCONFIRMED: the next attach observation
+    // (refetch) is what frees them. Shown as "not confirmed" until then.
+    std::unordered_set<std::string> haltAwaitingObservation;
+    // Sessions whose OWN FLAG is proven but whose containment MARK is not yet
+    // observed (a subtree halt, or a marked root's resume): the brake caption
+    // says "not yet confirmed" until a Hello speaks to the mark. Distinct from
+    // the set above: nothing is gated, only the words are provisional.
+    std::unordered_set<std::string> haltMarkUnconfirmed;
+    // What the brake caption should append for `id`, or empty.
+    static bool halt_log_on() { return std::getenv("HANABI_HALT_LOG") != nullptr; }
+    std::unordered_set<std::string> captionLogArm;  // trace only
+    std::string halt_confirmation_note(const std::string& id) const {
+        std::string note;
+        if (haltAwaitingObservation.count(id)) note = "sent, not confirmed";
+        else if (haltMarkUnconfirmed.count(id)) note = "sub-agent containment not yet confirmed";
+        if (halt_log_on() && !note.empty()) {
+            // Logged on every frame drawn after a `cleared` line for this id
+            // (captionLogArm), else once per distinct note: the question the
+            // trace answers is whether the caption is drawn AFTER the erase.
+            static std::string lastLogged;
+            const std::string key = id + "|" + note;
+            if (key != lastLogged || captionLogArm.count(id)) {
+                lastLogged = key;
+                std::fprintf(stderr, "[halt] caption %s note='%s' awaiting=%zu markUnconfirmed=%zu (this=%p)\n",
+                             id.c_str(), note.c_str(), haltAwaitingObservation.count(id),
+                             haltMarkUnconfirmed.count(id), static_cast<const void*>(this));
+            }
+        }
+        return note;
+    }
+    // The still-current intent a person may retry by hand after an
+    // unconfirmed or failed write, per session.
+    std::unordered_map<std::string, hanabi::halt::Intent> haltRetryable;
+
+    void request_halt(const std::string& id, hanabi::halt::Intent intent, int pane) {
+        auto& sz = haltSerializers[id];
+        if (const auto w = sz.raise(intent))
+            haltWrites.push_back(HaltWrite{id, w->intent, w->ticket, pane});
+    }
+    void retry_halt(const std::string& id, int pane) {
+        const auto it = haltRetryable.find(id);
+        if (it == haltRetryable.end()) return;
+        auto& sz = haltSerializers[id];
+        if (const auto w = sz.retry(it->second))
+            haltWrites.push_back(HaltWrite{id, w->intent, w->ticket, pane});
+    }
+    // A fresh observation of `id` (an attach Hello landed, or a durable frame
+    // moved the flag): frees an observe-gated serializer and drains its queue.
+    void halt_observed(const std::string& id, const hanabi::halt::Observation& now,
+                       hanabi::halt::Serializer::Source source =
+                           hanabi::halt::Serializer::Source::Hello) {
+        const auto it = haltSerializers.find(id);
+        if (halt_log_on())
+            std::fprintf(stderr,
+                         "[halt] observed %s src=%s own=%d mark=%d contained=%s serializer=%s awaiting=%zu\n",
+                         id.c_str(), source == hanabi::halt::Serializer::Source::Hello ? "hello" : "frame",
+                         now.own_halted ? 1 : 0, now.own_mark ? 1 : 0, now.contained_by.c_str(),
+                         it == haltSerializers.end() ? "none" : "yes", haltAwaitingObservation.count(id));
+        if (it == haltSerializers.end()) return;
+        if (source == hanabi::halt::Serializer::Source::Hello) {
+            const auto a = haltAwaitingObservation.erase(id);
+            const auto m = haltMarkUnconfirmed.erase(id);  // a Hello has spoken to the mark
+            if (halt_log_on()) {
+                std::fprintf(stderr, "[halt] cleared %s awaiting-=%zu mark-=%zu (this=%p)\n", id.c_str(),
+                             a, m, static_cast<const void*>(this));
+                captionLogArm.insert(id);
+            }
+        }
+        if (const auto w = it->second.observed(now, source))
+            haltWrites.push_back(HaltWrite{id, w->intent, w->ticket, 0});
+        if (source == hanabi::halt::Serializer::Source::Hello)
+            if (const auto r = haltRetryable.find(id);
+                r != haltRetryable.end() && hanabi::halt::satisfied(r->second, now))
+                haltRetryable.erase(r);
+    }
+    // Busy = a write in flight, or an unconfirmed one awaiting its
+    // observation: the rows are drawn (the state is what was last observed)
+    // but disabled -- a pick now would only queue behind what is unknown.
+    bool halt_in_flight_for(const std::string& id) const {
+        // A mark not yet observed is unknown state too: a Resume picked
+        // against it would settle on an echo that proves nothing about
+        // the mark. Rows stay drawn but dimmed until the Hello.
+        if (haltAwaitingObservation.count(id) || haltMarkUnconfirmed.count(id)) return true;
+        const auto it = haltSerializers.find(id);
+        return it != haltSerializers.end() && it->second.in_flight();
+    }
     // The session whose stop the server took; the next list refresh that
     // shows it no longer running is adopted into the open transcript's
     // summary (one shot). Nothing is applied before the server says so.

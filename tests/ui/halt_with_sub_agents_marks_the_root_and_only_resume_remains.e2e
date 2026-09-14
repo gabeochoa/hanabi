@@ -1,0 +1,39 @@
+# Halt with Sub-agents on a root: the flag's echo confirms the flag, the MARK
+# has no frame -- the brake caption says so, and holds the words -- and the
+# refetch the app then asks for is what shows the mark (halted_by naming
+# this very thread) and clears them. With the own
+# mark observed the menu offers Resume only. Resume clears flag and mark.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t7"],"active_tab":"t7","theme":"dark"}
+# env: HANABI_MOCK_HALT_OBSERVE_LATCH=1 HANABI_HALT_LOG=1
+require_thread t7
+wait_frames 12
+expect_halt t7 clear attempts=0
+right_click_ui chat_row_id_t7
+wait_frames 8
+click_text "Halt with 3 Sub-agents"
+wait_frames 24
+# The flag is proven by the echo; the mark has no frame. The words live in
+# the brake caption -- not a toast that times out -- until a fresh attach
+# speaks to the mark. The mock HOLDS that re-attach (the latch in env), so
+# the provisional state is read deterministically: flag own, mark not yet.
+expect_text "(sub-agent containment not yet confirmed)"
+expect_halt t7 own attempts=1
+release_halt_observe
+# The released re-attach lands some 40 frames on -- PAST the runner's own
+# 30-frame command kill. `within=120` is a fixed per-command deadline the
+# app's pre-handler makes the runner honour (one clock; gap #591) AND a
+# barrier that holds the script until it settles.
+expect_halt t7 marked attempts=1 within=120
+# `within=` is a BARRIER: the script does not advance past this line until
+# the receipt settles or its deadline fails it, so the caption asserts
+# below read the settled frame -- no wait, no race with the receipt.
+expect_text "Halted — no run will start until it is resumed"
+expect_no_text "(sub-agent containment not yet confirmed)"
+right_click_ui chat_row_id_t7
+wait_frames 8
+expect_text "Resume"
+expect_no_ui row_menu_halt
+expect_no_ui row_menu_halt_subtree
+click_text "Resume"
+wait_frames 24
+expect_halt t7 clear attempts=2
