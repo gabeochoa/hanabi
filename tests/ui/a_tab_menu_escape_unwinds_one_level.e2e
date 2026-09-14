@@ -1,32 +1,47 @@
+# The tab menu's keyboard: Escape closes it; Enter on a row that cannot act
+# (the Close group's divider, or a disabled row) leaves it open; Enter on an
+# enabled row acts and closes. The menu has no caption row, so its presence is
+# the panel itself.
+#
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t5"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_OPEN=t2
-
 require_thread t2
 wait_frames 12
-
 right_click_ui tab_active
 wait_frames 10
-expect_text "TAB ACTIONS"
-
+assert_ui tab_menu hidden=false
+expect_text "Close Tabs to the Right"
 arrow down
 wait_frames 6
 arrow down
 wait_frames 6
-
 key ESCAPE
 wait_frames 8
-expect_no_text "TAB ACTIONS"
+expect_no_ui tab_menu
 
+# Reopen; walk past the Close group with the keyboard. The cursor starts on
+# no row, so the first Down stands on Close Tab; the second on Close Other
+# Tabs (enabled: t5 is the other); the third on Close Tabs to the Right
+# (enabled: t5 is to the right); the fourth would land on the divider slot,
+# which the cursor skips, so it stands on Rename. Enter there opens the
+# rename sheet and the menu closes -- it acted, on an enabled row, once.
 right_click_ui tab_active
 wait_frames 10
-expect_text "TAB ACTIONS"
-
-key ENTER
-wait_frames 12
-expect_text "TAB ACTIONS"
-
+assert_ui tab_menu hidden=false
+arrow down
+wait_frames 6
+arrow down
+wait_frames 6
+arrow down
+wait_frames 6
 arrow down
 wait_frames 6
 key ENTER
 wait_frames 12
-expect_no_text "TAB ACTIONS"
+expect_no_ui tab_menu
+assert_ui rename_panel hidden=false
+key ESCAPE
+wait_frames 8
+# Both tabs still open: the walk never activated a Close item.
+assert_ui tab_active hidden=false
+assert_ui tab_t5 hidden=false

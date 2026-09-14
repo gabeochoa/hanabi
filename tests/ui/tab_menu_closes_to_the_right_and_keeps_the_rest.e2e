@@ -1,0 +1,86 @@
+# The tab menu acts on the tab it was opened on, and its Close items follow
+# the reference: Close Tab (the x's own path), Close Other Tabs (pinned tabs
+# stay), Close Tabs to the Right (pinned tabs stay; the active tab is
+# unchanged unless it was closed, then the kept tab takes over). A draft in a
+# surviving tab is untouched -- drafts are per-session state, not tab state.
+#
+# Strip order: t2 (active) · t9 · t6 · t7 (pinned) · t5.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9","t6","t7","t5"],"active_tab":"t2","pinned_tabs":["t7"],"theme":"dark"}
+# env: HANABI_OPEN=t2
+require_thread t2
+wait_frames 12
+expect_open t2
+# The background tabs are strip chips (require_thread holds only for the
+# OPEN pane's session).
+assert_ui tab_t9 hidden=false
+assert_ui tab_t6 hidden=false
+assert_ui tab_t7 hidden=false
+assert_ui tab_t5 hidden=false
+click_ui composer_reply_input
+wait_frames 6
+type "t2 keeps this draft"
+wait_frames 6
+expect_input_text composer_reply_input "t2 keeps this draft"
+
+# Right-click a BACKGROUND tab (t6) and close everything to its right: t5
+# goes, t7 stays (pinned), t2 stays active, t9 and t6 stay.
+right_click_ui tab_t6
+wait_frames 10
+assert_ui tab_menu hidden=false
+click_ui tab_menu_close_right
+wait_frames 12
+expect_no_ui tab_menu
+expect_no_ui tab_t5
+assert_ui tab_t7 hidden=false
+assert_ui tab_t9 hidden=false
+assert_ui tab_t6 hidden=false
+expect_open t2
+expect_input_text composer_reply_input "t2 keeps this draft"
+
+# Make t6 the active tab, then Close Tabs to the Right from t2's menu: t9 and
+# t6 go (t6 was ACTIVE), t7 stays (pinned). The reference closes one tab at a
+# time and each close picks the neighbour of the closed slot, so the selection
+# walks onto the surviving KEPT tab to the right -- t7 -- not onto t2.
+click_ui tab_t6
+wait_frames 12
+expect_open t6
+right_click_ui tab_t2
+wait_frames 10
+click_ui tab_menu_close_right
+wait_frames 16
+expect_no_ui tab_t9
+expect_no_ui tab_t6
+assert_ui tab_t7 hidden=false
+expect_open t7
+# t2's draft is untouched by all of that.
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+expect_input_text composer_reply_input "t2 keeps this draft"
+
+# "Close Tabs to the Right" on the last tab is offered disabled: nothing to do.
+right_click_ui tab_t7
+wait_frames 10
+click_ui tab_menu_close_right
+wait_frames 8
+assert_ui tab_menu hidden=false
+assert_ui tab_t7 hidden=false
+key ESCAPE
+wait_frames 8
+
+# Close Tab from the menu on the active tab: the x's own path -- the
+# neighbour (t7) becomes active.
+right_click_ui tab_active
+wait_frames 10
+click_ui tab_menu_close
+wait_frames 16
+expect_open t7
+expect_no_ui tab_t2
+
+# Close Tab on the last remaining tab returns to Home with nothing open.
+right_click_ui tab_active
+wait_frames 10
+click_ui tab_menu_close
+wait_frames 16
+expect_open -
+expect_no_ui tab_active

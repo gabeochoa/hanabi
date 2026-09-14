@@ -319,12 +319,44 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             shown +=
                 render_subagent_sidebar(ctx, scroll.ent(), *app, q, r.width);
         } else {
+            // A saved (user) view filters the list itself: the store's
+            // `keeps` decides membership, and the view's id is the cache
+            // key so switching views rebuilds. The five built-in views
+            // keep their own paths (they are panes, not filters over this
+            // list).
+            const hanabi::views::SavedView* userView =
+                app->savedViewId.empty()
+                    ? nullptr
+                    : Settings::get().saved_views().find(app->savedViewId);
+            if (userView != nullptr && userView->builtIn) userView = nullptr;
+            model::SidebarBuckets::KeepFn keep;
+            if (userView != nullptr)
+                keep = [userView](const api::SessionSummary& s) {
+                    return hanabi::views::keeps(*userView, s);
+                };
+            // The cache key is the view's FILTER RECORD, not its id: an
+            // edit to the query, workspace or attention under the same id
+            // changes membership and must rebuild the buckets too.
+            std::string keepKey;
+            if (userView != nullptr) {
+                keepKey.reserve(64);
+                keepKey += userView->id;
+                keepKey += '\x1f';
+                keepKey += hanabi::views::scope_name(userView->scope);
+                keepKey += '\x1f';
+                keepKey += hanabi::views::attention_name(userView->attention);
+                keepKey += '\x1f';
+                keepKey += userView->workspace;
+                keepKey += '\x1f';
+                keepKey += userView->query;
+            }
             buckets_.rebuild(
                 app->sessionCatalogRevision, app->sessions, q,
                 app->collapsedFolders.count(kHideAutoKey) > 0,
                 [](const std::string& id, const std::string& needle) {
                     return api::disk_cache::content_matches(id, needle);
-                });
+                },
+                keep, keepKey);
             folderNames_ = buckets_.folders();
             std::sort(folderNames_.begin(), folderNames_.end(),
                       [](const std::string& a, const std::string& b) {
@@ -1502,8 +1534,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("sb_views_chevron"));
         // Fixed pixel width (gap #18: no flex-grow) so the toggle that follows
         // lands on the measured right edge instead of packing mid-strip.
+        // Three 28-px buttons follow the label: save-view (+), sub-agents,
+        // collapse -- the reference's header carries "+" and the sidebar
+        // toggle; the sub-agents toggle is hanabi's.
         float labelW = panelW - 7.0f - 5.0f - 10.0f -
-                       hanabi::control::kMinHitTarget * 2.0f;
+                       hanabi::control::kMinHitTarget * 3.0f;
         if (labelW < 20.0f) labelW = 20.0f;
         div(ctx, mk(strip.ent(), 2),
             ComponentConfig{}
@@ -1516,6 +1551,40 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("sb_views_label"));
+        // "Save the current filter as a view" -- the reference's "+" on the
+        // Views header (SmartViewSidebar.saveCurrentButton). It opens the
+        // name prompt with a name derived from the lit shelf, the workspace
+        // and the words in the search box; the prompt's Save adds the view,
+        // selects it and clears the search.
+        auto saveViewBtn =
+            button(ctx, mk(strip.ent(), 5),
+                   ComponentConfig{}
+                       .with_label(" ")
+                       .with_size(ComponentSize{pixels(28), pixels(28)})
+                       .with_transparent_bg()
+                       .with_custom_hover_bg(
+                           theme::hover_over(theme::chrome::sidebar()))
+                       .with_cursor(afterhours::ui::CursorType::Pointer)
+                       .with_click_activation(ClickActivationMode::Press)
+                       .with_skip_tabbing(true)
+                       .with_roundness(0.3f)
+                       .with_on_draw_fg(
+                           hanabi::icons::draw_fg("plus", "+", tint, 14.0f))
+                       .with_debug_name("sb_save_view"));
+        hanabi::a11y::set_name(saveViewBtn.ent(),
+                               "Save the current filter as a view");
+        if (saveViewBtn) {
+            const auto& store = Settings::get().saved_views();
+            const hanabi::views::SavedView& current = store.resolve(
+                app.savedViewId.empty()
+                    ? std::optional<std::string_view>{}
+                    : std::optional<std::string_view>{app.savedViewId});
+            app.renameSessionId = model::kSaveViewPrompt;
+            app.renameDraft = hanabi::views::derived_name(
+                current, app.currentWorkspace, app.searchQuery);
+            app.renameError.clear();
+            app.renameOpen = true;
+        }
         auto subagentsBtn =
             button(ctx, mk(strip.ent(), 3),
                    ComponentConfig{}
@@ -2209,6 +2278,87 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         smart_item(ctx, container.ent(), 6, "archive", "",
                    "Archived", SmartView::Archived, -1, app, folded,
                    panelW, lit);
+        // Views the person SAVED from a filter, after the built-ins, in the
+        // order they were added -- the reference's shelf (SmartViewSidebar
+        // over SavedFilterStore.shelves). Each is a filter over the
+        // conversation list; picking one lights it, clears the built-in
+        // selection, and the list below narrows to what it keeps.
+        int idx = 7;
+        for (const hanabi::views::SavedView& v :
+             Settings::get().saved_views().shelves()) {
+            if (v.builtIn) continue;
+            saved_view_item(ctx, container.ent(), idx++, v, app, folded, panelW);
+        }
+    }
+
+    void saved_view_item(UIContext<InputAction>& ctx, Entity& parent, int idx,
+                         const hanabi::views::SavedView& v, AppComponent& app,
+                         bool folded, float panelW) {
+        const bool active = app.savedViewId == v.id;
+        const theme::Color selectedFill =
+            theme::chrome::selected_on(theme::chrome::sidebar());
+        auto row = div(ctx, mk(parent, 100 + idx),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSbViewRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(4),
+                                      .right = pixels(kCountRightPad),
+                                      .bottom = pixels(5),
+                                      .left = pixels(kSbInset)})
+                .with_custom_background(active ? selectedFill
+                                               : theme::chrome::sidebar())
+                .with_custom_hover_bg(active ? selectedFill
+                                             : theme::hover_over(theme::chrome::sidebar()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.0f)
+                .with_debug_name("sb_view_" + v.id));
+        hanabi::a11y::set_name(row.ent(),
+                               v.name + (active ? ", selected" : ""),
+                               hanabi::a11y::Role::Tab);
+        // A zero-size marker a script can ask for, the way the Settings row
+        // has one: "which shelf row is lit" without reading colours.
+        if (active)
+            div(ctx, mk(row.ent(), 9),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(0), pixels(0)})
+                    .with_transparent_bg()
+                    .with_debug_name("sb_view_selected_" + v.id));
+        row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        if (pointer_click(ctx, row.ent())) {
+            app.savedViewId = v.id;
+            Settings::get().set_selected_view(v.id);
+            // The list is where the filter shows; a saved view is not a pane.
+            if (app.view != SmartView::Chat) app.view = SmartView::Home;
+        }
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(18), pixels(18)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "sliders", "", active ? theme::text_primary()
+                                          : theme::text_secondary(), 14.0f))
+                .with_debug_name("sv_icon"));
+        if (folded) return;
+        spacer_x(ctx, row.ent(), 7, kViewLabelGap);
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(v.name)
+                .with_size(ComponentSize{pixels(panelW - kSbInset - 18.0f -
+                                                kViewLabelGap - kCountRightPad),
+                                         pixels(22)})
+                .with_transparent_bg()
+                .with_custom_text_color(active ? theme::text_primary()
+                                               : theme::text_secondary())
+                .with_font_size(view_label_px())
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("sv_label"));
     }
 
     // A view-shaped row that opens the Settings sheet. Same geometry as
@@ -2295,7 +2445,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     const std::string& label, SmartView view, int count,
                     AppComponent& app, bool folded, float panelW,
                     SmartView lit) {
-        bool active = lit == view;
+        // A lit SAVED view means no built-in row is lit -- one place at a time.
+        bool active = lit == view && app.savedViewId.empty();
         const theme::Color selectedFill =
             theme::chrome::selected_on(theme::chrome::sidebar());
         auto row = div(ctx, mk(parent, 100 + idx),
@@ -2362,6 +2513,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             [](Entity&) {});
         if (pointer_click(ctx, row.ent())) {
             app.view = view;
+            // A built-in view is what the shelf's five rows ARE; picking one
+            // puts any saved view away. (Home's row is the way back from a
+            // saved view, as it is from Settings.)
+            app.savedViewId.clear();
+            Settings::get().set_selected_view("");
         }
 
         // kViewLabelFg, not theme::text_secondary: the reference's inactive

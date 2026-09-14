@@ -15,7 +15,7 @@
 expect_text "VIEWS"
 expect_text "SKU backfill — my name for it"
 
-click 262 50
+click_ui sb_collapse
 wait_frames 25
 expect_no_text VIEWS
 

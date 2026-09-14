@@ -1,0 +1,66 @@
+# The "+" on the Views header saves the CURRENT filter as a view: it asks for
+# a name (suggested from what is lit and what is in the search box), adds the
+# view to the shelf, selects it, and clears the search -- the query is in the
+# shelf now. The view is a filter over the conversation list, and it is still
+# there after the settings are read back from disk.
+#
+# The reference's SidebarColumn.saveCurrentAsView, with hanabi's own names.
+#
+# A conversation is open so the Home pane's cards (which repeat titles) are
+# not on screen: every title assertion below is about the SIDEBAR LIST.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t6"],"active_tab":"t6","theme":"dark"}
+require_thread t6
+wait_frames 16
+expect_text "needs a decision before it can go on"
+expect_text "SKU backfill — my name for it"
+
+# Narrow the list by a word, then save that as a view.
+click_ui sb_search
+wait_frames 6
+type "backfill"
+wait_frames 10
+expect_text "SKU backfill — my name for it"
+expect_no_text "needs a decision before it can go on"
+
+click_ui sb_save_view
+wait_frames 12
+expect_text "Save this filter as a view"
+# The suggested name carries the query; we give it our own.
+select_all
+type "Backfills"
+wait_frames 6
+click_ui rename_confirm
+wait_frames 16
+
+# Saved: a shelf row with our name, lit; the search box is empty; the list
+# still shows only what the view keeps.
+expect_text "Backfills"
+expect_input_text sb_search_text ""
+expect_text "SKU backfill — my name for it"
+expect_no_text "needs a decision before it can go on"
+
+# Home takes the filter off (and opens the Home pane); the view row stays.
+click_text "Home"
+wait_frames 12
+expect_text "Backfills"
+expect_text "WAITING ON YOU"
+
+# Picking the view again narrows the list again; the conversation comes
+# back in front so the list is the only place titles appear.
+click_text "Backfills"
+wait_frames 12
+click_text "SKU backfill"
+wait_frames 12
+expect_no_text "needs a decision before it can go on"
+expect_text "SKU backfill — my name for it"
+
+# Read the settings back from disk, as a fresh process would: the view is
+# still on the shelf and still filters.
+# (In-process reload: the two-process restart is scripts/saved_view_restart.sh,
+# which starts a second production process on the same private HOME and
+# asserts the shelf, the selection and the filter from a cold start.)
+reload_settings
+wait_frames 12
+expect_text "Backfills"
+expect_no_text "needs a decision before it can go on"
+expect_text "SKU backfill — my name for it"

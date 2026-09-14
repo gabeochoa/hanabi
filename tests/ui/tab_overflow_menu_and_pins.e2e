@@ -32,8 +32,8 @@ assert_ui tab_r8 x=385
 
 right_click 400 48
 wait_frames 3
-expect_text "Copy session link"
-expect_text "Copy session ID"
+expect_text "Copy Weblink"
+expect_text "Copy Session ID"
 reset_clipboard_probe
 click_ui tab_menu_copy
 expect_clipboard "https://navi.test/session/r8"
@@ -44,17 +44,26 @@ reset_clipboard_probe
 click_ui tab_menu_copy_id
 expect_clipboard "r8"
 
+# Pin from the menu is the reference's one act: the THREAD is pinned (the
+# sidebar's star), the tab moves to the pinned prefix -- right after t1 --
+# and is selected. So r8, a background tab under the pointer here, becomes
+# the active tab at the front of the strip.
 right_click 400 48
 wait_frames 3
-expect_text "Pin tab"
+expect_text "Pin"
 click_ui tab_menu_pin
-wait_frames 3
+wait_frames 6
+expect_open r8
+assert_ui tab_active hidden=false
+expect_text "Tab: quota migration, week 3, pinned, active"
 expect_text "Pinned tab"
 
-right_click 400 48
+# Close Other Tabs from the pinned, active r8: every unpinned tab goes, t1
+# (pinned) stays, r8 stays active.
+right_click_ui tab_active
 wait_frames 3
-expect_text "Unpin tab"
-expect_text "Close others"
+expect_text "Unpin"
+expect_text "Close Other Tabs"
 click_ui tab_menu_close_others
 wait_frames 12
 require_thread r8

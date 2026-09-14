@@ -400,6 +400,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "uitest-alone", .desc = "Every scripted-UI script alone, one harness start each (slow, on purpose)", .cmds = &.{&.{ "bash", "scripts/run_ui_tests_alone.sh" }}, .after = need_ui, .in_test = false },
         .{ .name = "harness-gate", .desc = "The harness's own tests", .cmds = &.{&.{ "bash", "scripts/harness_gate.sh" }}, .after = need_ui },
         .{ .name = "tab-persistence-gate", .desc = "Tabs survive a restart", .cmds = &.{&.{ "bash", "scripts/tab_persistence_gate.sh" }}, .after = need_ui },
+        .{ .name = "saved-view-restart-gate", .desc = "A saved view survives a restart (two processes, one settings file)", .cmds = &.{&.{ "bash", "scripts/saved_view_restart.sh" }}, .after = need_ui },
         .{ .name = "verify-vendor-patches", .desc = "Prove each vendor proof patch is absent from the pin and applies to it", .cmds = &.{&.{ "python3", "scripts/verify_vendor_patches.py" }}, .after = null },
         .{ .name = "chime-gate", .desc = "Run-finished cue", .cmds = &.{&.{ "bash", "scripts/chime_gate.sh" }}, .after = need_app },
         .{ .name = "ask-contrast-gate", .desc = "Ask-card contrast", .cmds = &.{&.{ "python3", "scripts/ask_contrast_gate.py" }}, .after = null },

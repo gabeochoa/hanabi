@@ -204,9 +204,8 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
     // name of a view saved from the current filter (the reference's "Save
     // this filter as a view", SidebarColumn.saveCurrentAsView). The second
     // is marked by a reserved id in the slot the first uses for its session.
-    static constexpr const char* kSaveViewMarker = "hanabi:view/new";
     static bool saving_view(const AppComponent& app) {
-        return app.renameSessionId == kSaveViewMarker;
+        return app.renameSessionId == model::kSaveViewPrompt;
     }
 
     static void confirm(AppComponent& app) {
@@ -232,6 +231,7 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
             }
             Settings::get().save_views();
             app.savedViewId = made.id;
+            Settings::get().set_selected_view(made.id);
             app.searchQuery.clear();
             close(app);
             return;

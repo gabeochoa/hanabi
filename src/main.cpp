@@ -329,6 +329,11 @@ static void setup_app_state() {
     // tab's, and asking for it earlier is asking for a fetch of an id the
     // backend may no longer know.
     app.expandedParents = Settings::get().get_expanded_parents();
+    // The lit saved view comes back only if the store still has it; a view
+    // deleted on another day is not resurrected as a dangling id.
+    if (const std::string& sv = Settings::get().get_selected_view();
+        !sv.empty() && Settings::get().saved_views().find(sv) != nullptr)
+        app.savedViewId = sv;
     app.splitOpen = Settings::get().get_split_open();
     app.splitRatio =
         hanabi::clamp_split_ratio(Settings::get().get_split_ratio());

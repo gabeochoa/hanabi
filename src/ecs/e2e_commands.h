@@ -1927,6 +1927,8 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //   seed_outbox <session_id> <text...>        write a kept record (with the same
 //                                             attachment) straight to disk, the
 //                                             way a previous run would have
+//   reload_settings                           read the settings file back from
+//                                             disk (the path a restart takes)
 //   outbox_restore_again                      run the launch-time restore pass
 //                                             again (the path a restart takes)
 //   expect_toast_holds <text...>              the toast is up, holding, and its
@@ -1989,6 +1991,36 @@ struct HandleSeedOutboxCommand
         }
         api::disk_cache::outbox_add(
             cmd.arg(0), forced_surface_message(cmd.arg(0), joined_args(cmd, 1), 0));
+        cmd.consume();
+    }
+};
+
+// `reload_settings`: read the settings file back from disk, the way a fresh
+// process would, and re-seed what the app copies out of it at startup (the
+// saved views are read from Settings each frame; expansion is copied). Holds
+// "it survives a restart" without a restart.
+struct HandleReloadSettingsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("reload_settings")) return;
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr) {
+            cmd.fail("reload_settings: no app");
+            return;
+        }
+        if (!Settings::get().load_save_file()) {
+            cmd.fail("reload_settings: the settings file could not be read");
+            return;
+        }
+        app->expandedParents = Settings::get().get_expanded_parents();
+        ++app->expandedRevision;
+        // Same rule as startup: the lit view returns only if the store has it.
+        app->savedViewId.clear();
+        if (const std::string& sv = Settings::get().get_selected_view();
+            !sv.empty() && Settings::get().saved_views().find(sv) != nullptr)
+            app->savedViewId = sv;
         cmd.consume();
     }
 };
@@ -2155,6 +2187,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleForceSendCommand>());
     sm.register_update_system(std::make_unique<HandleSeedOutboxCommand>());
     sm.register_update_system(std::make_unique<HandleOutboxRestoreAgainCommand>());
+    sm.register_update_system(std::make_unique<HandleReloadSettingsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectToastCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxAttachmentCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxRetryCountCommand>());

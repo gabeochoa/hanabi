@@ -403,34 +403,165 @@ inline void close_tab(TabStripComponent& strip, AppComponent& app,
     reconcile_panes_with_tabs(strip, app, fallbackId);
 }
 
-inline void close_others(TabStripComponent& strip, AppComponent& app,
-                         const std::string& keepId) {
-    afterhours::Entity* keep = nullptr;
-    for (auto tabId : strip.tabOrder) {
-        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
-        if (opt.valid() && opt->has<Tab>() &&
-            opt->get<Tab>().sessionId == keepId) {
-            keep = &opt.asE();
+
+// The reference's bulk closes (TabStrip.swift closeAll(except:) /
+// closeAll(rightOf:)) are a LOOP over one close per eligible tab -- every
+// tab after `keepId` in strip order for "to the right", every other tab for
+// "others" -- skipping kept-open (here: pinned) tabs, and each close picks
+// its own replacement the way a single close does (the flat neighbour of the
+// closed slot). So these are that loop over close_tab: one rule for the x,
+// the middle-click and the menu, and a kept tab that survives to the right
+// is what the neighbour walk lands on when the active tab was among the
+// closed, exactly as it would there. Drafts are per-session pane state and
+// are not touched by a tab going away.
+inline void close_bulk(TabStripComponent& strip, AppComponent& app,
+                       const std::string& keepId, bool rightOnly) {
+    std::size_t keepAt = strip.tabOrder.size();
+    for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
+        auto opt = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        if (opt.valid() && opt->has<Tab>() && opt->get<Tab>().sessionId == keepId) {
+            keepAt = i;
             break;
         }
     }
-    if (!keep) return;
+    if (keepAt == strip.tabOrder.size()) return;
+    // Snapshot the ids before closing: tabOrder shrinks under the loop.
+    std::vector<afterhours::EntityID> victims;
+    for (std::size_t i = rightOnly ? keepAt + 1 : 0; i < strip.tabOrder.size(); ++i) {
+        if (i == keepAt) continue;
+        auto opt = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        if (!opt.valid() || !opt->has<Tab>()) continue;
+        if (opt->get<Tab>().pinned) continue;
+        victims.push_back(strip.tabOrder[i]);
+    }
+    if (victims.empty()) return;
 
-    size_t write = 0;
-    for (auto tabId : strip.tabOrder) {
-        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
-        const bool preserve =
-            tabId == keep->id ||
-            (opt.valid() && opt->has<Tab>() && opt->get<Tab>().pinned);
-        if (preserve) {
-            strip.tabOrder[write++] = tabId;
-        } else if (opt.valid()) {
-            opt.asE().cleanup = true;
+    // The reference closes one at a time and each close re-picks the flat
+    // neighbour of the erased slot; over a run of closes that walk lands on
+    // the first SURVIVOR at or after the active tab's slot (else the last
+    // survivor). Computing that once over the post-batch strip is the same
+    // answer without the intermediate panes: an intermediate reconcile aimed
+    // at a neighbour that is itself about to close left the pane empty.
+    afterhours::Entity* activeVictim = nullptr;
+    std::size_t activeAt = 0;
+    for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
+        auto opt = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        if (opt.valid() && opt->has<ActiveTab>() &&
+            std::find(victims.begin(), victims.end(), strip.tabOrder[i]) != victims.end()) {
+            activeVictim = &opt.asE();
+            activeAt = i;
+            break;
         }
     }
-    strip.tabOrder.resize(write);
-    switch_to_tab(app, *keep);
-    reconcile_panes_with_tabs(strip, app, keepId);
+    afterhours::Entity* landing = nullptr;
+    if (activeVictim != nullptr) {
+        auto survives = [&](std::size_t i) {
+            return std::find(victims.begin(), victims.end(), strip.tabOrder[i]) == victims.end();
+        };
+        std::size_t pick = strip.tabOrder.size();
+        for (std::size_t i = activeAt + 1; i < strip.tabOrder.size(); ++i)
+            if (survives(i)) { pick = i; break; }
+        if (pick == strip.tabOrder.size())
+            for (std::size_t i = activeAt; i-- > 0;)
+                if (survives(i)) { pick = i; break; }
+        if (pick != strip.tabOrder.size()) {
+            auto o = afterhours::EntityHelper::getEntityForID(strip.tabOrder[pick]);
+            if (o.valid() && o->has<Tab>()) landing = &o.asE();
+        }
+    }
+
+    for (afterhours::EntityID id : victims) {
+        auto opt = afterhours::EntityHelper::getEntityForID(id);
+        if (opt.valid() && opt->has<Tab>()) app.note_tab_closed(opt->get<Tab>().sessionId);
+        if (opt.valid()) opt.asE().cleanup = true;
+        strip.tabOrder.erase(std::remove(strip.tabOrder.begin(), strip.tabOrder.end(), id),
+                             strip.tabOrder.end());
+    }
+    std::string fallbackId = keepId;
+    if (landing != nullptr) {
+        switch_to_tab(app, *landing);
+        fallbackId = landing->get<Tab>().sessionId;
+    }
+    reconcile_panes_with_tabs(strip, app, fallbackId);
+}
+
+inline void close_to_right(TabStripComponent& strip, AppComponent& app,
+                           const std::string& keepId) {
+    close_bulk(strip, app, keepId, /*rightOnly=*/true);
+}
+
+inline void close_others(TabStripComponent& strip, AppComponent& app,
+                         const std::string& keepId) {
+    close_bulk(strip, app, keepId, /*rightOnly=*/false);
+}
+
+// How many tabs "Close Tabs to the Right" would close: the menu disables the
+// item when this is zero, so a row that can do nothing is never offered.
+[[nodiscard]] inline std::size_t closable_to_right(const TabStripComponent& strip,
+                                                   const std::string& keepId) {
+    std::size_t keepAt = strip.tabOrder.size();
+    for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
+        auto opt = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        if (opt.valid() && opt->has<Tab>() && opt->get<Tab>().sessionId == keepId) {
+            keepAt = i;
+            break;
+        }
+    }
+    std::size_t n = 0;
+    for (std::size_t i = keepAt + 1; i < strip.tabOrder.size(); ++i) {
+        auto opt = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        if (opt.valid() && opt->has<Tab>() && !opt->get<Tab>().pinned) ++n;
+    }
+    return n;
+}
+
+// How many tabs "Close Other Tabs" would close (pinned ones stay).
+[[nodiscard]] inline std::size_t closable_others(const TabStripComponent& strip,
+                                                 const std::string& keepId) {
+    std::size_t n = 0;
+    for (auto tabId : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+        if (!opt.valid() || !opt->has<Tab>()) continue;
+        const Tab& t = opt->get<Tab>();
+        if (t.sessionId != keepId && !t.pinned) ++n;
+    }
+    return n;
+}
+
+// The tab menu's Pin, as the reference defines it (AgentcloudTabModel
+// setThreadPinned + keepOpen): ONE act that writes the THREAD's pin -- the
+// sidebar's starred/PINNED membership, persisted through Settings -- and
+// the tab's kept-open flag together, moves the tab to the strip's pinned
+// prefix (unpinning puts it right after that prefix), and SELECTS the tab
+// when pinning ("a pin says you are keeping this thread"), never when
+// unpinning. `app.apply_starred` is the same write the sidebar's star uses,
+// so the PINNED shelf, the row's star and the tab agree. Closing a tab does
+// not unpin the thread (the reference's kt-19fu rule): the tab flag dies
+// with the tab, the thread pin lives on in Settings.
+inline void pin_thread_tab(TabStripComponent& strip, AppComponent& app,
+                           afterhours::Entity& tabEntity, bool pinned) {
+    if (!tabEntity.has<Tab>()) return;
+    Tab& tab = tabEntity.get<Tab>();
+    const std::string id = tab.sessionId;
+    if (!is_surface_tab(id)) {
+        app.apply_starred(id, pinned);
+        Settings::get().set_starred(id, pinned);
+    }
+    set_tab_pinned(tab, pinned);
+
+    const auto it = std::find(strip.tabOrder.begin(), strip.tabOrder.end(), tabEntity.id);
+    if (it != strip.tabOrder.end()) {
+        strip.tabOrder.erase(it);
+        std::size_t pinnedPrefix = 0;
+        for (auto tabId : strip.tabOrder) {
+            auto o = afterhours::EntityHelper::getEntityForID(tabId);
+            if (o.valid() && o->has<Tab>() && o->get<Tab>().pinned) ++pinnedPrefix;
+            else break;
+        }
+        strip.tabOrder.insert(strip.tabOrder.begin() + static_cast<std::ptrdiff_t>(pinnedPrefix),
+                              tabEntity.id);
+    }
+    if (pinned) switch_to_tab(app, tabEntity);
 }
 
 inline void close_all(TabStripComponent& strip, AppComponent& app) {

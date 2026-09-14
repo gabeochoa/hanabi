@@ -1,0 +1,66 @@
+# Pin on the tab menu is the reference's one act (AgentcloudTabModel
+# setThreadPinned): the THREAD is pinned -- it joins the sidebar's PINNED
+# section, the same flag the row's star writes -- the tab is kept open and
+# moves to the strip's pinned prefix, and the tab is selected. Unpin reverses
+# the thread pin and the kept flag and does NOT change the selection. Closing
+# the tab afterwards leaves the thread pinned (a tab flag dies with the tab,
+# the thread pin lives on).
+#
+# Strip: t2 (active) · t9 · t6. Nothing pinned, nothing starred.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+require_thread t2
+wait_frames 12
+expect_open t2
+assert_ui tab_t9 hidden=false
+assert_ui tab_t6 hidden=false
+expect_no_ui folder_head_Pinned
+
+# Pin a BACKGROUND tab (t6) from its menu.
+right_click_ui tab_t6
+wait_frames 10
+expect_text "Pin"
+click_ui tab_menu_pin
+wait_frames 16
+expect_no_ui tab_menu
+# ...it is selected, first in the strip, and its thread heads PINNED.
+expect_open t6
+expect_text "Tab: SKU backfill — my name for it, pinned, active"
+assert_ui folder_head_Pinned hidden=false
+expect_text "PINNED"
+
+# Close Other Tabs from t2's menu spares the pinned t6 and closes t9 only;
+# t6 was the active tab and was not closed, so the selection does not move
+# (the reference moves it only when the selected tab is among the closed).
+right_click_ui tab_t2
+wait_frames 10
+click_ui tab_menu_close_others
+wait_frames 16
+expect_open t6
+assert_ui tab_t2 hidden=false
+expect_no_ui tab_t9
+
+# Unpin from the menu: the thread leaves PINNED, the selection stays put
+# (unpinning never selects), the tab moves out of the pinned prefix.
+right_click_ui tab_active
+wait_frames 10
+expect_text "Unpin"
+click_ui tab_menu_pin
+wait_frames 16
+expect_open t6
+expect_no_ui folder_head_Pinned
+
+# Pin again, then close the tab: the THREAD stays pinned; the neighbour (t2)
+# takes the selection.
+right_click_ui tab_active
+wait_frames 10
+click_ui tab_menu_pin
+wait_frames 16
+expect_open t6
+right_click_ui tab_active
+wait_frames 10
+click_ui tab_menu_close
+wait_frames 16
+expect_no_ui tab_t6
+expect_open t2
+assert_ui folder_head_Pinned hidden=false

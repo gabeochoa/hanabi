@@ -35,6 +35,20 @@ struct MenuItem {
     bool destructive = false;
     bool disabled = false;
     std::vector<MenuLeaf> children;
+    // A group boundary, drawn as a hairline in a row slot of its own: no
+    // label, no press, skipped by the keyboard (it is `disabled` to the
+    // cursor), not announced. The reference's menus separate their groups
+    // with one; its height there is the platform's, and hanabi's is a full
+    // row slot until a capture says what it should be.
+    bool separator = false;
+
+    static MenuItem divider(std::string debug_name) {
+        MenuItem m;
+        m.debug_name = std::move(debug_name);
+        m.disabled = true;
+        m.separator = true;
+        return m;
+    }
 };
 
 struct MenuResult {
@@ -135,6 +149,9 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
     hanabi::a11y::describe(panelEl.ent(),
                            {.value = title, .role = hanabi::a11y::Role::Menu});
 
+    // A menu with no caption draws no caption row: the caller passes an
+    // empty title and metrics.header_h = 0, the way a submenu already does.
+    if (title != nullptr && *title != '\0')
     hanabi::ui::div(
         ctx, mk(root, baseKey + 2),
         ComponentConfig{}
@@ -153,6 +170,26 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
 
     for (std::size_t k = 0; k < items.size(); ++k) {
         const MenuItem& item = items[k];
+        if (item.separator) {
+            hanabi::ui::div(
+                ctx, mk(root, baseKey + 3 + static_cast<int>(k)),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(metrics.row_width()),
+                                             pixels(metrics.row_h)})
+                    .with_absolute_position()
+                    .with_translate(metrics.row_x(at.x), metrics.row_y(at.y, k))
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_render_layer(layer + 1)
+                    .with_on_draw_fg([](RectangleType r) {
+                        const float y = r.y + r.height * 0.5f;
+                        afterhours::draw_rectangle(
+                            RectangleType{r.x + 6.0f, y, r.width - 12.0f, 1.0f},
+                            theme::border());
+                    })
+                    .with_debug_name(item.debug_name));
+            continue;
+        }
         const bool selected = cursor.row == k && !cursor.in_submenu();
         const theme::Color base = item.destructive && !item.disabled
                                       ? destructive_surface()

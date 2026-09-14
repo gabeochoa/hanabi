@@ -1,9 +1,11 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_OPEN=t2 HANABI_TEST_OVERLAY=tab-menu
+# env: HANABI_OPEN=t2 HANABI_TEST_OVERLAY=row-menu
 
+# Fork lives on the sidebar row menu; the tab menu follows the reference and
+# has no fork item.
 require_thread t2
 expect_text "Fork session"
-click_ui tab_menu_fork
+click_ui row_menu_fork
 wait_frames 40
 require_thread fork1
 expect_text "Reconcile this cycle's Stars payouts against the ledger"

@@ -66,4 +66,9 @@ inline constexpr std::string_view kSurfacePrefix = "hanabi:surface/";
     return surface_of(id) == Surface::Settings;
 }
 
+// The reserved id the rename prompt carries when it is asking for a SAVED
+// VIEW's name rather than a conversation's new title. A scheme, not a
+// session, in the same family as the surface ids.
+inline constexpr const char* kSaveViewPrompt = "hanabi:view/new";
+
 }  // namespace ecs::model

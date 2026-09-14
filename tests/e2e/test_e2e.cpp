@@ -1032,6 +1032,12 @@ static void test_tab_close_others() {
     app.panes[1].selectedId = "t5";
     app.panes[1].requestOpenId = "t5";
 
+    // The reference's rule (TabStrip.swift closeAll(except:) over
+    // AgentcloudTabModel.close): one close per eligible tab, kept-open tabs
+    // spared, and the selection moves ONLY when the selected tab was among
+    // the closed. Here t6 is pinned and active, so it stays active; only t5
+    // goes. The pane that showed t5 falls back to t5's neighbour (t6), the
+    // same rule a single x applies.
     ecs::model::close_others(strip, app, "t4");
     CHECK(strip.tabOrder.size() == 3);
     auto sid_at = [&](size_t i) {
@@ -1047,13 +1053,28 @@ static void test_tab_close_others() {
     CHECK(afterhours::EntityHelper::getEntityForID(strip.tabOrder[2])
               ->get<ecs::Tab>()
               .pinned);
-    CHECK(app.panes[0].selectedId == "t4");
+    CHECK(app.panes[0].selectedId == "t6");
+    // The split's other pane showed a closed tab: it falls back to the kept
+    // tab (the one fallback a bulk close carries for panes that lost theirs).
     CHECK(app.panes[1].selectedId == "t4");
     CHECK(app.panes[1].requestOpenId == "t4");
-    auto kept = afterhours::EntityHelper::getEntityForID(strip.tabOrder[1]);
-    CHECK(kept.valid());
-    CHECK(kept->get<ecs::Tab>().sessionId == "t4");
-    CHECK(kept->has<ecs::ActiveTab>());
+    auto stillActive = afterhours::EntityHelper::getEntityForID(strip.tabOrder[2]);
+    CHECK(stillActive.valid());
+    CHECK(stillActive->get<ecs::Tab>().sessionId == "t6");
+    CHECK(stillActive->has<ecs::ActiveTab>());
+
+    // And when the ACTIVE tab is among the closed, the selection lands on
+    // the first survivor at or after its slot (else the last survivor) --
+    // the reference's neighbour walk over the batch. Order t1 t4 t6 t5 with
+    // t5 active and closed: nothing survives after t5, so the last survivor
+    // before it, t6 (pinned), takes the selection -- not the menu's t4.
+    ecs::model::switch_to_tab(app, afterhours::EntityHelper::getEntityForID(strip.tabOrder[1]).asE());
+    ecs::model::open_session_in_tab(strip, app, "t5");  // order: t1 t4 t6 t5, t5 active
+    ecs::model::close_others(strip, app, "t4");         // closes t5 only
+    CHECK(strip.tabOrder.size() == 3);
+    CHECK(sid_at(2) == "t6");
+    CHECK(app.panes[0].selectedId == "t6");
+    CHECK(afterhours::EntityHelper::getEntityForID(strip.tabOrder[2])->has<ecs::ActiveTab>());
 
     int active = 0;
     for (auto id : strip.tabOrder) {

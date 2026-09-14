@@ -214,6 +214,12 @@ struct Settings {
     const std::vector<std::string>& get_expanded_parents() const;
     void set_expanded_parents(std::vector<std::string> ids);
 
+    // Which saved view is lit ("" = a built-in / none). Persisted so a
+    // relaunch opens on the view the person was in, the reference's
+    // behaviour. Auto-persists.
+    const std::string& get_selected_view() const;
+    void set_selected_view(const std::string& id);
+
     const hanabi::views::Store& saved_views() const;
     hanabi::views::Store& saved_views_mut();
     void save_views();
@@ -488,6 +494,7 @@ struct Settings {
     std::vector<std::string> collapsed_shelves_;
     std::vector<std::string> acknowledged_blocked_;
     std::vector<std::string> expanded_parents_;
+    std::string selected_view_;
     hanabi::views::Store saved_views_;
     std::optional<std::string> saved_views_unreadable_;
     std::map<std::string, int64_t> last_read_;

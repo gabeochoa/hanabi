@@ -55,6 +55,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -97,13 +98,19 @@ class SidebarBuckets {
     // stays graphics- and IO-free for the unit test. It is consulted only when
     // there is a query and the title did not match, which is the order the
     // per-folder scan used. Returns true when it walked the catalog.
+    // `keep`, when set, is a SAVED VIEW's filter over the catalog: a thread
+    // it refuses is not a member of any bucket. `keepKey` names the view so
+    // a change of view invalidates the kept answer the way a query does.
+    using KeepFn = std::function<bool(const api::SessionSummary&)>;
     template <class ContentMatch>
     bool rebuild(std::uint64_t catalogRevision,
                  const std::vector<api::SessionSummary>& sessions,
                  const std::string& q, bool hideAutomated,
-                 ContentMatch&& contentMatch) {
+                 ContentMatch&& contentMatch, const KeepFn& keep = {},
+                 const std::string& keepKey = {}) {
         if (valid_ && q.empty() && query_.empty() &&
-            revision_ == catalogRevision && hideAutomated_ == hideAutomated) {
+            revision_ == catalogRevision && hideAutomated_ == hideAutomated &&
+            keepKey_ == keepKey) {
             hanabi::prof::tick("sidebar.scan_reuse");
             return false;
         }
@@ -128,6 +135,7 @@ class SidebarBuckets {
         revision_ = catalogRevision;
         query_ = q;
         hideAutomated_ = hideAutomated;
+        keepKey_ = keepKey;
         valid_ = true;
         folders_.clear();
         recent_.clear();
@@ -137,6 +145,7 @@ class SidebarBuckets {
         }
 
         for (const api::SessionSummary& s : sessions) {
+            if (keep && !keep(s)) continue;
             const bool archived = is_archived(s);
             const bool named = is_named_folder(s.folder);
             // Discovery runs BEFORE both filters and is resolved to an index
@@ -236,6 +245,7 @@ class SidebarBuckets {
     std::uint64_t revision_ = 0;
     std::size_t rebuilds_ = 0;
     bool hideAutomated_ = false;
+    std::string keepKey_;
     bool valid_ = false;
 };
 

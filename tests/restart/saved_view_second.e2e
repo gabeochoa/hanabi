@@ -1,0 +1,17 @@
+# SECOND process: a production startup on the FIRST process's settings file.
+# The runner writes NO fixture for this one -- the file on disk is the one the
+# first run left behind. With no clicks: the view is on the shelf, it is the
+# lit one, the list is filtered by it, and the search box is empty.
+require_thread t6
+wait_frames 20
+expect_text "Backfills"
+expect_input_text sb_search_text ""
+expect_text "SKU backfill — my name for it"
+expect_no_text "needs a decision before it can go on"
+assert_ui sb_view_selected_@VIEW_ID@ hidden=false
+# Home takes the filter off: the other thread is a row again.
+click_text "Home"
+wait_frames 12
+click_text "SKU backfill"
+wait_frames 12
+expect_text "needs a decision before it can go on"

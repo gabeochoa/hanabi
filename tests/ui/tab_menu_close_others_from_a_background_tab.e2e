@@ -1,0 +1,78 @@
+# Close Other Tabs from a right-clicked BACKGROUND tab keeps THAT tab (and any
+# pinned one), makes it active, and leaves its draft alone; the active tab it
+# closed does not come back. A surface tab (Settings) is closable like any
+# tab, and the session-only items are withheld on it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9","t6"],"active_tab":"t2","pinned_tabs":["t9"],"theme":"dark"}
+# env: HANABI_OPEN=t2
+require_thread t2
+wait_frames 12
+expect_open t2
+assert_ui tab_t9 hidden=false
+assert_ui tab_t6 hidden=false
+
+# A draft on the background tab t6, typed there, then back to t2.
+click_ui tab_t6
+wait_frames 12
+expect_open t6
+click_ui composer_reply_input
+wait_frames 6
+type "t6 draft survives close others"
+wait_frames 6
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+
+# Close Other Tabs from t6's menu: t2 (active) closes, t9 is spared (pinned),
+# t6 is kept. The active tab was among the closed, so the selection walks to
+# the first survivor at or after its slot -- the pinned t9, as the
+# reference's per-close neighbour rule lands -- not to the menu's tab.
+right_click_ui tab_t6
+wait_frames 10
+assert_ui tab_menu hidden=false
+click_ui tab_menu_close_others
+wait_frames 16
+expect_no_ui tab_menu
+expect_open t9
+expect_no_ui tab_t2
+assert_ui tab_t6 hidden=false
+# The kept tab's draft is exactly as typed once it is opened again.
+click_ui tab_t6
+wait_frames 12
+expect_open t6
+expect_input_text composer_reply_input "t6 draft survives close others"
+
+# Settings as a tab: the menu is the Close group and "Keep Tab Open" -- no
+# session items at all (the reference's surface-tab menu). Keep Tab Open
+# holds the tab through Close Other Tabs; Close Tab still closes it.
+click_ui sb_settings
+wait_frames 20
+right_click_ui tab_active
+wait_frames 10
+assert_ui tab_menu hidden=false
+expect_no_ui tab_menu_copy_id
+expect_no_ui tab_menu_pin
+expect_text "Keep Tab Open"
+click_ui tab_menu_keep
+wait_frames 10
+expect_no_ui tab_menu
+expect_no_ui folder_head_Pinned
+# Kept open: Close Other Tabs from t6's menu now finds nothing to close (t9
+# pinned, Settings kept, t6 the menu's own), so it is offered disabled and
+# the Settings tab stays selected.
+right_click_ui tab_t6
+wait_frames 10
+click_ui tab_menu_close_others
+wait_frames 8
+assert_ui tab_menu hidden=false
+key ESCAPE
+wait_frames 8
+assert_ui tab_active hidden=false
+# Close Tab still closes a kept surface tab; the neighbour (t6) takes over.
+right_click_ui tab_active
+wait_frames 10
+expect_text "Stop Keeping Open"
+click_ui tab_menu_close
+wait_frames 16
+expect_no_ui tab_menu
+expect_open t6

@@ -14000,44 +14000,13 @@ element.
 
 ---
 
-### APP #H1 — Hanabi-only parity limitation: no saved-filter store, so the reference's "save this filter as a view" has nothing behind it
+### APP #H1 — RESOLVED 2026-09-13: saved views exist (store, shelf, "+", filter, persistence)
 
-NOT an afterhours gap. Filed here because this file is where the project's
-limitations are read, and one of them is an APP capability the reference has
-and hanabi does not. Classified apart from every upstream entry so a reader
-counting library defects does not count this one: the library offers
-everything needed to build it.
-
-**The reference.** The Views section header carries exactly two controls
-(`SmartViewSidebar.swift:465-478`, pinned source bffecaf665af): a "+" whose
-help reads "Save the current filter as a view", and a `sidebar.leading`
-toggle that collapses the column to the rail. The "+" runs
-`SidebarColumn.saveCurrentAsView` (`SidebarColumn.swift:980+`): prompt for a
-name with a derived suggestion, build a saved filter out of the current
-shelf, its workspace, its attention match and the words in the search box,
-add it to the store, SELECT the new shelf, and clear the search field.
-"Restore Default Views" is NOT in this header -- it is a MENU action
-(`SavedFilterStore.restoreDefaultViews`), and it appears only when built-in
-views have been deleted (`hasDeletedBuiltIns`). The shelf's rows are the
-store: renameable, deletable, reorderable.
-
-**hanabi.** Five fixed smart views (Home, Blocked, Review, Pinned,
-Archived), no store, no user-defined views, and so nothing for a "+" to save
-into. The button is NOT drawn: a control that does nothing is worse than an
-absent one, the same rule that keeps a microphone out of the composer.
-
-**What it would take.** A saved-filter model (name, base view, workspace,
-attention match, query), persistence beside the other sidebar settings, a
-name prompt, add/rename/delete/reorder over the store, selecting the new
-shelf on save, and -- only once built-ins can be deleted -- a conditional
-menu action to restore them. The reference's `SavedFilterStore` is the shape
-to copy.
-
-**Status.** OPEN. `docs/sidebar-parity.md` row 9 carries the same finding
-with the exact source lines; this entry exists so the gaps file shows it
-too. Not a pixel difference, not deferred polish: a feature hanabi does not
-have yet.
-
-CLASS: HANABI-ONLY PARITY LIMITATION
+Was: HANABI-ONLY PARITY LIMITATION, no saved-filter store. Now
+`src/ui/saved_views.h` + `saved_views_codec.h` (model, 009), the shelf lists
+user views after the built-ins, "+" saves the current filter through the name
+prompt, a lit view filters the list, the selection persists and is proven
+across a real restart by `scripts/saved_view_restart.sh`. Still open on the
+shelf: Rename / Delete / Restore Default Views on the row menu.
 
 ---

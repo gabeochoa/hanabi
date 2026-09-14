@@ -329,6 +329,44 @@ int main() {
         CHECK(buckets.recent().empty());
     }
 
+    // A saved view's filter is part of membership AND of the cache key: with
+    // the live query empty (the saved-view case), the same view id with an
+    // edited filter record must rebuild -- a stale kept answer would keep
+    // showing the old membership.
+    {
+        std::vector<SessionSummary> catalog;
+        catalog.push_back(sess("k1", "alpha backfill", ""));
+        catalog.push_back(sess("k2", "beta decision", ""));
+        catalog.push_back(sess("k3", "gamma backfill later", ""));
+        const auto noContent = [](const std::string&, const std::string&) {
+            return false;
+        };
+        ecs::model::SidebarBuckets b;
+        std::string wanted = "backfill";
+        ecs::model::SidebarBuckets::KeepFn keep =
+            [&wanted](const SessionSummary& s) {
+                return s.title.find(wanted) != std::string::npos;
+            };
+        // First rebuild with the view: two members.
+        CHECK(b.rebuild(1, catalog, "", false, noContent, keep,
+                        "v1|catalog|any||backfill"));
+        CHECK(b.recent().size() == 2);
+        // Same catalog, same key: reused, no walk.
+        CHECK(!b.rebuild(1, catalog, "", false, noContent, keep,
+                         "v1|catalog|any||backfill"));
+        // The RECORD changes under the same id (query edited): the key
+        // differs, the buckets rebuild, membership follows.
+        wanted = "decision";
+        CHECK(b.rebuild(1, catalog, "", false, noContent, keep,
+                        "v1|catalog|any||decision"));
+        CHECK(b.recent().size() == 1);
+        CHECK(b.recent()[0]->id == "k2");
+        // Selection cleared (no view): everything is back, once.
+        CHECK(b.rebuild(1, catalog, "", false, noContent));
+        CHECK(b.recent().size() == 3);
+        CHECK(!b.rebuild(1, catalog, "", false, noContent));
+    }
+
     if (failures == 0) std::printf("test_sidebar_buckets: all checks passed\n");
     return failures == 0 ? 0 : 1;
 }

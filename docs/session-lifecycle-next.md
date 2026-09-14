@@ -7,7 +7,7 @@
 - The mock preserves the source transcript, creates an independent destination, and exposes fork lineage. The UI opens the destination as a kept tab.
 - The sidebar sub-agent toggle is persisted. Its data request runs only while open, the adapter caps the response at 2,000 child sessions, and rows open the child transcript.
 - Muted rows retain the quiet crossed-ring affordance and click-to-unmute behavior. The native notification decision now has a single tested gate that returns no event for muted transitions.
-- **Close all tabs** closes pinned and unpinned tabs, clears both panes, closes split view, and persists the empty tab set through the existing persistence path.
+- **Close all tabs** (model `close_all`, no longer on the tab menu: the reference tab menu has Close Tab / Close Other Tabs / Close Tabs to the Right and no close-all) closes pinned and unpinned tabs, clears both panes, closes split view, and persists the empty tab set through the existing persistence path.
 - Star, archive, and mute mutations update every open pane copy of the session summary. Rename already used the same all-pane rule.
 
 ## Server limitations
@@ -33,4 +33,4 @@
 - Settings relaunch: `tests/unit/test_settings.cpp`
 - Native notification suppression: `tests/unit/test_notify_events.cpp`
 - Two-pane lifecycle, child-session hot-set admission, mute independence from lazy subscriptions, and close-all: `tests/e2e/test_e2e.cpp`
-- Live UI flows and screenshots: `tests/ui/session_btw_fork.e2e`, `tests/ui/session_fork_menu.e2e`, `tests/ui/sidebar_subagents.e2e`, `tests/ui/tab_close_all.e2e`
+- Live UI flows and screenshots: `tests/ui/session_btw_fork.e2e`, `tests/ui/session_fork_menu.e2e`, `tests/ui/sidebar_subagents.e2e`, `tests/ui/tab_menu_closes_to_the_right_and_keeps_the_rest.e2e`

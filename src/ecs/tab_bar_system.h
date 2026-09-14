@@ -848,92 +848,129 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
     // Renders the tab context menu and handles its item clicks + click-away
     // dismissal. Kept as a member so for_each_with stays readable.
+    // The tab's context menu, in the reference's order: the three Close items
+    // first (Close Tab, Close Other Tabs, Close Tabs to the Right), a group
+    // boundary, then the block every session menu shares (Rename, Copy Title,
+    // Copy Weblink, Copy Session ID, Open in Web, Pin/Unpin), then hanabi's
+    // one split action. No caption row -- the reference's menu has none --
+    // and no "Close all tabs": the reference has no such item. Still OPEN
+    // against the reference, and deliberately not faked here: "Move Tab to
+    // New Window" (no second window), the four split directions (one split
+    // here), "Copy Deeplink" (one link scheme), and the shared block's
+    // Mute / Snooze / Archive / Export / Halt items. "Pin tab" is a KEPT TAB
+    // (survives close-others and close-to-right); the reference's Pin on this
+    // menu is the thread's pin, written together with the tab's -- also open.
+    //
+    // Every action acts on `tabEntity`, the tab the menu was opened on --
+    // a background tab as readily as the active one.
     void render_tab_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
                          TabStripComponent& strip, AppComponent& app,
                          Entity& tabEntity) {
         const auto& tab = tabEntity.get<Tab>();
-        struct Entry {
-            const char* label;
-            int action;
-            const char* debugName;
+        const std::string keepId = tab.sessionId;
+        // A surface tab (Settings) is a tab, not a conversation: its menu is
+        // the Close group and "Keep Tab Open" -- the reference's shape -- with
+        // no session block at all.
+        const bool isSurface = model::is_surface_tab(keepId);
+
+        enum Act {
+            CloseTab, CloseOthers, CloseRight, Divider, Rename, CopyTitle,
+            CopyLink, CopyId, OpenWeb, Pin, Split
         };
-        static constexpr std::array<Entry, 10> kItems{{
-            {"Rename\xe2\x80\xa6", 3, "tab_menu_rename"},
-            {"Copy title", 8, "tab_menu_copy_title"},
-            {"Fork session", 6, "tab_menu_fork"},
-            {nullptr, 4, "tab_menu_pin"},
-            {"Copy session link", 0, "tab_menu_copy"},
-            {"Copy session ID", 7, "tab_menu_copy_id"},
-            {"Open in browser", 9, "tab_menu_open_web"},
-            {"Open in split", 2, "tab_menu_split"},
-            {"Close others", 1, "tab_menu_close_others"},
-            {"Close all tabs", 5, "tab_menu_close_all"},
-        }};
-        std::vector<int> actions;
         std::vector<hanabi::surface::MenuItem> items;
-        actions.reserve(kItems.size());
-        items.reserve(kItems.size());
-        for (const auto& entry : kItems) {
-            const bool disabled =
-                (entry.action == 3 &&
-                 !(app.client && app.client->supports_rename())) ||
-                (entry.action == 6 &&
-                 !(app.client && app.client->supports_fork()));
-            const char* label =
-                entry.action == 4 ? (tab.pinned ? "Unpin tab" : "Pin tab")
-                                  : entry.label;
-            items.push_back({label, entry.debugName, entry.action == 5,
-                             disabled});
-            actions.push_back(entry.action);
+        std::vector<Act> actions;
+        const auto add = [&](const char* label, const char* name, Act act,
+                             bool disabled = false, bool destructive = false) {
+            items.push_back({label, name, destructive, disabled});
+            actions.push_back(act);
+        };
+        const std::size_t others = model::closable_others(strip, keepId);
+        const std::size_t toRight = model::closable_to_right(strip, keepId);
+        add("Close Tab", "tab_menu_close", CloseTab);
+        add("Close Other Tabs", "tab_menu_close_others", CloseOthers, others == 0);
+        add("Close Tabs to the Right", "tab_menu_close_right", CloseRight,
+            toRight == 0);
+        items.push_back(hanabi::surface::MenuItem::divider("tab_menu_divider"));
+        actions.push_back(Divider);
+        if (isSurface) {
+            // The reference's surface-tab menu (TabStrip.swift, the
+            // `else` of `if tab.isConversation`): after the Close group, ONE
+            // item -- "Keep Tab Open" / "Stop Keeping Open" -- and none of
+            // the session block. It does not say "Pin" on purpose: Pin is
+            // the thread word, and a surface can never reach the shelf.
+            add(tab.pinned ? "Stop Keeping Open" : "Keep Tab Open", "tab_menu_keep",
+                Pin);
+        } else {
+            add("Rename\xe2\x80\xa6", "tab_menu_rename", Rename,
+                !(app.client && app.client->supports_rename()));
+            add("Copy Title", "tab_menu_copy_title", CopyTitle);
+            add("Copy Weblink", "tab_menu_copy", CopyLink);
+            add("Copy Session ID", "tab_menu_copy_id", CopyId);
+            add("Open in Web", "tab_menu_open_web", OpenWeb);
+            add(tab.pinned ? "Unpin" : "Pin", "tab_menu_pin", Pin);
+            add("Open in split", "tab_menu_split", Split);
         }
 
         hanabi::surface::MenuMetrics metrics;
         metrics.width = hanabi::surface::kContextMenuW;
+        metrics.header_h = 0.0f;
         const hanabi::surface::MenuKeys keys = take_menu_keys(app);
         const auto result = hanabi::surface::context_menu(
-            ctx, uiRoot, 966, metrics, strip.menuX, strip.menuY, "TAB ACTIONS",
-            "tab_menu", items, app.menuCursor, keys);
+            ctx, uiRoot, 966, metrics, strip.menuX, strip.menuY, "", "tab_menu",
+            items, app.menuCursor, keys);
 
         bool clickedItem = false;
         if (result.activated != hanabi::surface::kNoMenuRow) {
-            const int action = actions[result.activated];
-            std::string keepId = tab.sessionId;
-            if (action == 0) {
-                hanabi::clipboard::set_text(
-                    model::navi_url_for(app.webBaseUrl, keepId));
-            } else if (action == 7) {
-                hanabi::clipboard::set_text(keepId);
-            } else if (action == 8) {
-                const auto* sum = app.find_summary(keepId);
-                hanabi::clipboard::set_text(sum != nullptr ? sum->title
-                                                           : tab.label);
-            } else if (action == 9) {
-                hanabi::links::open(model::navi_url_for(app.webBaseUrl, keepId));
-            } else if (action == 2) {
-                // Open in split (I2): show this thread in the RIGHT pane
-                // beside the active one. No-op if it's the active thread.
-                app.requestSplitOpen = keepId;
-                app.view = SmartView::Chat;
-            } else if (action == 4) {
-                model::set_tab_pinned(tabEntity.get<Tab>(), !tab.pinned);
-            } else if (action == 3) {
-                app.renameOpen = true;
-                app.renameSessionId = keepId;
-                const auto* sum = app.find_summary(keepId);
-                app.renameDraft = sum != nullptr ? sum->title : tab.label;
-                app.renameError.clear();
-                app.renameSubmit = false;
-            } else if (action == 6) {
-                if (!app.forkPending && app.requestForkSourceId.empty()) {
-                    app.requestForkSourceId = keepId;
-                    app.requestForkMessage.reset();
-                    app.requestForkTitle.clear();
-                    app.requestForkPane = app.focusedPane;
+            switch (actions[result.activated]) {
+                case CloseTab: {
+                    for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
+                        if (strip.tabOrder[i] != tabEntity.id) continue;
+                        close_tab(strip, app, tabEntity.id, i,
+                                  tabEntity.has<ActiveTab>());
+                        break;
+                    }
+                    break;
                 }
-            } else if (action == 5) {
-                model::close_all(strip, app);
-            } else {
-                model::close_others(strip, app, keepId);
+                case CloseOthers:
+                    model::close_others(strip, app, keepId);
+                    break;
+                case CloseRight:
+                    model::close_to_right(strip, app, keepId);
+                    break;
+                case Rename: {
+                    app.renameOpen = true;
+                    app.renameSessionId = keepId;
+                    const auto* sum = app.find_summary(keepId);
+                    app.renameDraft = sum != nullptr ? sum->title : tab.label;
+                    app.renameError.clear();
+                    app.renameSubmit = false;
+                    break;
+                }
+                case CopyTitle: {
+                    const auto* sum = app.find_summary(keepId);
+                    hanabi::clipboard::set_text(sum != nullptr ? sum->title
+                                                               : tab.label);
+                    break;
+                }
+                case CopyLink:
+                    hanabi::clipboard::set_text(
+                        model::navi_url_for(app.webBaseUrl, keepId));
+                    break;
+                case CopyId:
+                    hanabi::clipboard::set_text(keepId);
+                    break;
+                case OpenWeb:
+                    hanabi::links::open(model::navi_url_for(app.webBaseUrl, keepId));
+                    break;
+                case Pin:
+                    model::pin_thread_tab(strip, app, tabEntity, !tab.pinned);
+                    break;
+                case Split:
+                    app.requestSplitOpen = keepId;
+                    app.view = SmartView::Chat;
+                    break;
+                case Divider:
+                    break;
             }
             clickedItem = true;
         }
@@ -948,8 +985,6 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // Open `id` in a tab: focus if already open, else create a new tab.
-    // Delegates to the graphics-free, headlessly-tested model tab logic.
     static void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
                                     const std::string& id, bool keep = true,
                                     bool pinned = false) {

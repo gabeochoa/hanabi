@@ -209,6 +209,7 @@ bool Settings::load_save_file() {
             saved_views_ = std::move(l.store);
             saved_views_unreadable_ = std::move(l.unreadable);
         }
+        selected_view_ = j.value("selected_view", std::string());
         expanded_parents_.clear();
         if (j.contains("expanded_parents") && j["expanded_parents"].is_array()) {
             for (const auto& e : j["expanded_parents"])
@@ -326,6 +327,7 @@ void Settings::write_save_file() {
     j["collapsed_shelves"] = collapsed_shelves_;
     j["acknowledged_blocked"] = acknowledged_blocked_;
     j["expanded_parents"] = expanded_parents_;
+    j["selected_view"] = selected_view_;
     hanabi::views::save(j, saved_views_, saved_views_unreadable_);
     j["row_order"] = row_order_;
     j["last_read"] = last_read_;
@@ -608,6 +610,13 @@ void Settings::set_row_order(const std::string& folder,
         if (it != row_order_.end() && it->second == ids) return;
         row_order_[folder] = std::move(ids);
     }
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_selected_view() const { return selected_view_; }
+void Settings::set_selected_view(const std::string& id) {
+    if (id == selected_view_) return;
+    selected_view_ = id;
     if (auto_save_enabled) write_save_file();
 }
 

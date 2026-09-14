@@ -1,0 +1,23 @@
+# FIRST process of the two-process restart proof (scripts/saved_view_restart.sh):
+# narrow the list, save it as a view, and quit cleanly with the view lit.
+# The settings file this process writes is the one the SECOND process reads.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t6"],"active_tab":"t6","theme":"dark"}
+require_thread t6
+wait_frames 16
+click_ui sb_search
+wait_frames 6
+type "backfill"
+wait_frames 10
+click_ui sb_save_view
+wait_frames 12
+expect_text "Save this filter as a view"
+select_all
+type "Backfills"
+wait_frames 6
+click_ui rename_confirm
+wait_frames 16
+expect_text "Backfills"
+expect_input_text sb_search_text ""
+expect_no_text "needs a decision before it can go on"
+expect_text "SKU backfill — my name for it"
