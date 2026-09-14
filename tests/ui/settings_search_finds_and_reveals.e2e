@@ -12,7 +12,9 @@ expect_text "Theme"
 
 click_ui settings_result_0
 wait_frames 8
-expect_text "Theme, typeface, and the two colours you can name"
+# The pane has no subtitle now (the reference's pane opens with its content); its
+# first section title says which pane is up.
+expect_text "Reading width"
 expect_text "Rotate theme"
 expect_no_text "Send message with"
 
@@ -31,7 +33,8 @@ key DOWN
 wait_frames 6
 key ENTER
 wait_frames 12
-expect_text "When this Mac may interrupt you, and when it may not"
+# (the pane has no subtitle now; its first row says which pane is up)
+expect_text "Show notifications"
 expect_text "Quiet hours"
 expect_no_text "Rotate theme"
 
@@ -45,13 +48,15 @@ expect_text "zzzqq"
 key ESCAPE
 wait_frames 8
 expect_no_text "No settings match"
-expect_text "When this Mac may interrupt you, and when it may not"
+# (the pane has no subtitle now; its first row says which pane is up)
+expect_text "Show notifications"
 
 # A second Escape does NOT close Settings: it is a tab, and tabs close by
 # their x. The pane stays; the chip's close takes it away.
 key ESCAPE
 wait_frames 8
-expect_text "When this Mac may interrupt you, and when it may not"
+# (the pane has no subtitle now; its first row says which pane is up)
+expect_text "Show notifications"
 click_ui tab_close
 wait_frames 12
 expect_no_text "When this Mac may interrupt you, and when it may not"

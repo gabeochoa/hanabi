@@ -24,14 +24,17 @@ expect_text "Connection"
 expect_text "Shortcuts"
 expect_text "About"
 
-expect_text "Sending, timestamps, and what comes back on restart"
+# (the pane has no subtitle now; its first row says which pane is up)
+expect_text "Send message with"
 expect_text "Send message with"
 expect_no_text "Rotate theme"
 
 click_ui sb_settings_nav_appearance
 wait_frames 8
 expect_text "Rotate theme"
-expect_text "Theme, typeface, and the two colours you can name"
+# The pane has no subtitle now (the reference's pane opens with its content); its
+# first section title says which pane is up.
+expect_text "Reading width"
 expect_no_text "Send message with"
 
 click_ui sb_settings_nav_storage

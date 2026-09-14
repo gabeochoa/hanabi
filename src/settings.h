@@ -356,6 +356,13 @@ struct Settings {
 
     // Show the time on transcript rows. Default true (the long-standing
     // behaviour).
+    // How wide a message may get before it wraps: "comfortable" (768 column,
+    // the default), "wide" (1024) or "full" (the whole pane). The transcript
+    // and the composer follow the same column. The reference's
+    // TranscriptWidth. Auto-persists.
+    const std::string& get_transcript_width() const;
+    void set_transcript_width(const std::string& choice);
+
     bool get_show_timestamps() const;
     void set_show_timestamps(bool on);  // auto-persists
 
@@ -511,6 +518,7 @@ struct Settings {
     int auto_archive_days_ = 5;
     bool notification_sound_ = true;
     bool show_timestamps_ = true;
+    std::string transcript_width_ = "comfortable";
     int theme_rotate_secs_ = 0;
     bool show_finished_subagents_ = false;
     bool subagent_sidebar_open_ = false;

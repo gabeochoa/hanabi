@@ -97,6 +97,11 @@ bool Settings::load_save_file() {
         notification_sound_ =
             j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
+        {
+            std::string tw = j.value("transcript_width", transcript_width_);
+            if (tw != "comfortable" && tw != "wide" && tw != "full") tw = "comfortable";
+            transcript_width_ = tw;
+        }
         theme_rotate_secs_ = j.value("theme_rotate_secs", theme_rotate_secs_);
         show_finished_subagents_ =
             j.value("show_finished_subagents", show_finished_subagents_);
@@ -279,6 +284,7 @@ void Settings::write_save_file() {
     j["auto_archive_days"] = auto_archive_days_;
     j["notification_sound"] = notification_sound_;
     j["show_timestamps"] = show_timestamps_;
+    j["transcript_width"] = transcript_width_;
     j["theme_rotate_secs"] = theme_rotate_secs_;
     j["show_finished_subagents"] = show_finished_subagents_;
     j["subagent_sidebar_open"] = subagent_sidebar_open_;
@@ -752,6 +758,15 @@ void Settings::set_notification_sound(bool on) {
     if (on == notification_sound_) return;
     notification_sound_ = on;
     settings_dirty_ = true;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_transcript_width() const { return transcript_width_; }
+void Settings::set_transcript_width(const std::string& choice) {
+    std::string tw = choice;
+    if (tw != "comfortable" && tw != "wide" && tw != "full") tw = "comfortable";
+    if (tw == transcript_width_) return;
+    transcript_width_ = tw;
     if (auto_save_enabled) write_save_file();
 }
 

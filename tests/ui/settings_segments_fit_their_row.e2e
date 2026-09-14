@@ -55,8 +55,10 @@ wait_frames 8
 
 # real_segmented: the builder behind every wired Behavior/Notifications row,
 # and the one that carried this thirty-odd times over.
+# real_segmented is the reference's compact pill group now: the row stays
+# 30, each segment is the 28-pt hit target INSIDE it (never past its box).
 assert_ui settings_yap_row h=30
-assert_ui settings_yap_0 h=30
+assert_ui settings_yap_0 h=28
 
 # Every element of the sheet inside its parent's content box, by the library's
 # own containment walk.

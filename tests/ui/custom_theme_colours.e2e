@@ -16,7 +16,9 @@ click_ui sb_settings
 wait_frames 8
 click_ui sb_settings_nav_appearance
 wait_frames 8
-expect_text "Theme, typeface, and the two colours you can name"
+# The pane has no subtitle now (the reference's pane opens with its content); its
+# first section title says which pane is up.
+expect_text "Reading width"
 expect_text "Accent   ·   Default"
 expect_text "Find highlight   ·   Default"
 

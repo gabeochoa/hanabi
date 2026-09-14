@@ -18,6 +18,7 @@
 #include <afterhours/src/drawing_helpers.h>
 
 #include <bitset>
+#include <cmath>
 #include <iterator>
 #include <string>
 
@@ -120,241 +121,192 @@ struct Tokens {
 
 // -------- Dark palette (anchor / default) --------
 //
-// ONE BACKGROUND. Every value below with a hex beside it was read off a real
-// Puffin window with ~/w/vis/probe.py, not chosen. Puffin does not run a
-// 3-step elevation stack: the sidebar, the main pane, the tab strip, the
-// composer plane and even the composer's own input are all the SAME #171723,
-// and structure is carried by hairlines and by two named surfaces rather than
-// by tinting each plane a different value. The three-step ladder that used to
-// live here (base 24 / sidebar 19 / raised 33 / overlay 42) is what made every
-// side-by-side screenshot read as a different app at a glance.
+// The reference's DEFAULT theme, the reference's default dark theme: the theme a fresh install
+// wears (`ThemeManager.init` reads the `theme` default and falls back to that
+// name). Read from the theme table at the pinned source (fb84b1d4,
+// Sources/Models/Models.swift, `the theme table's dark default`), and confirmed against
+// the reference capture: the harness PNGs carry the display's ICC profile, and
+// converted to sRGB their two dominant surfaces are #0C141D and #171F2A --
+// `nightSky` and `headerBg` to the byte.
 //
-//   flat plane   window_bg / sidebar_bg / panel_bg  #171723  everything
-//   header strip section_header_bg                  #22222D  VIEWS / FOLDERS
-//   selection    selected_bg                        #2E3A58  row + active tab
-//   rail hairline divider                           #2A2A39  sidebar -> main
-//   recessed     panel_bg_2                         #242430  search field
+// The reference declares ELEVEN colours per theme and derives everything else
+// (its theme file): hairline = mutedText at 20 %, a selected row = accent at
+// 25 %, hover = text at 9 %, a tinted pill = a hue at 16 % -- so every derived
+// token below is that formula pre-blended over the surface it sits on (the
+// renderer cannot blend, gap #13), and the ones that stay translucent keep the
+// reference's alpha.
 //
-// panel_bg is now the same value as window_bg on purpose. It keeps its own
-// token because it means "the content plane" and a future palette may part the
-// two again; raised surfaces (cards, chips, the search pill) use panel_bg_2,
-// which is what actually separates them from the plane now.
+//   nightSky  #0D141D  window_bg / panel_bg -- the window and the transcript
+//   headerBg  #171F2A  sidebar_bg / section_header_bg -- the rail, the settings
+//                      pane list, the tab strip; panel_bg_2 (raised: the search
+//                      field's ground) is text at 6 % over it (SearchFieldChrome)
+//   naviBlue  #3B9EDB  accent (and everything that takes the accent hue)
+//   lightText #F7F9FC  text_primary
+//   mutedText #8B9BA5  text_secondary; text_faint is the same ink, and the
+//                      hairline is 20 % of it
+//   errorRed  #F14E53 / faroreGreen #3FBF7F / triforceGold #FC6C05 -- the
+//                      status hues, as the reference draws them on the plane
+//   sheikahSlate #1E2733 agent bubble, kokiriGreen #16323F user bubble
+//   syntax.background #04070C  code_bg
+//
+// Every byte below is the reference's declared value or its exact recipe.
+// Where a recipe lands under the 4.5:1 small-text bar (the reference's own
+// tinted pill puts danger text at 3.9:1 on the dark rail; on the light default
+// the pills land at 4.1-4.5:1), test_theme_contrast REPORTS it as a diagnostic
+// and does not fail: matching the reference is the accepted target, and a
+// colour changed to satisfy an older bar would be a colour the reference does
+// not have. docs/sidebar-parity.md lists those readings.
 inline const Tokens kDark = {
-    /*window_bg*/ {23, 23, 35, 255},   // #171723
-    /*sidebar_bg*/ {23, 23, 35, 255},  // #171723 — no separate rail tint
-    /*panel_bg*/ {23, 23, 35, 255},    // #171723 — the main pane is the window
-    /*panel_bg_2*/ {36, 36, 48, 255},  // #242430 — search fill
-    /*border*/ {62, 62, 72, 255},
-    /*border_soft*/ {255, 255, 255, 20},
-    /*section_header_bg*/ {34, 34, 45, 255},  // #22222D
-    /*divider*/ {42, 42, 57, 255},            // #2A2A39
+    /*window_bg*/ {13, 20, 29, 255},   // #0D141D  nightSky
+    /*sidebar_bg*/ {23, 31, 42, 255},  // #171F2A  headerBg
+    /*panel_bg*/ {13, 20, 29, 255},    // #0D141D  the transcript is the window
+    /*panel_bg_2*/ {36, 44, 55, 255},  // #242C37  text 6 % on headerBg: the search field's ground (capture #232A35)
+    /*border*/ {38, 47, 56, 255},      // #262F38  hairline: mutedText 20 % on nightSky
+    /*border_soft*/ {139, 155, 165, 51},  // the same hairline, kept translucent
+    /*section_header_bg*/ {23, 31, 42, 255},  // #171F2A  headerBg
+    /*divider*/ {38, 47, 56, 255},            // #262F38  the rail's hairline
 
-    /*text_primary*/ {224, 224, 230, 255},
-    /*text_secondary*/ {142, 142, 154, 255},
-    /*text_faint*/ {100, 100, 112, 255},
-    /*empty_state_text*/ {112, 112, 124, 255},
+    /*text_primary*/ {247, 249, 252, 255},   // #F7F9FC  lightText
+    /*text_secondary*/ {139, 155, 165, 255}, // #8B9BA5  mutedText
+    /*text_faint*/ {139, 155, 165, 255},     // the reference has one muted ink
+    /*empty_state_text*/ {139, 155, 165, 255},
 
-    /*accent*/ {90, 128, 255, 255},
-    /*accent_soft*/ {90, 128, 255, 38},
-    /*find_match*/ {235, 180, 60, 90},
-    /*selection_bg*/ {90, 128, 255, 96},
-    /*link*/ {126, 166, 255, 255},
-    /*button_primary*/ {90, 128, 255, 255},
-    /*button_secondary*/ {58, 58, 66, 255},
-    /*hover_bg*/ {255, 255, 255, 16},
-    /*selected_bg*/ {46, 58, 88, 255},  // #2E3A58 — selected row + active tab
-    /*row_separator*/ {46, 46, 54, 255},
-    /*focus_ring*/ {90, 128, 255, 255},
+    /*accent*/ {59, 158, 219, 255},       // #3B9EDB  naviBlue
+    /*accent_soft*/ {59, 158, 219, 41},   // 16 % -- the reference's tinted pill
+    /*find_match*/ {252, 108, 5, 90},     // triforceGold band, hanabi's alpha
+    /*selection_bg*/ {59, 158, 219, 96},
+    /*link*/ {59, 158, 219, 255},         // the accent IS the link colour
+    /*button_primary*/ {59, 158, 219, 255},
+    /*button_secondary*/ {30, 39, 51, 255},  // #1E2733  sheikahSlate
+    /*hover_bg*/ {247, 249, 252, 23},     // 9 %  -- HoverHighlight.hoverOpacity
+    /*selected_bg*/ {32, 63, 86, 255},    // #203F56  accent 25 % on headerBg (capture: #223F56)
+    /*row_separator*/ {38, 47, 56, 255},  // the hairline
+    /*focus_ring*/ {59, 158, 219, 255},
 
-    /*disabled_bg*/ {44, 44, 50, 255},
-    /*disabled_text*/ {120, 120, 128, 255},
-    /*destructive*/ {224, 88, 84, 255},
+    /*disabled_bg*/ {30, 39, 51, 255},
+    /*disabled_text*/ {139, 155, 165, 160},
+    /*destructive*/ {241, 78, 83, 255},   // #F14E53  errorRed
 
-    /*dot*/ {90, 128, 255, 255},
+    /*dot*/ {59, 158, 219, 255},
 
-    /*tag_blocked_fg*/ {255, 120, 120, 255},
-    /*tag_blocked_bg*/ {255, 90, 90, 36},
-    /*tag_ready_fg*/ {126, 210, 150, 255},
-    /*tag_ready_bg*/ {120, 210, 140, 36},
-    // DONE is a SETTLED/closed state, not an active/info one — so it reads as a
-    // muted neutral slate, deliberately NOT the blue accent (which the eye maps
-    // to "active/link"). Cool desaturated grey: present but visually receded.
-    /*tag_done_fg*/ {158, 164, 178, 255},
-    /*tag_done_bg*/ {150, 158, 176, 34},
+    // A tinted pill, the reference's recipe exactly: the hue at 16 %
+    // (ToggleChip.Tint.onFill) under the hue as its text. Contrast on the
+    // pill is a diagnostic the tests REPORT, not a reason to change the byte.
+    /*tag_blocked_fg*/ {241, 78, 83, 255},    // errorRed
+    /*tag_blocked_bg*/ {241, 78, 83, 41},
+    /*tag_ready_fg*/ {63, 191, 127, 255},     // faroreGreen
+    /*tag_ready_bg*/ {63, 191, 127, 41},
+    // DONE is a SETTLED state: the muted ink, not a hue.
+    /*tag_done_fg*/ {139, 155, 165, 255},     // mutedText
+    /*tag_done_bg*/ {139, 155, 165, 41},
 
-    // On-background status hues (dark): the chip fg already reads well on dark,
-    // so these match it — a bright red / green on the dark pane + sidebar.
-    /*status_blocked*/ {255, 120, 120, 255},
-    /*status_review*/ {126, 210, 150, 255},
+    /*status_blocked*/ {241, 78, 83, 255},    // errorRed  (danger)
+    /*status_review*/ {63, 191, 127, 255},    // faroreGreen (success)
 
-    /*role_user*/ {90, 128, 255, 255},
-    /*role_assistant*/ {126, 200, 140, 255},
-    /*role_system*/ {180, 150, 90, 255},
-    /*role_tool*/ {150, 130, 200, 255},
-    // User bubble = a MUTED NEUTRAL grey (not a saturated blue tint) so it reads
-    // as "your message" without competing with the ONE accent (transcript-only
-    // token — the Navi-web-chat look: quiet grey right-aligned bubble).
-    /*bubble_user_bg*/ {46, 46, 48, 255},
-    /*bubble_assistant_bg*/ {34, 46, 40, 255},
-    /*bubble_other_bg*/ {44, 44, 52, 255},
+    /*role_user*/ {59, 158, 219, 255},
+    /*role_assistant*/ {63, 191, 127, 255},
+    /*role_system*/ {252, 108, 5, 255},       // triforceGold (highlight)
+    /*role_tool*/ {139, 155, 165, 255},
+    /*bubble_user_bg*/ {22, 50, 63, 255},       // #16323F  kokiriGreen
+    /*bubble_assistant_bg*/ {30, 39, 51, 255},  // #1E2733  sheikahSlate
+    /*bubble_other_bg*/ {23, 31, 42, 255},      // headerBg
 
-    /*status_active*/ {126, 200, 140, 255},
-    /*status_idle*/ {180, 150, 90, 255},
-    /*status_archived*/ {110, 110, 122, 255},
+    /*status_active*/ {63, 191, 127, 255},
+    /*status_idle*/ {252, 108, 5, 255},
+    /*status_archived*/ {139, 155, 165, 255},
 
-    // Syntax (dark): six hues that stay apart from each other on the sunken
-    // window_bg the code block fills with, and clear of the blue accent so a
-    // keyword never reads as a link.
-    /*syntax_keyword*/ {198, 149, 234, 255},
-    /*syntax_type*/ {126, 200, 200, 255},
-    /*syntax_string*/ {152, 195, 121, 255},
-    /*syntax_comment*/ {110, 112, 126, 255},
-    /*syntax_number*/ {216, 168, 108, 255},
-    /*syntax_punct*/ {150, 152, 166, 255},
-    // Measured off ref/02_thread.png's fence panel, x374..1018 y205..245.
-    // LAST, because these initializers are positional: the /*name*/ comments
-    // are a courtesy the compiler does not check, and putting this one where
-    // it reads best rather than where the field is declared silently shifts
-    // six syntax colours by one. It did, and the fence rendered in the
-    // punctuation grey.
-    /*code_bg*/ {19, 19, 27, 255},
+    // Syntax: the reference's declared `.night` palette (SyntaxPalette.night),
+    // which its derivation keeps when it already clears the code surface.
+    /*syntax_keyword*/ {199, 146, 234, 255},  // #C792EA
+    /*syntax_type*/ {92, 198, 240, 255},      // #5CC6F0
+    /*syntax_string*/ {127, 217, 140, 255},   // #7FD98C
+    /*syntax_comment*/ {139, 155, 165, 255},  // #8B9BA5
+    /*syntax_number*/ {245, 147, 86, 255},    // #F59356
+    /*syntax_punct*/ {139, 155, 165, 255},
+    // LAST: positional initializer, see the field order in Tokens.
+    /*code_bg*/ {4, 7, 12, 255},              // #04070C  syntax.background
 };
 
 // -------- Light palette --------
 //
-// LEFT ALONE, deliberately. Puffin has no light theme to measure and no light
-// mode to switch into: it does not follow the system appearance at all. Its
-// palette is one of ten NAMED themes (`LinkTheme` in
-// fbobjc/Apps/Internal/Puffin/Sources/Models/Models.swift), chosen by the
-// reader and stored under the `theme` default as a NAME — an unrecognised
-// value there resolves to Hyrule, so `defaults write com.meta.puffin theme
-// -string light` would not produce a light Puffin, it would produce Hyrule.
-// The window chrome reads that same theme (`PuffinTheme.Chrome`), so every
-// number in the dark palette above is the "Navi" preset's chrome, not a dark
-// mode. Three of the ten presets are pale (Light World, Daylight, Puffin Day),
-// but picking one of them as "the light Puffin" would be a choice, not a
-// measurement — so nothing below changed. See the report / friction log.
+// The reference's light default, the reference's default light theme (`the theme table's light default`, the
+// second of its ten named themes and the pale twin of Night). Same eleven
+// colours, same derivations, read from the same pinned source. The reference
+// does not follow the system appearance -- a reader picks a theme by name --
+// so hanabi's Light MODE wears Day the way Dark wears Night.
 //
-// Independently tuned (NOT an inversion of dark). ELEVATION in light mode runs
-// the other way: a faintly grey base with progressively WHITER raised surfaces.
-//   L0 base    (window_bg)  {238,238,242} — recessed plane
-//   L0 sidebar (sidebar_bg) {230,230,235} — chrome rail, slightly below base
-//   L1 raised  (panel_bg)   {255,255,255} — cards / panels / active tab (pure white)
-//   L2 overlay (panel_bg_2) {247,247,250} — search field, hover surfaces
-// Text is tuned for real contrast on these surfaces (WCAG on white / #FFF):
-//   text_primary   #21212B on #FFF  = 15.3:1   (title bar & body — was fine, kept)
-//   text_secondary #55555F on #FFF  =  7.3:1    (was #78788 4 ≈ 3.7:1, too faint)
-//   text_faint     #86868F on #FFF  =  3.4:1    (>=3:1 large/secondary target)
-// Borders/dividers are darkened so they're visible on light surfaces. The
-// digest cards fill with panel_bg_2 (247,247,250) — only ~8 levels below the
-// white pane — so the 1px border is what actually defines each card edge. At
-// the old {200,200,208} the border sat at ~1.66:1 vs the pane and read as
-// near-invisible (defect #8); {176,176,190} lifts it to ~2.1:1 vs pane and
-// ~2.0:1 vs the card fill so every card gets a crisp edge without looking heavy.
+//   nightSky  #F7F9FC  window_bg / panel_bg
+//   headerBg  #FFFFFF  sidebar_bg / section_header_bg; panel_bg_2 = text 6 % over it
+//   naviBlue  #0B5C8A  accent
+//   lightText #121417  text_primary;  mutedText #5C6B73  text_secondary
+//   errorRed  #C1272D / faroreGreen #1E7A4C / triforceGold #8A5A00
+//   sheikahSlate #ECEFF3 agent bubble, kokiriGreen #DCEEF8 user bubble
+//   syntax.background #D8DFE8  code_bg
 inline const Tokens kLight = {
-    // True macOS light theme (was a muddy mid-grey that read as "dark with the
-    // lights half-on", audit #2). Sidebar = near-white with a hairline divider;
-    // canvas = a very light neutral (#f6f6f7); main pane = pure white; cards
-    // sit on white with a crisp 1px border. This gives real light/dark polarity
-    // instead of two greys.
-    /*window_bg*/ {246, 246, 247, 255},   // canvas behind panels
-    /*sidebar_bg*/ {251, 251, 252, 255},  // near-white sidebar
-    /*panel_bg*/ {255, 255, 255, 255},    // main / transcript = pure white
-    /*panel_bg_2*/ {242, 242, 245, 255},  // search field / recessed surfaces
-    /*border*/ {209, 209, 216, 255},      // crisp hairline (was too dark 176)
-    /*border_soft*/ {0, 0, 0, 22},
-    // The two surfaces the dark palette gained for Puffin parity. These are
-    // NOT derived from the dark values and NOT an inversion of them: Puffin has
-    // no light theme to measure (see below), so each takes the light palette's
-    // OWN existing value for the same role — the recessed surface for the
-    // header strip, the hairline for the rail divider. No existing light token
-    // moved.
-    /*section_header_bg*/ {242, 242, 245, 255},
-    /*divider*/ {209, 209, 216, 255},
+    /*window_bg*/ {247, 249, 252, 255},   // #F7F9FC  nightSky
+    /*sidebar_bg*/ {255, 255, 255, 255},  // #FFFFFF  headerBg
+    /*panel_bg*/ {247, 249, 252, 255},    // #F7F9FC
+    /*panel_bg_2*/ {241, 241, 241, 255},  // #F1F1F1  text 6 % on headerBg: the search field's ground
+    /*border*/ {216, 221, 225, 255},      // #D8DDE1  mutedText 20 % on nightSky
+    /*border_soft*/ {92, 107, 115, 51},
+    /*section_header_bg*/ {255, 255, 255, 255},
+    /*divider*/ {216, 221, 225, 255},
 
-    /*text_primary*/ {33, 33, 43, 255},
-    /*text_secondary*/ {85, 85, 95, 255},
-    // text_faint renders on BOTH the white pane and the recessed card fill
-    // (panel_bg_2 = 242). The old {134,134,143} was 3.6:1 on white and only
-    // 3.2:1 on the card — below the 4.5:1 small-text bar (defect: faint text
-    // fails contrast on light). {110,110,122} lifts it to 5.0:1 (white) /
-    // 4.5:1 (card) while staying clearly lighter than text_secondary (7.4:1).
-    /*text_faint*/ {110, 110, 122, 255},
-    // empty-state copy is large & centered but was 4.2:1 on white; nudged to
-    // 4.9:1 so it clears 4.5:1 without going as dark as body text.
-    /*empty_state_text*/ {112, 112, 124, 255},
+    /*text_primary*/ {18, 20, 23, 255},      // #121417  lightText
+    /*text_secondary*/ {92, 107, 115, 255},  // #5C6B73  mutedText
+    /*text_faint*/ {92, 107, 115, 255},
+    /*empty_state_text*/ {92, 107, 115, 255},
 
-    /*accent*/ {46, 90, 236, 255},
-    /*accent_soft*/ {46, 90, 236, 34},
-    /*find_match*/ {250, 205, 90, 170},
-    /*selection_bg*/ {46, 90, 236, 70},
-    /*link*/ {24, 70, 210, 255},
-    /*button_primary*/ {46, 90, 236, 255},
-    /*button_secondary*/ {224, 224, 230, 255},
-    /*hover_bg*/ {0, 0, 0, 14},
-    /*selected_bg*/ {205, 220, 255, 255},
-    /*row_separator*/ {216, 216, 224, 255},
-    /*focus_ring*/ {46, 90, 236, 255},
+    /*accent*/ {11, 92, 138, 255},        // #0B5C8A  naviBlue
+    /*accent_soft*/ {11, 92, 138, 41},
+    /*find_match*/ {138, 90, 0, 120},     // triforceGold band
+    /*selection_bg*/ {11, 92, 138, 70},
+    /*link*/ {11, 92, 138, 255},
+    /*button_primary*/ {11, 92, 138, 255},
+    /*button_secondary*/ {236, 239, 243, 255},  // #ECEFF3  sheikahSlate
+    /*hover_bg*/ {18, 20, 23, 23},        // 9 % of the text
+    /*selected_bg*/ {194, 214, 226, 255}, // #C2D6E2  accent 25 % on headerBg
+    /*row_separator*/ {216, 221, 225, 255},
+    /*focus_ring*/ {11, 92, 138, 255},
 
-    /*disabled_bg*/ {228, 228, 232, 255},
-    /*disabled_text*/ {158, 158, 168, 255},
-    /*destructive*/ {196, 40, 40, 255},
+    /*disabled_bg*/ {236, 239, 243, 255},
+    /*disabled_text*/ {92, 107, 115, 160},
+    /*destructive*/ {193, 39, 45, 255},   // #C1272D  errorRed
 
-    /*dot*/ {46, 90, 236, 255},
+    /*dot*/ {11, 92, 138, 255},
 
-    // Chips: fg is a strong hue for legible labels, bg is a mid-alpha tint
-    // pre-blended by over() onto the CARD surface (panel_bg_2, ~white). The
-    // earlier low alphas (36-46) rendered the pills as near-white washes on the
-    // light card (BLOCKED pale-pink, DONE pale-lavender) — the hue didn't read
-    // and the small chip text landed at ~3.9:1 (defect #6). Deepened: alpha
-    // ~115-135 so the pill carries a clear urgent-red / blue / green cast (still
-    // a tint, not a solid block — pill vs card ~2:1), and the fg is darkened so
-    // the small AA'd label clears 4.5:1 on its own pill. On the white card the
-    // resulting pure fg-on-pill CR is BLOCKED 6.2 / DONE 6.2 / READY 5.4 — deep
-    // enough that the tiny AA'd glyphs still clear 4.5:1 at their darkest.
-    /*tag_blocked_fg*/ {96, 0, 0, 255},
-    /*tag_blocked_bg*/ {210, 44, 44, 120},
-    /*tag_ready_fg*/ {4, 60, 26, 255},
-    /*tag_ready_bg*/ {30, 128, 60, 140},
-    // DONE = settled/closed → muted neutral slate (NOT the blue accent). Deep
-    // enough on the white card that the small AA'd label still clears ~4.5:1.
-    /*tag_done_fg*/ {58, 66, 82, 255},
-    /*tag_done_bg*/ {96, 104, 124, 120},
+    // Tinted pills, the reference's recipe: the hue at 16 % under the hue.
+    /*tag_blocked_fg*/ {193, 39, 45, 255},    // errorRed
+    /*tag_blocked_bg*/ {193, 39, 45, 41},
+    /*tag_ready_fg*/ {30, 122, 76, 255},      // faroreGreen
+    /*tag_ready_bg*/ {30, 122, 76, 41},
+    /*tag_done_fg*/ {92, 107, 115, 255},      // mutedText
+    /*tag_done_bg*/ {92, 107, 115, 41},
 
-    // On-background status hues (light): tag_*_fg above is tuned as chip text on
-    // a pale pill (a near-black maroon / deep green), which reads as ~black when
-    // drawn straight on the light pane. These are a saturated mid-dark red /
-    // green that keep their HUE on the ~white pane/sidebar bg while still
-    // clearing 4.5:1 (red ~5.0, green ~4.7 on #F-ish).
-    /*status_blocked*/ {193, 30, 30, 255},
-    /*status_review*/ {22, 118, 56, 255},
+    /*status_blocked*/ {193, 39, 45, 255},   // errorRed
+    /*status_review*/ {30, 122, 76, 255},    // faroreGreen
 
-    /*role_user*/ {46, 90, 236, 255},
-    /*role_assistant*/ {34, 124, 62, 255},
-    /*role_system*/ {150, 112, 30, 255},
-    /*role_tool*/ {114, 84, 184, 255},
-    // User bubble = a MUTED NEUTRAL grey on light (transcript-only) — quiet,
-    // not a saturated blue tint. Sits a touch below the white pane.
-    /*bubble_user_bg*/ {232, 233, 238, 255},
-    /*bubble_assistant_bg*/ {224, 242, 230, 255},
-    /*bubble_other_bg*/ {238, 238, 244, 255},
+    /*role_user*/ {11, 92, 138, 255},
+    /*role_assistant*/ {30, 122, 76, 255},
+    /*role_system*/ {138, 90, 0, 255},       // triforceGold
+    /*role_tool*/ {92, 107, 115, 255},
+    /*bubble_user_bg*/ {220, 238, 248, 255},       // #DCEEF8  kokiriGreen
+    /*bubble_assistant_bg*/ {236, 239, 243, 255},  // #ECEFF3  sheikahSlate
+    /*bubble_other_bg*/ {255, 255, 255, 255},
 
-    /*status_active*/ {34, 124, 62, 255},
-    /*status_idle*/ {150, 112, 30, 255},
-    /*status_archived*/ {110, 110, 122, 255},
+    /*status_active*/ {30, 122, 76, 255},
+    /*status_idle*/ {138, 90, 0, 255},
+    /*status_archived*/ {92, 107, 115, 255},
 
-    // Syntax (light): the same six roles, darkened for a near-white code
-    // surface — each one clears 4.5:1 on it, which the dark palette's hues
-    // would not.
-    /*syntax_keyword*/ {138, 44, 178, 255},
-    /*syntax_type*/ {18, 108, 116, 255},
-    /*syntax_string*/ {32, 116, 48, 255},
-    /*syntax_comment*/ {124, 128, 140, 255},
-    /*syntax_number*/ {160, 92, 12, 255},
-    /*syntax_punct*/ {94, 98, 112, 255},
-    // The light fence surface, a step darker than the pane it sits on for the
-    // same reason the dark one is. Also last -- see the dark palette's note.
-    /*code_bg*/ {240, 240, 245, 255},
+    // Syntax: the reference's declared `.day` palette.
+    /*syntax_keyword*/ {122, 33, 168, 255},   // #7A21A8
+    /*syntax_type*/ {11, 92, 138, 255},       // #0B5C8A
+    /*syntax_string*/ {26, 99, 56, 255},      // #1A6338
+    /*syntax_comment*/ {74, 88, 96, 255},     // #4A5860
+    /*syntax_number*/ {158, 54, 0, 255},      // #9E3600
+    /*syntax_punct*/ {92, 107, 115, 255},
+    // LAST -- see the dark palette's note.
+    /*code_bg*/ {216, 223, 232, 255},         // #D8DFE8  syntax.background
 };
 
 // Active token set (mutable, swapped at runtime). Defaults to dark.
@@ -442,6 +394,17 @@ inline void set_hue(Color& dst, Color hue) {
 // Re-layer the custom colours over the freshly-loaded palette. Called by
 // set_mode, so a theme switch never drops someone's accent.
 inline void apply_custom() {
+    // Start from the palette every time: "default" for the accent or the
+    // highlight means the palette's own hue, not whatever swatch was last
+    // chosen. Without this reset a swatch's tint survived a return to
+    // default until the next mode switch (the theme-token unit caught it).
+    const Tokens& base = (g_mode == Mode::Light) ? kLight : kDark;
+    t.accent = base.accent;
+    t.accent_soft = base.accent_soft;
+    t.button_primary = base.button_primary;
+    t.focus_ring = base.focus_ring;
+    t.dot = base.dot;
+    t.find_match = base.find_match;
     if (const Swatch* a = accent_swatch()) {
         const Color ac = (g_mode == Mode::Light) ? a->light : a->dark;
         set_hue(t.accent, ac);
@@ -655,34 +618,24 @@ constexpr float ROW = 32.0f;
 constexpr float RADIUS = 6.0f;
 constexpr float HAIRLINE = 1.0f;
 
-inline Color titlebar() {
-    return mode() == Mode::Dark ? Color{18, 20, 25, 255}
-                                : Color{233, 235, 239, 255};
-}
+// The window's surfaces, BY ROLE, read from the active palette -- one source
+// of colour, so a theme, a mode switch or a reader's accent reaches the rail,
+// the tab strip and the settings list the same frame it reaches the transcript.
+// These used to be a second, hardcoded ladder (titlebar < sidebar < content <
+// raised in luminance); the reference has no such ladder: its rail (headerBg)
+// is LIGHTER than its window (nightSky) in the dark default, and structure is
+// carried by the hairline and the two named surfaces.
+inline Color titlebar() { return window_bg(); }
+inline Color sidebar() { return sidebar_bg(); }
+inline Color content() { return panel_bg(); }
+inline Color raised() { return panel_bg_2(); }
+inline Color divider() { return theme::divider(); }
 
-inline Color sidebar() {
-    return mode() == Mode::Dark ? Color{24, 27, 34, 255}
-                                : Color{243, 244, 247, 255};
-}
-
-inline Color content() {
-    return mode() == Mode::Dark ? Color{29, 32, 40, 255}
-                                : Color{250, 251, 252, 255};
-}
-
-inline Color raised() {
-    return mode() == Mode::Dark ? Color{37, 41, 51, 255}
-                                : Color{255, 255, 255, 255};
-}
-
-inline Color divider() {
-    return mode() == Mode::Dark ? Color{48, 52, 63, 255}
-                                : Color{214, 217, 224, 255};
-}
-
+// A selected row: the accent at 25 % over whatever it sits on -- the
+// reference's `HoverHighlight.selectedOpacity`, one number for both themes.
 inline Color selected_on(Color backdrop) {
     Color tint = accent();
-    tint.a = mode() == Mode::Dark ? 42 : 30;
+    tint.a = 64;
     return over(tint, backdrop);
 }
 
@@ -700,18 +653,61 @@ inline Color attention_fill(Color backdrop) {
 // the text, and the status activity dot floated in the gutter left of the
 // count. Falls back to a conservative per-glyph estimate only if the font
 // context isn't ready yet (very first frame / headless before font load).
-// The one colour a COUNT is badged on, whichever shelf row it sits on. The
-// reference has a single attention colour and deepens it until white text
-// clears 4.5:1 on the fill (PuffinTheme.deepenedForWhiteText, a binary
-// search on the fill's brightness), rather than picking a colour per view.
-// The hue here is hanabi's own warm attention orange; the EXACT rendered
-// value in the reference is a pixel question, and docs/sidebar-parity.md
-// records it as awaiting the pinned capture rather than guessing it from a
-// scaled screenshot.
-inline Color attention_badge() {
-    return mode() == Mode::Dark ? Color{201, 82, 0, 255}
-                                : Color{183, 74, 0, 255};
+// WCAG relative luminance and contrast, the reference's own definitions
+// (PuffinTheme.luminance / contrast): sRGB channels linearised, 0.2126 /
+// 0.7152 / 0.0722, (L1 + 0.05) / (L2 + 0.05).
+inline double srgb_channel(unsigned char v8) {
+    const double v = static_cast<double>(v8) / 255.0;
+    return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
 }
+inline double relative_luminance(Color c) {
+    return 0.2126 * srgb_channel(c.r) + 0.7152 * srgb_channel(c.g) +
+           0.0722 * srgb_channel(c.b);
+}
+inline double contrast_ratio(Color a, Color b) {
+    const double la = relative_luminance(a);
+    const double lb = relative_luminance(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+// A colour as a fill under WHITE text: the same hue, dimmed only as far as
+// white needs -- the reference's `deepenedForWhiteText`. Its recipe exactly:
+// leave the colour alone when white already clears 4.5:1 on it; otherwise
+// scale all three channels by one factor (brightness = the peak channel) and
+// binary-search that peak, 24 steps, for the brightest fill on which white
+// reads 4.6:1 (aimed a hair past the bar because the fill is drawn in 8 bits).
+// One function for every filled pill, so a theme whose attention colour is
+// already dark enough is left exactly as declared.
+inline Color deepened_for_white_text(Color color) {
+    constexpr double kReadable = 4.5;
+    const Color white{255, 255, 255, 255};
+    if (contrast_ratio(color, white) >= kReadable) return color;
+    const double aim = kReadable + 0.1;
+    const double peak = static_cast<double>(std::max(color.r, std::max(color.g, color.b)));
+    if (peak <= 0.0) return color;
+    const auto dimmed = [&](double brightness) {
+        const double k = brightness / peak;
+        const auto ch = [k](unsigned char v) {
+            return static_cast<unsigned char>(std::lround(static_cast<double>(v) * k));
+        };
+        return Color{ch(color.r), ch(color.g), ch(color.b), color.a};
+    };
+    double low = 0.0, high = peak;
+    for (int i = 0; i < 24; ++i) {
+        const double mid = (low + high) / 2.0;
+        if (contrast_ratio(dimmed(mid), white) >= aim) low = mid; else high = mid;
+    }
+    return dimmed(low);
+}
+
+// The one colour a COUNT is badged on, whichever shelf row it sits on: the
+// theme's attention colour, deepened for white digits -- the reference's shelf
+// badge exactly (SmartViewSidebar `badgeView` -> `filledPill(Chrome.attention)`
+// -> `deepenedForWhiteText`). Derived, not stored: the dark default's #FC6C05
+// lands on #C35304 (the pinned capture's rail badge, ICC-converted, reads
+// exactly that); the light default's #8A5A00 already clears white and is left
+// as declared.
+inline Color attention_badge() { return deepened_for_white_text(t.role_system); }
 
 // Ink for text sitting ON a filled swatch: white unless the fill is light
 // enough that white would wash out, then the darkest ink. Rec. 709 luma,

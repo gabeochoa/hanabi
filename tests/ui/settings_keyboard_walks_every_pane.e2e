@@ -12,7 +12,8 @@ expect_text "Appearance"
 key ESCAPE
 wait_frames 8
 expect_text "Send message with"
-expect_text "Sending, timestamps, and what comes back on restart"
+# (the pane has no subtitle now; its first row says which pane is up)
+expect_text "Send message with"
 
 key TAB
 wait_frames 6
@@ -39,27 +40,32 @@ key DOWN
 key DOWN
 key DOWN
 wait_frames 6
-expect_text "Chords you can rebind, and the ones the system owns"
+# (the pane has no subtitle now; its first row says which pane is up)
+expect_text "Keyboard shortcuts"
 expect_text "Start a task from anywhere"
 
 key DOWN
 wait_frames 4
-expect_text "What a slash in the composer can do here, and what it cannot yet"
+# (the pane has no subtitle now; its first row says which pane is up)
+expect_text "Slash commands"
 
 key DOWN
 wait_frames 4
-expect_text "Version, and what this build carries"
+# (the pane has no subtitle now; About's footnote carries the version)
+expect_text "hanabi 0.1.0"
 
 key DOWN
 wait_frames 4
-expect_text "Version, and what this build carries"
+# (the pane has no subtitle now; About's footnote carries the version)
+expect_text "hanabi 0.1.0"
 
 # Escape no longer closes Settings: it is a TAB, and a tab closes by its x
 # (the reference's behaviour -- Escape there clears the search and drops
 # focus). The pane is still up afterwards; closing is the chip's job.
 key ESCAPE
 wait_frames 8
-expect_text "Version, and what this build carries"
+# (the pane has no subtitle now; About's footnote carries the version)
+expect_text "hanabi 0.1.0"
 click_ui tab_close
 wait_frames 12
 expect_no_text "Version, and what this build carries"

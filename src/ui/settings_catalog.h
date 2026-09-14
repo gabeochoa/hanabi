@@ -121,6 +121,16 @@ inline constexpr const char* origin_mark(Origin o) {
     return "This Mac";
 }
 
+// The capsule's words, the reference's SettingsOriginLegend labels.
+inline constexpr const char* origin_short(Origin o) {
+    switch (o) {
+        case Origin::Device: return "On this Mac";
+        case Origin::Account: return "Everywhere";
+        case Origin::Readout: return "Read-only";
+    }
+    return "On this Mac";
+}
+
 inline constexpr const char* origin_help(Origin o) {
     switch (o) {
         case Origin::Device:
@@ -139,9 +149,13 @@ struct Row {
     const char* title;
     const char* keywords;
     Origin origin;
+    // The card the row sits in, on panes that draw the reference's
+    // per-SECTION cards (a title outside and above each card). Empty means
+    // "the pane's one card", which every pane still has by default.
+    const char* section = "";
 };
 
-inline constexpr std::array<Row, 39> kRows{{
+inline constexpr std::array<Row, 40> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -152,25 +166,31 @@ inline constexpr std::array<Row, 39> kRows{{
     {"timestamps", Pane::General, "Show timestamps",
      "time clock when sent stamp date", Origin::Device},
 
-    {"theme_rotate", Pane::Appearance, "Rotate theme",
-     "rotate cycle interval timer automatic switch", Origin::Device},
+    // Appearance, in the reference's order of sections: Reading width,
+    // Typeface, Theme, then hanabi's own rows under the sections they fit.
+    {"transcript_width", Pane::Appearance, "Transcript width",
+     "reading width column wide comfortable full narrow wrap line length",
+     Origin::Device, "Reading width"},
+    {"user_font", Pane::Appearance, "Your messages",
+     "typeface font family user side messages mine", Origin::Device, "Typeface"},
+    {"assistant_font", Pane::Appearance, "Replies",
+     "typeface font family assistant replies side answers", Origin::Device,
+     "Typeface"},
     {"font", Pane::Appearance, "App font",
-     "typeface family text letters serif mono", Origin::Device},
+     "typeface family text letters serif mono", Origin::Device, "Typeface"},
     {"font_weight", Pane::Appearance, "Font weight",
-     "bold regular light emphasis heavier thinner", Origin::Device},
+     "bold regular light emphasis heavier thinner", Origin::Device, "Typeface"},
     {"palette", Pane::Appearance, "Palette",
      "palette theme dark light system named preview appearance colour color "
      "mode night",
-     Origin::Device},
-    {"user_font", Pane::Appearance, "Your messages",
-     "typeface font family user side messages mine", Origin::Device},
-    {"assistant_font", Pane::Appearance, "Replies",
-     "typeface font family assistant replies side answers", Origin::Device},
+     Origin::Device, "Theme"},
+    {"theme_rotate", Pane::Appearance, "Rotate theme",
+     "rotate cycle interval timer automatic switch", Origin::Device, "Theme"},
     {"accent", Pane::Appearance, "Accent",
-     "accent colour color highlight tint blue swatch", Origin::Device},
+     "accent colour color highlight tint blue swatch", Origin::Device, "Theme"},
     {"highlight", Pane::Appearance, "Find highlight",
      "find search highlight match colour color yellow swatch",
-     Origin::Device},
+     Origin::Device, "Theme"},
 
     {"reasoning", Pane::Chat, "Reasoning blocks",
      "reasoning thinking thought chain hide show", Origin::Device},

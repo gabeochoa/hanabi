@@ -45,6 +45,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cctype>
 
 #include <afterhours/src/plugins/files.h>
 
@@ -986,7 +987,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                             const std::vector<const cat::Row*>& rows,
                             float colW, float bodyH, const cat::Focus& focus,
                             bool searching) {
-        const float inner = std::max(120.0f, colW - kPadH - kScrollbarW);
+        // A grouped form does not stretch: its content has a maximum width
+        // and sits centred in the pane (the reference's Form(.grouped),
+        // measured on its Appearance capture at a 1000-wide pane: cards 703
+        // wide, ~148 each side). Narrower panes use what they have.
+        constexpr float kFormMaxW = 704.0f;
+        const float avail = std::max(120.0f, colW - kPadH - kScrollbarW);
+        const float inner = std::min(avail, kFormMaxW);
+        const float sideGap = kPadH + std::max(0.0f, (avail - inner) * 0.5f);
         auto col = div(ctx, mk(parent, 2),
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(colW), pixels(bodyH)})
@@ -994,7 +1002,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_overflow(Overflow::Scroll, Axis::Y)
                 .with_padding(Padding{.top = pixels(2),
-                                      .left = pixels(kPadH),
+                                      .left = pixels(sideGap),
                                       .bottom = pixels(kPaneFoot)})
                 .with_transparent_bg()
                 .with_roundness(0.0f)
@@ -1002,32 +1010,41 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         Entity& p = col.ent();
 
         const cat::PaneInfo& info = cat::pane_info(pane);
-        div(ctx, mk(p, 1),
-            ComponentConfig{}
-                .with_label(info.label)
-                .with_size(ComponentSize{pixels(inner), pixels(22)})
-                .with_align_items(AlignItems::Center)
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::BODY)
-                .with_font_weight(theme::type::EMPHASIS)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_pane_title"));
-        div(ctx, mk(p, 2),
-            ComponentConfig{}
-                .with_label(info.summary)
-                .with_size(ComponentSize{pixels(inner), pixels(16)})
-                .with_margin(Margin{.bottom = pixels(6)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_text_overflow(TextOverflow::Ellipsis)
-                .with_roundness(0.0f)
-                .with_debug_name("settings_pane_summary"));
+        // Hosted as a tab, the pane has no title and no subtitle of its own
+        // (the sidebar's lit category row is the title); the sheet keeps
+        // both. The reference's pane opens with its content directly.
+        const bool hostedPane = app.settingsHostW > 0.0f;
+        if (!hostedPane) {
+            div(ctx, mk(p, 1),
+                ComponentConfig{}
+                    .with_label(info.label)
+                    .with_size(ComponentSize{pixels(inner), pixels(22)})
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::BODY)
+                    .with_font_weight(theme::type::EMPHASIS)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_pane_title"));
+            div(ctx, mk(p, 2),
+                ComponentConfig{}
+                    .with_label(info.summary)
+                    .with_size(ComponentSize{pixels(inner), pixels(16)})
+                    .with_margin(Margin{.bottom = pixels(6)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_pane_summary"));
+        }
 
-        render_origin_legend(ctx, p, rows, inner);
+        // The origin legend is the reference's compact capsule row ("On this
+        // Mac"); as a sheet it stays the fuller sentence.
+        if (hostedPane) render_origin_capsules(ctx, p, rows, inner);
+        else render_origin_legend(ctx, p, rows, inner);
 
         // The rows sit in a CARD: rounded, hairline border, a raised fill,
         // the pane's title outside and above it. That is how the reference
@@ -1040,29 +1057,59 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // hanabi's own rows, so that is its own change, not a guess here.
         constexpr float kCardPad = 12.0f;
         constexpr float kCardRadius = 10.0f;
-        auto card = div(ctx, mk(p, 7),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(inner), children()})
-                .with_flex_direction(FlexDirection::Column)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_padding(Padding{.top = pixels(kCardPad - 4.0f),
-                                      .right = pixels(kCardPad),
-                                      .bottom = pixels(kCardPad - 4.0f),
-                                      .left = pixels(kCardPad)})
-                .with_margin(Margin{.bottom = pixels(10)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_corner_radius(kCardRadius)
-                .with_debug_name("settings_card"));
-
+        constexpr float kSectionTitleH = 24.0f;
+        // One card per SECTION, the section's title outside and above it
+        // (the reference's grouped Form): consecutive rows that name the
+        // same section share a card; rows with no section share the pane's
+        // one unnamed card. Ids advance per card so entities stay stable.
         active_col_w_ = inner - kCardPad * 2.0f;
+        int cardId = 7;
+        std::string openSection;
+        Entity* cardEnt = nullptr;
         for (size_t i = 0; i < rows.size(); ++i) {
             const cat::Row& row = *rows[i];
+            const std::string section = row.section;
+            if (cardEnt == nullptr || section != openSection) {
+                openSection = section;
+                if (!section.empty()) {
+                    auto heading = div(ctx, mk(p, cardId++),
+                        ComponentConfig{}
+                            .with_label(section)
+                            .with_size(ComponentSize{pixels(inner), pixels(kSectionTitleH)})
+                            .with_transparent_bg()
+                            .with_custom_text_color(theme::text_primary())
+                            .with_font_size(theme::type::MD)
+                            .with_alignment(TextAlignment::Left)
+                            .with_margin(Margin{.top = pixels(6)})
+                            .with_debug_name("settings_section_" + slug(section)));
+                    // A heading to a screen reader, as the reference's
+                    // Section title is.
+                    hanabi::a11y::set_name(heading.ent(), section,
+                                           hanabi::a11y::Role::Heading);
+                }
+                auto card = div(ctx, mk(p, cardId++),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{pixels(inner), children()})
+                        .with_flex_direction(FlexDirection::Column)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_padding(Padding{.top = pixels(kCardPad - 4.0f),
+                                              .right = pixels(kCardPad),
+                                              .bottom = pixels(kCardPad - 4.0f),
+                                              .left = pixels(kCardPad)})
+                        .with_margin(Margin{.bottom = pixels(10)})
+                        .with_custom_background(theme::panel_bg_2())
+                        .with_border(theme::border(), pixels(1.0f))
+                        .with_corner_radius(kCardRadius)
+                        .with_debug_name(section.empty()
+                                             ? std::string("settings_card")
+                                             : "settings_card_" + slug(section)));
+                cardEnt = &card.ent();
+            }
             const bool isFocused = !searching &&
                                    focus.zone == cat::Zone::Content &&
                                    focus.index == static_cast<int>(i);
             const bool activate = pendingActivate_ == row.id;
-            render_row(ctx, card.ent(), app, row, isFocused, activate);
+            render_row(ctx, *cardEnt, app, row, isFocused, activate);
         }
         pendingActivate_.clear();
         render_pane_extras(ctx, p, app, pane);
@@ -1088,6 +1135,45 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         sv.scroll_offset.y = want;
         hanabi::set_scroll_target_y(sv, want);
         sv.clamp_scroll();
+    }
+
+    // The reference's SettingsOriginLegend: one small capsule per origin
+    // present on the pane ("On this Mac" / "Everywhere"), glyph + words, in
+    // a row above the first card. No sentence.
+    void render_origin_capsules(UIContext<InputAction>& ctx, Entity& parent,
+                                const std::vector<const cat::Row*>& rows,
+                                float inner) {
+        bool present[3] = {false, false, false};
+        for (const cat::Row* r : rows) present[static_cast<int>(r->origin)] = true;
+        auto row = div(ctx, mk(parent, 5),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(inner), pixels(28)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_margin(Margin{.bottom = pixels(8)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_origin_legend"));
+        int k = 1;
+        for (int o = 0; o < 3; ++o) {
+            if (!present[o]) continue;
+            const auto origin = static_cast<cat::Origin>(o);
+            const std::string text = cat::origin_short(origin);
+            const float w = std::ceil(theme::text_px(text.c_str(), theme::type::XS)) + 20.0f;
+            div(ctx, mk(row.ent(), k++),
+                ComponentConfig{}
+                    .with_label(text)
+                    .with_size(ComponentSize{pixels(w), pixels(22)})
+                    .with_padding(Padding{.left = pixels(10), .right = pixels(10)})
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::XS)
+                    .with_alignment(TextAlignment::Center)
+                    .with_corner_radius(11.0f)
+                    .with_debug_name("settings_origin_capsule_" + std::to_string(o)));
+        }
     }
 
     void render_origin_legend(UIContext<InputAction>& ctx, Entity& parent,
@@ -1135,6 +1221,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "restore_tabs") render_restore_tabs_row(ctx, parent, app);
         else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
         else if (id == "theme_rotate") render_theme_rotate_row(ctx, parent, app);
+        else if (id == "transcript_width") render_transcript_width_row(ctx, parent, app);
         else if (id == "font") render_font_row(ctx, parent, app);
         else if (id == "font_weight") render_font_weight_row(ctx, parent, app);
         else if (id == "palette") render_palette_row(ctx, parent, app);
@@ -1603,6 +1690,59 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name(dbg));
     }
 
+    // A help paragraph under a row, in the secondary colour, wrapped by
+    // measured words to the card's column (the reference's caption Text
+    // under a control). One div per line so the layout knows the height.
+    void help_line(UIContext<InputAction>& ctx, Entity& parent, int id,
+                   const std::string& text, const std::string& dbg) {
+        const float px = theme::type::SM;
+        const float w = content_w();
+        std::vector<std::string> lines;
+        std::string cur, word;
+        auto flush_word = [&]() {
+            if (word.empty()) return;
+            std::string trial = cur.empty() ? word : cur + " " + word;
+            if (!cur.empty() && theme::text_px(trial.c_str(), px) > w) {
+                lines.push_back(cur);
+                cur = word;
+            } else {
+                cur = trial;
+            }
+            word.clear();
+        };
+        for (char c : text) {
+            if (c == ' ') flush_word();
+            else word.push_back(c);
+        }
+        flush_word();
+        if (!cur.empty()) lines.push_back(cur);
+        constexpr float kHelpLineH = 17.0f;
+        auto block = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(w),
+                                         pixels(kHelpLineH * static_cast<float>(lines.size()))})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(4), .bottom = pixels(6)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(dbg));
+        int k = 0;
+        for (const std::string& ln : lines) {
+            ++k;
+            div(ctx, mk(block.ent(), k),
+                ComponentConfig{}
+                    .with_label(ln)
+                    .with_size(ComponentSize{pixels(w), pixels(kHelpLineH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(px)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name(dbg + "_" + std::to_string(k)));
+        }
+    }
+
     void row_name(UIContext<InputAction>& ctx, Entity& parent, int id,
                   const std::string& text, const std::string& dbg) {
         row_name_with(ctx, parent, id, text, std::string(), dbg);
@@ -1665,6 +1805,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (rowFocused_) focusAnchor_ = control.id;
     }
 
+    // "Reading width" -> "reading_width", for debug names.
+    static std::string slug(const std::string& title) {
+        std::string out;
+        out.reserve(title.size());
+        for (unsigned char c : title) {
+            if (std::isalnum(c)) out.push_back(static_cast<char>(std::tolower(c)));
+            else if (!out.empty() && out.back() != '_') out.push_back('_');
+        }
+        while (!out.empty() && out.back() == '_') out.pop_back();
+        return out;
+    }
+
     int activated_index(int selectedIdx, int n) const {
         if (!rowActivate_ || n <= 0) return -1;
         return (std::max(0, selectedIdx) + 1) % n;
@@ -1714,6 +1866,30 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // theme while the sheet is open, and the picker above says which one only
     // in colour — which is not something a person glancing at the sheet can
     // read off, nor anything a test can assert.
+    // The reference's Reading width section: Comfortable / Wide / Full width,
+    // with the help line under it. The transcript and the composer both
+    // centre on the chosen column (main_pane_system::read_column).
+    void render_transcript_width_row(UIContext<InputAction>& ctx, Entity& parent,
+                                     AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 140, "Transcript width", "settings_transcript_width_label");
+        static constexpr const char* kIds[] = {"comfortable", "wide", "full"};
+        static constexpr const char* kLabels[] = {"Comfortable", "Wide", "Full width"};
+        const std::string& cur = Settings::get().get_transcript_width();
+        int selected = 0;
+        for (int i = 0; i < 3; ++i)
+            if (cur == kIds[i]) selected = i;
+        real_segmented(ctx, parent, 141, {kLabels[0], kLabels[1], kLabels[2]}, selected,
+                       "settings_transcript_width",
+                       [](int idx) { Settings::get().set_transcript_width(kIds[idx]); });
+        help_line(ctx, parent, 142,
+                  "How wide a message may get before it wraps. Comfortable is the "
+                  "web client's column and the easiest to read; Full width uses the "
+                  "whole pane, which is what a wide display is for. The composer "
+                  "follows the same column.",
+                  "settings_transcript_width_help");
+    }
+
     void render_theme_rotate_row(UIContext<InputAction>& ctx, Entity& parent,
                                  AppComponent& app) {
         (void)app;
@@ -2310,33 +2486,61 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name(dbg + "_row");
+        // The reference's segmented picker: a COMPACT pill group, each
+        // segment as wide as its words plus padding, the group right-aligned
+        // in the row, sitting in a faint grouped ground; only the selected
+        // segment is filled (accent, white ink), the others plain text. Not
+        // a row of equal buttons stretched across the card.
+        rowCfg = rowCfg.with_justify_content(JustifyContent::FlexEnd);
         auto row = div(ctx, mk(parent, baseId), rowCfg);
         anchor_control(row.ent());
-        constexpr float kSegGap = 6.0f;
+        // Each segment is a full 28-pt hit target (the app's minimum); the
+        // reference's 24-pt LOOK comes from the group's 2-pt ground showing
+        // around it -- so the group is 28 tall and the fill is inset by the
+        // pad, not the target shrunk.
+        constexpr float kSegPadX = 12.0f;
+        constexpr float kSegH = hanabi::control::kMinHitTarget;
+        constexpr float kGroupPad = 2.0f;
         const int n = static_cast<int>(labels.size());
-        const float segW =
-            (content_w() - kSegGap * (n - 1)) / static_cast<float>(n);
+        float groupW = kGroupPad * 2.0f;
+        std::vector<float> widths;
+        widths.reserve(static_cast<size_t>(n));
+        for (const std::string& l : labels) {
+            const float w = std::ceil(theme::text_px(l.c_str(), theme::type::SM)) +
+                            kSegPadX * 2.0f;
+            widths.push_back(w);
+            groupW += w;
+        }
+        // The whole group is one hit-target-tall control; segments inside.
+        auto group = div(ctx, mk(row.ent(), 90),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(groupW), pixels(kSegH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.right = pixels(kGroupPad), .left = pixels(kGroupPad)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_corner_radius(7.0f)
+                .with_debug_name(dbg + "_group"));
         for (int i = 0; i < n; ++i) {
             const bool sel = (i == selectedIdx);
-            const bool last = (i == n - 1);
-            auto btn = button(ctx, mk(row.ent(), i + 1),
+            auto btn = button(ctx, mk(group.ent(), i + 1),
                 ComponentConfig{}
                     .with_label(labels[static_cast<size_t>(i)])
-                    .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
-                    .with_margin(Margin{.right = pixels(last ? 0.0f : kSegGap)})
-                    .with_custom_background(sel ? theme::button_primary()
-                                                : theme::button_secondary())
-                    .with_custom_hover_bg(sel ? theme::button_primary()
-                                              : theme::hover_bg())
-                    .with_custom_text_color(sel ? theme::window_bg()
+                    .with_size(ComponentSize{pixels(widths[static_cast<size_t>(i)]),
+                                             pixels(kSegH)})
+                    .with_custom_background(sel ? theme::accent()
+                                                : theme::panel_bg_2())
+                    .with_custom_hover_bg(sel ? theme::accent() : theme::hover_bg())
+                    .with_custom_text_color(sel ? theme::on_fill(theme::accent())
                                                 : theme::text_primary())
-                    .with_font_size(theme::type::MD)
+                    .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Center)
                     .with_justify_content(JustifyContent::Center)
                     .with_align_items(AlignItems::Center)
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
-                    .with_roundness(0.35f)
+                    .with_corner_radius(5.0f)
                     .with_debug_name(dbg + "_" + std::to_string(i)));
             if (btn) onPick(i);
         }

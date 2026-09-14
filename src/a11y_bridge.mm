@@ -93,6 +93,7 @@ NSAccessibilityRole role_for(const char* role) {
     if (r == "row") return NSAccessibilityRowRole;
     if (r == "field") return NSAccessibilityTextFieldRole;
     if (r == "checkbox") return NSAccessibilityCheckBoxRole;
+    if (r == "heading") return NSAccessibilityHeadingRole;
     if (r == "list") return NSAccessibilityListRole;
     return NSAccessibilityUnknownRole;
 }

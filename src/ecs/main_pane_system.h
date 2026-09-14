@@ -3735,7 +3735,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // narrow pane the gutter floors and the column just uses the width.
         // 736 and symmetric: measured off the reference, where the transcript
         // content spans x=362..1097 in a 900px pane (82px of gutter a side).
-        constexpr float kReadCol = 736.0f;
+        // 32 narrower than the composer's column: the transcript's own inset
+        // inside the shared reading column (was a fixed 736 against 768).
+        const float kReadCol = read_column(paneW) - 32.0f;
         float gutter = (paneW - kReadCol) * 0.5f;
         if (gutter < kContentInset) gutter = kContentInset;
         const float findClearance = pane.findOpen ? 33.0f : 0.0f;
@@ -4807,7 +4809,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kAttachNoteH = 16.0f;
     static constexpr float kAttachMinSlotW = 140.0f;
     static float attachment_content_w(const AppComponent& app) {
-        float gutter = (app.lastComposerPaneW - kComposerReadCol) * 0.5f +
+        float gutter = (app.lastComposerPaneW - read_column(app.lastComposerPaneW)) * 0.5f +
                        kComposerColInset;
         if (gutter < kContentInset) gutter = kContentInset;
         return std::max(80.0f, app.lastComposerPaneW - 2.0f * gutter);
@@ -4892,7 +4894,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         "Couldn't reach the sub-agent — answer this in its own thread.";
     static constexpr const char* kAskChildFileHint =
         "This one may take a file — answer it in the sub-agent's thread.";
+    // The reading column both the transcript and the composer centre on:
+    // the transcript-width setting's column, capped at the pane. "full" is
+    // the pane itself. (Was a fixed 768; the reference's TranscriptWidth.)
     static constexpr float kComposerReadCol = 768.0f;
+    static float read_column(float paneW) {
+        const std::string& tw = Settings::get().get_transcript_width();
+        if (tw == "full") return paneW;
+        if (tw == "wide") return std::min(paneW, 1024.0f);
+        return std::min(paneW, kComposerReadCol);
+    }
     static constexpr float kComposerColInset = 12.0f;
 
     static std::string ask_retry_label(api::AskAction failed,
@@ -4961,7 +4972,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float paneW = app.lastComposerPaneW > 0.0f
                                 ? app.lastComposerPaneW
                                 : hanabi::viewport::width();
-        float gutter = (paneW - kComposerReadCol) * 0.5f + kComposerColInset;
+        float gutter = (paneW - read_column(paneW)) * 0.5f + kComposerColInset;
         if (gutter < kContentInset) gutter = kContentInset;
         const float w = paneW - gutter * 2.0f;
         const float widest = paneW - kContentInset * 2.0f;
@@ -6905,7 +6916,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // it can check them against Puffin's source rather than against a
         // downsample.
         float composerGutter =
-            (paneW - kComposerReadCol) * 0.5f + kComposerColInset;
+            (paneW - read_column(paneW)) * 0.5f + kComposerColInset;
         if (composerGutter < kContentInset) composerGutter = kContentInset;
 
         auto barCfg = ComponentConfig{}

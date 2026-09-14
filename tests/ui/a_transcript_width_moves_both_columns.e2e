@@ -1,0 +1,48 @@
+# Transcript width is a REAL setting: the reading column both the transcript
+# and the composer centre on follows it. Comfortable is a 768 column, Wide
+# 1024, Full width the pane. The composer's input box sits inside that column
+# at a 12 inset, so its x proves the column moved.
+#
+# At 1100 wide the pane is 1100-280 = 820: Comfortable gutter (820-768)/2 = 26
+# -> x = 280+26+12 = 318 (composer_rule_spans_the_pane pins the same 318);
+# Full width: the column is the pane, but the composer keeps the pane's
+# 24 edge inset (a column never touches the pane's edge) -> 280+24 = 304.
+# At 1100 Wide would coincide with Full, so the window is widened for the
+# second half: 1440 -> pane 1160: Wide (1160-1024)/2 = 68 -> 360;
+# Comfortable 196+12 -> 488; Full stays 304.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 16
+assert_ui composer_input_wrap x=318
+
+click_ui sb_settings
+wait_frames 16
+click_ui sb_settings_nav_appearance
+wait_frames 12
+expect_text "Reading width"
+expect_text "Transcript width"
+click_text "Full width"
+wait_frames 8
+click_ui tab_close
+wait_frames 12
+assert_ui composer_input_wrap x=304
+
+resize 1440 900
+wait_frames 12
+assert_ui composer_input_wrap x=304
+click_ui sb_settings
+wait_frames 16
+click_text "Wide"
+wait_frames 8
+click_ui tab_close
+wait_frames 12
+assert_ui composer_input_wrap x=360
+
+click_ui sb_settings
+wait_frames 16
+click_text "Comfortable"
+wait_frames 8
+click_ui tab_close
+wait_frames 12
+assert_ui composer_input_wrap x=488
