@@ -27,8 +27,10 @@ wait_frames 20
 expect_text "Sending"
 expect_backend_compaction t2 none 1
 release_compact_send
-wait_frames 24
-expect_backend_compaction t2 pending 1
+# The release is a flag the held worker polls; wait on the RECEIPT (the
+# slot filled), bounded, not on a frame count -- under load the worker can
+# take longer than a fixed wait and the state honestly still reads Sending.
+expect_backend_compaction t2 pending 1 within=240
 expect_text "Compaction queued. It lands at the next tool boundary."
 expect_no_text "Sending"
 key ESCAPE

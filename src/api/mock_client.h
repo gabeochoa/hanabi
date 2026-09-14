@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <atomic>
@@ -938,11 +939,16 @@ class MockClient : public Client {
         // compaction round already uses -- so the in-flight state is looked
         // at over real frames, never by a sleep.
         if (compact_send_hold_is_latch()) {
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-            while (!compact_send_release().load() &&
-                   std::chrono::steady_clock::now() < deadline)
-                std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            compact_send_release().store(false);
+            // The hold is a std::future the script's `release_compact_send`
+            // fulfils -- a proper wait, no polling loop, no level to lose:
+            // one shared_future per hold, so every worker that begins a hold
+            // before the release is woken by the one release, and a release
+            // that arrived BEFORE the hold began is already fulfilled (no
+            // lost wake). Bounded by the same 30 s.
+            compact_send_hold_begun().fetch_add(1);
+            std::shared_future<void> gate = compact_send_gate();
+            (void)gate.wait_for(std::chrono::seconds(30));
+            compact_send_hold_ended().fetch_add(1);
         }
         if (!supports_compact())
             return Result<std::string>::failure("this backend cannot compact a conversation");
@@ -1096,7 +1102,54 @@ class MockClient : public Client {
     // Test seam: let a latched compaction round (HANABI_MOCK_COMPACT_HOLD_MS=
     // latch) finish. Safe to call when none is held.
     static void release_compaction() { compact_release().store(true); }
-    static void release_compact_send() { compact_send_release().store(true); }
+    // Release every held send from now on; a new hold re-arms by calling
+    // `arm_compact_send_hold` (the script's next press does that through the
+    // e2e verb `hold_compact_send`; the default hold is armed at startup).
+    // One promise per hold: `release_compact_send` fulfils it (idempotent);
+    // `arm_compact_send_hold` (the e2e verb `hold_compact_send`) replaces it
+    // with a fresh unfulfilled one for the next send. Workers take a
+    // shared_future copy under the lock so a re-arm never strands one.
+    static std::mutex& compact_gate_mu() {
+        static std::mutex m;
+        return m;
+    }
+    static std::shared_ptr<std::promise<void>>& compact_gate_promise() {
+        static std::shared_ptr<std::promise<void>> p = std::make_shared<std::promise<void>>();
+        return p;
+    }
+    static std::shared_ptr<std::shared_future<void>>& compact_gate_future() {
+        static std::shared_ptr<std::shared_future<void>> f =
+            std::make_shared<std::shared_future<void>>(compact_gate_promise()->get_future().share());
+        return f;
+    }
+    static std::shared_future<void> compact_send_gate() {
+        std::lock_guard<std::mutex> lock(compact_gate_mu());
+        return *compact_gate_future();
+    }
+    static void release_compact_send() {
+        std::lock_guard<std::mutex> lock(compact_gate_mu());
+        compact_send_release().store(true);
+        try {
+            compact_gate_promise()->set_value();
+        } catch (const std::future_error&) {
+            // already released for this hold: a level, idempotent
+        }
+    }
+    static void arm_compact_send_hold() {
+        std::lock_guard<std::mutex> lock(compact_gate_mu());
+        compact_send_release().store(false);
+        compact_gate_promise() = std::make_shared<std::promise<void>>();
+        compact_gate_future() =
+            std::make_shared<std::shared_future<void>>(compact_gate_promise()->get_future().share());
+    }
+    static std::atomic<int>& compact_send_hold_begun() {
+        static std::atomic<int> n{0};
+        return n;
+    }
+    static std::atomic<int>& compact_send_hold_ended() {
+        static std::atomic<int> n{0};
+        return n;
+    }
     static bool compact_send_hold_is_latch() {
         static const bool latch = [] {
             const char* v = std::getenv("HANABI_MOCK_COMPACT_SEND_HOLD");

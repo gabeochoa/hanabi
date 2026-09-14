@@ -2896,11 +2896,16 @@ struct HandleExpectBackendTuningCommand
     }
 };
 
-// expect_backend_compaction <id> <pending|none> [<sends>]: the backend's
-// view -- whether the session's pending-compaction slot is filled (the
-// authoritative "queued") -- and, optionally, how many compact commands
-// reached it (the transport count). The two are asserted SEPARATELY on
-// purpose: a send that reached the server is not a queued compaction.
+// expect_backend_compaction <id> <pending|none> [<sends>] [within=<frames>]:
+// the backend's view -- whether the session's pending-compaction slot is
+// filled (the authoritative "queued") -- and, optionally, how many compact
+// commands reached it (the transport count). The two are asserted
+// SEPARATELY on purpose: a send that reached the server is not a queued
+// compaction. `within=` widens the retry budget past the shared 24 frames
+// for a receipt that follows a WORKER the script just released (the mock's
+// held send polls its latch at 5 ms; under load 24 frames is not enough
+// and the state honestly still reads Sending) -- waiting on the receipt,
+// bounded, instead of a frame count.
 struct HandleExpectBackendCompactionCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -2916,22 +2921,32 @@ struct HandleExpectBackendCompactionCommand
             cmd.fail("expect_backend_compaction: no client");
             return;
         }
+        int budget = kGiveUpFrame;
+        std::optional<std::string> wantSends;
+        for (std::size_t i = 2; i < cmd.args.size(); ++i) {
+            const std::string& a = cmd.arg(i);
+            if (a.rfind("within=", 0) == 0)
+                budget = std::max(kGiveUpFrame, std::atoi(a.c_str() + 7));
+            else
+                wantSends = a;
+        }
         const auto r = app->client->get_session(cmd.arg(0));
         const std::string state =
             r.ok ? (r.value.pending_compaction ? "pending" : "none") : "unknown";
         const int sends = static_cast<int>(api::MockClient::compact_sends().size());
-        const bool sendsOk = !cmd.has_args(3) || std::to_string(sends) == cmd.arg(2);
+        const bool sendsOk = !wantSends || std::to_string(sends) == *wantSends;
         if (r.ok && state == cmd.arg(1) && sendsOk) {
             cmd.consume();
             return;
         }
-        if (cmd.frames_alive < kGiveUpFrame) {
+        if (cmd.frames_alive < budget) {
             cmd.retry();
             return;
         }
-        cmd.fail(std::format("backend compaction for '{}' is {} with {} send(s), expected {}{}",
+        cmd.fail(std::format("backend compaction for '{}' is {} with {} send(s), expected {}{} "
+                             "(within {} frames)",
                              cmd.arg(0), state, sends, cmd.arg(1),
-                             cmd.has_args(3) ? " " + cmd.arg(2) : std::string()));
+                             wantSends ? " " + *wantSends : std::string(), budget));
     }
 };
 
@@ -2964,16 +2979,26 @@ struct HandleExpectCompactionKeysEqualCommand
 // (after HandleClicks) -- hot / active / focus winners by debug name, the
 // press point, and every listener whose `down` was set. A rect containing
 // the point is not dispatch; this is.
-// release_compact_send: lets the mock's held compact send complete (pairs
-// with HANABI_MOCK_COMPACT_SEND_HOLD=latch).
+// release_compact_send / hold_compact_send: let the mock's held compact
+// send(s) complete / re-arm the hold for the next send (pairs with
+// HANABI_MOCK_COMPACT_SEND_HOLD=latch). The release is a level, not a
+// one-shot token.
 struct HandleReleaseCompactSendCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
-        if (cmd.is_consumed() || !cmd.is("release_compact_send")) return;
-        api::MockClient::release_compact_send();
-        cmd.consume();
+        if (cmd.is_consumed()) return;
+        if (cmd.is("release_compact_send")) {
+            api::MockClient::release_compact_send();
+            cmd.consume();
+            return;
+        }
+        if (cmd.is("hold_compact_send")) {
+            api::MockClient::arm_compact_send_hold();
+            cmd.consume();
+            return;
+        }
     }
 };
 
@@ -3004,6 +3029,13 @@ struct HandleDumpPopoverFlagsCommand
                     app->compactionFuture.valid() ? 1 : 0,
                     g ? std::to_string(static_cast<int>(g->outcome)).c_str() : "-", slot ? 1 : 0,
                     app->transfer && app->transfer->compactQueued.load() ? 1 : 0);
+        std::printf("[E2E] dump_popover_flags: mock sends=%zu keysSeen=%zu holdBegun=%d holdEnded=%d "
+                    "released=%d\n",
+                    api::MockClient::compact_sends().size(),
+                    api::MockClient::compact_keys_seen().size(),
+                    api::MockClient::compact_send_hold_begun().load(),
+                    api::MockClient::compact_send_hold_ended().load(),
+                    api::MockClient::compact_send_release().load() ? 1 : 0);
         cmd.consume();
     }
 };

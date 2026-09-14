@@ -1789,6 +1789,47 @@ static void test_an_older_compact_applied_does_not_erase_a_newer_queued_request(
     CHECK(!ecs::AppComponent::clear_pending_slot_if_applied(empty, 1));
 }
 
+// A refetch that lands late must not roll the pane's slot back: the key map
+// only grows, so a snapshot missing a known key is older and is ignored.
+static void test_an_older_refetch_cannot_clear_a_newer_pending_slot() {
+    std::printf("test_an_older_refetch_cannot_clear_a_newer_pending_slot\n");
+    api::Session have;
+    have.compact_keys["g1"] = 12;
+    have.pending_compaction = api::PendingCompaction{"after_tool_round", false, 12};
+    api::Session older;  // fetched before g1 was journaled: no key, no slot
+    CHECK(!ecs::AppComponent::compaction_snapshot_not_older(have, older));
+    api::Session same = have;  // the same fetch again
+    CHECK(ecs::AppComponent::compaction_snapshot_not_older(have, same));
+    api::Session newer = have;  // a later fetch: knows g1, slot consumed, plus g2
+    newer.pending_compaction.reset();
+    newer.compact_keys["g2"] = 15;
+    CHECK(ecs::AppComponent::compaction_snapshot_not_older(have, newer));
+    api::Session empty;  // a pane that knows nothing accepts anything
+    CHECK(ecs::AppComponent::compaction_snapshot_not_older(empty, older));
+}
+
+// The parent's contract check: an access DOWNGRADE from an attach is applied
+// even when that attach's compaction snapshot is rejected as older.
+static void test_access_follows_every_attach_even_when_the_slot_snapshot_is_older() {
+    std::printf("test_access_follows_every_attach_even_when_the_slot_snapshot_is_older\n");
+    api::Session have;
+    have.access = api::SessionAccess::Owner;
+    have.compact_keys["g1"] = 12;
+    have.pending_compaction = api::PendingCompaction{"after_tool_round", false, 12};
+    api::Session older;  // fetched before g1: no key, no slot -- but read-only now
+    older.access = api::SessionAccess::Read;
+    ecs::AppComponent::adopt_slot_facts(have, older);
+    CHECK(have.access == api::SessionAccess::Read);  // the downgrade landed
+    CHECK(have.pending_compaction.has_value());       // the slot did not roll back
+    CHECK(have.compact_keys.count("g1") == 1);
+    api::Session newer = have;  // a later fetch: slot consumed, owner again
+    newer.access = api::SessionAccess::Owner;
+    newer.pending_compaction.reset();
+    ecs::AppComponent::adopt_slot_facts(have, newer);
+    CHECK(have.access == api::SessionAccess::Owner);
+    CHECK(!have.pending_compaction.has_value());
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
@@ -1798,6 +1839,8 @@ int main() {
     test_compaction_gesture_settles_only_on_its_own_key();
     test_mock_compact_keys_persist_after_the_slot_is_consumed();
     test_an_older_compact_applied_does_not_erase_a_newer_queued_request();
+    test_an_older_refetch_cannot_clear_a_newer_pending_slot();
+    test_access_follows_every_attach_even_when_the_slot_snapshot_is_older();
     test_mock_create_records_the_launch_tuning_and_send_ignores_it();
     test_legacy_create_refuses_tuning_and_still_creates_untuned();
     test_attachment_draft_retains_its_bytes();

@@ -1543,6 +1543,33 @@ struct AppComponent : public afterhours::BaseComponent {
     // when it IS that request. An applied event for an older request (out of
     // order, replayed) leaves a newer queued request in place; a slot whose
     // request is unknown (0, pre-seq) is cleared only by an applied 0.
+    // A snapshot is at least as new as what a pane holds when its compact_keys
+    // knows every key the pane knows. Contract (agentcloud shared/session/src/
+    // projection.rs, `compact_keys`): folds from durables, "an entry here is
+    // never removed" (the input_keys discipline it mirrors); the one reset is
+    // ForkBoundary at a forked journal's genesis, which precedes any attach
+    // to that session. So a snapshot missing a known key was fetched BEFORE
+    // that request was journaled -- an older refetch landing late, which
+    // must not roll the slot back. Orders COMPACTION state only; access and
+    // every other attach fact are adopted regardless.
+    static bool compaction_snapshot_not_older(const api::Session& have,
+                                              const api::Session& fresh) {
+        for (const auto& [key, seq] : have.compact_keys)
+            if (fresh.compact_keys.find(key) == fresh.compact_keys.end()) return false;
+        return true;
+    }
+    // What one attach's greeting teaches a cached Session about its slot:
+    // access follows EVERY attach (a permission change is authoritative
+    // whenever it arrives); the compaction slot and its keys follow only a
+    // snapshot that is not older than what the pane already knows (the
+    // server's compact_keys only grow, so a snapshot missing a known key was
+    // fetched earlier and cannot roll the slot back).
+    static void adopt_slot_facts(api::Session& into, const api::Session& fresh) {
+        into.access = fresh.access;
+        if (!compaction_snapshot_not_older(into, fresh)) return;
+        into.pending_compaction = fresh.pending_compaction;
+        into.compact_keys = fresh.compact_keys;
+    }
     static bool clear_pending_slot_if_applied(api::Session& s, std::int64_t appliedRequest) {
         if (!s.pending_compaction) return false;
         if (s.pending_compaction->request != appliedRequest) return false;

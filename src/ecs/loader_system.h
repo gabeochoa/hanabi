@@ -217,11 +217,20 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // The attach's pending-compaction slot onto every pane showing this
     // session: filled = the gesture was queued (its receipt ends); empty
     // after it was filled = a boundary took it up.
+    // A snapshot is at least as NEW as what a pane holds when its compact_keys
+    // knows every key the pane knows: the server's key map only grows (spec
+    // 314 FR2), so a snapshot missing a known key was fetched BEFORE that
+    // request was journaled -- an older refetch landing late. MEASURED
+    // (probe_sending on d9153a7, FAIL runs): the pane read paneSlot=1 (queued
+    // text drawn), then paneSlot=0 with the app still in flight -- a refetch
+    // issued before the release landed after one issued after it and
+    // cleared the slot. Keyed ordering, not arrival order, decides.
     static void adopt_pending_compaction(AppComponent& app, const api::Session& s) {
         const auto adopt = [&s](api::Session& into) {
-            into.pending_compaction = s.pending_compaction;
-            into.compact_keys = s.compact_keys;
-            into.access = s.access;
+            // One shared rule (AppComponent::adopt_slot_facts, unit-tested):
+            // access follows every attach; the compaction slot and keys only
+            // a snapshot that is not older than what the pane knows.
+            AppComponent::adopt_slot_facts(into, s);
         };
         for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
             auto& pane = app.panes[i];
