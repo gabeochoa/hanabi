@@ -283,6 +283,9 @@ struct Settings {
     // app: a debugging thread wants them open and a long chat does not. An
     // absent id means the default (folded). Auto-persists.
     int get_tool_fold(const std::string& id) const;
+    // Whether THIS thread ever chose a fold mode; get_tool_fold answers Fold
+    // (0) either way, so the default-vs-chosen question needs this.
+    bool has_tool_fold(const std::string& id) const;
     void set_tool_fold(const std::string& id, int mode);  // auto-persists
 
     // How far a thread had been READ, as the timestamp of its newest message
@@ -365,6 +368,18 @@ struct Settings {
 
     bool get_show_timestamps() const;
     void set_show_timestamps(bool on);  // auto-persists
+
+    // Appearance · Context: the context meter's caption carries the full
+    // accounting (lifetime totals, cache split, last call, last compaction,
+    // sub-agent rollup) when on; off, how full the window is. Default off.
+    bool get_context_detail() const;
+    void set_context_detail(bool on);  // auto-persists
+
+    // Appearance · Composer: whether a conversation with no fold choice of
+    // its own starts with its tool rows OPEN (the reference's "Tool, thinking
+    // and delivery chips"). A per-thread choice (set_tool_fold) always wins.
+    bool get_disclosure_chips_open() const;
+    void set_disclosure_chips_open(bool on);  // auto-persists
 
     // Rotate the theme automatically every N seconds; 0 (the default) is off.
     // ONE number rather than an enabled flag plus an interval, so "off" can
@@ -518,6 +533,8 @@ struct Settings {
     int auto_archive_days_ = 5;
     bool notification_sound_ = true;
     bool show_timestamps_ = true;
+    bool context_detail_ = false;
+    bool disclosure_chips_open_ = false;
     std::string transcript_width_ = "comfortable";
     int theme_rotate_secs_ = 0;
     bool show_finished_subagents_ = false;

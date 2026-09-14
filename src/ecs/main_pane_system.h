@@ -7726,6 +7726,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // A reading the server has not caught up with says so. Hiding
                 // it would present a stale number as a live one.
                 if (usage.stale) label += " \xc2\xb7 stale";
+                // Appearance · Full context detail: the wider accounting the
+                // server reported on the attach, each part only when it was
+                // reported (-1 = it was not). Off, the caption is the fill.
+                if (Settings::get().get_context_detail()) {
+                    const auto n = [](int64_t v) {
+                        return fmtutil::compact_count(std::max<int64_t>(0, v));
+                    };
+                    if (usage.has_lifetime())
+                        label += " \xc2\xb7 lifetime " + n(usage.input_durable) + " in / " +
+                                 n(usage.output_durable) + " out";
+                    if (usage.cache_read_durable >= 0 || usage.cache_creation_durable >= 0)
+                        label += " \xc2\xb7 cache " + n(usage.cache_read_durable) + " read / " +
+                                 n(usage.cache_creation_durable) + " written";
+                    if (usage.last_call_input >= 0)
+                        label += " \xc2\xb7 last call " + n(usage.last_call_input) + " in / " +
+                                 n(usage.last_call_output) + " out";
+                    if (usage.last_compaction_before >= 0)
+                        label += " \xc2\xb7 last compaction ~" + n(usage.last_compaction_before) +
+                                 " \xe2\x86\x92 ~" + n(usage.last_compaction_after);
+                    if (usage.children_input >= 0 || usage.children_output >= 0)
+                        label += " \xc2\xb7 sub-agents " + n(usage.children_input) + " in / " +
+                                 n(usage.children_output) + " out";
+                }
                 // Puffin's order, left to right: the track first, then the
                 // figure. Measured on the reference: the track is 48x5 at
                 // x=441..489 — 10px after the model label — and the figure
@@ -11982,8 +12005,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static hanabi::fold::Mode fold_mode() {
         const Pane* p = painting_pane();
         if (p == nullptr || !p->openSession) return hanabi::fold::kDefault;
-        return hanabi::fold::from_int(
-            Settings::get().get_tool_fold(p->openSession->summary.id));
+        const std::string& id = p->openSession->summary.id;
+        const Settings& s = Settings::get();
+        // A choice made IN this conversation wins; with none, the Appearance
+        // default decides whether the rows start open.
+        if (s.has_tool_fold(id)) return hanabi::fold::from_int(s.get_tool_fold(id));
+        return s.get_disclosure_chips_open() ? hanabi::fold::Mode::Expand
+                                             : hanabi::fold::kDefault;
     }
     // Auto's rule: a short captured result is worth the space, a long one is a
     // log. No result at all means there is nothing to open.

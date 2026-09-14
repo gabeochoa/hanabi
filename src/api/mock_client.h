@@ -2040,6 +2040,19 @@ class MockClient : public Client {
                 s.pending_asks =
                     mock_pending_asks(std::string_view(ask), s.summary.id);
             }
+            // The wider accounting hello.state.tokens would carry for t2 (spec
+            // 081): lifetime totals, cache split, last call, last compaction,
+            // sub-agent rollup. What "Full context detail" adds to the caption.
+            s.context.input_durable = 412000;
+            s.context.output_durable = 38000;
+            s.context.cache_read_durable = 301000;
+            s.context.cache_creation_durable = 44000;
+            s.context.last_call_input = 14200;
+            s.context.last_call_output = 620;
+            s.context.last_compaction_before = 188000;
+            s.context.last_compaction_after = 41000;
+            s.context.children_input = 96000;
+            s.context.children_output = 7100;
             v.push_back(std::move(s));
         }
         {

@@ -1,0 +1,41 @@
+# Appearance · Context · "Full context detail". Off, the caption under the
+# meter says how full the window is. On, it carries the wider accounting the
+# server reported on the attach -- lifetime totals, cache split, last call,
+# last compaction, sub-agent rollup -- each part only when the server said
+# it. The switch is a real setting: it persists, and the caption follows it.
+#
+# t2's fixture carries the whole vocabulary (mock hello.state.tokens).
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000
+require_thread t2
+wait_frames 12
+expect_text "258k / 800k tokens"
+expect_no_text "lifetime"
+expect_no_text "sub-agents"
+
+click_ui sb_settings
+wait_frames 16
+click_ui sb_settings_nav_appearance
+wait_frames 12
+expect_text "Context"
+expect_text "Full context detail"
+click_ui settings_context_detail
+wait_frames 10
+click_ui tab_close
+wait_frames 12
+expect_open t2
+expect_text "lifetime 412k in / 38k out"
+expect_text "cache 301k read / 44k written"
+expect_text "last call 14k in / 620 out"
+expect_text "last compaction ~188k"
+expect_text "sub-agents 96k in / 7.1k out"
+
+# Off again: back to the fill alone.
+click_ui sb_settings
+wait_frames 16
+click_ui settings_context_detail
+wait_frames 10
+click_ui tab_close
+wait_frames 12
+expect_text "258k / 800k tokens"
+expect_no_text "lifetime"

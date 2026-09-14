@@ -1,0 +1,35 @@
+# Appearance · Composer · "Tool, thinking and delivery chips". On, a
+# conversation that has never chosen a fold starts with its tool rows OPEN;
+# a fold chosen in a conversation always wins over the default. rfold's
+# fixture has two tool piles whose outputs are hidden when folded.
+#
+# settings: {"window_width":1100,"window_height":1000,"open_tabs":[],"active_tab":"","theme":"dark","disclosure_chips_open":true}
+# env: HANABI_FOLD_DEMO=1 HANABI_OPEN=rfold
+require_thread rfold
+wait_frames 12
+# The default is ON and rfold chose nothing: both piles are open.
+expect_text "182 cache/evict.rs"
+expect_text "lru_drops_the_oldest_entry_first"
+
+# Choose Fold IN this conversation: the per-thread choice wins immediately...
+click_ui composer_fold
+wait_frames 8
+click_ui fold_row_0
+wait_frames 12
+expect_no_text "182 cache/evict.rs"
+expect_no_text "lru_drops_the_oldest_entry_first"
+
+# ...and keeps winning after the default is switched off and on again.
+click_ui sb_settings
+wait_frames 16
+click_ui sb_settings_nav_appearance
+wait_frames 12
+expect_text "Composer"
+click_ui settings_disclosure_chips
+wait_frames 8
+click_ui settings_disclosure_chips
+wait_frames 8
+click_ui tab_close
+wait_frames 12
+expect_open rfold
+expect_no_text "182 cache/evict.rs"

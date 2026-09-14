@@ -441,8 +441,29 @@ struct ContextUsage {
     int64_t budget_tokens = -1;
     bool stale = false;
 
+    // The wider accounting the server serves on the attach
+    // (hello.state.tokens, agentcloud WireTokens, spec 081): lifetime
+    // durable totals and their cache split, the latest settled call, the
+    // latest compaction's telemetry, and the sub-agent rollup. -1 = the
+    // server did not say; nothing here is estimated.
+    int64_t input_durable = -1;
+    int64_t output_durable = -1;
+    int64_t cache_read_durable = -1;
+    int64_t cache_creation_durable = -1;
+    int64_t last_call_input = -1;
+    int64_t last_call_output = -1;
+    int64_t last_call_cache_read = -1;
+    int64_t last_call_cache_creation = -1;
+    int64_t last_compaction_before = -1;
+    int64_t last_compaction_after = -1;
+    int64_t children_input = -1;
+    int64_t children_output = -1;
+
     [[nodiscard]] bool counted() const { return used_tokens >= 0; }
     [[nodiscard]] bool has_denominator() const { return budget_tokens > 0; }
+    [[nodiscard]] bool has_lifetime() const {
+        return input_durable >= 0 || output_durable >= 0;
+    }
 };
 
 struct SessionPlanStep {

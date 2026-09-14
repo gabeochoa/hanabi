@@ -2086,12 +2086,40 @@ static void test_models_reply_parses_the_deployment_menu() {
     CHECK(menu.row_for("codex") == nullptr);
     CHECK(api::agentcloud::parse_models_reply(R"({"type":"models"})").empty());
     CHECK(api::agentcloud::parse_models_reply("garbage").empty());
+// spec 081's wider token vocabulary on the attach: each key additive, absent
+// stays -1 (never zero-filled), the compaction's estimates under their own
+// names, the child rollup.
+static void test_attach_greeting_carries_the_wider_token_accounting() {
+    std::printf("test_attach_greeting_carries_the_wider_token_accounting\n");
+    const auto u = api::agentcloud::parse_context_usage(
+        R"({"type":"hello","state":{"tokens":{"input_durable":412000,"output_durable":38000,
+           "cache_read_durable":301000,"cache_creation_durable":44000,
+           "last_call":{"input":14200,"output":620,"cache_read":9000},
+           "last_compaction":{"estimated_tokens_before":188000,"estimated_tokens_after":41000},
+           "children_input":96000,"children_output":7100,
+           "context":{"budget":800000},"occupancy":{"tokens":258937,"stale":0}}}})");
+    CHECK(u.has_lifetime());
+    CHECK(u.input_durable == 412000 && u.output_durable == 38000);
+    CHECK(u.cache_read_durable == 301000 && u.cache_creation_durable == 44000);
+    CHECK(u.last_call_input == 14200 && u.last_call_output == 620);
+    CHECK(u.last_call_cache_read == 9000 && u.last_call_cache_creation == -1);
+    CHECK(u.last_compaction_before == 188000 && u.last_compaction_after == 41000);
+    CHECK(u.children_input == 96000 && u.children_output == 7100);
+    CHECK(u.used_tokens == 258937 && u.budget_tokens == 800000);
+    // A pre-spec payload: nothing wider, and the old fields still read.
+    const auto old = api::agentcloud::parse_context_usage(
+        R"({"type":"hello","state":{"tokens":{"context":{"budget":100},"occupancy":{"tokens":5}}}})");
+    CHECK(!old.has_lifetime());
+    CHECK(old.last_call_input == -1 && old.last_compaction_before == -1 &&
+          old.children_input == -1);
+    CHECK(old.used_tokens == 5 && old.budget_tokens == 100);
 }
 
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
     test_models_reply_parses_the_deployment_menu();
+    test_attach_greeting_carries_the_wider_token_accounting();
     test_session_options_patch_wire_shape();
     test_create_carries_the_launch_tuning_as_options_llm();
     test_options_changed_echo_is_the_merged_layer();

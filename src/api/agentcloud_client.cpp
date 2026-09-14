@@ -342,6 +342,29 @@ ContextUsage context_usage_from_state(const json& state) {
     out.used_tokens = int_or(occupancy, "tokens", -1);
     out.stale = bool_or(occupancy, "stale", false) ||
                 int_or(occupancy, "stale", 0) != 0;
+
+    // The wider spec-081 vocabulary, each key additive on the wire: absent
+    // stays -1 ("the server did not say"), never zero-filled.
+    out.input_durable = int_or(tokens, "input_durable", -1);
+    out.output_durable = int_or(tokens, "output_durable", -1);
+    out.cache_read_durable = int_or(tokens, "cache_read_durable", -1);
+    out.cache_creation_durable = int_or(tokens, "cache_creation_durable", -1);
+    const json& last = obj_at(tokens, "last_call");
+    if (last.is_object()) {
+        out.last_call_input = int_or(last, "input", -1);
+        out.last_call_output = int_or(last, "output", -1);
+        out.last_call_cache_read = int_or(last, "cache_read", -1);
+        out.last_call_cache_creation = int_or(last, "cache_creation", -1);
+    }
+    const json& compaction = obj_at(tokens, "last_compaction");
+    if (compaction.is_object()) {
+        // CompactionMetrics: estimated_tokens_before / estimated_tokens_after
+        // (the server's own estimates, labelled so on screen).
+        out.last_compaction_before = int_or(compaction, "estimated_tokens_before", -1);
+        out.last_compaction_after = int_or(compaction, "estimated_tokens_after", -1);
+    }
+    out.children_input = int_or(tokens, "children_input", -1);
+    out.children_output = int_or(tokens, "children_output", -1);
     return out;
 }
 

@@ -691,6 +691,30 @@ static void test_font_preferences_round_trip_and_reject_unknown_values() {
     CHECK(s.get_font_weight() == "regular");
 }
 
+static void test_appearance_context_and_chip_defaults_round_trip() {
+    std::printf("test_appearance_context_and_chip_defaults_round_trip\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    CHECK(!s.get_context_detail());
+    CHECK(!s.get_disclosure_chips_open());
+    s.set_context_detail(true);
+    s.set_disclosure_chips_open(true);
+    s.load_save_file();
+    CHECK(s.get_context_detail());
+    CHECK(s.get_disclosure_chips_open());
+    s.set_context_detail(false);
+    s.load_save_file();
+    CHECK(!s.get_context_detail());
+    CHECK(s.get_disclosure_chips_open());
+    // A per-thread fold choice is a FACT distinct from its value: absent is
+    // not "Fold", it is "never chosen" -- the Appearance default's cue.
+    CHECK(!s.has_tool_fold("t-never"));
+    CHECK(s.get_tool_fold("t-never") == 0);
+    s.set_tool_fold("t-chose", 0);
+    CHECK(s.has_tool_fold("t-chose"));
+    CHECK(s.get_tool_fold("t-chose") == 0);
+}
+
 int main() {
     std::printf("=== test_settings ===\n");
     test_wired_controls_change_value();
@@ -709,6 +733,7 @@ int main() {
     test_finished_subagents_round_trips();
     test_subagent_sidebar_toggle_round_trips();
     test_font_preferences_round_trip_and_reject_unknown_values();
+    test_appearance_context_and_chip_defaults_round_trip();
     test_tabs_and_pins_round_trip();
     // Last: it writes five thousand entries and reloads the file, so anything
     // after it would be asserting against a settings file this test authored.

@@ -1222,6 +1222,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
         else if (id == "theme_rotate") render_theme_rotate_row(ctx, parent, app);
         else if (id == "transcript_width") render_transcript_width_row(ctx, parent, app);
+        else if (id == "context_detail") render_context_detail_row(ctx, parent, app);
+        else if (id == "disclosure_chips") render_disclosure_chips_row(ctx, parent, app);
         else if (id == "font") render_font_row(ctx, parent, app);
         else if (id == "font_weight") render_font_weight_row(ctx, parent, app);
         else if (id == "palette") render_palette_row(ctx, parent, app);
@@ -1888,6 +1890,36 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                   "whole pane, which is what a wide display is for. The composer "
                   "follows the same column.",
                   "settings_transcript_width_help");
+    }
+
+    void render_context_detail_row(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 150, "Full context detail", "settings_context_detail_label");
+        const bool on = Settings::get().get_context_detail();
+        real_switch(ctx, parent, 151, on, "settings_context_detail",
+                    [](bool v) { Settings::get().set_context_detail(v); });
+        help_line(ctx, parent, 152,
+                  "Off, the caption under the context meter says how full the window "
+                  "is. On, it adds the lifetime totals, the cache split, the last call, "
+                  "the last compaction and the sub-agent rollup, when the server "
+                  "reports them.",
+                  "settings_context_detail_help");
+    }
+
+    void render_disclosure_chips_row(UIContext<InputAction>& ctx, Entity& parent,
+                                     AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 155, "Tool, thinking and delivery chips",
+                 "settings_disclosure_chips_label");
+        const bool on = Settings::get().get_disclosure_chips_open();
+        real_switch(ctx, parent, 156, on, "settings_disclosure_chips",
+                    [](bool v) { Settings::get().set_disclosure_chips_open(v); });
+        help_line(ctx, parent, 157,
+                  "On, a conversation you have not set a fold for starts with its tool, "
+                  "thinking and delivery rows open. A fold you choose in a conversation "
+                  "always wins over this default.",
+                  "settings_disclosure_chips_help");
     }
 
     void render_theme_rotate_row(UIContext<InputAction>& ctx, Entity& parent,
