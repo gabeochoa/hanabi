@@ -574,6 +574,9 @@ constexpr float LABEL_PT = 10.5f;
 constexpr float XS_PT = 10.0f;
 constexpr float CHIP_PT = 9.5f;
 constexpr float MICRO_PT = 9.0f;
+// The reference's "nano" face (PuffinTheme.Size.nano = 8): capsule words,
+// the resolved value beside a `default` row, footnotes.
+constexpr float NANO_PT = 8.0f;
 inline float H1 = H1_PT;
 inline float SPOTLIGHT = SPOTLIGHT_PT;
 inline float LG = LG_PT;
@@ -588,6 +591,7 @@ inline float LABEL = LABEL_PT;
 inline float XS = XS_PT;
 inline float CHIP = CHIP_PT;
 inline float MICRO = MICRO_PT;
+inline float NANO = NANO_PT;
 constexpr auto EMPHASIS = afterhours::colors::FontWeight::SemiBold;
 inline void set_point_scale(float scale) {
     H1 = H1_PT * scale;
@@ -604,6 +608,7 @@ inline void set_point_scale(float scale) {
     XS = XS_PT * scale;
     CHIP = CHIP_PT * scale;
     MICRO = MICRO_PT * scale;
+    NANO = NANO_PT * scale;
 }
 }  // namespace type
 

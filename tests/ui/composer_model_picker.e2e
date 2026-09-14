@@ -19,6 +19,10 @@ expect_text "Sonnet 5"
 expect_text "GPT-5.5"
 assert_ui model_row_default hidden=false
 assert_ui effort_row_default hidden=false
+# No pins: the header wears the `default` capsule and the effort `default`
+# row names the level that runs.
+assert_ui model_popover_default_capsule hidden=false
+expect_text "high"
 expect_no_ui model_popover_restriction
 
 # Pick a model: the panel closes, the backend holds the pin, the chip says it.
@@ -27,6 +31,13 @@ wait_frames 12
 expect_no_ui model_popover_title
 expect_backend_tuning t2 claude-sonnet-5 -
 expect_text "Sonnet 5"
+# Pinned now: the header's `default` capsule is gone and the model `default`
+# row names what unpinning would resolve to only when the attach said so.
+click_ui composer_model
+wait_frames 8
+expect_no_ui model_popover_default_capsule
+key ESCAPE
+wait_frames 8
 
 # Pick an effort: only the effort knob moves; the model pin stays.
 click_ui composer_model
@@ -35,7 +46,7 @@ click_ui effort_row_xhigh
 wait_frames 12
 expect_no_ui model_popover_title
 expect_backend_tuning t2 claude-sonnet-5 xhigh
-expect_text "Sonnet 5 (XHigh)"
+expect_text "Sonnet 5 (xhigh)"
 
 # Unpin the model through its `default` row: the effort pin is untouched.
 click_ui composer_model
@@ -43,7 +54,7 @@ wait_frames 8
 click_ui model_row_default
 wait_frames 12
 expect_backend_tuning t2 - xhigh
-expect_no_text "Sonnet 5 (XHigh)"
+expect_no_text "Sonnet 5 (xhigh)"
 
 # Unpin the effort the same way: back to nothing pinned.
 click_ui composer_model

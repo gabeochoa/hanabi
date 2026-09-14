@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <bitset>
 #include <branding.h>
 
 // Renders the main pane (right of the sidebar, below the tab strip). Dispatches
@@ -26,6 +27,7 @@
 #include "../util/format.h"
 #include "../util/ellipsize.h"
 #include "../util/textscan.h"
+#include "../ui/harness_names.h"
 #include "keyboard_focus.h"
 #include "digest_layout.h"
 #include "home_buckets.h"
@@ -4537,19 +4539,35 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::surface::Rect{r.x, r.y, r.width, r.height});
     }
 
-    // The reference's one model panel (ModelPopover): "Model" header; a
-    // restriction line when the rows cannot act; the model rows with a
-    // `default` row naming what unpinning resolves to; "Effort" with a meter
-    // and the level rows plus its own `default`; a footnote while a change is
-    // in flight or when the server refused. Every row changes THIS SESSION's
-    // tuning through `patch_session_options` (spec 115) -- never a Settings
-    // default -- and "current" is read off the session's FOLDED tuning, so
-    // the radio moves when the server's echo lands, not when the row is
-    // pressed. The reference's harness section is not drawn: hanabi has no
-    // harness catalog to draw it from (api-parity.md, open). Dismissal is the
-    // reference's InWindowPanel rule: a click anywhere outside the panel and
-    // its chip closes it -- a click into the other split pane included -- and
-    // so does Escape; a dismissal never writes anything.
+    // The reference's one model panel (ModelPopover), drawn to the first
+    // native capture of it (/tmp/hz-ref5/strip/model.png, 2x; the source
+    // constants agree: ModelPopover.inset = 12, VStack spacing 10,
+    // EffortMeter 4x8 cells gap 2): a 259pt panel; "Model" header (body,
+    // semibold) with a `default` capsule and an info glyph at the right;
+    // hairline; the model rows on a 20pt pitch -- 8pt radio at x 12.5, label
+    // at x 30, accent + primary when current, muted otherwise -- and a
+    // `default` row that names the resolved model right-aligned; hairline;
+    // "Effort" (micro, semibold, muted) with the five-cell meter at the
+    // right, the level rows, and `default` naming the resolved level;
+    // hairline; "Harness" with a `Locked` capsule, the session's harness as
+    // a checked row, and the two-line note. BOTH the resolved model's row and
+    // the `default` row are lit when the session has no pin: the capture
+    // shows it and it is the meaning (what runs, and that it runs by
+    // default). Every row changes THIS SESSION's tuning through
+    // `patch_session_options` (spec 115) -- never a Settings default -- and
+    // "current" is read off the session's FOLDED tuning, so the radio moves
+    // when the server's echo lands, not when the row is pressed. The harness
+    // is read off the attach (`hello.state.harness`); there is no pick list,
+    // the reference has none either: a harness cannot change after the first
+    // message. Dismissal is the reference's InWindowPanel rule: a click
+    // anywhere outside the panel and its chip closes it -- a click into the
+    // other split pane included -- and so does Escape; a dismissal never
+    // writes anything.
+    //
+    // UNVERIFIED against the capture until hanabi's own is taken beside it:
+    // the exact glyph shapes (info circle, lock, checkmark), the capsule
+    // stroke, and nano (8pt) text, which hanabi draws at MICRO (9pt) for
+    // want of a token.
     void render_model_popover(UIContext<InputAction>& ctx, Entity& parent,
                               AppComponent& app, Entity& anchorEnt,
                               const Pane& ownPane) {
@@ -4565,6 +4583,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             modelPopoverWasOpen_ = false;
             return;
         }
+        // The panel's OPEN EDGE, whichever way it opened (the chip, /model,
+        // /effort, the capture overlay, a keyboard opener): ask the
+        // deployment for its menu when the snapshot is missing or old --
+        // off the frame loop, at most once per open, not inside the failure
+        // backoff -- and only for a conversation that exists: the kickoff
+        // composer has no session to serve, so it asks nothing.
+        if (!modelPopoverWasOpen_ && ownPane.openSession &&
+            app.modelMenu.request_if_stale(app.client, std::chrono::steady_clock::now())) {
+            std::shared_ptr<api::Client> c = app.client;
+            app.modelMenu.launched(
+                c, std::async(std::launch::async, [c] { return c->model_menu(); }));
+        }
         modelPopoverWasOpen_ = true;
 
         const api::Session* session = ownPane.openSession ? &*ownPane.openSession : nullptr;
@@ -4579,10 +4609,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             outcomeHere && app.tuningOutcome == AppComponent::TuningOutcome::Unconfirmed;
         const bool refused =
             outcomeHere && app.tuningOutcome == AppComponent::TuningOutcome::Refused;
-        // The rows act only for a live conversation, on a backend that has
-        // the verb, with nothing outstanding for this session -- and not
-        // while the last change's outcome is UNKNOWN: an unconfirmed send is
-        // never retried blind; reopening the thread re-reads the server.
         const bool canChange = session != nullptr && backendCan && !inFlight && !unconfirmed;
         std::string restriction;
         if (session == nullptr)
@@ -4592,93 +4618,358 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         else if (unconfirmed)
             restriction = "Last change unconfirmed; reopen the thread to see what the server holds.";
 
-        const auto& models = hanabi::models::all();
-        const auto& levels = hanabi::effort::all();
-        // Model rows skip the catalog's "default" entry: the reference draws
-        // unpinning as its own `default` row that names the resolved model.
-        std::vector<const hanabi::models::Entry*> modelRows;
-        for (const auto& m : models)
-            if (m.id != "default") modelRows.push_back(&m);
+        // The rows are what the DEPLOYMENT serves (the `models` command's
+        // harness row for this session's harness): key, friendly name, the
+        // default marker, and each model's own effort menu. Until the server
+        // has answered -- or when it cannot -- the catalog hanabi knows is
+        // shown WITH a line saying the server was not asked / did not answer,
+        // never as an authoritative list.
+        struct ModelRow {
+            std::string id;
+            std::string name;
+            bool serverDefault = false;
+        };
+        std::vector<ModelRow> modelRows;
+        std::vector<std::string> effortTokens;
+        std::string effortDefaultFromMenu;
+        std::string menuNote;
+        const bool menuCan = app.client && app.client->supports_model_menu();
+        // The row for THIS session's harness only: a menu that carries no row
+        // for it -- or a session whose harness the attach did not name --
+        // gets no row, never another harness's models.
+        const api::ModelMenuHarness* menuRow =
+            tuning ? app.modelMenu.row_for(tuning->harness) : nullptr;
+        if (menuRow != nullptr) {
+            for (const auto& m : menuRow->models) {
+                modelRows.push_back({m.key, m.name, m.is_default});
+            }
+            if (!app.modelMenu.error.empty()) menuNote = "Menu refresh failed; showing the last one.";
+        } else {
+            for (const auto& m : hanabi::models::all())
+                if (m.id != "default") modelRows.push_back({std::string(m.id),
+                                                            std::string(m.name), false});
+            if (!menuCan)
+                menuNote = "This backend serves no model menu; showing the catalog.";
+            else if (app.modelMenu.loaded && tuning && tuning->harness.empty())
+                menuNote = "The server named no harness for this conversation; showing the catalog.";
+            else if (app.modelMenu.loaded)
+                menuNote = "The server's menu has no row for this harness; showing the catalog.";
+            else if (!app.modelMenu.error.empty())
+                menuNote = "The server did not answer for its menu; showing the catalog.";
+            else if (app.modelMenu.inFlight.valid() &&
+                     model::ModelMenuCache::same(app.modelMenu.inFlightFor,
+                                                 std::weak_ptr<const api::Client>(app.client)))
+                menuNote = "Asking the server for its menu\xe2\x80\xa6";
+            else if (app.modelMenu.deferred_for_capacity())
+                menuNote = "Waiting for room to ask the server for its menu; showing the catalog.";
+            else
+                menuNote = "The server has not been asked for its menu yet; showing the catalog.";
+        }
+        // Effort rows: the CURRENT model's own menu when the server gave one
+        // (the reference's `models.first{key}.efforts`), else the flat ladder.
+        {
+            const std::string currentKey = tuning ? tuning->requested : std::string();
+            if (menuRow != nullptr)
+                for (const auto& m : menuRow->models)
+                    if (m.key == currentKey && !m.efforts.empty()) {
+                        effortTokens = m.efforts;
+                        effortDefaultFromMenu = m.effort_default;
+                    }
+            if (effortTokens.empty())
+                for (const auto& l : hanabi::effort::all()) effortTokens.emplace_back(l.id);
+        }
 
-        constexpr float kRowH = 28.0f;
-        constexpr float kPopW = 300.0f;
-        constexpr float kHeadH = 30.0f;
-        constexpr float kSectionH = 26.0f;
-        constexpr float kLineH = 20.0f;
+        // Measured from the capture, in pt from the panel's top edge: header
+        // text centre 18.5; hairlines at 36, 131, 283; model rows centred
+        // 54/74/94/114 and effort rows 166..266 (pitch 20); "Effort" centre
+        // 147.5; "Harness" 301.5; the Native row 321; the note's two lines
+        // 339 and 349.5; panel 365 tall for 3 models. The stack below lands
+        // every one of those.
+        constexpr float kPopW = 259.0f;
+        constexpr float kInset = 12.0f;     // left/right
+        constexpr float kPadTop = 8.0f;
+        constexpr float kPadBottom = 10.0f;
+        constexpr float kRowH = 20.0f;
+        constexpr float kHeadH = 21.0f;     // "Model" line, capsule + info at right
+        constexpr float kSectionH = 17.0f;  // "Effort" line (meter at right)
+        constexpr float kHarnessH = 21.0f;  // "Harness" line (Locked at right)
+        constexpr float kHarnessRowH = 18.0f;
+        constexpr float kRuleH = 15.0f;     // hairline slot; the line at +7
+        constexpr float kLineH = 16.0f;     // restriction / footnote line
+        constexpr float kNoteGap = 3.0f;    // above the harness note
+        constexpr float kNoteLineH = 11.0f; // nano line pitch 10.5, rounded up
+        constexpr float kGlyphX = 12.5f;
+        constexpr float kGlyphW = 8.0f;
+        constexpr float kLabelX = 30.0f;
+        const float innerW = kPopW - kInset * 2.0f;
         const bool hasFootnote = inFlight || refused || unconfirmed;
+        // Three states, as the reference has them: a known kind by its
+        // display name; a kind this build has no name for, shown as the wire
+        // token itself (never guessed at); an attach that did not carry one
+        // -- "Not yet known" (ModelPopover.swift :483). No default to Native.
+        const std::string harnessName =
+            tuning && !tuning->harness.empty()
+                ? hanabi::harness::display_name(tuning->harness)
+                : std::string("Not yet known");
+        const bool harnessKnown = tuning && !tuning->harness.empty();
+        const std::vector<std::string> noteLines = {
+            "The harness owns this session's runtime, so it can't change",
+            "after the first message. Choose it when you start a session.",
+        };
         const float popH =
-            kHeadH + (restriction.empty() ? 0.0f : kLineH) +
-            kSectionH + kRowH * static_cast<float>(modelRows.size() + 1) +
-            kSectionH + kRowH * static_cast<float>(levels.size() + 1) +
-            (hasFootnote ? kLineH : 0.0f) + 12.0f;
+            kPadTop + kHeadH + (restriction.empty() ? 0.0f : kLineH) +
+            (menuNote.empty() ? 0.0f : kLineH) + kRuleH +
+            kRowH * static_cast<float>(modelRows.size() + 1) + kRuleH +
+            kSectionH + kRowH * static_cast<float>(effortTokens.size() + 1) +
+            (hasFootnote ? kLineH : 0.0f) + kRuleH + kHarnessH + kHarnessRowH +
+            kNoteGap + kNoteLineH * static_cast<float>(noteLines.size()) + kPadBottom;
 
+        // The panel's ground is the reference's `paneColors.header`
+        // (headerBg, #171F2A; the capture reads #191f29) -- hanabi's
+        // chrome::sidebar(), not the raised panel_bg_2 the other popovers use.
+        const theme::Color ground = theme::chrome::sidebar();
+        // The reference's `paneColors.hairline` on that ground reads #434952
+        // in the capture -- brighter than hanabi's border token (#262F38,
+        // the rail's hairline). Derived, not a new token: mutedText at 35 %
+        // over the ground lands on #404A55 (the capture's #434952 within
+        // the 1x read); theme.h is not this change's to extend.
+        theme::Color hairInk = theme::text_secondary();
+        hairInk.a = static_cast<unsigned char>(255 * 0.35f);
+        const theme::Color hairline = theme::over(hairInk, ground);
         const auto previousSurface = ctx.theme.surface;
-        ctx.theme.surface = theme::panel_bg_2();
+        ctx.theme.surface = ground;
+        // imm::popover builds its panel with inherit_from(config), which
+        // carries colours and fonts but NOT padding: the panel keeps
+        // surface::menu's 4pt. The measured insets (8 top, 12 sides, 10
+        // bottom) live on an inner column instead.
         auto pop = afterhours::ui::imm::popover(
             ctx, popRoot, anchor, app.modelPopoverOpen,
             afterhours::ui::overlay::Placement::Above,
             hanabi::surface::menu(kPopW, popH, 7)
+                .with_custom_background(ground)
+                .with_padding(Padding{})
                 .with_debug_name("model_popover"));
         ctx.theme.surface = previousSurface;
         if (!pop) return;
         publish_popover_occluder(pop.ent());
+        auto column = div(ctx, mk(pop.ent(), 899),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(kPadTop), .right = pixels(kInset),
+                                      .bottom = pixels(kPadBottom), .left = pixels(kInset)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_render_layer(8)
+                .with_debug_name("model_popover_column"));
+        Entity& col = column.ent();
 
         int key = 900;
-        const auto line = [&](const std::string& text, theme::Color color,
-                              float h, const char* name, float fontSize) {
-            div(ctx, mk(pop.ent(), key++),
+        const auto text_line = [&](const std::string& text, theme::Color color, float h,
+                                   float fontSize, const char* name, bool emphasis = false) {
+            auto cfg = ComponentConfig{}
+                           .with_label(text)
+                           .with_size(ComponentSize{pixels(innerW), pixels(h)})
+                           .with_transparent_bg()
+                           .with_custom_text_color(color)
+                           .with_font_size(fontSize)
+                           .with_alignment(TextAlignment::Left)
+                           .with_debug_name(name);
+            if (emphasis) cfg.with_font_weight(theme::type::EMPHASIS);
+            return div(ctx, mk(col, key++), cfg);
+        };
+        const auto rule = [&](const char* name) {
+            div(ctx, mk(col, key++),
                 ComponentConfig{}
-                    .with_label(text)
-                    .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(h)})
+                    .with_size(ComponentSize{pixels(innerW), pixels(kRuleH)})
                     .with_transparent_bg()
-                    .with_custom_text_color(color)
-                    .with_font_size(fontSize)
-                    .with_alignment(TextAlignment::Left)
-                    .with_margin(Margin{.left = pixels(8)})
+                    .with_render_layer(8)
+                    .with_on_draw_fg([hairline](RectangleType r) {
+                        // The line sits at +7 of the 15pt slot (measured 36 of
+                        // a slot that starts at 29), not centred.
+                        afterhours::draw_rectangle(
+                            RectangleType{r.x, std::round(r.y + 7.0f), r.width, 1.0f},
+                            hairline);
+                    })
                     .with_debug_name(name));
         };
-        line("Model", theme::text_primary(), kHeadH, "model_popover_title",
-             theme::type::BODY);
-        if (!restriction.empty())
-            line(restriction, theme::text_faint(), kLineH, "model_popover_restriction",
-                 theme::type::SM);
+        // A small stroked capsule with a word in it, drawn at the right edge of
+        // the line it belongs to (the header's `default`, the harness's
+        // `Locked`); optional glyph painted before the word.
+        const auto capsule_at_right = [&](Entity& line, const std::string& word,
+                                          bool lockGlyph, const char* name) {
+            const float textW = std::ceil(theme::text_px(word.c_str(), theme::type::NANO));
+            const float glyphRoom = lockGlyph ? 14.0f : 0.0f;
+            const float w = textW + 12.0f + glyphRoom;
+            auto cap = div(ctx, mk(line, 1),
+                ComponentConfig{}
+                    .with_label(word)
+                    .with_size(ComponentSize{pixels(w), pixels(16.0f)})
+                    .with_absolute_position()
+                    .with_translate(innerW - w - (lockGlyph ? 0.0f : 18.0f), 4.0f)
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::NANO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_render_layer(9)
+                    .with_on_draw_fg([lockGlyph, hairline](RectangleType r) {
+                        afterhours::draw_rectangle_rounded_lines(
+                            RectangleType{r.x, r.y, r.width, r.height}, 0.5f, 8,
+                            hairline, std::bitset<4>().set());
+                        if (lockGlyph) {
+                            // A lock: body + shackle, 6x7 at the left inset.
+                            const float x = r.x + 5.0f, y = r.y + 4.0f;
+                            afterhours::draw_rectangle(RectangleType{x, y + 3.0f, 6.0f, 4.0f},
+                                                       theme::text_secondary());
+                            afterhours::draw_ring(x + 3.0f, y + 2.5f, 1.5f, 2.5f, 32,
+                                                  theme::text_secondary());
+                        }
+                    })
+                    .with_debug_name(name));
+            // A label ignores padding (gap #75): the word is moved by its
+            // inset so the lock has its room.
+            if (cap.ent().has<afterhours::ui::HasLabel>()) {
+                cap.ent().get<afterhours::ui::HasLabel>().set_text_inset(
+                    Vector2Type{6.0f + glyphRoom, 0.0f});
+                cap.ent().get<afterhours::ui::HasLabel>().text_x_offset = 1.0f + glyphRoom;
+            }
+        };
 
-        // One row: radio (filled = current; open circle = can change; the
-        // reference's dashed circle when locked is drawn as the faint circle)
-        // and a press that captures the session id NOW, so a pane switch
-        // between press and echo cannot redirect the change.
+        // ── Header: "Model" · [default] (i) ──
+        {
+            auto head = text_line("Model", theme::text_primary(), kHeadH, theme::type::SM,
+                                  "model_popover_title", /*emphasis=*/true);
+            const bool modelPinned = tuning && tuning->model_pinned;
+            if (tuning && !modelPinned)
+                capsule_at_right(head.ent(), "default", false, "model_popover_default_capsule");
+            // The info glyph: a ring with a dot, at the far right of the line.
+            div(ctx, mk(head.ent(), 2),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(14.0f), pixels(14.0f)})
+                    .with_absolute_position()
+                    .with_translate(innerW - 14.0f, 5.0f)
+                    .with_transparent_bg()
+                    .with_on_draw_fg([](RectangleType r) {
+                        const float cx = r.x + r.width * 0.5f, cy = r.y + r.height * 0.5f;
+                        if (hanabi::icons::draw_at("info", cx, cy, 12.0f, theme::text_faint()))
+                            return;
+                        afterhours::draw_ring(cx, cy, 5.0f, 6.0f, 20, theme::text_faint());
+                        afterhours::draw_rectangle(RectangleType{cx - 0.5f, cy - 0.5f, 1.0f, 3.5f},
+                                                   theme::text_faint());
+                        afterhours::draw_rectangle(RectangleType{cx - 0.5f, cy - 3.0f, 1.0f, 1.0f},
+                                                   theme::text_faint());
+                    })
+                    .with_debug_name("model_popover_info"));
+            hanabi::a11y::set_name(head.ent(), "Model", hanabi::a11y::Role::Menu);
+        }
+        if (!restriction.empty())
+            text_line(restriction, theme::text_faint(), kLineH, theme::type::NANO,
+                      "model_popover_restriction");
+        if (!menuNote.empty())
+            text_line(menuNote, theme::text_faint(), kLineH, theme::type::NANO,
+                      "model_popover_menu_note");
+        rule("model_popover_rule_a");
+
+        // One choice row: radio, label, optional right-aligned detail; the
+        // press captures the session id NOW so a pane switch between press
+        // and echo cannot redirect the change. Rows that cannot act are drawn
+        // muted and their press does nothing.
         int rowKey = 0;
         const auto choice = [&](const std::string& label, bool current,
-                                const std::string& name,
+                                const std::string& detail, const std::string& name,
                                 api::SessionOptionsPatch patch) {
-            hanabi::control::State st;
-            st.selected = current;
-            st.disabled = !canChange && !current;
+            const bool disabled = !canChange && !current;
+            // No fill band: the reference's row is radio + ink only, and a
+            // hover is the plain row hover. Lit = primary ink + accent radio.
             auto row = button(
-                ctx, mk(pop.ent(), rowKey++),
-                hanabi::surface::option_row(kPopW - 8.0f, kRowH, st, 8,
-                                            theme::panel_bg_2())
-                    .with_margin(Margin{.left = pixels(4.0f), .right = pixels(4.0f)})
+                ctx, mk(col, rowKey++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(innerW), pixels(kRowH)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_justify_content(JustifyContent::FlexEnd)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_roundness(0.0f)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_render_layer(8)
                     .with_label(label)
                     .with_font_size(theme::type::SM)
+                    // Measured at 2x on the reference: the LIT row's stems
+                    // are 3px against 2px on a muted row -- the semibold face
+                    // (`PuffinTheme.Font.bodyEmphasis`); ours was regular.
+                    .with_font_weight(current ? theme::type::EMPHASIS
+                                              : afterhours::colors::FontWeight::Regular)
                     .with_alignment(TextAlignment::Left)
+                    .with_custom_text_color(current ? theme::text_primary()
+                                                    : (disabled ? theme::text_faint()
+                                                                : theme::text_secondary()))
                     .with_on_draw_fg([current, canChange](RectangleType r) {
-                        hanabi::glyph::radio(
-                            RectangleType{r.x + 9.0f, r.y, 12.0f, r.height}, current,
+                        // A true circle, 8pt: a 1pt ring and a 2pt dot when
+                        // lit. 64 segments -- 24 at 4pt radius reads as a
+                        // rounded square at 2x (the first pair showed it);
+                        // sub-pixel centre kept (DrawCircle truncates to int).
+                        const float cx = r.x + kGlyphX + kGlyphW * 0.5f;
+                        const float cy = r.y + r.height * 0.5f;
+                        const theme::Color c =
                             current ? theme::accent()
                                     : (canChange ? theme::text_secondary()
-                                                 : theme::text_faint()));
+                                                 : theme::text_faint());
+                        afterhours::draw_ring(cx, cy, 3.0f, 4.0f, 64, c);
+                        if (current) afterhours::draw_circle_v(Vector2Type{cx, cy}, 2.0f, c);
                     })
                     .with_debug_name(name));
             row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
-                Vector2Type{28.0f, 0.0f});
-            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
-            hanabi::a11y::set_name(row.ent(), label + (current ? ", selected" : "") +
-                                                  (st.disabled ? ", unavailable" : ""));
+                Vector2Type{kLabelX, 0.0f});
+            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = kLabelX - 5.0f;
+            // The keyboard reaches a row: it is a focusable button in the
+            // panel's subtree (focus inside the panel keeps it open), Tab walks
+            // it, Enter presses it; a row that cannot act loses its listener
+            // below and with it its place in the walk.
+            row.ent().addComponentIfMissing<afterhours::ui::InFocusCluster>();
+            if (!detail.empty()) {
+                // The resolved value, right-aligned on the SAME line: the row
+                // is a right-justified flex row, so this one child sits at the
+                // inset. Nano, muted (the capture's "Opus 5" / "high").
+                const float w = std::ceil(theme::text_px(detail.c_str(), theme::type::NANO)) + 2.0f;
+                // The pair read the value ~3pt low against the row's label:
+                // the nano text is centred in a 20pt box while the reference
+                // aligns it to the body's baseline. A 14pt box, top-aligned
+                // in the row, lifts it onto the same line.
+                div(ctx, mk(row.ent(), 1),
+                    ComponentConfig{}
+                        .with_label(detail)
+                        .with_size(ComponentSize{pixels(w), pixels(kRowH - 6.0f)})
+                        .with_margin(Margin{.bottom = pixels(6.0f)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::NANO)
+                        .with_alignment(TextAlignment::Right)
+                        .with_debug_name(name + "_detail"));
+            }
+            const std::string spoken = label + (detail.empty() ? "" : ", " + detail) +
+                                       (current ? ", selected" : "") +
+                                       (disabled ? ", unavailable" : "");
+            hanabi::a11y::describe(row.ent(), {.value = spoken,
+                                               .role = hanabi::a11y::Role::Button,
+                                               .enabled = !disabled,
+                                               .selected = current});
+            // A row that cannot act has NO listener: a press on it is a press
+            // on the panel (nothing happens, the panel stays), not a click
+            // that goes nowhere. The current row keeps its listener -- the
+            // keyboard walks it -- and its press is a no-op by design (asking
+            // the server for the state it already holds is the reference's
+            // no-op too).
+            if (disabled) {
+                row.ent().removeComponentIfExists<afterhours::ui::HasClickListener>();
+                return;
+            }
             const int paneAt = pane_index(app, ownPane);
             hanabi::ui::act_on_press(
-                row, [&app, canChange, current, sessionId, paneAt, patch] {
-                    if (!canChange || current || sessionId.empty()) return;
+                row, [&app, current, sessionId, paneAt, patch] {
+                    if (current || sessionId.empty()) return;
                     app.requestSessionOptions =
                         AppComponent::SessionOptionsAsk{sessionId, paneAt, patch};
                     app.modelPopoverOpen = false;
@@ -4687,72 +4978,124 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // ── Model ──
         const bool modelPinned = tuning && tuning->model_pinned;
-        line("", theme::text_faint(), 4.0f, "model_popover_gap_a", theme::type::SM);
-        for (const auto* m : modelRows) {
-            const bool current = modelPinned && tuning->requested == m->id;
-            choice(std::string(m->name), current, "model_row_" + std::string(m->id),
-                   api::SessionOptionsPatch::set_model(std::string(m->id)));
+        // The pin, or the harness default the attach named, or the menu's
+        // `default` marker when the attach named none (ModelMenuCache::
+        // resolved_model -- the rule lives with the cache, tested there).
+        const std::string resolvedModel =
+            tuning ? app.modelMenu.resolved_model(tuning->harness, tuning->requested)
+                   : std::string();
+        for (const auto& m : modelRows) {
+            // Lit when this is what RUNS: the pin, or -- with no pin -- the
+            // default it resolves to (the capture lights both that row and
+            // `default`).
+            const bool current = tuning && resolvedModel == m.id;
+            choice(m.name, current, "", "model_row_" + m.id,
+                   api::SessionOptionsPatch::set_model(m.id));
         }
-        {
-            const std::string resolved =
-                tuning && !tuning->harness_default.empty()
-                    ? hanabi::models::display_name(tuning->harness_default)
-                    : std::string();
-            choice(resolved.empty() ? "default" : "default  " + resolved,
-                   tuning && !modelPinned, "model_row_default",
-                   api::SessionOptionsPatch::unset_model());
-        }
+        choice("default", tuning && !modelPinned,
+               resolvedModel.empty() ? "" : hanabi::models::display_name(resolvedModel),
+               "model_row_default", api::SessionOptionsPatch::unset_model());
+        rule("model_popover_rule_b");
 
         // ── Effort ──
-        const std::string effortNow = tuning ? tuning->requested_effort : std::string();
+        const std::string effortPin = tuning ? tuning->requested_effort : std::string();
+        const std::string effortResolved =
+            !effortPin.empty()              ? effortPin
+            : !effortDefaultFromMenu.empty() ? effortDefaultFromMenu
+                                             : std::string(hanabi::effort::default_id());
         int filled = 0;
-        for (std::size_t i = 0; i < levels.size(); ++i)
-            if (levels[i].id == effortNow) filled = static_cast<int>(i) + 1;
+        for (std::size_t i = 0; i < effortTokens.size(); ++i)
+            if (effortTokens[i] == effortResolved) filled = static_cast<int>(i) + 1;
         {
-            const int total = static_cast<int>(levels.size());
-            div(ctx, mk(pop.ent(), key++),
+            const int total = static_cast<int>(effortTokens.size());
+            auto head = text_line("Effort", theme::text_secondary(), kSectionH,
+                                  theme::type::MICRO, "effort_section", /*emphasis=*/true);
+            div(ctx, mk(head.ent(), 1),
                 ComponentConfig{}
-                    .with_label("Effort")
-                    .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(kSectionH)})
+                    .with_size(ComponentSize{pixels(static_cast<float>(total) * 6.0f - 2.0f),
+                                             pixels(8.0f)})
+                    .with_absolute_position()
+                    .with_translate(innerW - (static_cast<float>(total) * 6.0f - 2.0f), 7.0f)
                     .with_transparent_bg()
-                    .with_custom_text_color(theme::text_primary())
-                    .with_font_size(theme::type::BODY)
-                    .with_alignment(TextAlignment::Left)
-                    .with_margin(Margin{.left = pixels(8)})
                     .with_on_draw_fg([filled, total](RectangleType r) {
-                        // The meter: `total` cells at the right edge, the
-                        // first `filled` lit. No pin = nothing lit.
-                        const float cellW = 10.0f, gap = 3.0f, cellH = 8.0f;
-                        const float x0 = r.x + r.width - 8.0f -
-                                         static_cast<float>(total) * (cellW + gap);
-                        const float y = r.y + (r.height - cellH) * 0.5f;
-                        for (int i = 0; i < total; ++i) {
-                            afterhours::draw_rectangle(
-                                RectangleType{x0 + static_cast<float>(i) * (cellW + gap), y,
-                                              cellW, cellH},
-                                i < filled ? theme::accent() : theme::border());
-                        }
+                        // The meter: `total` 4x8 cells, gap 2, the first
+                        // `filled` in accent, the rest muted at 30%.
+                        theme::Color dim = theme::text_secondary();
+                        dim.a = static_cast<unsigned char>(dim.a * 0.3f);
+                        for (int i = 0; i < total; ++i)
+                            afterhours::draw_rectangle_rounded(
+                                RectangleType{r.x + static_cast<float>(i) * 6.0f, r.y, 4.0f, 8.0f},
+                                0.25f, 4, i < filled ? theme::accent() : dim);
                     })
-                    .with_debug_name("effort_section"));
+                    .with_debug_name("effort_meter"));
         }
-        for (const auto& l : levels) {
-            const bool current = effortNow == l.id;
-            choice(std::string(l.name), current, "effort_row_" + std::string(l.id),
-                   api::SessionOptionsPatch::set_effort(std::string(l.id)));
+        for (const auto& tokenId : effortTokens) {
+            // Lit only when PINNED to this level: with no pin, the capture
+            // lights `default` alone and names the resolved level beside it.
+            // The label is the wire token itself ("low" ... "max"), as the
+            // reference prints it.
+            const bool current = effortPin == tokenId;
+            choice(tokenId, current, "", "effort_row_" + tokenId,
+                   api::SessionOptionsPatch::set_effort(tokenId));
         }
-        choice("default", tuning && effortNow.empty(), "effort_row_default",
-               api::SessionOptionsPatch::unset_effort());
+        choice("default", tuning && effortPin.empty(),
+               tuning ? effortResolved : std::string(),
+               "effort_row_default", api::SessionOptionsPatch::unset_effort());
 
         // ── Footnote ──
         if (inFlight)
-            line("Waiting for the server to confirm.", theme::text_faint(), kLineH,
-                 "model_popover_footnote", theme::type::SM);
+            text_line("Waiting for the server to confirm.", theme::text_faint(), kLineH,
+                      theme::type::NANO, "model_popover_footnote");
         else if (refused)
-            line("Refused: " + app.tuningOutcomeText, theme::status_review(), kLineH,
-                 "model_popover_footnote", theme::type::SM);
+            text_line("Refused: " + app.tuningOutcomeText, theme::status_review(), kLineH,
+                      theme::type::NANO, "model_popover_footnote");
         else if (unconfirmed)
-            line("Sent, but not confirmed: " + app.tuningOutcomeText, theme::status_review(),
-                 kLineH, "model_popover_footnote", theme::type::SM);
+            text_line("Sent, but not confirmed: " + app.tuningOutcomeText,
+                      theme::status_review(), kLineH, theme::type::NANO,
+                      "model_popover_footnote");
+        rule("model_popover_rule_c");
+
+        // ── Harness: read-only, the session's own; no pick list ──
+        {
+            auto head = text_line("Harness", theme::text_secondary(), kHarnessH,
+                                  theme::type::MICRO, "harness_section", /*emphasis=*/true);
+            capsule_at_right(head.ent(), "Locked", true, "harness_locked_capsule");
+            auto row = div(ctx, mk(col, key++),
+                ComponentConfig{}
+                    .with_label(harnessName)
+                    .with_size(ComponentSize{pixels(innerW), pixels(kHarnessRowH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(harnessKnown ? theme::text_primary()
+                                                         : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_font_weight(harnessKnown ? theme::type::EMPHASIS
+                                                   : afterhours::colors::FontWeight::Regular)
+                    .with_alignment(TextAlignment::Left)
+                    .with_on_draw_fg([harnessKnown](RectangleType r) {
+                        if (!harnessKnown) return;  // nothing to tick
+                        // A checkmark where the radio sits on the rows above.
+                        const float x = r.x + kGlyphX - 3.0f, cy = r.y + r.height * 0.5f;
+                        afterhours::draw_line_ex(afterhours::vec2{x, cy},
+                                                 afterhours::vec2{x + 2.5f, cy + 2.5f}, 1.5f,
+                                                 theme::text_primary());
+                        afterhours::draw_line_ex(afterhours::vec2{x + 2.5f, cy + 2.5f},
+                                                 afterhours::vec2{x + 7.0f, cy - 3.0f}, 1.5f,
+                                                 theme::text_primary());
+                    })
+                    .with_debug_name("harness_row"));
+            row.ent().get<afterhours::ui::HasLabel>().set_text_inset(Vector2Type{kLabelX, 0.0f});
+            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = kLabelX - 5.0f;
+            hanabi::a11y::set_name(row.ent(), "Harness: " + harnessName +
+                                                  (harnessKnown ? ", locked" : ""));
+            div(ctx, mk(col, key++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(innerW), pixels(kNoteGap)})
+                    .with_transparent_bg()
+                    .with_debug_name("harness_note_gap"));
+            for (std::size_t i = 0; i < noteLines.size(); ++i)
+                text_line(noteLines[i], theme::text_faint(), kNoteLineH, theme::type::NANO,
+                          i == 0 ? "harness_note" : "harness_note_2");
+        }
     }
 
     static model::PaneState& staged_state(const api::OutgoingTarget& target) {
@@ -7154,13 +7497,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const api::Session::ServingModel* serving =
                 ownPane.openSession ? &ownPane.openSession->model : nullptr;
             const bool servingKnown = serving && !serving->serving.empty();
+            // The chip names what RUNS -- the pin, or the default it resolves
+            // to (the reference's chip: "Opus 5 (high)" on an untuned session).
+            // With no session yet, the launch default the next conversation
+            // starts with; "default" there means the server's own choice.
             std::string modelText = hanabi::models::display_name(
                 servingKnown ? serving->serving
                              : (serving && !serving->requested.empty()
                                     ? serving->requested
                                     : Settings::get().get_default_model()));
             if (serving && !serving->requested_effort.empty())
-                modelText += " (" + hanabi::effort::display_name(serving->requested_effort) + ")";
+                modelText += " (" + serving->requested_effort + ")";
             const bool fellBack = servingKnown && serving->fallback;
             if (fellBack) modelText += " (fell back)";
             auto modelChip = button(ctx, mk(leftMeta.ent(), 1),

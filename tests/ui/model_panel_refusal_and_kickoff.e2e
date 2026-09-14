@@ -14,9 +14,12 @@ assert_ui model_popover_title hidden=false
 expect_text "Start the conversation to change its model."
 click_ui model_row_gpt-5.5
 wait_frames 10
-# Still open, nothing asked of anyone.
+# Still open, nothing asked of anyone -- the rows carry no listener here,
+# and the screen reader is refused the press too.
 assert_ui model_popover_title hidden=false
 expect_mock_outbound_calls 0
+expect_a11y "GPT-5.5, unavailable" role=AXButton
+expect_a11y_press_refused "GPT-5.5, unavailable"
 key ESCAPE
 wait_frames 8
 

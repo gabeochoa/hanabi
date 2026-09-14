@@ -25,7 +25,11 @@ wait_frames 8
 
 click_ui composer_model
 wait_frames 10
-expect_hit_targets
+# The model panel's rows are 20pt tall BY MEASURE of the reference
+# (/tmp/hz-ref5/strip/model.png: 20pt pitch, the rows are the whole pitch),
+# below hanabi's 28pt pointer-target floor. The exception is explicit here,
+# per row, with that reason -- no threshold change, no invisible overlap.
+expect_hit_targets model_row_claude-opus-5 model_row_claude-fable-5 model_row_claude-opus-4-8 model_row_claude-sonnet-5 model_row_avocado-code-flex model_row_muse-spark-1.2-internal model_row_gpt-5.6-sol model_row_gpt-5.5 model_row_default effort_row_low effort_row_medium effort_row_high effort_row_xhigh effort_row_max effort_row_default
 key ESCAPE
 wait_frames 6
 

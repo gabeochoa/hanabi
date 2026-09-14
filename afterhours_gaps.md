@@ -14027,6 +14027,25 @@ named "x" that `assert_ui x` finds.
 
 ---
 
+### APP #H3 — The model panel's rows are 20pt by the reference's measure; hanabi's pointer-target floor is 28pt
+
+**Class:** app rule vs reference geometry (not a library defect). The first
+native capture of the reference's model panel (/tmp/hz-ref5/strip/model.png,
+2026-09-13) shows its model and effort rows on a 20pt pitch with the whole
+pitch pressable; `hanabi::control::kMinHitTarget` is 28 (control_state.h)
+and `expect_hit_targets` audits every click listener against it. The
+reference is below hanabi's own bar; the user asked for 1:1.
+
+**Resolution (2026-09-13).** The rows are drawn AND pressable at 20 -- no
+invisible overlapping targets (an overlap would let a press land on the
+neighbour), no change to the floor. The audit's per-script allow-list names
+the fifteen rows (model_row_*, effort_row_*) in
+shared_controls_meet_the_hit_target.e2e with this note as the reason;
+every other pressable in the app still meets 28. If the reference ever
+grows its rows, the allow-list shrinks with it.
+
+---
+
 ### APP #H1 — RESOLVED 2026-09-13: saved views exist (store, shelf, "+", filter, persistence)
 
 Was: HANABI-ONLY PARITY LIMITATION, no saved-filter store. Now

@@ -617,6 +617,36 @@ struct AskAnswer {
 // RFC 7386 per knob -- an unset outer optional leaves the knob untouched, an
 // inner nullopt sends `null` (unset the session's pin, the outer layers apply
 // again), a value sets it. v1 carries the `llm` concern: model and effort.
+// The deployment's model menu (agentcloud `models` control command): one row
+// per harness this orchestrator hosts, each with the models it serves the
+// caller -- key, display name, the deployment default marker, the model's
+// own effort menu (supported values weakest first, and the default). Advisory
+// advertisement for pickers; the create/spawn gates and the gateway remain
+// the enforcement. A snapshot: the client re-issues `models` to refresh.
+struct ModelMenuEntry {
+    std::string key;            // what a create / patch passes
+    std::string name;           // what the picker shows
+    bool is_default = false;    // the model the server runs when a create omits one
+    std::string effort_default; // selecting it == not setting effort
+    std::vector<std::string> efforts;  // weakest first
+    bool operator==(const ModelMenuEntry&) const = default;
+};
+struct ModelMenuHarness {
+    std::string harness;  // HarnessKind token
+    std::vector<ModelMenuEntry> models;
+    bool operator==(const ModelMenuHarness&) const = default;
+};
+struct ModelMenu {
+    std::vector<ModelMenuHarness> harnesses;
+    [[nodiscard]] bool empty() const { return harnesses.empty(); }
+    [[nodiscard]] const ModelMenuHarness* row_for(std::string_view harness) const {
+        for (const auto& h : harnesses)
+            if (h.harness == harness) return &h;
+        return nullptr;
+    }
+    bool operator==(const ModelMenu&) const = default;
+};
+
 struct SessionOptionsPatch {
     std::optional<std::optional<std::string>> model;
     std::optional<std::optional<std::string>> effort;
@@ -692,6 +722,10 @@ struct Session {
         // the harness default when it does not, so this is the fact a
         // "default" row needs.
         bool model_pinned = false;
+        // The driver stamped at create (hello.state.harness, a HarnessKind
+        // token: native / claude_code / codex / muse_code); "" when the
+        // attach did not say. Read-only for the session's whole life.
+        std::string harness;
     };
     ServingModel model;
 

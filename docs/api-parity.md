@@ -71,11 +71,24 @@ the composer's model panel is its only caller. The attach snapshot
 
 Still open against the reference's panel, because the CONTRACT is not there
 yet (not because a wrapper is missing):
-- **Per-model effort lists** — the reference draws the efforts of the current
-  model (`models.first{key}.efforts`); the OpenAPI spec exposes no per-model
-  effort catalog, so hanabi lists the flat ladder (`hanabi::effort::all`).
-- **Harness section** — the reference lists harnesses and marks the session's
-  as Locked; no harness catalog is served to clients today.
+- **Per-model effort lists** — served by the `models` command
+  (`WireModel.effort {default, supported}`), wired 2026-09-13: the panel's
+  effort rows are the current model's own menu when the server gave one.
+- **Harness section** — drawn 2026-09-13, read-only, from `hello.state.harness`
+  (WireState.harness): the session's harness as a checked row with the Locked
+  capsule; no pick list, as in the reference (a harness cannot change after
+  the first message).
+- **Served model list** — wired 2026-09-13: `Client::model_menu()` issues the
+  pre-attach `models` control command (`{"cmd":"models"}` on the control sub;
+  reply `harnesses: [{harness, models: [{model_key, friendly_name, default?,
+  effort: {default, supported}, sensitive_compatible?}]}]`, advisory, a
+  snapshot the client re-issues to refresh). hanabi asks when the model panel
+  opens and its snapshot is missing or older than two hours (the reference's
+  rule), off the frame loop, and keeps the last good snapshot on a failed
+  refresh. Until the server has answered the panel shows the catalog it knows
+  WITH a line saying so -- never an empty list as an authoritative answer --
+  and refuses nothing on the catalog's basis: only the server's typed refusal
+  does. The mock's HANABI_MOCK_MODELS is a capture fixture.
 - **Correlation** — the protocol carries no request id: an `options_changed`
   settles the oldest outstanding patch (the reference's rule too). hanabi
   keeps ONE change in flight per session and refuses a second locally until

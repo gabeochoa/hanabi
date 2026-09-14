@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "client.h"
+#include "../ui/model_menu.h"
 #include "compaction.h"
 #include "elicitation.h"
 
@@ -294,6 +295,7 @@ class MockClient : public Client {
         if (title.size() > 60) title = title.substr(0, 57) + "...";
         std::string id = "new" + std::to_string(created_.size() + 1);
         Session s;
+        s.model.harness = "native";
         s.summary = sum(id, title, 0, "active", ThreadState::Running,
                         ThreadTag::None, "recent", false,
                         prompt.empty() ? "" : prompt);
@@ -867,6 +869,54 @@ class MockClient : public Client {
     bool supports_session_options() const override {
         return std::getenv("HANABI_MOCK_NO_SESSION_OPTIONS") == nullptr;
     }
+    // The deployment's menu, offline: one `native` harness row (the mock's
+    // sessions are native) whose models are the catalog, or -- for a capture
+    // fixture -- HANABI_MOCK_MODELS=a,b,c; the harness default the sessions
+    // resolve to is marked `default`; every model's effort menu is the five
+    // tokens with "high" the default. HANABI_MOCK_NO_MODEL_MENU stages a
+    // backend without the command.
+    bool supports_model_menu() const override {
+        return std::getenv("HANABI_MOCK_NO_MODEL_MENU") == nullptr;
+    }
+    Result<ModelMenu> model_menu() override {
+        outbound_calls().fetch_add(1);
+        if (!supports_model_menu())
+            return Result<ModelMenu>::failure("this backend serves no model menu");
+        ModelMenu menu;
+        ModelMenuHarness row;
+        row.harness = "native";
+        for (const auto& key : served_model_keys()) {
+            ModelMenuEntry e;
+            e.key = key;
+            e.name = hanabi::models::display_name(key);
+            e.is_default = key == kMockHarnessDefault;
+            e.effort_default = "high";
+            e.efforts = {"low", "medium", "high", "xhigh", "max"};
+            row.models.push_back(std::move(e));
+        }
+        menu.harnesses.push_back(std::move(row));
+        return Result<ModelMenu>::success(std::move(menu));
+    }
+    static constexpr const char* kMockHarnessDefault = "claude-opus-5";
+    static std::vector<std::string> served_model_keys() {
+        std::vector<std::string> out;
+        if (const char* v = std::getenv("HANABI_MOCK_MODELS"); v && *v) {
+            std::string cur;
+            for (const char* c = v;; ++c) {
+                if (*c == ',' || *c == '\0') {
+                    if (!cur.empty()) out.push_back(cur);
+                    cur.clear();
+                    if (*c == '\0') break;
+                } else {
+                    cur.push_back(*c);
+                }
+            }
+            return out;
+        }
+        for (const auto& m : hanabi::models::all())
+            if (m.id != "default") out.emplace_back(m.id);
+        return out;
+    }
     Result<SessionOptionsEcho> patch_session_options(
         const std::string& session_id, const SessionOptionsPatch& patch) override {
         outbound_calls().fetch_add(1);
@@ -879,10 +929,6 @@ class MockClient : public Client {
             return Result<SessionOptionsEcho>::refusal("no such session: " + session_id);
         static constexpr std::string_view kEfforts[] = {"low", "medium", "high",
                                                         "xhigh", "max"};
-        static constexpr std::string_view kServed[] = {
-            "claude-opus-5",    "claude-fable-5",          "claude-opus-4-8",
-            "claude-sonnet-5",  "avocado-code-flex",       "muse-spark-1.2-internal",
-            "gpt-5.6-sol",      "gpt-5.5"};
         if (patch.effort.has_value() && patch.effort->has_value()) {
             bool known = false;
             for (auto e : kEfforts) known = known || e == **patch.effort;
@@ -892,7 +938,7 @@ class MockClient : public Client {
         }
         if (patch.model.has_value() && patch.model->has_value()) {
             bool served = false;
-            for (auto m : kServed) served = served || m == **patch.model;
+            for (const auto& m : served_model_keys()) served = served || m == **patch.model;
             if (!served)
                 return Result<SessionOptionsEcho>::refusal(
                     "model '" + **patch.model + "' is not served by this session's harness");
@@ -3143,6 +3189,18 @@ class MockClient : public Client {
             }
         }
 
+        // Every catalog session runs on the native harness unless a fixture
+        // above said otherwise -- what hello.state.harness would carry.
+        for (Session& s : v) {
+            if (s.model.harness.empty()) s.model.harness = "native";
+            // The harness default every untuned session resolves to (what
+            // hello.state.option_defaults.llm.model says); the capture's
+            // fixture resolves to Opus 5. A fixture with its own above keeps it.
+            if (s.model.harness_default.empty()) {
+                s.model.harness_default = kMockHarnessDefault;
+                if (s.model.requested.empty()) s.model.requested = s.model.harness_default;
+            }
+        }
         return v;
     }
 };

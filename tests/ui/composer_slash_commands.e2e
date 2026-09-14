@@ -40,11 +40,12 @@ expect_no_text "compact the context now"
 # the field.
 click_ui slash_item_0
 wait_frames 8
-expect_text "Server default"
 expect_text "Opus 5"
-click_ui model_row_claude-opus-5
+# Opus 5 is what already runs (the harness default): its row is lit and a
+# press on it asks for nothing. Pick Sonnet, which is a change.
+click_ui model_row_claude-sonnet-5
 wait_frames 12
-expect_text "Opus 5"
+expect_text "Sonnet 5"
 expect_input_text composer_reply_input ""
 
 click_ui composer_reply_input
@@ -62,8 +63,8 @@ click_ui effort_row_low
 wait_frames 12
 # The model chosen above through /model is still the session's; /effort
 # added the effort beside it.
-expect_backend_tuning t2 claude-opus-5 low
-expect_text "(Low)"
+expect_backend_tuning t2 claude-sonnet-5 low
+expect_text "(low)"
 expect_input_text composer_reply_input ""
 
 # /new opens the ONE new-thread surface -- there is no second composer to

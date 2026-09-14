@@ -16,6 +16,7 @@
 #include "../../src/api/agentcloud_auth.h"
 #include "../../src/api/agentcloud_client.h"
 #include "../../src/api/attachments.h"
+#include "../../src/ui/harness_names.h"
 #include "../../src/ecs/thread_model.h"
 #include "../../vendor/nlohmann/json.hpp"
 
@@ -1860,6 +1861,28 @@ static void test_hello_state_folds_the_session_tuning() {
     CHECK(s.model.requested == "gpt-5.5");
     CHECK(s.model.requested_effort == "max");
     CHECK(s.model.harness_default == "claude-fable-5");
+    // The driver stamped at create rides the hello too (WireState.harness),
+    // in three states: a known kind, a kind this build has no name for
+    // (kept as the token, never guessed), and absent (an old server or a
+    // pre-stamp journal omits the key; `null` reads the same).
+    api::Session h;
+    api::agentcloud::parse_serving_model(
+        R"({"type":"hello","state":{"harness":"claude_code","options":{}}})", h);
+    CHECK(h.model.harness == "claude_code");
+    api::Session hu;
+    api::agentcloud::parse_serving_model(
+        R"({"type":"hello","state":{"harness":"some_future_kind","options":{}}})", hu);
+    CHECK(hu.model.harness == "some_future_kind");
+    CHECK(s.model.harness.empty());  // the first hello did not carry it
+    api::Session hn;
+    api::agentcloud::parse_serving_model(R"({"type":"hello","state":{"harness":null}})", hn);
+    CHECK(hn.model.harness.empty());
+    // And the label each state gets on the panel's Harness row.
+    CHECK(hanabi::harness::display_name("native") == "Native");
+    CHECK(hanabi::harness::display_name("claude_code") == "Claude Code");
+    CHECK(hanabi::harness::display_name("codex") == "Codex");
+    CHECK(hanabi::harness::display_name("muse_code") == "Muse Code");
+    CHECK(hanabi::harness::display_name("some_future_kind") == "some_future_kind");
     // Untuned: requested copies the harness default but is NOT a pin, and
     // there is no effort pin -- the "default" rows are what is current.
     api::Session u;
@@ -2034,9 +2057,41 @@ static void test_patch_awaits_the_boundary_gated_durable_echo() {
     }
 }
 
+// The `models` control command's reply: per-harness rows with the model's
+// key, friendly name, default marker and effort menu; a row without a key is
+// dropped; a menu that names no default has none.
+static void test_models_reply_parses_the_deployment_menu() {
+    std::printf("test_models_reply_parses_the_deployment_menu\n");
+    const auto menu = api::agentcloud::parse_models_reply(
+        R"({"type":"models","harnesses":[
+             {"harness":"native","models":[
+               {"model_key":"claude-opus-5","friendly_name":"Opus 5","default":true,
+                "effort":{"default":"high","supported":["low","medium","high","xhigh","max"]}},
+               {"model_key":"gpt-5.6-sol","friendly_name":"GPT-5.6 Sol",
+                "effort":{"default":"medium","supported":["low","medium","high"]}},
+               {"friendly_name":"no key, dropped","effort":{"default":"high","supported":[]}}]},
+             {"harness":"claude_code","models":[
+               {"model_key":"opus","friendly_name":"","effort":{"default":"high","supported":["high"]}}]}]})");
+    CHECK(menu.harnesses.size() == 2);
+    const auto* native = menu.row_for("native");
+    CHECK(native != nullptr && native->models.size() == 2);
+    CHECK(native->models[0].key == "claude-opus-5" && native->models[0].name == "Opus 5");
+    CHECK(native->models[0].is_default);
+    CHECK(native->models[0].effort_default == "high" && native->models[0].efforts.size() == 5);
+    CHECK(!native->models[1].is_default);
+    CHECK(native->models[1].efforts == std::vector<std::string>({"low", "medium", "high"}));
+    const auto* cc = menu.row_for("claude_code");
+    CHECK(cc != nullptr && cc->models.size() == 1);
+    CHECK(cc->models[0].name == "opus");  // an empty friendly name falls back to the key
+    CHECK(menu.row_for("codex") == nullptr);
+    CHECK(api::agentcloud::parse_models_reply(R"({"type":"models"})").empty());
+    CHECK(api::agentcloud::parse_models_reply("garbage").empty());
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
+    test_models_reply_parses_the_deployment_menu();
     test_session_options_patch_wire_shape();
     test_create_carries_the_launch_tuning_as_options_llm();
     test_options_changed_echo_is_the_merged_layer();

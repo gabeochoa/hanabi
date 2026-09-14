@@ -19,6 +19,6 @@ require_thread new1
 expect_backend_message new1 "start with my defaults"
 expect_backend_tuning new1 claude-opus-5 low
 # The new thread's chip says what it was created with.
-expect_text "Opus 5 (Low)"
+expect_text "Opus 5 (low)"
 # Nothing retroactive.
 expect_backend_tuning t2 - -

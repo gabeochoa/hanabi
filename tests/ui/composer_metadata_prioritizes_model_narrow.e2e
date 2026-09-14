@@ -8,5 +8,6 @@ require_thread t2
 wait_frames 12
 assert_ui composer_model hidden=false
 expect_no_ui composer_effort
-expect_text "Server default"
+# The chip names what runs: the harness default, Opus 5, on an untuned thread.
+expect_text "Opus 5"
 expect_no_text "Tools: Folded"

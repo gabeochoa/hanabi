@@ -1589,10 +1589,34 @@ static void test_legacy_create_refuses_tuning_and_still_creates_untuned() {
     CHECK(c.creates == 1);
 }
 
+// The mock's `models` menu: one native row, the catalog (or the fixture's
+// HANABI_MOCK_MODELS list), the harness default marked, five efforts each.
+static void test_mock_model_menu_is_the_catalog_with_the_default_marked() {
+    std::printf("test_mock_model_menu_is_the_catalog_with_the_default_marked\n");
+    api::MockClient m;
+    CHECK(m.supports_model_menu());
+    auto r = m.model_menu();
+    CHECK(r.ok && r.value.harnesses.size() == 1);
+    const auto* native = r.value.row_for("native");
+    CHECK(native != nullptr && !native->models.empty());
+    int defaults = 0;
+    for (const auto& e : native->models) {
+        if (e.is_default) ++defaults;
+        CHECK(e.efforts.size() == 5 && e.effort_default == "high");
+        CHECK(!e.name.empty());
+    }
+    CHECK(defaults == 1);
+    bool hasOpus = false;
+    for (const auto& e : native->models)
+        if (e.key == "claude-opus-5" && e.is_default) hasOpus = true;
+    CHECK(hasOpus);
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
     test_mock_patch_session_options_follows_the_server_rules();
+    test_mock_model_menu_is_the_catalog_with_the_default_marked();
     test_mock_create_records_the_launch_tuning_and_send_ignores_it();
     test_legacy_create_refuses_tuning_and_still_creates_untuned();
     test_attachment_draft_retains_its_bytes();

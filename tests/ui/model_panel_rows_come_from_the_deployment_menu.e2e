@@ -1,0 +1,36 @@
+# The panel's rows are the DEPLOYMENT's, not a list the client knows: opening
+# the panel asks the server for its `models` menu once (off the frame loop),
+# and the rows are that harness row's models with the server's default
+# marked; a backend that serves no menu shows the catalog hanabi knows WITH a
+# line saying so, never an empty list posing as the answer.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_MOCK_MODELS=claude-opus-5,claude-sonnet-5,gpt-5.6-sol
+require_thread t2
+wait_frames 12
+click_ui composer_model
+wait_frames 14
+assert_ui model_popover_title hidden=false
+# The server answered: three rows, the note is gone, the catalog's other
+# models are not offered.
+expect_no_ui model_popover_menu_note
+assert_ui model_row_claude-opus-5 hidden=false
+assert_ui model_row_claude-sonnet-5 hidden=false
+assert_ui model_row_gpt-5.6-sol hidden=false
+expect_no_ui model_row_gpt-5.5
+expect_no_ui model_row_claude-fable-5
+# The server's default is what runs with no pin: Opus 5 lit, `default` naming it.
+expect_text "Opus 5, selected"
+expect_text "default, Opus 5, selected"
+# The effort rows are the current model's own menu (five here).
+assert_ui effort_row_low hidden=false
+assert_ui effort_row_max hidden=false
+key ESCAPE
+wait_frames 8
+# One ask per open while the snapshot is fresh: reopening asks nothing new.
+expect_mock_outbound_calls 1
+click_ui composer_model
+wait_frames 10
+expect_mock_outbound_calls 1
+key ESCAPE
+wait_frames 8

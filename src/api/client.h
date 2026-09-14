@@ -774,6 +774,17 @@ class Client {
     // not serve, or a concurrent change that won (retry against the new
     // state). Accepted regardless of run state; applies at the session's
     // next boundary.
+    // The deployment's model menu (agentcloud's pre-attach `models` control
+    // command): the authoritative advertisement of what each harness serves
+    // this caller. A blocking round trip -- callers issue it off the frame
+    // loop and cache the snapshot; the reference refreshes a menu older than
+    // two hours on the next open. A backend without the command fails, and
+    // the caller shows the catalog it knows with the fact that the server was
+    // not asked -- never an empty list as an authoritative answer.
+    virtual bool supports_model_menu() const { return false; }
+    virtual Result<ModelMenu> model_menu() {
+        return Result<ModelMenu>::failure("this backend serves no model menu");
+    }
     virtual bool supports_session_options() const { return false; }
     virtual Result<SessionOptionsEcho> patch_session_options(
         const std::string& session_id, const SessionOptionsPatch& patch) {

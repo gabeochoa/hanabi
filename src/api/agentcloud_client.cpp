@@ -861,6 +861,7 @@ void apply_serving_model_from_state(const json& state, Session& out) {
     m.requested = llm_model_of(obj_at(state, "options"));
     m.model_pinned = !m.requested.empty();
     m.requested_effort = llm_effort_of(obj_at(state, "options"));
+    m.harness = str_or(state, "harness", "");
     if (m.requested.empty()) m.requested = m.harness_default;
     const json& fb = obj_at(state, "model_fallback");
     const std::string to = str_or(fb, "to", "");
@@ -875,6 +876,37 @@ void apply_serving_model_from_state(const json& state, Session& out) {
 }
 
 }  // namespace
+
+ModelMenu parse_models_reply(const std::string& msg_json) {
+    ModelMenu out;
+    const json msg = json::parse(msg_json, nullptr, false);
+    if (msg.is_discarded() || !msg.contains("harnesses") || !msg["harnesses"].is_array())
+        return out;
+    for (const json& h : msg["harnesses"]) {
+        if (!h.is_object()) continue;
+        ModelMenuHarness row;
+        row.harness = str_or(h, "harness", "");
+        if (h.contains("models") && h["models"].is_array()) {
+            for (const json& m : h["models"]) {
+                if (!m.is_object()) continue;
+                ModelMenuEntry e;
+                e.key = str_or(m, "model_key", "");
+                if (e.key.empty()) continue;
+                e.name = str_or(m, "friendly_name", e.key);
+                if (e.name.empty()) e.name = e.key;
+                e.is_default = bool_or(m, "default", false);
+                const json& eff = obj_at(m, "effort");
+                e.effort_default = str_or(eff, "default", "");
+                if (eff.contains("supported") && eff["supported"].is_array())
+                    for (const json& v : eff["supported"])
+                        if (v.is_string()) e.efforts.push_back(v.get<std::string>());
+                row.models.push_back(std::move(e));
+            }
+        }
+        out.harnesses.push_back(std::move(row));
+    }
+    return out;
+}
 
 std::vector<NodeInfo> parse_nodes_reply(const std::string& msg_json) {
     std::vector<NodeInfo> out;
@@ -2406,6 +2438,13 @@ Result<std::string> AgentcloudClient::interrupt_session(
     if (!ws_send_text(conn, wire.data(), wire.size()))
         return fail("socket closed before the interrupt was sent");
     return Result<std::string>::success("interrupt sent");
+}
+
+Result<ModelMenu> AgentcloudClient::model_menu() {
+    std::string error;
+    const std::string reply = round_trip(R"({"cmd":"models"})", "models", &error);
+    if (reply.empty()) return Result<ModelMenu>::failure(error);
+    return Result<ModelMenu>::success(agentcloud::parse_models_reply(reply));
 }
 
 Result<std::vector<NodeInfo>> AgentcloudClient::list_nodes() {

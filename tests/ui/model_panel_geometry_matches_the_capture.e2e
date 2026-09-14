@@ -1,0 +1,54 @@
+# The model panel drawn to the first native reference capture
+# (/tmp/hz-ref5/strip/model.png at 2x; the numbers are the capture's, in pt,
+# and the reference source agrees: ModelPopover.inset 12, EffortMeter 4x8
+# cells gap 2). What this pins is the structure and the measured layout;
+# whether hanabi's PIXELS match awaits its own capture beside the reference's.
+#
+# Panel 259 wide. Rows 20 tall on the 12pt inset. Three hairline slots. The
+# header carries the `default` capsule (no pin) and the info glyph; the
+# `default` rows name the resolved value at the right; the Effort header
+# carries the meter; the Harness section is read-only with a Locked capsule.
+#
+# The served list is the reference fixture's three (Opus 5, Sonnet 5, GPT-5.6
+# Sol) so the panel's height matches the capture: 365.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_TEST_OVERLAY=model HANABI_MOCK_MODELS=claude-opus-5,claude-sonnet-5,gpt-5.6-sol
+require_thread t2
+wait_frames 12
+# imm::popover names its panel `popover_panel` (afterhours gap #600).
+assert_ui popover_panel w=259 h=365
+assert_ui model_popover_column w=259 h=365
+assert_ui model_popover_title w=235 h=21
+assert_ui model_popover_default_capsule hidden=false
+assert_ui model_popover_info w=14 h=14
+assert_ui model_popover_rule_a w=235 h=15
+# Three served models + default, on a 20pt pitch. No pin: the resolved
+# model (Opus 5, the harness default) AND `default` are lit; `default` names
+# the resolution at the right.
+assert_ui model_row_claude-opus-5 w=235 h=20
+assert_ui model_row_claude-sonnet-5 w=235 h=20
+assert_ui model_row_gpt-5.6-sol w=235 h=20
+expect_no_ui model_row_gpt-5.5
+assert_ui model_row_default w=235 h=20
+assert_ui model_row_default_detail hidden=false
+expect_text "Opus 5"
+assert_ui model_popover_rule_b w=235 h=15
+assert_ui effort_section w=235 h=17
+assert_ui effort_meter w=28 h=8
+assert_ui effort_row_low w=235 h=20
+assert_ui effort_row_max w=235 h=20
+assert_ui effort_row_default w=235 h=20
+# No effort pin: the level rows are not lit; `default` is, and names the
+# level it resolves to at the right.
+assert_ui effort_row_default_detail hidden=false
+expect_text "high"
+assert_ui model_popover_rule_c w=235 h=15
+assert_ui harness_section w=235 h=21
+assert_ui harness_locked_capsule hidden=false
+expect_text "Locked"
+assert_ui harness_row w=235 h=18
+expect_text "Native"
+expect_text "The harness owns this session's runtime, so it can't change"
+expect_text "after the first message. Choose it when you start a session."
+# The lit rows carry the selected state for a screen reader; nothing else.
+expect_text "Opus 5, selected"

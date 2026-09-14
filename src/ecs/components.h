@@ -28,6 +28,7 @@
 #include "transcript_ledger.h"
 
 #include "surface_tabs.h"
+#include "model_menu_cache.h"
 
 namespace ecs {
 
@@ -903,6 +904,8 @@ struct AppComponent : public afterhours::BaseComponent {
     bool nodeRosterLoaded = false;
     std::string nodeRosterError;
     std::future<api::Result<std::vector<api::NodeInfo>>> nodeRosterFuture;
+    // The deployment's model menu (the `models` command): see model_menu_cache.h.
+    model::ModelMenuCache modelMenu;
     std::future<api::Result<std::string>> nodeAttachFuture;
     std::string nodeAttachSession;
     std::string nodeAttachError;

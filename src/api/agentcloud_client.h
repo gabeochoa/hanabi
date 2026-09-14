@@ -78,6 +78,8 @@ class AgentcloudClient : public Client {
     // echoed merged options, not the requested value, are what we return.
     // A typed `error` frame is the refusal.
     bool supports_session_options() const override { return ready(); }
+    bool supports_model_menu() const override { return ready(); }
+    Result<ModelMenu> model_menu() override;
     Result<SessionOptionsEcho> patch_session_options(
         const std::string& session_id, const SessionOptionsPatch& patch) override;
 
@@ -196,6 +198,9 @@ SendFailure message_http_failure(int status, const std::string& body);
 std::string parse_created_session_id(const std::string& msg_json);
 // The `nodes` reply -> the roster, newest announce first.
 std::vector<NodeInfo> parse_nodes_reply(const std::string& msg_json);
+// The `models` reply: harnesses -> models (key, friendly_name, default,
+// effort {default, supported}). Rows without a key are dropped.
+ModelMenu parse_models_reply(const std::string& msg_json);
 // hello.state.attached_nodes -> Session::attached_nodes.
 void parse_attached_nodes(const std::string& hello_json, Session& out);
 // The create command a new thread sends, with its node clause when one was

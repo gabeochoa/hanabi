@@ -1033,6 +1033,32 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         }
 
         // --- Node roster + attach, for the composer's nodes chip -------------
+        // The model menu: bind to the current client (a replaced backend
+        // drops the old menu), land a finished ask (an old client's late
+        // answer is discarded by identity).
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const bool wasBound =
+                app.modelMenu.bound &&
+                model::ModelMenuCache::same(std::weak_ptr<const api::Client>(app.client),
+                                            app.modelMenu.boundTo);
+            // A replaced client with the panel open arms the retained
+            // refresh; it launches below on this frame.
+            app.modelMenu.bind(app.client, app.modelPopoverOpen);
+            const std::size_t before = app.modelMenu.outstanding();
+            app.modelMenu.poll(now);
+            if (!app.modelPopoverOpen) app.modelMenu.panel_closed();
+            // A reap freed a slot while the panel waits, or the client was
+            // just replaced under an open panel: the ONE retained refresh
+            // goes out now, through the same gate as the press.
+            if (app.modelPopoverOpen &&
+                (app.modelMenu.outstanding() < before || !wasBound) &&
+                app.modelMenu.take_deferred(app.client, now)) {
+                std::shared_ptr<api::Client> c = app.client;
+                app.modelMenu.launched(
+                    c, std::async(std::launch::async, [c] { return c->model_menu(); }));
+            }
+        }
         if (app.nodeRosterFuture.valid() &&
             app.nodeRosterFuture.wait_for(std::chrono::seconds(0)) ==
                 std::future_status::ready) {

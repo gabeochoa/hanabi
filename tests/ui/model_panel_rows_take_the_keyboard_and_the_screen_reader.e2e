@@ -1,0 +1,39 @@
+# The model panel's rows are pressable three ways and refuse the same way:
+# the pointer (composer_model_picker), the keyboard -- a focused row acts on
+# Enter, the panel closes, the backend holds the change -- and the screen
+# reader -- an AX press on a row by its name acts; an AX press on a row that
+# cannot act (the current one, or any row while nothing can change) is
+# refused, not silently swallowed. The imm panel has no arrow cursor of its
+# own (that is the context menu's); focus moves by Tab/focus.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_MOCK_MODELS=claude-opus-5,claude-sonnet-5,gpt-5.6-sol
+require_thread t2
+wait_frames 12
+expect_backend_tuning t2 - -
+
+# Keyboard: focus Sonnet's row and press Enter.
+click_ui composer_model
+wait_frames 8
+assert_ui model_popover_title hidden=false
+focus_ui model_row_claude-sonnet-5
+wait_frames 6
+expect_focused model_row_claude-sonnet-5
+key ENTER
+wait_frames 14
+expect_no_ui model_popover_title
+expect_backend_tuning t2 claude-sonnet-5 -
+expect_text "Sonnet 5"
+
+# Screen reader: the rows are named with their state; an AX press on the
+# effort row "low" acts. (A press on the current row is accepted and asks
+# for nothing -- the state is already held -- as a Button that is not
+# disabled; the rows that CANNOT act refuse, below.)
+click_ui composer_model
+wait_frames 8
+expect_a11y "Sonnet 5, selected" role=AXButton
+a11y_press "low"
+wait_frames 14
+expect_no_ui model_popover_title
+expect_backend_tuning t2 claude-sonnet-5 low
+expect_text "Sonnet 5 (low)"
