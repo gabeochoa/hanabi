@@ -1,0 +1,42 @@
+# Save Current Filter As... from a shelf row snapshots what the reader is
+# looking at NOW -- the lit shelf's scope and attention, the workspace, the
+# words in the search box -- not the row the menu was opened on. The new view
+# is selected, the search box is cleared (the query lives in the shelf), and
+# the list keeps showing only what the view keeps.
+#
+# A conversation is open so every title assertion is about the SIDEBAR LIST.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t6"],"active_tab":"t6","theme":"dark"}
+require_thread t6
+wait_frames 16
+expect_text "needs a decision before it can go on"
+expect_text "SKU backfill — my name for it"
+
+click_ui sb_search
+wait_frames 6
+type "backfill"
+wait_frames 10
+expect_no_text "needs a decision before it can go on"
+
+# Opened on Review; saved from Home + the query, which is what is lit.
+right_click_text "Review"
+wait_frames 4
+click_ui view_menu_save_current
+wait_frames 12
+expect_text "Save this filter as a view"
+select_all
+type "Backfills"
+wait_frames 2
+click_ui rename_confirm
+wait_frames 16
+
+expect_text "Backfills"
+expect_input_text sb_search_text ""
+expect_text "SKU backfill — my name for it"
+expect_no_text "needs a decision before it can go on"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived,*=Backfills" -
+
+# Home lifts the filter; the view stays and is no longer lit.
+click_text "Home"
+wait_frames 12
+expect_text "Backfills"
+expect_text "needs a decision before it can go on"

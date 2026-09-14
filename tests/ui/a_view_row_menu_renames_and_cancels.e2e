@@ -1,0 +1,89 @@
+# Right-click on a saved view opens ITS menu (Rename / Delete / Save Current
+# Filter As / Restore Default Views -- the reference's shelf row menu). Rename
+# goes through the same prompt a conversation's rename uses, writes the store
+# on confirm, keeps the prompt up on a name the store refuses, and Cancel
+# changes nothing. The menu acts on the row it was opened on, not the lit one.
+#
+# A conversation is open so every title assertion is about the SIDEBAR LIST.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t6"],"active_tab":"t6","theme":"dark","saved_views":[{"id":"home","name":"Home","built_in":true},{"id":"settings","name":"Settings","built_in":true},{"id":"blocked","name":"Blocked","built_in":true},{"id":"review","name":"Review","built_in":true},{"id":"pinned","name":"Pinned","built_in":true},{"id":"archived","name":"Archived","built_in":true},{"id":"v-1","name":"Backfills","glyph":"sliders","scope":"catalog","attention":"any","query":"backfill","built_in":false}]}
+require_thread t6
+wait_frames 16
+expect_text "Backfills"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived,v-1=Backfills" -
+
+# Home is lit; the menu is opened on Backfills anyway.
+right_click_ui sb_view_v-1
+wait_frames 4
+expect_text "Rename"
+expect_text "Delete"
+expect_text "Save Current Filter As"
+# Every built-in is present, so there is nothing to restore.
+expect_no_ui view_menu_restore_defaults
+
+# Escape closes the menu and touches nothing.
+key ESCAPE
+wait_frames 4
+expect_no_ui view_menu_rename
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived,v-1=Backfills" -
+
+# Rename: the prompt opens on the view's current name.
+right_click_ui sb_view_v-1
+wait_frames 4
+click_ui view_menu_rename
+wait_frames 6
+expect_text "Rename this view"
+expect_input_text rename_input "Backfills"
+
+# Cancel: no mutation.
+click_ui rename_cancel
+wait_frames 6
+expect_no_text "Rename this view"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived,v-1=Backfills" -
+
+# An empty name is refused and the prompt stays up with a reason.
+right_click_ui sb_view_v-1
+wait_frames 4
+click_ui view_menu_rename
+wait_frames 6
+select_all
+key BACKSPACE
+wait_frames 2
+click_ui rename_confirm
+wait_frames 6
+expect_text "That name cannot be used."
+expect_text "Rename this view"
+
+# A SECOND refusal (the unchanged name) hands the caret back again -- every
+# correction lands in the field, not the first only.
+select_all
+type "Backfills"
+wait_frames 2
+click_ui rename_confirm
+wait_frames 6
+expect_text "That name cannot be used."
+expect_input_text rename_input "Backfills"
+
+# A real name is stored, trimmed, and the row reads it.
+select_all
+type "  SKU work  "
+wait_frames 2
+click_ui rename_confirm
+wait_frames 12
+expect_no_text "Rename this view"
+expect_text "SKU work"
+expect_no_text "Backfills"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived,v-1=SKU work" -
+
+# It is on disk: read the settings back the way a restart does.
+reload_settings
+wait_frames 12
+expect_text "SKU work"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived,v-1=SKU work" -
+
+# A built-in offers no Rename.
+right_click_text "Blocked"
+wait_frames 4
+expect_text "Delete"
+expect_no_ui view_menu_rename
+key ESCAPE
+wait_frames 4

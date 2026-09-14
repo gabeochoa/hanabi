@@ -2139,6 +2139,85 @@ struct HandleExpectMockOutboundCallsCommand
     }
 };
 
+// expect_saved_views <id=name,...> <removed,...|->: the saved-view STORE, as
+// records, in order -- the exact list a restart would read back, and the
+// built-ins the reader deleted -- so a shelf-menu script asserts what was
+// stored rather than what happens to be painted. A built-in reads by its id
+// (home, blocked, ...); a saved view by its own id, which a script knows
+// only through `sb_view_<id>` markers -- so for one made in the script, the
+// name alone may be given as `*=Name`.
+struct HandleExpectSavedViewsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    static std::string joined(const hanabi::views::Store& store) {
+        std::string out;
+        for (const auto& v : store.all()) {
+            if (!out.empty()) out += ",";
+            out += v.id + "=" + v.name;
+        }
+        return out;
+    }
+    static bool matches(const std::string& want, const hanabi::views::Store& store) {
+        std::vector<std::string> parts;
+        std::string cur;
+        for (char c : want) {
+            if (c == ',') { parts.push_back(cur); cur.clear(); } else cur += c;
+        }
+        parts.push_back(cur);
+        if (want.empty()) parts.clear();
+        const auto& all = store.all();
+        if (parts.size() != all.size()) return false;
+        for (std::size_t i = 0; i < all.size(); ++i) {
+            const auto eq = parts[i].find('=');
+            const std::string id = eq == std::string::npos ? parts[i] : parts[i].substr(0, eq);
+            const std::string name = eq == std::string::npos ? std::string() : parts[i].substr(eq + 1);
+            if (id != "*" && id != all[i].id) return false;
+            if (!name.empty() && name != all[i].name) return false;
+        }
+        return true;
+    }
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_saved_views")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_saved_views requires <id=name,...> <removed,...|->");
+            return;
+        }
+        // The runner whitespace-splits a custom command's tokens as typed,
+        // quotes included: a name with a space arrives as several args. The
+        // removed list is the LAST arg; everything before it, re-joined with
+        // spaces and stripped of a matching quote pair (joined_args' rule), is
+        // the expectation.
+        const std::string wantRemoved = cmd.arg(cmd.args.size() - 1);
+        std::string wantViews;
+        for (std::size_t i = 0; i + 1 < cmd.args.size(); ++i) {
+            if (!wantViews.empty()) wantViews.push_back(' ');
+            wantViews += cmd.arg(i);
+        }
+        if (wantViews.size() >= 2 &&
+            ((wantViews.front() == '"' && wantViews.back() == '"') ||
+             (wantViews.front() == '\'' && wantViews.back() == '\'')))
+            wantViews = wantViews.substr(1, wantViews.size() - 2);
+        const auto& store = Settings::get().saved_views();
+        std::string removed;
+        for (const auto& r : store.removed_built_ins()) {
+            if (!removed.empty()) removed += ",";
+            removed += r;
+        }
+        if (removed.empty()) removed = "-";
+        if (matches(wantViews, store) && removed == wantRemoved) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("saved views are [{}] removed [{}], expected [{}] removed [{}]",
+                             joined(store), removed, wantViews, wantRemoved));
+    }
+};
+
 // expect_backend_tuning <id> <model|-> <effort|->: the mock session's OWN
 // tuning as the backend holds it after a patch_session_options -- the
 // receipt that the change reached the session (and the right one), read
@@ -2230,6 +2309,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectOutboxAttachmentCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxRetryCountCommand>());
     sm.register_update_system(std::make_unique<HandleExpectBackendTuningCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleSeedReplyDraftCommand>());

@@ -70,5 +70,15 @@ inline constexpr std::string_view kSurfacePrefix = "hanabi:surface/";
 // VIEW's name rather than a conversation's new title. A scheme, not a
 // session, in the same family as the surface ids.
 inline constexpr const char* kSaveViewPrompt = "hanabi:view/new";
+// ... and the prefix it carries when RENAMING a saved view the reader made:
+// the view's store id follows. Never a built-in -- the store refuses those,
+// and the menu does not offer it.
+inline constexpr std::string_view kRenameViewPrefix = "hanabi:view/rename/";
+[[nodiscard]] inline std::optional<std::string_view> renaming_view(std::string_view prompt) {
+    if (prompt.size() <= kRenameViewPrefix.size() ||
+        prompt.substr(0, kRenameViewPrefix.size()) != kRenameViewPrefix)
+        return std::nullopt;
+    return prompt.substr(kRenameViewPrefix.size());
+}
 
 }  // namespace ecs::model

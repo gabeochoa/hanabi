@@ -1267,11 +1267,27 @@ struct AppComponent : public afterhours::BaseComponent {
     // comes back in renameError and the modal stays open with the text intact.
     bool rowMenuOpen = false;
     std::string rowMenuSessionId;
+    // A right-click on a SHELF row (a built-in or a saved view) opens the same
+    // menu surface on the view's store id instead: Rename / Delete / Save
+    // Current Filter As / Restore Default Views. One open flag for both, so
+    // Escape, the arrow keys, the activation gate and the transient-UI census
+    // treat a view menu exactly as they treat a conversation menu. The two
+    // ids are never both set.
+    std::string rowMenuViewId;
     float rowMenuX = 0.0f;
     float rowMenuY = 0.0f;
+    void open_view_menu(std::string viewId, float x, float y) {
+        rowMenuOpen = true;
+        rowMenuSessionId.clear();
+        rowMenuViewId = std::move(viewId);
+        rowMenuX = x;
+        rowMenuY = y;
+        menuCursor = {};
+    }
     void close_row_menu() {
         rowMenuOpen = false;
         rowMenuSessionId.clear();
+        rowMenuViewId.clear();
         menuCursor = {};
     }
 
@@ -1375,6 +1391,9 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string renameSessionId;
     std::string renameDraft;
     std::string renameError;
+    // Counts refused names in the prompt, so the modal can hand the caret
+    // back on EVERY refusal even when the message repeats.
+    std::uint32_t renameRefusals = 0;
     // Set by Return in the field (the listener cannot decide anything — see the
     // composerSubmit note above); routed by the modal on the next frame.
     bool renameSubmit = false;

@@ -756,6 +756,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_row_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
                          AppComponent& app) {
         if (!app.rowMenuOpen) return;
+        if (!app.rowMenuViewId.empty()) {
+            render_view_menu(ctx, uiRoot, app);
+            return;
+        }
         const api::SessionSummary* target = app.find_summary(app.rowMenuSessionId);
         if (target == nullptr) {
             app.close_row_menu();
@@ -876,6 +880,136 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     static hanabi::surface::MenuKeys menu_keys_for(AppComponent& app) {
         return take_menu_keys(app);
+    }
+
+    // The shelf row's menu: the reference's SmartViewRow menu, item for item
+    // and rule for rule. Rename is offered on a view the reader made and
+    // withheld on a built-in (a built-in is re-adopted from its definition at
+    // launch, so a new name would revert). Delete IS offered on a built-in --
+    // it sticks in the store's removed list -- and Restore Default Views is
+    // the way back, offered only while some built-in is missing (an item that
+    // can do nothing is an item a reader tries once and stops trusting). Save
+    // Current Filter As... snapshots what the reader is looking at NOW through
+    // the same prompt the shelf header uses. Every action acts on the view the
+    // menu was opened on, never on whichever view is lit.
+    void render_view_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
+                          AppComponent& app) {
+        auto& store = Settings::get().saved_views_mut();
+        const hanabi::views::SavedView* target = store.find(app.rowMenuViewId);
+        if (target == nullptr) {
+            app.close_row_menu();
+            return;
+        }
+        enum class Action { Rename, Delete, SaveCurrent, RestoreDefaults };
+        std::vector<Action> actions;
+        std::vector<hanabi::surface::MenuItem> items;
+        const auto add = [&](const char* label, const char* name, Action a,
+                             bool destructive = false) {
+            items.push_back({label, name, destructive, false});
+            actions.push_back(a);
+        };
+        if (!target->builtIn)
+            add("Rename\xe2\x80\xa6", "view_menu_rename", Action::Rename);
+        add("Delete", "view_menu_delete", Action::Delete, true);
+        add("Save Current Filter As\xe2\x80\xa6", "view_menu_save_current",
+            Action::SaveCurrent);
+        if (store.has_deleted_built_ins())
+            add("Restore Default Views", "view_menu_restore_defaults",
+                Action::RestoreDefaults);
+
+        hanabi::surface::MenuMetrics metrics;
+        metrics.width = hanabi::surface::kContextMenuW;
+        const std::string viewId = target->id;
+        const std::string viewName = target->name;
+        const auto result = hanabi::surface::context_menu(
+            ctx, uiRoot, 8891, metrics, app.rowMenuX, app.rowMenuY, "VIEW",
+            "view_menu", items, app.menuCursor, menu_keys_for(app),
+            hanabi::surface::kContextMenuLayer, std::string_view());
+
+        if (result.activated != hanabi::surface::kNoMenuRow) {
+            switch (actions[result.activated]) {
+                case Action::Rename:
+                    // The same prompt as a conversation's rename, on the
+                    // view's id; the modal's confirm writes the store.
+                    app.renameOpen = true;
+                    app.renameSessionId =
+                        std::string(model::kRenameViewPrefix) + viewId;
+                    app.renameDraft = viewName;
+                    app.renameError.clear();
+                    break;
+                case Action::Delete:
+                    delete_view(app, store, viewId);
+                    break;
+                case Action::SaveCurrent:
+                    app.renameOpen = true;
+                    app.renameSessionId = model::kSaveViewPrompt;
+                    app.renameDraft = hanabi::views::derived_name(
+                        store.resolve(app.savedViewId.empty()
+                                          ? std::optional<std::string_view>{}
+                                          : std::optional<std::string_view>{app.savedViewId}),
+                        app.currentWorkspace, app.searchQuery);
+                    app.renameError.clear();
+                    break;
+                case Action::RestoreDefaults:
+                    if (store.restore_defaults() > 0) Settings::get().save_views();
+                    break;
+            }
+            app.close_row_menu();
+            return;
+        }
+        if (result.dismissed || result.cancelled) app.close_row_menu();
+    }
+
+    // Delete a shelf, and move off it if it was the one being shown --
+    // resolved through the store rather than assumed to be Home, so this
+    // stays right if Home is gone too (the store's resolve already answers
+    // that case; there is no second opinion here). The selection is
+    // persisted with the store so a restart lands on the same shelf.
+    static void delete_view(AppComponent& app, hanabi::views::Store& store,
+                            const std::string& viewId) {
+        const hanabi::views::SavedView* v = store.find(viewId);
+        if (v == nullptr) return;
+        const bool wasBuiltIn = v->builtIn;
+        const std::optional<SmartView> builtInView =
+            wasBuiltIn ? smart_view_of(viewId) : std::optional<SmartView>{};
+        if (!store.remove(viewId)) return;
+        Settings::get().save_views();
+        const bool wasLit = wasBuiltIn
+                                ? (app.savedViewId.empty() && builtInView &&
+                                   app.view == *builtInView)
+                                : app.savedViewId == viewId;
+        if (!wasLit) return;
+        const hanabi::views::SavedView& next = store.resolve(std::nullopt);
+        if (next.builtIn) {
+            app.savedViewId.clear();
+            Settings::get().set_selected_view("");
+            if (const auto sv = smart_view_of(next.id)) app.view = *sv;
+        } else {
+            app.savedViewId = next.id;
+            Settings::get().set_selected_view(next.id);
+            if (app.view != SmartView::Chat) app.view = SmartView::Home;
+        }
+    }
+
+    // The built-in shelf rows are drawn by name; this is the one map from a
+    // built-in's store id to the SmartView its row lights.
+    static std::optional<SmartView> smart_view_of(std::string_view builtInId) {
+        if (builtInId == hanabi::views::kHomeId) return SmartView::Home;
+        if (builtInId == hanabi::views::kBlockedId) return SmartView::Blocked;
+        if (builtInId == hanabi::views::kReviewId) return SmartView::Review;
+        if (builtInId == hanabi::views::kPinnedId) return SmartView::Starred;
+        if (builtInId == hanabi::views::kArchivedId) return SmartView::Archived;
+        return std::nullopt;
+    }
+    static std::string_view built_in_id_of(SmartView view) {
+        switch (view) {
+            case SmartView::Home: return hanabi::views::kHomeId;
+            case SmartView::Blocked: return hanabi::views::kBlockedId;
+            case SmartView::Review: return hanabi::views::kReviewId;
+            case SmartView::Starred: return hanabi::views::kPinnedId;
+            case SmartView::Archived: return hanabi::views::kArchivedId;
+            default: return {};
+        }
     }
 
     // ---- MEASURED Puffin sidebar geometry (PUFFIN_SPEC.md + ref/01_home.png)
@@ -2333,6 +2467,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // The list is where the filter shows; a saved view is not a pane.
             if (app.view != SmartView::Chat) app.view = SmartView::Home;
         }
+        if (ctx.is_right_click(row.ent().id))
+            app.open_view_menu(v.id, ctx.mouse.pos.x, ctx.mouse.pos.y);
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")
@@ -2445,6 +2581,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     const std::string& label, SmartView view, int count,
                     AppComponent& app, bool folded, float panelW,
                     SmartView lit) {
+        // A built-in the reader deleted from the shelf draws no row: the
+        // store's removed list is the truth, Restore Default Views the way
+        // back. Settings is a surface row, not a view, and is never removed.
+        const std::string_view builtInId = built_in_id_of(view);
+        if (!builtInId.empty() &&
+            Settings::get().saved_views().find(builtInId) == nullptr)
+            return;
         // A lit SAVED view means no built-in row is lit -- one place at a time.
         bool active = lit == view && app.savedViewId.empty();
         const theme::Color selectedFill =
@@ -2519,6 +2662,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.savedViewId.clear();
             Settings::get().set_selected_view("");
         }
+        if (!builtInId.empty() && ctx.is_right_click(row.ent().id))
+            app.open_view_menu(std::string(builtInId), ctx.mouse.pos.x,
+                               ctx.mouse.pos.y);
 
         // kViewLabelFg, not theme::text_secondary: the reference's inactive
         // view label is blue-tinted, measured by the (pixel - background)

@@ -72,8 +72,9 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("rename_header"));
         div(ctx, mk(header.ent(), 1),
             ComponentConfig{}
-                .with_label(saving_view(*app) ? "Save this filter as a view"
-                                              : "Rename session")
+                .with_label(saving_view(*app)    ? "Save this filter as a view"
+                            : renaming_view(*app) ? "Rename this view"
+                                                  : "Rename session")
                 .with_size(ComponentSize{percent(1.0f),
                                          pixels(hanabi::surface::kTitleH)})
                 .with_transparent_bg()
@@ -117,6 +118,17 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
         // field also has to have been rendered once before it can be grabbed,
         // hence a short window rather than a single set.
         if (justOpened) focusFrames_ = 3;
+        // A refused name hands the caret BACK to the field: the person's
+        // next keystrokes are the correction, and Confirm had taken focus
+        // when it was pressed. (Found by the shelf-menu rename script: the
+        // retyped name went to the button.)
+        // Every refusal, not only the first: confirm() bumps a counter
+        // each time it refuses, and a change in the count re-arms the
+        // grab even when the message is the same words as last time.
+        if (app->renameRefusals != refusalsSeen_) {
+            refusalsSeen_ = app->renameRefusals;
+            if (!app->renameError.empty()) focusFrames_ = 2;
+        }
         if (focusFrames_ > 0) {
             --focusFrames_;
             ctx.set_focus(focusable_field(field.ent()));
@@ -207,10 +219,30 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
     static bool saving_view(const AppComponent& app) {
         return app.renameSessionId == model::kSaveViewPrompt;
     }
+    // ... and a third: a saved view's new name (the shelf row's Rename...).
+    static bool renaming_view(const AppComponent& app) {
+        return model::renaming_view(app.renameSessionId).has_value();
+    }
 
     static void confirm(AppComponent& app) {
         if (app.renamePending) return;
         app.renameError.clear();
+        if (const auto viewId = model::renaming_view(app.renameSessionId)) {
+            // Local and immediate, like Save: the store validates (trimmed,
+            // non-empty, not a built-in, actually different) and a refusal
+            // keeps the prompt up with the text intact. Nothing else moves:
+            // the view keeps its id, so the lit shelf and the filter cache
+            // (keyed by the record) follow the rename on their own.
+            auto& store = Settings::get().saved_views_mut();
+            if (!store.rename(*viewId, app.renameDraft)) {
+                app.renameError = "That name cannot be used.";
+                ++app.renameRefusals;
+                return;
+            }
+            Settings::get().save_views();
+            close(app);
+            return;
+        }
         if (saving_view(app)) {
             // Build the view from what the reader is looking at NOW -- the
             // lit shelf, the workspace, the words in the search box -- add
@@ -227,6 +259,7 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                 current, app.currentWorkspace, app.searchQuery, app.renameDraft);
             if (!store.add(made)) {
                 app.renameError = "That name cannot be used.";
+                ++app.renameRefusals;
                 return;
             }
             Settings::get().save_views();
@@ -251,6 +284,7 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
 
     bool wasOpen_ = false;
     int focusFrames_ = 0;
+    std::uint32_t refusalsSeen_ = 0;
 };
 
 }  // namespace ecs

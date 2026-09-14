@@ -1,0 +1,61 @@
+# Delete on a shelf row removes THAT view. Deleting the lit view moves the
+# selection to what the store resolves (Home), and the persisted selection
+# follows; deleting an unlit view moves nothing. A built-in can be deleted
+# too -- its row is gone and the store remembers -- and only then does the
+# menu offer Restore Default Views, which brings every missing built-in back
+# in its place while a saved view and the selection stay.
+#
+# A conversation is open so every title assertion is about the SIDEBAR LIST.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t6"],"active_tab":"t6","theme":"dark","selected_view":"v-1","saved_views":[{"id":"home","name":"Home","built_in":true},{"id":"settings","name":"Settings","built_in":true},{"id":"blocked","name":"Blocked","built_in":true},{"id":"review","name":"Review","built_in":true},{"id":"pinned","name":"Pinned","built_in":true},{"id":"archived","name":"Archived","built_in":true},{"id":"v-1","name":"Backfills","glyph":"sliders","scope":"catalog","attention":"any","query":"backfill","built_in":false},{"id":"v-2","name":"Decisions","glyph":"sliders","scope":"catalog","attention":"any","query":"decision","built_in":false}]}
+require_thread t6
+wait_frames 16
+# v-1 is lit and filters the list to the backfill thread.
+assert_ui sb_view_selected_v-1 hidden=false
+expect_text "SKU backfill — my name for it"
+expect_no_text "needs a decision before it can go on"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived,v-1=Backfills,v-2=Decisions" -
+
+# Delete the UNLIT view: v-1 stays lit, the filter stays.
+right_click_ui sb_view_v-2
+wait_frames 4
+click_ui view_menu_delete
+wait_frames 8
+expect_no_text "Decisions"
+assert_ui sb_view_selected_v-1 hidden=false
+expect_no_text "needs a decision before it can go on"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived,v-1=Backfills" -
+
+# Delete the LIT view: the selection falls back to Home and the filter lifts.
+right_click_ui sb_view_v-1
+wait_frames 4
+click_ui view_menu_delete
+wait_frames 12
+expect_no_text "Backfills"
+expect_no_ui sb_view_selected_v-1
+expect_text "needs a decision before it can go on"
+expect_text "SKU backfill — my name for it"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived" -
+
+# Nothing to restore while every built-in is present.
+right_click_text "Blocked"
+wait_frames 4
+expect_no_ui view_menu_restore_defaults
+# Delete the built-in: its row is gone and the store remembers it.
+click_ui view_menu_delete
+wait_frames 8
+expect_no_text "Blocked"
+expect_saved_views "home=Home,settings=Settings,review=Review,pinned=Pinned,archived=Archived" blocked
+
+# The store on disk says the same after a reload.
+reload_settings
+wait_frames 12
+expect_no_text "Blocked"
+expect_saved_views "home=Home,settings=Settings,review=Review,pinned=Pinned,archived=Archived" blocked
+
+# Now Restore is offered, from any shelf row, and puts Blocked back in place.
+right_click_text "Review"
+wait_frames 4
+click_ui view_menu_restore_defaults
+wait_frames 8
+expect_text "Blocked"
+expect_saved_views "home=Home,settings=Settings,blocked=Blocked,review=Review,pinned=Pinned,archived=Archived" -

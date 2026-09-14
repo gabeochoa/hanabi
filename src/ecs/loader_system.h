@@ -1125,6 +1125,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.renameError.clear();
             } else {
                 app.renameError = r.error;
+                ++app.renameRefusals;
             }
             app.renameInFlightId.clear();
         }
