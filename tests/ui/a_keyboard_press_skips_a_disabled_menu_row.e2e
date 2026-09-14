@@ -10,8 +10,9 @@ wait_frames 10
 expect_text "CONVERSATION"
 
 # Open -> Open & Pin -> Open in Split -> (Rename is disabled on t7: skipped)
-# -> Fork Session -> Copy Title -> Copy Deeplink: five presses, the disabled
-# row costing none.
+# -> Fork Session -> Copy Title -> (Copy Weblink is disabled with no web
+# base: skipped) -> Copy Deeplink: five presses, the disabled rows costing
+# none.
 arrow down
 wait_frames 6
 arrow down
@@ -27,4 +28,4 @@ expect_text "Copy Deeplink"
 key ENTER
 wait_frames 20
 expect_no_text "CONVERSATION"
-expect_clipboard "navi://session/t7"
+expect_clipboard "hanabi://thread/t7"

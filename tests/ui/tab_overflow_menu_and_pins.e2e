@@ -33,10 +33,17 @@ assert_ui tab_r8 x=385
 right_click 400 48
 wait_frames 3
 expect_text "Copy Weblink"
+expect_text "Copy Deeplink"
 expect_text "Copy Session ID"
 reset_clipboard_probe
-click_ui tab_menu_copy
+click_ui tab_menu_copy_weblink
 expect_clipboard "https://navi.test/session/r8"
+
+right_click 400 48
+wait_frames 3
+reset_clipboard_probe
+click_ui tab_menu_copy_deeplink
+expect_clipboard "hanabi://thread/r8"
 
 right_click 400 48
 wait_frames 3

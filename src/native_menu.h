@@ -107,6 +107,7 @@ struct Open {
     std::uint64_t generation = 0;
     std::string scope;                     // "session:<id>" / "view:<id>" / "tab:<n>"
     std::vector<std::string> action_ids;   // snapshot, by row
+    std::vector<bool> disabled_rows;       // snapshot, by row: what AppKit was told
     // The UI element that had keyboard focus when the menu opened (the
     // UI's own id; -1 = none). AppKit returning key status to the view does
     // not touch the UI's focus_id, and a press on the eater can move it
@@ -121,6 +122,7 @@ struct Open {
         generation = 0;
         scope.clear();
         action_ids.clear();
+        disabled_rows.clear();
         focus_before = -1;
         eater_id = -1;
     }

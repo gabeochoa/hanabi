@@ -5,12 +5,13 @@ right_click 120 400
 wait_frames 8
 
 expect_text "CONVERSATION"
-# 477 tall now (Open, Open & Pin, a divider, Open in Split, a divider added
-# to the 396 of the grouped menu) -- taller than the room below a click at
+# 513 tall now (Open, Open & Pin, a divider, Open in Split, a divider added
+# to the 396 of the grouped menu; then Copy Deeplink beside Copy Weblink,
+# two rows always, +36) -- taller than the room below a click at
 # y=400 in a 760 window, so the menu is clamped upward and every row's y
 # moves with it; the rows are pinned by x/w/h and order, their y's by the
 # runtime dump once the primary reads them.
-assert_ui row_menu x=120 w=184 h=477
+assert_ui row_menu x=120 w=184 h=513
 assert_ui row_menu_eater w=1100 h=760
 assert_ui row_menu_title h=28
 assert_ui row_menu_open x=124 w=176 h=36
@@ -19,7 +20,8 @@ assert_ui row_menu_open_split w=176 h=36
 assert_ui row_menu_rename w=176 h=36
 assert_ui row_menu_copy_title w=176 h=36
 assert_ui row_menu_fork w=176 h=36
-assert_ui row_menu_copy_link w=176 h=36
+assert_ui row_menu_copy_weblink w=176 h=36
+assert_ui row_menu_copy_deeplink w=176 h=36
 assert_ui row_menu_copy_id w=176 h=36
 assert_ui row_menu_open_web w=176 h=36
 assert_ui row_menu_archive w=176 h=36

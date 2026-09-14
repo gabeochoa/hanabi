@@ -1766,6 +1766,9 @@ struct HandleCaptureReceiptCommand
 // Refuses when no native menu is queued or tracking.
 //
 // native_menu_expect <open|closed|busy|idle|drained> [scope]: the adapter's
+// state; `action <id>` / `items=N` / `disabled <id>` / `enabled <id>` read the
+// open generation's FROZEN snapshot (ids and the disabled bits AppKit was
+// told), never the caller's current item vector.
 // state. `open` = AppKit has the menu ON SCREEN (menuWillOpen: fired, no
 // close yet) -- and, with `scope`, the caller's snapshot is for that target;
 // `closed` = not on screen; `busy`/`idle` = a generation is / is not owned
@@ -1825,14 +1828,27 @@ struct HandleNativeMenuInjectCommand
             // `action <id>` / `no_action <id>` / `items=<n>` read the FROZEN row
             // snapshot the adapter was handed for the tracking generation --
             // what AppKit showed -- never the drawn menu or the app model.
+            // `disabled <id>` / `enabled <id>`: the same snapshot's disabled bit
+            // for that row -- what AppKit was told when the menu was built.
+            const bool wantsEnabledness = cmd.arg(0) == "disabled" || cmd.arg(0) == "enabled";
             if (cmd.arg(0) == "action" || cmd.arg(0) == "no_action" ||
-                cmd.arg(0).rfind("items=", 0) == 0) {
+                cmd.arg(0).rfind("items=", 0) == 0 || wantsEnabledness) {
                 const bool tracking = hanabi::native_menu::tracking() && openState != nullptr &&
                                       openState->generation == hanabi::native_menu::current_generation();
                 bool ok = false;
                 std::string got;
                 if (tracking) {
-                    if (cmd.arg(0) == "action" || cmd.arg(0) == "no_action") {
+                    if (wantsEnabledness) {
+                        const std::string want = cmd.has_args(2) ? cmd.arg(1) : std::string();
+                        const bool wantDisabled = cmd.arg(0) == "disabled";
+                        for (std::size_t i = 0; i < openState->action_ids.size(); ++i) {
+                            const std::string& id = openState->action_ids[i];
+                            const bool dis = i < openState->disabled_rows.size() && openState->disabled_rows[i];
+                            if (!got.empty()) got += ",";
+                            got += (id.empty() ? "-" : id) + (dis ? "(disabled)" : "");
+                            if (!want.empty() && id == want && dis == wantDisabled) ok = true;
+                        }
+                    } else if (cmd.arg(0) == "action" || cmd.arg(0) == "no_action") {
                         const bool wantAbsent = cmd.arg(0) == "no_action";
                         const std::string want = cmd.has_args(2) ? cmd.arg(1) : std::string();
                         bool present = false;

@@ -50,10 +50,11 @@ struct Config {
     //                        reply (response carries the assistant message(s)).
     std::string base_url;
     std::string token;
-    // Web/session URL base for the "Copy URL" action (client-side only; never
-    // an API endpoint). Empty by default => a host-neutral navi://session/<id>
-    // scheme is used, so we hardcode no host anywhere. Set via config
-    // web_base_url / env HANABI_WEB_BASE_URL to point at a real web UI origin.
+    // Web origin for the Copy Weblink / Open in Web actions (client-side
+    // only; never an API endpoint). Empty by default and no host is compiled
+    // in: without one those rows are disabled, and the deep link (the app's
+    // own scheme) stands alone. Set via config web_base_url / env
+    // HANABI_WEB_BASE_URL to point at a real web UI origin.
     std::string web_base_url;
     // Where a work-tracker id in a message points. Empty by default and no
     // host is compiled in anywhere: with this unset a "D948120" in a reply

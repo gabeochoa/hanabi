@@ -447,7 +447,11 @@ inline bool native_menu_open(NativeMenuOpen& open, std::string scope, const char
     open.generation = gen;
     open.scope = std::move(scope);
     open.action_ids.clear();
-    for (const MenuItem& m : items) open.action_ids.push_back(m.action_id);
+    open.disabled_rows.clear();
+    for (const MenuItem& m : items) {
+        open.action_ids.push_back(m.action_id);
+        open.disabled_rows.push_back(m.disabled);
+    }
     open.focus_before = focusBefore;
     open.eater_id = -1;
     return true;

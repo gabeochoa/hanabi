@@ -788,7 +788,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             Rename,
             CopyTitle,
             Fork,
-            CopyLink,
+            CopyWeblink,
+            CopyDeeplink,
             CopyId,
             OpenWeb,
             Archive,
@@ -836,12 +837,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         divider("row_menu_divider_rename");
         add("Copy Title", "row_menu_copy_title", Action::CopyTitle, "copy_title",
             target->title.empty());
-        // "Weblink" only when the copied link IS one: with no web base the app
-        // copies its own navi:// deeplink and says so.
-        add(app.webBaseUrl.empty() ? "Copy Deeplink" : "Copy Weblink", "row_menu_copy_link",
-            Action::CopyLink, "copy_link");
+        // Two links, two rows, always both: the web link is for a reader who
+        // has not installed the app, the deep link opens THIS app. The web
+        // rows need a configured web origin (no host is compiled in) and are
+        // disabled -- present, dimmed -- without one; the deep link needs
+        // nothing. Open in Web follows the web URL only, never the scheme.
+        const bool webBase = model::has_web_base(app.webBaseUrl);
+        add("Copy Weblink", "row_menu_copy_weblink", Action::CopyWeblink, "copy_weblink",
+            !webBase);
+        add("Copy Deeplink", "row_menu_copy_deeplink", Action::CopyDeeplink, "copy_deeplink");
         add("Copy Session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
-        add("Open in Web", "row_menu_open_web", Action::OpenWeb, "open_web");
+        add("Open in Web", "row_menu_open_web", Action::OpenWeb, "open_web", !webBase);
         divider("row_menu_divider_copy");
         // Halt / Resume: the one group that changes what the SESSION does.
         // Offered only for a thread this app has ATTACHED (an open pane
@@ -935,7 +941,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             std::size_t row = hanabi::surface::kNoMenuRow;
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
-            if (row == hanabi::surface::kNoMenuRow) {
+            // A disabled row cannot be picked: the drawn menu never activates
+            // one and AppKit never fires one, so a pick that names one (an
+            // injected route, or a stale snapshot) is dropped, not dispatched.
+            if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
                 app.close_row_menu();
                 return;
             }
@@ -969,9 +978,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                         app.requestForkPane = app.focusedPane;
                     }
                     break;
-                case Action::CopyLink:
-                    hanabi::clipboard::set_text(
-                        model::navi_url_for(app.webBaseUrl, targetId));
+                case Action::CopyWeblink:
+                    if (const std::string url = model::web_url_for(app.webBaseUrl, targetId);
+                        !url.empty())
+                        hanabi::clipboard::set_text(url);
+                    break;
+                case Action::CopyDeeplink:
+                    hanabi::clipboard::set_text(model::deep_link_for(targetId));
                     break;
                 case Action::CopyId:
                     hanabi::clipboard::set_text(targetId);
@@ -980,8 +993,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     hanabi::clipboard::set_text(target->title);
                     break;
                 case Action::OpenWeb:
-                    hanabi::links::open(
-                        model::navi_url_for(app.webBaseUrl, targetId));
+                    // The web URL or nothing: a disabled row cannot be picked,
+                    // and a picked one never routes the app scheme outward.
+                    if (const std::string url = model::web_url_for(app.webBaseUrl, targetId);
+                        !url.empty())
+                        hanabi::links::open(url);
                     break;
                 case Action::Archive:
                     app.requestToggleArchive = targetId;
@@ -1085,7 +1101,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             std::size_t row = hanabi::surface::kNoMenuRow;
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
-            if (row == hanabi::surface::kNoMenuRow) {
+            // A disabled row cannot be picked: the drawn menu never activates
+            // one and AppKit never fires one, so a pick that names one (an
+            // injected route, or a stale snapshot) is dropped, not dispatched.
+            if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
                 app.close_row_menu();
                 return;
             }

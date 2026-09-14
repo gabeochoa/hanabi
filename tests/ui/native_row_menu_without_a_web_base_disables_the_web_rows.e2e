@@ -1,0 +1,52 @@
+# NATIVE ARM, real input, NO web base: the frozen NSMenu rows still carry both
+# links, but copy_weblink and open_web are DISABLED (no host is compiled in;
+# nothing is invented) while copy_deeplink stays enabled. Down x6 from the top
+# lands on Copy Title; the 7th Down SKIPS the disabled Copy Weblink and lands
+# on Copy Deeplink; Return copies the app's own deep link. Then a second
+# right-click and an injected pick of open_web by action id: the disabled row
+# has no effect -- nothing is recorded by the external-open door.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+reset_clipboard_probe
+reset_link_opened
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect open session:t6
+native_menu_expect action copy_weblink
+native_menu_expect disabled copy_weblink
+native_menu_expect action copy_deeplink
+native_menu_expect enabled copy_deeplink
+native_menu_expect disabled open_web
+native_menu_expect frames_driven>=4
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_clipboard "hanabi://thread/t6"
+expect_link_opened ""
+# Injected route, by ROW: row 12 is Open in Web (0 Open, 1 Open & Pin, 2 |,
+# 3 Open in Split, 4 |, 5 Rename, 6 Fork, 7 |, 8 Copy Title, 9 Copy Weblink,
+# 10 Copy Deeplink, 11 Copy Session ID, 12 Open in Web). It is DISABLED here,
+# so the pick resolves to a row the app refuses: nothing opens, nothing is
+# recorded by the external-open door, and the menu simply closes.
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject 12
+wait_frames 10
+native_menu_expect idle
+expect_link_opened ""
+expect_no_ui row_menu_native_eater
+wait_frames 12
+native_menu_expect drained

@@ -360,9 +360,10 @@ struct Pane {
 struct AppComponent : public afterhours::BaseComponent {
     std::shared_ptr<api::Client> client;
     std::string backend_label;
-    // Web/session URL base for the "Copy URL" tab action (from config
-    // web_base_url / env HANABI_WEB_BASE_URL). Empty => host-neutral
-    // navi://session/<id>. Never used as an API endpoint.
+    // Web origin for Copy Weblink / Open in Web (from config web_base_url /
+    // env HANABI_WEB_BASE_URL). Empty or not http(s) => no web link: those
+    // rows are disabled; Copy Deeplink (the app's own scheme) needs nothing.
+    // Never used as an API endpoint.
     std::string webBaseUrl;
     // Where a work-tracker id in a message points (from config
     // tracker_base_url / env HANABI_TRACKER_BASE_URL). Empty => ids in the

@@ -11,7 +11,8 @@ wait_frames 10
 expect_text "CONVERSATION"
 
 # Open, Open & Pin, Open in Split, then past the disabled Rename and Fork
-# to Copy Title, then Copy Deeplink: five presses.
+# to Copy Title, then past the disabled Copy Weblink (no web base is
+# configured here) to Copy Deeplink: five presses.
 arrow down
 wait_frames 6
 arrow down
@@ -27,7 +28,7 @@ expect_text "Copy Deeplink"
 key ENTER
 wait_frames 20
 expect_no_text "CONVERSATION"
-expect_clipboard "navi://session/t7"
+expect_clipboard "hanabi://thread/t7"
 
 right_click_text "coordinating 3 shard workers"
 wait_frames 10

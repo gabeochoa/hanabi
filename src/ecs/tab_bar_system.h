@@ -902,7 +902,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
         enum Act {
             CloseTab, CloseOthers, CloseRight, Divider, Rename, CopyTitle,
-            CopyLink, CopyId, OpenWeb, Halt, HaltSubtree, Resume, Pin, Split
+            CopyWeblink, CopyDeeplink, CopyId, OpenWeb, Halt, HaltSubtree, Resume, Pin, Split
         };
         std::vector<hanabi::surface::MenuItem> items;
         std::vector<Act> actions;
@@ -949,12 +949,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 !(app.client && app.client->supports_rename()));
             divider("tab_menu_divider_rename");
             add("Copy Title", "tab_menu_copy_title", CopyTitle);
-            // "Weblink" only when the copied link IS one; with no web base the
-            // app copies its own navi:// deeplink and says so.
-            add(app.webBaseUrl.empty() ? "Copy Deeplink" : "Copy Weblink", "tab_menu_copy",
-                CopyLink);
+            // Two links, two rows (see SidebarSystem::render_row_menu): the
+            // web rows need a configured web origin and are disabled without
+            // one; the deep link needs nothing.
+            const bool webBase = model::has_web_base(app.webBaseUrl);
+            add("Copy Weblink", "tab_menu_copy_weblink", CopyWeblink, !webBase);
+            add("Copy Deeplink", "tab_menu_copy_deeplink", CopyDeeplink);
             add("Copy Session ID", "tab_menu_copy_id", CopyId);
-            add("Open in Web", "tab_menu_open_web", OpenWeb);
+            add("Open in Web", "tab_menu_open_web", OpenWeb, !webBase);
             divider("tab_menu_divider_copy");
             // Halt / Resume, the tab's own attach being the observation
             // (see SidebarSystem::render_row_menu for the rule).
@@ -1015,7 +1017,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             std::size_t row = hanabi::surface::kNoMenuRow;
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
-            if (row == hanabi::surface::kNoMenuRow) {
+            if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
                 strip.close_menu();
                 app.menuCursor = {};
                 return;
@@ -1051,15 +1053,21 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                                                : tab.label);
                     break;
                 }
-                case CopyLink:
-                    hanabi::clipboard::set_text(
-                        model::navi_url_for(app.webBaseUrl, keepId));
+                case CopyWeblink:
+                    if (const std::string url = model::web_url_for(app.webBaseUrl, keepId);
+                        !url.empty())
+                        hanabi::clipboard::set_text(url);
+                    break;
+                case CopyDeeplink:
+                    hanabi::clipboard::set_text(model::deep_link_for(keepId));
                     break;
                 case CopyId:
                     hanabi::clipboard::set_text(keepId);
                     break;
                 case OpenWeb:
-                    hanabi::links::open(model::navi_url_for(app.webBaseUrl, keepId));
+                    if (const std::string url = model::web_url_for(app.webBaseUrl, keepId);
+                        !url.empty())
+                        hanabi::links::open(url);
                     break;
                 case Pin:
                     model::pin_thread_tab(strip, app, tabEntity, !tab.pinned);

@@ -8,10 +8,23 @@ expect_text "needs a decision before it can go on"
 right_click_text "needs a decision before it can go on"
 wait_frames 4
 expect_text "Copy Weblink"
+expect_text "Copy Deeplink"
 expect_text "Copy Session ID"
 reset_clipboard_probe
-click_ui row_menu_copy_link
+click_ui row_menu_copy_weblink
 expect_clipboard "https://navi.test/session/t2"
+
+right_click_text "needs a decision before it can go on"
+wait_frames 4
+reset_clipboard_probe
+click_ui row_menu_copy_deeplink
+expect_clipboard "hanabi://thread/t2"
+
+right_click_text "needs a decision before it can go on"
+wait_frames 4
+reset_link_opened
+click_ui row_menu_open_web
+expect_link_opened "https://navi.test/session/t2"
 
 right_click_text "needs a decision before it can go on"
 wait_frames 4

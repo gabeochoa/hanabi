@@ -14,9 +14,9 @@ wait_frames 6
 native_menu_expect open session:t2
 native_menu_expect action halt
 native_menu_expect action halt_subtree
-# Open, Open & Pin, (Split disabled), Rename, Fork, Copy Title, Copy Deeplink,
-# Copy Session ID, Open in Web, Halt: nine Downs.
-native_key 125
+# Open, Open & Pin, (Split disabled), Rename, Fork, Copy Title, (Copy Weblink
+# disabled: no web base here), Copy Deeplink, Copy Session ID, (Open in Web
+# disabled likewise), Halt: eight Downs.
 native_key 125
 native_key 125
 native_key 125
@@ -36,7 +36,6 @@ native_right_click_ui chat_row_id_t2
 wait_frames 6
 native_menu_expect open session:t2
 native_menu_expect action resume
-native_key 125
 native_key 125
 native_key 125
 native_key 125

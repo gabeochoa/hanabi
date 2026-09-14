@@ -15,4 +15,4 @@ a11y_press "Copy Deeplink"
 wait_frames 20
 
 expect_no_text "CONVERSATION"
-expect_clipboard "navi://session/t7"
+expect_clipboard "hanabi://thread/t7"

@@ -1,0 +1,57 @@
+# NATIVE ARM, real input, web base CONFIGURED: the row menu opens as an NSMenu
+# whose frozen rows carry BOTH links -- copy_weblink and copy_deeplink -- with
+# the web rows enabled. Down x7 + Return picks Copy Weblink (Open, Open & Pin,
+# Open in Split, Rename, Fork, Copy Title, Copy Weblink; separators skipped)
+# and the exact web URL lands on the private clipboard -- for t6, the row
+# right-clicked, not the open tab t2. A second real right-click, Down x8 +
+# Return picks Copy Deeplink: the app's own scheme with the handler's host,
+# never the web base. Nothing is opened externally by either copy.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1 HANABI_WEB_BASE_URL=https://navi.test/session
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+reset_clipboard_probe
+reset_link_opened
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect open session:t6
+native_menu_expect action copy_weblink
+native_menu_expect action copy_deeplink
+native_menu_expect action open_web
+native_menu_expect enabled copy_weblink
+native_menu_expect enabled open_web
+native_menu_expect frames_driven>=4
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_clipboard "https://navi.test/session/t6"
+expect_link_opened ""
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect open session:t6
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_clipboard "hanabi://thread/t6"
+expect_link_opened ""
+wait_frames 12
+native_menu_expect drained

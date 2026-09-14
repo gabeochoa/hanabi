@@ -1,0 +1,27 @@
+# No web base configured (no host is compiled in): the row menu still shows
+# BOTH link rows, but Copy Weblink and Open in Web are disabled -- present,
+# dimmed, unpickable -- while Copy Deeplink copies the app's own scheme with
+# the host its URL handler parses. A press on the disabled Open in Web opens
+# nothing: the external-open door records no URL.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+reset_clipboard_probe
+reset_link_opened
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Copy Weblink"
+expect_text "Copy Deeplink"
+expect_text "Open in Web"
+expect_a11y "Copy Weblink" says="Copy Weblink, menuitem, dimmed"
+expect_a11y "Open in Web" says="Open in Web, menuitem, dimmed"
+click_ui row_menu_open_web
+wait_frames 8
+expect_link_opened ""
+key ESCAPE
+wait_frames 6
+right_click_ui chat_row_id_t2
+wait_frames 8
+click_ui row_menu_copy_deeplink
+expect_clipboard "hanabi://thread/t2"
+expect_link_opened ""
