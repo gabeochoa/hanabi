@@ -97,6 +97,9 @@ bool Settings::load_save_file() {
         notification_sound_ =
             j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
+        context_detail_ = j.value("context_detail", context_detail_);
+        disclosure_chips_open_ =
+            j.value("disclosure_chips_open", disclosure_chips_open_);
         {
             std::string tw = j.value("transcript_width", transcript_width_);
             if (tw != "comfortable" && tw != "wide" && tw != "full") tw = "comfortable";
@@ -284,6 +287,8 @@ void Settings::write_save_file() {
     j["auto_archive_days"] = auto_archive_days_;
     j["notification_sound"] = notification_sound_;
     j["show_timestamps"] = show_timestamps_;
+    j["context_detail"] = context_detail_;
+    j["disclosure_chips_open"] = disclosure_chips_open_;
     j["transcript_width"] = transcript_width_;
     j["theme_rotate_secs"] = theme_rotate_secs_;
     j["show_finished_subagents"] = show_finished_subagents_;
@@ -715,6 +720,9 @@ int Settings::get_tool_fold(const std::string& id) const {
     auto it = tool_fold_.find(id);
     return it == tool_fold_.end() ? 0 : it->second;
 }
+bool Settings::has_tool_fold(const std::string& id) const {
+    return tool_fold_.find(id) != tool_fold_.end();
+}
 void Settings::set_tool_fold(const std::string& id, int mode) {
     if (id.empty()) return;
     auto it = tool_fold_.find(id);
@@ -774,6 +782,20 @@ bool Settings::get_show_timestamps() const { return show_timestamps_; }
 void Settings::set_show_timestamps(bool on) {
     if (on == show_timestamps_) return;
     show_timestamps_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_context_detail() const { return context_detail_; }
+void Settings::set_context_detail(bool on) {
+    if (on == context_detail_) return;
+    context_detail_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_disclosure_chips_open() const { return disclosure_chips_open_; }
+void Settings::set_disclosure_chips_open(bool on) {
+    if (on == disclosure_chips_open_) return;
+    disclosure_chips_open_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

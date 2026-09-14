@@ -1,0 +1,50 @@
+# "Compact now" in the context meter's popover, the reference's real action:
+# a press SENDS the compact command with one idempotency key; the server
+# QUEUES it (the attach's pending slot fills -- that, not the send, is the
+# receipt, and the popover says "queued"); the next turn's boundary takes it
+# up: compact_applied clears the slot, the compacting signal shows, and the
+# durable compacted marker lands in the transcript. Transport count and
+# authoritative state are asserted separately throughout.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000
+require_thread t2
+wait_frames 12
+expect_backend_compaction t2 none 0
+
+click_ui composer_meter
+wait_frames 10
+assert_ui context_popover_title hidden=false
+expect_a11y "Compact now" role=AXButton
+click_ui context_compact_now
+wait_frames 2
+# (The mock answers the send within the frame, so the in-flight "Sending…"
+# state is not observable here; the closed-socket script covers the
+# unconfirmed path and the keyed retry.)
+click_ui context_compact_now
+wait_frames 20
+# The server queued it: the slot is filled, ONE command reached the backend.
+expect_backend_compaction t2 pending 1
+expect_text "Compaction queued. It lands at the next tool boundary."
+# A second press while queued asks nothing (the button is not pressable).
+click_ui context_compact_now
+wait_frames 10
+expect_backend_compaction t2 pending 1
+key ESCAPE
+wait_frames 8
+
+# The next turn's boundary takes it up.
+click_ui composer_reply_input
+wait_frames 4
+type "carry on"
+wait_frames 4
+key ENTER
+wait_frames 60
+expect_backend_compaction t2 none 1
+expect_text "carry on"
+# The popover is back to available; the transcript carries the marker.
+click_ui composer_meter
+wait_frames 10
+expect_no_text "Compaction queued"
+key ESCAPE
+wait_frames 8

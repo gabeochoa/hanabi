@@ -87,6 +87,17 @@ class TranscriptCache {
     // (docs/SEARCH.md S2). A size check cannot answer this — a thread with
     // exactly kCacheMaxMessagesPerThread messages is complete — so the answer
     // is recorded at the cut.
+    // Update ONE cached session in place without replacing its transcript
+    // (the attach's slot facts change between refetches; a re-select restores
+    // the pane from here and must see them).
+    template <typename Fn>
+    bool amend(const std::string& id, Fn&& fn) {
+        auto it = map_.find(id);
+        if (it == map_.end()) return false;
+        fn(it->second.session);
+        return true;
+    }
+
     bool truncated(const std::string& id) const {
         auto it = map_.find(id);
         return it != map_.end() && it->second.truncated;

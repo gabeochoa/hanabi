@@ -19,7 +19,9 @@ key TAB
 wait_frames 6
 key DOWN
 wait_frames 4
-expect_text "Rotate theme"
+# Appearance's first row (the pane's tail may sit below the fold now that
+# Context and Composer rows precede Typeface).
+expect_text "Transcript width"
 key DOWN
 wait_frames 4
 expect_text "Reasoning blocks"

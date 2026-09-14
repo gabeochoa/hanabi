@@ -2088,12 +2088,116 @@ static void test_models_reply_parses_the_deployment_menu() {
     CHECK(api::agentcloud::parse_models_reply("garbage").empty());
 }
 
+// spec 081's wider token vocabulary on the attach: each key additive, absent
+// stays -1 (never zero-filled), the compaction's estimates under their own
+// names, the child rollup.
+static void test_attach_greeting_carries_the_wider_token_accounting() {
+    std::printf("test_attach_greeting_carries_the_wider_token_accounting\n");
+    const auto u = api::agentcloud::parse_context_usage(
+        R"({"type":"hello","state":{"tokens":{"input_durable":412000,"output_durable":38000,
+           "cache_read_durable":301000,"cache_creation_durable":44000,
+           "last_call":{"input":14200,"output":620,"cache_read":9000},
+           "last_compaction":{"estimated_tokens_before":188000,"estimated_tokens_after":41000},
+           "children_input":96000,"children_output":7100,
+           "context":{"budget":800000},"occupancy":{"tokens":258937,"stale":0}}}})");
+    CHECK(u.has_lifetime());
+    CHECK(u.input_durable == 412000 && u.output_durable == 38000);
+    CHECK(u.cache_read_durable == 301000 && u.cache_creation_durable == 44000);
+    CHECK(u.last_call_input == 14200 && u.last_call_output == 620);
+    CHECK(u.last_call_cache_read == 9000 && u.last_call_cache_creation == -1);
+    CHECK(u.last_compaction_before == 188000 && u.last_compaction_after == 41000);
+    CHECK(u.children_input == 96000 && u.children_output == 7100);
+    CHECK(u.used_tokens == 258937 && u.budget_tokens == 800000);
+    // A pre-spec payload: nothing wider, and the old fields still read.
+    const auto old = api::agentcloud::parse_context_usage(
+        R"({"type":"hello","state":{"tokens":{"context":{"budget":100},"occupancy":{"tokens":5}}}})");
+    CHECK(!old.has_lifetime());
+    CHECK(old.last_call_input == -1 && old.last_compaction_before == -1 &&
+          old.children_input == -1);
+    CHECK(old.used_tokens == 5 && old.budget_tokens == 100);
+}
+
+// The compact command's wire shape (ClientCmd `compact`, spec 155/314) and
+// the folds it is read back through: the attach's pending slot, the
+// stream's compact_requested (queued) and compact_applied (taken up).
+static void test_compact_command_and_its_receipts() {
+    std::printf("test_compact_command_and_its_receipts\n");
+    api::CompactionRequest bare;
+    bare.idempotency_key = "k1";
+    CHECK(api::agentcloud::compact_command_json(bare) ==
+          R"({"cmd":"compact","idempotency_key":"k1"})");
+    api::CompactionRequest steered;
+    steered.idempotency_key = "k2";
+    steered.apply = "now";
+    steered.instructions = "keep the payout numbers";
+    const auto j = nlohmann::json::parse(api::agentcloud::compact_command_json(steered));
+    CHECK(j["cmd"] == "compact" && j["apply"] == "now" &&
+          j["instructions"] == "keep the payout numbers" && j["idempotency_key"] == "k2");
+    CHECK(j.size() == 4);  // nothing else rides the frame
+
+    api::Session s;
+    api::agentcloud::parse_pending_compaction(
+        R"({"type":"hello","state":{"pending_compaction":{"apply":"end_of_turn",
+           "has_instructions":true,"principal":{"kind":"user"},"request":41}}})", s);
+    CHECK(s.pending_compaction.has_value());
+    CHECK(s.pending_compaction->apply == "end_of_turn" && s.pending_compaction->has_instructions);
+    CHECK(s.pending_compaction->request == 41);
+    api::agentcloud::parse_pending_compaction(
+        R"({"type":"hello","state":{"pending_compaction":null}})", s);
+    CHECK(!s.pending_compaction.has_value());
+    api::agentcloud::parse_pending_compaction(R"({"type":"hello","state":{}})", s);
+    CHECK(!s.pending_compaction.has_value());
+
+    // The stream: compact_requested carries the key and the seq; compact_applied names it.
+    {
+        using LF = api::agentcloud::LiveFrame;
+        const LF q = api::agentcloud::classify_live_frame(
+            R"({"type":"frame","seq":42,"event":{"type":"compact_requested","apply":"after_tool_round",
+               "idempotency_key":"k1","principal":{"kind":"user"}}})");
+        CHECK(q.kind == LF::Kind::CompactRequested);
+        const auto p0 = nlohmann::json::parse(q.payload);
+        CHECK(p0["idempotency_key"] == "k1" && p0["seq"] == 42 && p0["apply"] == "after_tool_round");
+        const LF a = api::agentcloud::classify_live_frame(
+            R"({"type":"frame","seq":43,"event":{"type":"compact_applied","request":42}})");
+        CHECK(a.kind == LF::Kind::CompactApplied);
+        CHECK(nlohmann::json::parse(a.payload)["request"] == 42);
+    }
+}
+
+// hello.access (SessionAccessLevel): none / read are read-only; write / owner
+// allow; a missing key or an unknown token is Unknown -- and Unknown is NOT
+// read-only (the reference fails open; the server enforces the write).
+static void test_hello_access_folds_to_the_reference_read_only_rule() {
+    std::printf("test_hello_access_folds_to_the_reference_read_only_rule\n");
+    const auto access_of = [](const char* hello) {
+        api::Session s;
+        api::agentcloud::parse_pending_compaction(hello, s);
+        return s.access;
+    };
+    CHECK(access_of(R"({"type":"hello","access":"none","state":{}})") == api::SessionAccess::None);
+    CHECK(access_of(R"({"type":"hello","access":"read","state":{}})") == api::SessionAccess::Read);
+    CHECK(access_of(R"({"type":"hello","access":"write","state":{}})") == api::SessionAccess::Write);
+    CHECK(access_of(R"({"type":"hello","access":"owner","state":{}})") == api::SessionAccess::Owner);
+    CHECK(access_of(R"({"type":"hello","state":{}})") == api::SessionAccess::Unknown);
+    CHECK(access_of(R"({"type":"hello","access":null,"state":{}})") == api::SessionAccess::Unknown);
+    CHECK(access_of(R"({"type":"hello","access":"future_level","state":{}})") ==
+          api::SessionAccess::Unknown);
+    CHECK(api::access_is_read_only(api::SessionAccess::None));
+    CHECK(api::access_is_read_only(api::SessionAccess::Read));
+    CHECK(!api::access_is_read_only(api::SessionAccess::Write));
+    CHECK(!api::access_is_read_only(api::SessionAccess::Owner));
+    CHECK(!api::access_is_read_only(api::SessionAccess::Unknown));
+}
+
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
     test_models_reply_parses_the_deployment_menu();
+    test_attach_greeting_carries_the_wider_token_accounting();
     test_session_options_patch_wire_shape();
     test_create_carries_the_launch_tuning_as_options_llm();
+    test_compact_command_and_its_receipts();
+    test_hello_access_folds_to_the_reference_read_only_rule();
     test_options_changed_echo_is_the_merged_layer();
     test_hello_state_folds_the_session_tuning();
     test_options_patch_settles_only_on_its_own_postcondition();

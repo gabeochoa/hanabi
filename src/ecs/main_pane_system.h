@@ -1484,6 +1484,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // carrying a caret, which is exactly what composer_holds_keyboard says.
     bool composerHeldKeyboard_ = true;
     bool modelPopoverWasOpen_ = false;
+    bool contextPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
     struct AskRowId {
         const std::string* question;
@@ -6603,6 +6604,387 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // The context meter's popover, the reference's ContextPopover in the two
+    // states Appearance's "Full context detail" gives it. Header "Context"
+    // and the fill line (how full the window is, and whether the count is
+    // stale). OFF: a "Details" disclosure row, closed for each showing;
+    // opened, it draws the ledger. ON: the ledger is drawn outright. The
+    // ledger is what the attach reported (hello.state.tokens, spec 081),
+    // each row only when its number was reported: Conversation (lifetime in
+    // / out), the cache split, the last call, the last compaction, the
+    // sub-agent rollup, and the reference's closing sentence. No "Compact
+    // now": hanabi's client has no compaction verb, so the button would be
+    // a fake control -- it stays open (api-parity.md).
+    // "Compact now" (the reference's compactButton + compactStatusLine).
+    // The state is the FOLDS': queued = the attach's pending slot or the
+    // stream's compact_requested; running = the compacting signal; offline =
+    // no live subscription; the gesture's own receipt (sent / refused /
+    // unconfirmed) shows beneath while no fold has answered it. The button
+    // is enabled only when available; a backend without the verb keeps the
+    // button, disabled, and says why -- nothing is sent.
+    enum class CompactState { Available, Sending, Queued, Running, Offline, Unsupported, ReadOnly };
+    static CompactState compact_state(const AppComponent& app, const Pane& pane) {
+        if (!app.client || !app.client->supports_compact()) return CompactState::Unsupported;
+        // The reference's first test: a viewer without write access sees no
+        // button at all ("Only this session's owner can compact it.").
+        // Unknown access is NOT read-only -- the server enforces the write.
+        if (pane.openSession && api::access_is_read_only(pane.openSession->access))
+            return CompactState::ReadOnly;
+        const bool streamingThis = app.transfer && app.streamPendingSession == pane.selectedId;
+        if (streamingThis && app.transfer->compacting.load()) return CompactState::Running;
+        if (pane.openSession && pane.openSession->pending_compaction) return CompactState::Queued;
+        if (streamingThis && app.transfer->compactQueued.load()) return CompactState::Queued;
+        if (app.compactionInFlight && app.compactionInFlight->sessionId == pane.selectedId)
+            return CompactState::Sending;  // in flight: not pressable twice, and not queued
+        // The reference's `.offline` is "the session's connection is not
+        // live". hanabi holds no standing socket per session -- every verb
+        // opens its own attach (rename, options, compact alike) -- so the
+        // fact it CAN know is whether the last attach to this session was
+        // refused (an attach refusal on record); `liveSubs` is the http
+        // backend's SSE fan-in, absent on agentcloud and the mock alike,
+        // and read as "offline" it disabled the button everywhere (measured
+        // in the debug slot: "Not connected" on the mock).
+        if (app.attachRefusals.count(pane.selectedId) != 0) return CompactState::Offline;
+        return CompactState::Available;
+    }
+
+    void render_context_popover(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app, Entity& anchorEnt, const Pane& ownPane,
+                                const api::ContextUsage& usage, int64_t tok,
+                                int64_t budget, bool counted) {
+        if (!app.contextPopoverOpen && !contextPopoverWasOpen_) return;
+        auto popRoot = mk(parent, 3500);
+        RectangleType anchor = anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        anchor.y -= 24.0f;
+        if (!app.contextPopoverOpen) {
+            afterhours::ui::imm::popover(ctx, popRoot, anchor, app.contextPopoverOpen,
+                                         afterhours::ui::overlay::Placement::Above);
+            contextPopoverWasOpen_ = false;
+            return;
+        }
+        // imm::popover puts focus on its panel at the open (menu.h :347) and
+        // stays open while focus is inside the subtree. MEASURED (probe on
+        // 613e2da): setting focus onto a child created THIS frame at the open
+        // edge drops focus to ROOT at the end of the frame (the child is not
+        // yet in focused_ids), and the next frame's dismiss rule closes the
+        // panel before its body runs -- the popover never renders. So no
+        // focus grab at the open edge; the library's own grab is the one.
+        contextPopoverWasOpen_ = true;
+
+        const bool detailSetting = Settings::get().get_context_detail();
+        const bool ledgerOpen = detailSetting || app.contextDetailsExpanded;
+        const bool hasConversation = usage.has_lifetime();
+        const bool hasCache = usage.cache_read_durable >= 0 || usage.cache_creation_durable >= 0;
+        const bool hasLastCall = usage.last_call_input >= 0;
+        const bool hasCompaction = usage.last_compaction_before >= 0;
+        const bool hasChildren = usage.children_input >= 0 || usage.children_output >= 0;
+        const bool ledgerBuilt =
+            hasConversation || hasCache || hasLastCall || hasCompaction || hasChildren;
+
+        constexpr float kPopW = 300.0f;
+        constexpr float kInset = 12.0f;
+        constexpr float kHeadH = 22.0f;
+        constexpr float kLineH = 18.0f;
+        constexpr float kRuleH = 9.0f;
+        const float innerW = kPopW - kInset * 2.0f;
+        const std::string sessionId = ownPane.selectedId;
+        const CompactState compactState = compact_state(app, ownPane);
+        const auto* gesture = app.compaction_gesture(sessionId);
+        std::string statusText;
+        switch (compactState) {
+            case CompactState::Available: break;
+            case CompactState::Sending: statusText = "Sending\xe2\x80\xa6"; break;
+            case CompactState::Queued:
+                statusText = "Compaction queued. It lands at the next tool boundary.";
+                break;
+            case CompactState::Running: statusText = "Compacting now."; break;
+            case CompactState::Offline:
+                statusText = "Not connected. Reconnect to compact.";  // the attach was refused
+                break;
+            case CompactState::Unsupported:
+                statusText = "This backend cannot compact a conversation.";
+                break;
+            case CompactState::ReadOnly:
+                statusText = "Only this session's owner can compact it.";
+                break;
+        }
+        // The gesture's own receipt while no fold has answered it: a send
+        // that returned proves SENT; a refusal is the server's words; a
+        // closed socket or deadline is unknown, never "refused" or "done".
+        if (gesture && compactState != CompactState::Queued &&
+            compactState != CompactState::Running && compactState != CompactState::Sending) {
+            switch (gesture->outcome) {
+                case AppComponent::CompactionOutcome::Sending:
+                    break;
+                case AppComponent::CompactionOutcome::Sent:
+                    statusText = "Sent. Waiting for the server to queue it.";
+                    break;
+                case AppComponent::CompactionOutcome::Refused:
+                    statusText = "Refused: " + gesture->text;
+                    break;
+                case AppComponent::CompactionOutcome::Unconfirmed:
+                    statusText = "Sent, but not confirmed: " + gesture->text;
+                    break;
+                case AppComponent::CompactionOutcome::Unsupported:
+                case AppComponent::CompactionOutcome::None:
+                    break;
+            }
+        }
+        // The button is OFFERED unless read-only (the reference's
+        // compactOffered), enabled only when available.
+        const bool compactOffered = compactState != CompactState::ReadOnly;
+        int lines = 1;  // the fill line
+        if (compactOffered) lines += 1;  // the Compact now row
+        if (!statusText.empty()) lines += 1;
+        if (!detailSetting) lines += 1;  // the Details row
+        int rules = 0;
+        if (ledgerOpen && ledgerBuilt) {
+            if (hasConversation) { lines += 1; rules += 1; }
+            if (hasCache) lines += 1;
+            if (hasLastCall) lines += 1;
+            if (hasCompaction) { lines += 1; rules += 1; }
+            if (hasChildren) { lines += 1; rules += 1; }
+            lines += 1; rules += 1;  // the closing sentence
+        } else if (ledgerOpen && !ledgerBuilt) {
+            lines += 1;
+        }
+        const float popH = kInset + kHeadH + kLineH * static_cast<float>(lines) +
+                           kRuleH * static_cast<float>(rules) + kInset;
+
+        const auto previousSurface = ctx.theme.surface;
+        ctx.theme.surface = theme::panel_bg_2();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, popRoot, anchor, app.contextPopoverOpen,
+            afterhours::ui::overlay::Placement::Above,
+            hanabi::surface::menu(kPopW, popH, 7)
+                .with_padding(Padding{})
+                .with_debug_name("context_popover"));
+        ctx.theme.surface = previousSurface;
+        if (!pop) return;
+        publish_popover_occluder(pop.ent());
+        // MEASURED (dump_focusable on 47814a0): every DIRECT child of the
+        // panel -- the Details row, the compact button, even the plain status
+        // label -- carried SkipWhenTabbing, re-added each frame. imm::popover
+        // builds its panel as a tray() (menu.h :332), and HandleTrayNavigation
+        // tags every child of a HasTray entity so the tray's own Up/Down
+        // owns them; a tagged child never enters the focus set, so focus_ui /
+        // Tab / a press's focus all dropped. The model panel's rows work
+        // because they sit one level down, inside a column. Same shape here:
+        // one column under the panel, every line a child of the column. (It
+        // also carries the insets the panel drops -- gap #600's cousin.)
+        auto column = div(ctx, mk(pop.ent(), 899),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kPopW), pixels(popH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(kInset), .right = pixels(kInset),
+                                      .bottom = pixels(kInset), .left = pixels(kInset)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_render_layer(8)
+                .with_debug_name("context_popover_column"));
+        Entity& col = column.ent();
+
+        int key = 900;
+        const auto line = [&](const std::string& text, theme::Color color, float h,
+                              float fontSize, const std::string& name, bool emphasis = false) {
+            auto cfg = ComponentConfig{}
+                           .with_label(text)
+                           .with_size(ComponentSize{pixels(innerW), pixels(h)})
+                           .with_transparent_bg()
+                           .with_custom_text_color(color)
+                           .with_font_size(fontSize)
+                           .with_alignment(TextAlignment::Left)
+                           .with_debug_name(name);
+            if (emphasis) cfg.with_font_weight(theme::type::EMPHASIS);
+            return div(ctx, mk(col, key++), cfg);
+        };
+        const auto rule = [&](const char* name) {
+            div(ctx, mk(col, key++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(innerW), pixels(kRuleH)})
+                    .with_transparent_bg()
+                    .with_on_draw_fg([](RectangleType r) {
+                        afterhours::draw_rectangle(
+                            RectangleType{r.x, std::round(r.y + 4.0f), r.width, 1.0f},
+                            theme::border());
+                    })
+                    .with_debug_name(name));
+        };
+        const auto n = [](int64_t v) { return fmtutil::compact_count(std::max<int64_t>(0, v)); };
+        const auto in_out = [&](int64_t in, int64_t out) {
+            return n(in) + " in \xc2\xb7 " + n(out) + " out";
+        };
+
+        auto head = line("Context", theme::text_primary(), kHeadH, theme::type::SM,
+                         "context_popover_title", /*emphasis=*/true);
+        hanabi::a11y::set_name(head.ent(), "Context", hanabi::a11y::Role::Menu);
+        // The title anchors focus when there is no Details row to hold it.
+        head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](afterhours::Entity&) {});
+        head.ent().addComponentIfMissing<afterhours::ui::InFocusCluster>();
+        head.ent().addComponentIfMissing<afterhours::ui::SkipWhenTabbing>();
+
+        std::string fill = counted ? n(tok) : "~" + n(tok);
+        if (budget > 0) {
+            const int pct = static_cast<int>(std::lround(
+                100.0 * static_cast<double>(tok) / static_cast<double>(budget)));
+            fill += " of " + n(budget) + " tokens \xc2\xb7 " + std::to_string(pct) + "% full";
+        } else {
+            fill += " tokens";
+        }
+        if (usage.stale) fill += " \xc2\xb7 stale";
+        line(fill, theme::text_secondary(), kLineH, theme::type::SM, "context_popover_fill");
+
+        // ── Compact now: a stroke capsule, accent when pressable ──
+        if (compactOffered) {
+            const bool enabled = compactState == CompactState::Available;
+            const std::string word = "Compact now";
+            const float textW = std::ceil(theme::text_px(word.c_str(), theme::type::NANO));
+            const float w = textW + 14.0f;
+            auto actions = div(ctx, mk(col, key++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(innerW), pixels(kLineH)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_transparent_bg()
+                    .with_debug_name("context_popover_actions"));
+            auto btn = button(ctx, mk(actions.ent(), 1),
+                ComponentConfig{}
+                    .with_label(word)
+                    .with_size(ComponentSize{pixels(w), pixels(kLineH - 2.0f)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(enabled ? theme::hover_over(theme::panel_bg_2())
+                                                  : theme::panel_bg_2())
+                    .with_custom_text_color(enabled ? theme::accent() : theme::text_secondary())
+                    .with_font_size(theme::type::NANO)
+                    .with_alignment(TextAlignment::Center)
+                    .with_roundness(1.0f)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_on_draw_fg([enabled](RectangleType r) {
+                        theme::Color stroke = enabled ? theme::accent() : theme::border();
+                        if (enabled) stroke.a = static_cast<unsigned char>(255 * 0.55f);
+                        afterhours::draw_rectangle_rounded_lines(
+                            RectangleType{r.x, r.y, r.width, r.height}, 1.0f, 12, stroke,
+                            std::bitset<4>().set());
+                    })
+                    .with_debug_name("context_compact_now"));
+            hanabi::a11y::describe(btn.ent(), {.value = "Compact now",
+                                               .role = hanabi::a11y::Role::Button,
+                                               .enabled = enabled});
+            if (!enabled) {
+                // Disabled: no listener (a press is a press on the panel; the
+                // screen reader is refused), no place in the focus walk.
+                btn.ent().removeComponentIfExists<afterhours::ui::HasClickListener>();
+            } else {
+                btn.ent().addComponentIfMissing<afterhours::ui::InFocusCluster>();
+                btn.ent().removeComponentIfExists<afterhours::ui::SkipWhenTabbing>();
+                const int paneAt = pane_index(app, ownPane);
+                hanabi::ui::act_on_press(btn, [&app, sessionId, paneAt, &ctx,
+                                               panelId = pop.ent().id] {
+                    if (sessionId.empty()) return;
+                    // ONE key per gesture: a retry of a gesture the server may
+                    // have seen reuses its key; a fresh gesture (no receipt
+                    // outstanding) mints one. Never a new key for an unknown
+                    // outcome.
+                    api::CompactionRequest req;
+                    if (const auto* g = app.compaction_gesture(sessionId);
+                        g != nullptr && !g->last.idempotency_key.empty())
+                        req = g->last;
+                    else
+                        req.idempotency_key = api::attachments::make_local_id();
+                    app.requestCompaction =
+                        AppComponent::CompactionAsk{sessionId, paneAt, req};
+                    // Focus onto the PANEL holds; onto the pressed button it
+                    // drops in-frame and the panel dismisses (measured on the
+                    // Details row; the full-suite run showed the same on this
+                    // button: found at :20, gone at :23).
+                    ctx.set_focus(panelId);
+                });
+            }
+        }
+        if (!statusText.empty())
+            line(statusText,
+                 gesture && (gesture->outcome == AppComponent::CompactionOutcome::Refused ||
+                             gesture->outcome == AppComponent::CompactionOutcome::Unconfirmed) &&
+                         compactState != CompactState::Queued &&
+                         compactState != CompactState::Running
+                     ? theme::status_review()
+                     : theme::text_faint(),
+                 kLineH, theme::type::MICRO, "context_compact_status");
+
+        if (!detailSetting) {
+            auto row = button(ctx, mk(col, key++),
+                ComponentConfig{}
+                    .with_label(std::string(app.contextDetailsExpanded ? "\xe2\x8c\x84 " : "\xe2\x80\xba ") +
+                                "Details")
+                    .with_size(ComponentSize{pixels(innerW), pixels(kLineH)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_debug_name("context_popover_details"));
+            hanabi::a11y::describe(row.ent(), {.value = "Details",
+                                               .role = hanabi::a11y::Role::Button,
+                                               .expanded = app.contextDetailsExpanded});
+            row.ent().addComponentIfMissing<afterhours::ui::InFocusCluster>();
+            // MEASURED (dump_focusable on 57044e4): this row carried
+            // SkipWhenTabbing -- HandleTabbing never admitted it to the focus
+            // set, so every focus set on it (focus_ui, Tab, the press) was
+            // dropped at the frame's end. The tag is sticky on an entity imm
+            // re-uses (addComponentIfMissing, never removed), and this row's
+            // key was 1 under a panel rebuilt on every size change; the row
+            // now takes a fresh key like every other line and sheds the tag
+            // explicitly each frame. Only the title is skipped.
+            row.ent().removeComponentIfExists<afterhours::ui::SkipWhenTabbing>();
+            hanabi::ui::act_on_press(row, [&app, panelId = pop.ent().id, &ctx] {
+                app.contextDetailsExpanded = !app.contextDetailsExpanded;
+                // MEASURED (dump_last_press on the press frame): the press
+                // dispatches -- hot, active and `down` all name this row --
+                // but focus set onto the ROW drops to ROOT by the end of the
+                // frame and the next frame's dismiss rule closes the panel.
+                // Focus onto the PANEL is what the library's own open does
+                // (menu.h :347) and it holds; the panel then stays.
+                ctx.set_focus(panelId);
+            });
+        }
+
+        if (ledgerOpen && ledgerBuilt) {
+            if (hasConversation) {
+                rule("context_popover_rule_a");
+                line("Conversation  " + in_out(usage.input_durable, usage.output_durable),
+                     theme::text_primary(), kLineH, theme::type::SM, "context_conversation");
+            }
+            if (hasCache)
+                line("Cache  " + n(usage.cache_read_durable) + " read \xc2\xb7 " +
+                         n(usage.cache_creation_durable) + " written",
+                     theme::text_secondary(), kLineH, theme::type::SM, "context_cache");
+            if (hasLastCall)
+                line("Last call  " + in_out(usage.last_call_input, usage.last_call_output),
+                     theme::text_secondary(), kLineH, theme::type::SM, "context_last_call");
+            if (hasCompaction) {
+                rule("context_popover_rule_b");
+                line("Last compaction  ~" + n(usage.last_compaction_before) + " \xe2\x86\x92 ~" +
+                         n(usage.last_compaction_after),
+                     theme::text_secondary(), kLineH, theme::type::SM, "context_compaction");
+            }
+            if (hasChildren) {
+                rule("context_popover_rule_c");
+                line("Sub-agents  " + in_out(usage.children_input, usage.children_output),
+                     theme::text_secondary(), kLineH, theme::type::SM, "context_subagents");
+            }
+            rule("context_popover_rule_d");
+            line("Durable counts survive restarts; older turns compact automatically as the "
+                 "session grows.",
+                 theme::text_faint(), kLineH, theme::type::MICRO, "context_popover_note");
+        } else if (ledgerOpen && !ledgerBuilt) {
+            line("The server reported no ledger for this conversation.", theme::text_faint(),
+                 kLineH, theme::type::MICRO, "context_popover_empty");
+        }
+    }
+
     void render_plan_popover(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, Entity& anchorEnt,
                              const api::Session& session) {
@@ -7736,7 +8118,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     const float frac =
                         std::min(1.0f, static_cast<float>(tok) /
                                            static_cast<float>(budget));
-                    div(ctx, mk(leftMeta.ent(), 13),
+                    // The meter is the popover's anchor (the reference's
+                    // ContextPopover hangs off it): a press opens the context
+                    // popover; the bar keeps its 48x5 paint.
+                    auto meter = button(ctx, mk(leftMeta.ent(), 13),
                         ComponentConfig{}
                             .with_size(ComponentSize{pixels(48), pixels(5)})
                             // 10 from the text that precedes it — Puffin's
@@ -7744,7 +8129,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             // run's box already carries past its last glyph.
                             .with_margin(Margin{.left = pixels(5)})
                             .with_custom_background(theme::panel_bg_2())
+                            .with_custom_hover_bg(theme::panel_bg_2())
                             .with_roundness(0.5f)
+                            .with_cursor(afterhours::ui::CursorType::Pointer)
+                            .with_click_activation(ClickActivationMode::Press)
                             .with_on_draw_fg([frac](RectangleType rr) {
                                 float w = rr.width * frac;
                                 if (w < 2.0f) w = 2.0f;
@@ -7755,6 +8143,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                                 theme::panel_bg_2()));
                             })
                             .with_debug_name(cname("composer_meter")));
+                    hanabi::a11y::set_name(meter.ent(), "Context: " + label);
+                    if (meter) {
+                        app.contextPopoverOpen = !app.contextPopoverOpen;
+                        app.contextDetailsExpanded = false;
+                        app.composerPopoverPane = paneIndex;
+                        app.contextPopoverSession = ownPane.selectedId;
+                    }
+                    // The popover belongs to the conversation it opened on:
+                    // the pane showing another one closes it (measured: left
+                    // open across a tab switch, the next meter press toggled
+                    // it OFF instead of on).
+                    if (app.contextPopoverOpen && ownsPopovers &&
+                        app.contextPopoverSession != ownPane.selectedId)
+                        app.contextPopoverOpen = false;
+                    if (app.escape == EscapeIntent::CloseContextPopover)
+                        app.contextPopoverOpen = false;
+                    if (ownsPopovers)
+                        render_context_popover(ctx, parent, app, meter.ent(), ownPane, usage,
+                                               tok, budget, counted);
                 }
                 div(ctx, mk(leftMeta.ent(), 12),
                     ComponentConfig{}
@@ -11982,8 +12389,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static hanabi::fold::Mode fold_mode() {
         const Pane* p = painting_pane();
         if (p == nullptr || !p->openSession) return hanabi::fold::kDefault;
-        return hanabi::fold::from_int(
-            Settings::get().get_tool_fold(p->openSession->summary.id));
+        const std::string& id = p->openSession->summary.id;
+        const Settings& s = Settings::get();
+        // A choice made IN this conversation wins; with none, the Appearance
+        // default decides whether the rows start open.
+        if (s.has_tool_fold(id)) return hanabi::fold::from_int(s.get_tool_fold(id));
+        return s.get_disclosure_chips_open() ? hanabi::fold::Mode::Expand
+                                             : hanabi::fold::kDefault;
     }
     // Auto's rule: a short captured result is worth the space, a long one is a
     // log. No result at all means there is nothing to open.

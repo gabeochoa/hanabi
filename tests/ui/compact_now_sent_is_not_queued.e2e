@@ -1,0 +1,25 @@
+# A send that returned proves SENT, nothing more. When the server never
+# queues it (the command is swallowed on the wire), the popover says so --
+# "Sent. Waiting for the server to queue it." -- and never "queued"; a
+# retry of the SAME gesture reuses the SAME idempotency key (a fresh key
+# after an unknown outcome would queue a second compaction for one click).
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000 HANABI_MOCK_COMPACT_DROP=1
+require_thread t2
+wait_frames 12
+click_ui composer_meter
+wait_frames 10
+click_ui context_compact_now
+wait_frames 20
+expect_backend_compaction t2 none 1
+expect_text "Sent. Waiting for the server to queue it."
+expect_no_text "Compaction queued"
+# Retry: the button is pressable again (nothing is queued), and the key is
+# the first gesture's.
+click_ui context_compact_now
+wait_frames 20
+expect_backend_compaction t2 none 2
+expect_compaction_keys_equal
+key ESCAPE
+wait_frames 8

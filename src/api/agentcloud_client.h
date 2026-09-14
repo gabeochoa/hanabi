@@ -78,6 +78,9 @@ class AgentcloudClient : public Client {
     // echoed merged options, not the requested value, are what we return.
     // A typed `error` frame is the refusal.
     bool supports_session_options() const override { return ready(); }
+    bool supports_compact() const override { return ready(); }
+    Result<std::string> compact_session(const std::string& session_id,
+                                        const CompactionRequest& request) override;
     bool supports_model_menu() const override { return ready(); }
     Result<ModelMenu> model_menu() override;
     Result<SessionOptionsEcho> patch_session_options(
@@ -247,6 +250,13 @@ void parse_plan_goal_state(const std::string& hello_json, Session& out);
 void parse_pending_asks(const std::string& hello_json, Session& out);
 // hello.state.{options,option_defaults,model_fallback} -> Session::model.
 void parse_serving_model(const std::string& hello_json, Session& out);
+// hello.state.pending_compaction -> Session::pending_compaction (absent/null
+// = none owed).
+void parse_pending_compaction(const std::string& hello_json, Session& out);
+// The `compact` command's session-sub payload, exactly as the server's own
+// ClientCmd spells it: `apply` and `instructions` only when set,
+// `idempotency_key` always (one per gesture).
+std::string compact_command_json(const CompactionRequest& request);
 
 
 //
@@ -284,6 +294,8 @@ struct LiveFrame {
         // JSON {"id": the frame's seq as the row id, "summary": text}).
         Compacting,
         Compacted,
+        CompactRequested,
+        CompactApplied,
         // The lane was retracted without a marker: the round was cancelled
         // or failed, and the running divider comes down with nothing to show.
         CompactionRetracted,

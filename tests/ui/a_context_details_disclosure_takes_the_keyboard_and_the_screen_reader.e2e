@@ -1,0 +1,42 @@
+# The Details disclosure in the context popover is usable without the
+# pointer: focus reaches it (focus_ui / Tab), Enter toggles it, the panel
+# stays up and re-renders with the ledger; the screen reader sees a Button
+# whose expanded state follows, and an AX press toggles it too. Escape
+# still closes the panel from the keyboard.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000
+require_thread t2
+wait_frames 12
+click_ui composer_meter
+wait_frames 10
+assert_ui context_popover_title hidden=false
+expect_no_ui context_conversation
+
+# Keyboard: focus the disclosure, Enter opens the ledger, the panel stays.
+focus_ui context_popover_details
+wait_frames 4
+expect_focused context_popover_details
+key ENTER
+wait_frames 10
+assert_ui context_popover_title hidden=false
+assert_ui context_conversation hidden=false
+expect_text "Conversation  412k in"
+# Focus is still inside the panel: Enter again closes the ledger.
+focus_ui context_popover_details
+wait_frames 4
+key ENTER
+wait_frames 10
+assert_ui context_popover_title hidden=false
+expect_no_ui context_conversation
+
+# Screen reader: a Button named Details; its press toggles the ledger.
+expect_a11y "Details" role=AXButton
+a11y_press "Details"
+wait_frames 10
+assert_ui context_conversation hidden=false
+
+# Escape from the keyboard closes the panel.
+key ESCAPE
+wait_frames 8
+expect_no_ui context_popover_title

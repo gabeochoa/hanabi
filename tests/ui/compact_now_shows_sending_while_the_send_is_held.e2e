@@ -1,0 +1,35 @@
+# The in-flight state, held deterministically: the mock's compact send does
+# not complete until `release_compact_send` (the worker-latch pattern the
+# compaction round uses), so over real frames the popover reads "Sending…",
+# the button is not pressable, nothing claims "queued", and the backend has
+# no slot. Released, the authoritative state lands: the slot is filled and
+# the popover reads queued.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000 HANABI_MOCK_COMPACT_SEND_HOLD=latch
+require_thread t2
+wait_frames 12
+click_ui composer_meter
+wait_frames 10
+click_ui context_compact_now
+wait_frames 6
+expect_text "Sending"
+expect_no_text "Compaction queued"
+expect_no_text "Sent."
+expect_a11y "Compact now" role=AXButton
+expect_a11y_press_refused "Compact now"
+# A second press while held sends nothing more.
+click_ui context_compact_now
+wait_frames 6
+expect_text "Sending"
+# The frames keep running; the state holds.
+wait_frames 20
+expect_text "Sending"
+expect_backend_compaction t2 none 1
+release_compact_send
+wait_frames 24
+expect_backend_compaction t2 pending 1
+expect_text "Compaction queued. It lands at the next tool boundary."
+expect_no_text "Sending"
+key ESCAPE
+wait_frames 8

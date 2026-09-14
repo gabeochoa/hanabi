@@ -1,0 +1,18 @@
+# A viewer whose attach came back read-only (hello.access = read) is not
+# offered the button at all -- the reference's compactOffered -- and the
+# status line says why; nothing is sent. Unknown access (an old server
+# omitting the key) is NOT read-only: the other compact scripts run with
+# the mock's owner access and would run the same with none reported.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000 HANABI_MOCK_ACCESS=read
+require_thread t2
+wait_frames 12
+click_ui composer_meter
+wait_frames 10
+assert_ui context_popover_title hidden=false
+expect_no_ui context_compact_now
+expect_text "Only this session's owner can compact it."
+expect_backend_compaction t2 none 0
+key ESCAPE
+wait_frames 8

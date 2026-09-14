@@ -70,6 +70,7 @@ enum class EscapeIntent {
     CloseSlashMenu,
     CloseModelPicker,
     ClosePlanPicker,
+    CloseContextPopover,
     CloseFoldPicker,
     CloseNodePicker,
     DeclineAsk,
@@ -894,6 +895,14 @@ struct AppComponent : public afterhours::BaseComponent {
     // The composer strip's effort picker. One flag: the popover is a list of
     // levels and a click, with nothing in flight behind it.
     bool planPopoverOpen = false;
+    // The context meter's popover (the reference's ContextPopover): how full
+    // the window is, and -- with Appearance's Full context detail on, or the
+    // Details disclosure opened for this showing -- the ledger the attach
+    // reported. `contextDetailsExpanded` is the disclosure's state for ONE
+    // showing; the setting is the durable default.
+    bool contextPopoverOpen = false;
+    bool contextDetailsExpanded = false;
+    std::string contextPopoverSession;  // whose popover is up; a pane switch closes it
     // The composer strip's tool-fold picker (Fold all / Expand all / Auto).
     bool foldPopoverOpen = false;
     // The composer strip's node picker: the roster it lists, the node a NEW
@@ -1151,6 +1160,11 @@ struct AppComponent : public afterhours::BaseComponent {
         // its own divider row between the echo and the reply when the drain
         // begins, the same place the server put it, under the server's id.
         std::vector<CompactionMarker> compactions;
+        // compact_requested keys seen on this stream (with the seq each
+        // named): the gesture they answer is settled when the collection
+        // lands on the main thread.
+        std::vector<std::pair<std::string, std::int64_t>> compactRequestKeys;
+        std::vector<std::int64_t> compactAppliedRequests;  // each compact_applied.request
     };
     // Read on the main frame, written by the collect worker: the one channel
     // a worker has to the screen while a reply is still being gathered. The
@@ -1167,6 +1181,11 @@ struct AppComponent : public afterhours::BaseComponent {
         std::atomic<bool> compacting{false};
         std::atomic<std::int64_t> compactStartedAtMs{0};   // 0 = no anchor
         std::atomic<std::int64_t> compactOutputTokens{-1}; // -1 = no reading
+        // The stream's compact_requested / compact_applied (spec 314): a
+        // compaction QUEUED for the streaming session, cleared when a
+        // boundary takes it up -- the same fact the attach's pending slot
+        // carries, seen live.
+        std::atomic<bool> compactQueued{false};
     };
     std::shared_ptr<TransferShared> transfer;
     std::future<StreamCollected> streamCollectFuture;
@@ -1457,6 +1476,85 @@ struct AppComponent : public afterhours::BaseComponent {
         tuningOutcome = TuningOutcome::None;
         tuningOutcomeText.clear();
         tuningOutcomeSessionId.clear();
+    }
+
+    // "Compact now" (ClientCmd `compact`, spec 155/314). One ask per gesture,
+    // owned by the session and pane it was pressed in. The KEY is minted at
+    // the press and kept on the gesture: a retry of that gesture reuses it,
+    // and no new key is ever minted for an unknown outcome -- a keyed retry
+    // is answered with the original request, an unkeyed one would queue a
+    // second compaction. What the button shows comes from the FOLDS
+    // (Session::pending_compaction from the attach; the stream's compacting /
+    // compacted), never from the send: a send that returned "ok" proves
+    // SENT, and the panel says "Sent, waiting for the server to queue it"
+    // until the attach shows the pending slot filled.
+    struct CompactionAsk {
+        std::string sessionId;
+        int pane = 0;
+        api::CompactionRequest request;
+    };
+    std::optional<CompactionAsk> requestCompaction;  // one-shot
+    std::optional<CompactionAsk> compactionInFlight;
+    std::future<api::Result<std::string>> compactionFuture;
+    enum class CompactionOutcome { None, Sending, Sent, Refused, Unconfirmed, Unsupported };
+    struct CompactionGesture {
+        CompactionOutcome outcome = CompactionOutcome::None;
+        std::string text;             // the server's words / the dry note
+        api::CompactionRequest last;  // the gesture's request, key included
+    };
+    std::map<std::string, CompactionGesture> compactionBySession;
+    const CompactionGesture* compaction_gesture(const std::string& sid) const {
+        auto it = compactionBySession.find(sid);
+        return it == compactionBySession.end() ? nullptr : &it->second;
+    }
+    void note_compaction_outcome(const std::string& sid, CompactionOutcome o,
+                                 std::string text) {
+        auto& g = compactionBySession[sid];
+        g.outcome = o;
+        g.text = std::move(text);
+    }
+    // The gesture is answered -- its receipt ends -- when the server shows
+    // it knows the KEY: the attach's compact_keys carries it (a keyed retry
+    // deduped with no frame settles here too, and keys persist after the
+    // slot is consumed), or a stream compact_requested carried it. A bare
+    // pending slot is never proof by itself: another key's slot settles
+    // nothing of ours. Both entry points are the production rule the tests
+    // drive.
+    bool settle_compaction_if_known(const std::string& sid, const api::Session& fresh) {
+        const auto it = compactionBySession.find(sid);
+        if (it == compactionBySession.end()) return false;
+        const std::string& key = it->second.last.idempotency_key;
+        if (key.empty()) return false;
+        if (fresh.compact_keys.find(key) == fresh.compact_keys.end()) return false;
+        compactionBySession.erase(it);
+        return true;
+    }
+    bool settle_compaction_if_key(const std::string& sid, const std::string& key) {
+        const auto it = compactionBySession.find(sid);
+        if (it == compactionBySession.end() || key.empty()) return false;
+        if (it->second.last.idempotency_key != key) return false;
+        compactionBySession.erase(it);
+        return true;
+    }
+    // Whether a session's pending slot is OUR gesture's: compact_keys maps
+    // our key to the slot's request seq. A slot with another request is a
+    // queued compaction (the panel shows it) but not our receipt.
+    // compact_applied names the request it consumed: the slot is cleared only
+    // when it IS that request. An applied event for an older request (out of
+    // order, replayed) leaves a newer queued request in place; a slot whose
+    // request is unknown (0, pre-seq) is cleared only by an applied 0.
+    static bool clear_pending_slot_if_applied(api::Session& s, std::int64_t appliedRequest) {
+        if (!s.pending_compaction) return false;
+        if (s.pending_compaction->request != appliedRequest) return false;
+        s.pending_compaction.reset();
+        return true;
+    }
+    bool pending_slot_is_ours(const std::string& sid, const api::Session& s) const {
+        if (!s.pending_compaction) return false;
+        const auto it = compactionBySession.find(sid);
+        if (it == compactionBySession.end()) return false;
+        const auto k = s.compact_keys.find(it->second.last.idempotency_key);
+        return k != s.compact_keys.end() && k->second == s.pending_compaction->request;
     }
 
     std::string requestForkSourceId;
@@ -1924,7 +2022,7 @@ inline bool overlay_up(const AppComponent& app) {
 }
 
 inline bool composer_strip_surface_up(const AppComponent& app) {
-    return app.slashMenuOpen || app.modelPopoverOpen ||
+    return app.slashMenuOpen || app.modelPopoverOpen || app.contextPopoverOpen ||
            app.planPopoverOpen || app.foldPopoverOpen || app.nodePopoverOpen;
 }
 

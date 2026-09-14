@@ -440,6 +440,8 @@ enum class StreamEventKind {
     Compacting,
     Compacted,
     CompactionRetracted,  // the round ended with no summary (cancel/failure)
+    CompactRequested,     // a compaction was QUEUED (payload = json {apply, idempotency_key, seq})
+    CompactApplied,       // a queued compaction was taken up at a boundary (payload = json {request})
 };
 
 // One streaming event: a kind plus an optional string payload whose meaning
@@ -781,6 +783,20 @@ class Client {
     // two hours on the next open. A backend without the command fails, and
     // the caller shows the catalog it knows with the fact that the server was
     // not asked -- never an empty list as an authoritative answer.
+    // Compact the session's context (agentcloud ClientCmd `compact` on the
+    // session sub, spec 155/314): QUEUED at the boundary `apply` names even
+    // while the run is busy; no direct acknowledgement -- the receipt is the
+    // attach subscription's `compact_requested` (queued), the compacting
+    // signal and the durable `compacted`. A success here means SENT and
+    // nothing more; the caller reads status from the folds. A backend
+    // without the verb says so and sends nothing.
+    virtual bool supports_compact() const { return false; }
+    virtual Result<std::string> compact_session(const std::string& session_id,
+                                                const CompactionRequest& request) {
+        (void)session_id;
+        (void)request;
+        return Result<std::string>::failure("this backend cannot compact a conversation");
+    }
     virtual bool supports_model_menu() const { return false; }
     virtual Result<ModelMenu> model_menu() {
         return Result<ModelMenu>::failure("this backend serves no model menu");

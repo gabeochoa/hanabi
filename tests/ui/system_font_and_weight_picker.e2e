@@ -5,6 +5,12 @@ click_ui sb_settings
 wait_frames 8
 click_ui sb_settings_nav_appearance
 wait_frames 8
+# The Typeface rows sit below the fold behind Reading width / Context /
+# Composer; scroll with the pointer over the pane first.
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -300
+wait_frames 6
 expect_text "System"
 expect_text "Optimistic"
 expect_text "Regular"
@@ -18,5 +24,9 @@ click_ui tab_close
 wait_frames 4
 click_ui sb_settings
 wait_frames 4
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -300
+wait_frames 6
 expect_text "System"
 expect_text "Bold"

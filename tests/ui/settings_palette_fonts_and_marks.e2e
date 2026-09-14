@@ -2,6 +2,12 @@
 # env: HANABI_TEST_OVERLAY=settings
 
 wait_frames 10
+# The Theme rows sit below the pane's fold now (Reading width, Context and
+# Composer come first, as in the reference); scroll the pane before them.
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -400
+wait_frames 6
 expect_text "Palette   ·   Dark"
 expect_text "Your messages"
 expect_text "Replies"

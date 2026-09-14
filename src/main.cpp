@@ -73,6 +73,7 @@
 #include "ecs/escape_system.h"
 #include "ecs/activate_system.h"
 #include "ecs/pointer_state_system.h"
+#include "ecs/click_observer_system.h"
 #include "ecs/scrollbar_occlusion_system.h"
 #include "ecs/publish_accessibility_system.h"
 #include "ecs/tooltip_system.h"
@@ -477,6 +478,11 @@ static void build_systems(afterhours::SystemManager& sm) {
 
     // Post-layout (autolayout, interactions).
     ui_imm::registerUIPostLayoutSystems(sm);
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    // After HandleClicks: what the pointer pipeline decided on a press frame,
+    // for the scripts' `dump_last_press`.
+    sm.register_update_system(std::make_unique<ecs::ClickObserverSystem>());
+#endif
     sm.register_update_system(std::make_unique<ecs::PointerStateSystem>());
     sm.register_update_system(
         std::make_unique<ecs::ScrollbarOcclusionSystem>());
@@ -1360,6 +1366,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "model") app->modelPopoverOpen = true;
         else if (os == "effort") app->modelPopoverOpen = true;  // one panel now
         else if (os == "plan") app->planPopoverOpen = true;
+        else if (os == "context") app->contextPopoverOpen = true;
         else if (os == "nodes") app->nodePopoverOpen = true;
         else if (os == "slash") {
             const std::string id = app->pane().openSession

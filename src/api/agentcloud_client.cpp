@@ -342,6 +342,29 @@ ContextUsage context_usage_from_state(const json& state) {
     out.used_tokens = int_or(occupancy, "tokens", -1);
     out.stale = bool_or(occupancy, "stale", false) ||
                 int_or(occupancy, "stale", 0) != 0;
+
+    // The wider spec-081 vocabulary, each key additive on the wire: absent
+    // stays -1 ("the server did not say"), never zero-filled.
+    out.input_durable = int_or(tokens, "input_durable", -1);
+    out.output_durable = int_or(tokens, "output_durable", -1);
+    out.cache_read_durable = int_or(tokens, "cache_read_durable", -1);
+    out.cache_creation_durable = int_or(tokens, "cache_creation_durable", -1);
+    const json& last = obj_at(tokens, "last_call");
+    if (last.is_object()) {
+        out.last_call_input = int_or(last, "input", -1);
+        out.last_call_output = int_or(last, "output", -1);
+        out.last_call_cache_read = int_or(last, "cache_read", -1);
+        out.last_call_cache_creation = int_or(last, "cache_creation", -1);
+    }
+    const json& compaction = obj_at(tokens, "last_compaction");
+    if (compaction.is_object()) {
+        // CompactionMetrics: estimated_tokens_before / estimated_tokens_after
+        // (the server's own estimates, labelled so on screen).
+        out.last_compaction_before = int_or(compaction, "estimated_tokens_before", -1);
+        out.last_compaction_after = int_or(compaction, "estimated_tokens_after", -1);
+    }
+    out.children_input = int_or(tokens, "children_input", -1);
+    out.children_output = int_or(tokens, "children_output", -1);
     return out;
 }
 
@@ -961,6 +984,38 @@ std::string create_command_json(const std::string& title,
     return command.dump();
 }
 
+void parse_pending_compaction(const std::string& hello_json, Session& out) {
+    out.pending_compaction.reset();
+    out.compact_keys.clear();
+    out.access = SessionAccess::Unknown;
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded() || !hello.is_object()) return;
+    // hello.access rides the hello envelope, beside state (optional; a
+    // token this build cannot name reads as Unknown, never as read-only).
+    out.access = session_access_from_wire(str_or(hello, "access", ""));
+    const json& state = obj_at(hello, "state");
+    const json& keys = obj_at(state, "compact_keys");
+    if (keys.is_object())
+        for (const auto& [k, v] : keys.items())
+            if (v.is_number_integer()) out.compact_keys[k] = v.get<int64_t>();
+    if (!state.contains("pending_compaction")) return;
+    const json& pc = state.at("pending_compaction");
+    if (!pc.is_object()) return;  // null = nothing owed
+    PendingCompaction p;
+    p.apply = str_or(pc, "apply", "after_tool_round");
+    p.has_instructions = bool_or(pc, "has_instructions", false);
+    p.request = int_or(pc, "request", 0);
+    out.pending_compaction = std::move(p);
+}
+
+std::string compact_command_json(const CompactionRequest& request) {
+    json p = {{"cmd", "compact"}};
+    if (!request.apply.empty()) p["apply"] = request.apply;
+    if (!request.instructions.empty()) p["instructions"] = request.instructions;
+    if (!request.idempotency_key.empty()) p["idempotency_key"] = request.idempotency_key;
+    return p.dump();
+}
+
 void parse_serving_model(const std::string& hello_json, Session& out) {
     const json hello = json::parse(hello_json, nullptr, false);
     if (hello.is_discarded()) return;
@@ -1332,6 +1387,26 @@ LiveFrame classify_live_frame_parsed(const json& root, LiveBlocks& blocks) {
         lf.payload = p.dump();
         return lf;
     }
+    if (type == "compact_requested") {
+        // The QUEUED receipt (spec 314): the request now sits in the
+        // session's pending slot until a boundary takes it up. A LIVE frame
+        // only: on a page fetch the pair stays silent (a queued request is
+        // not a transcript row; the reference draws none).
+        json p = json::object();
+        p["apply"] = str_or(e, "apply", "after_tool_round");
+        p["idempotency_key"] = str_or(e, "idempotency_key", "");
+        if (const int64_t seq = int_or(root, "seq", 0); seq > 0) p["seq"] = seq;
+        lf.kind = LiveFrame::Kind::CompactRequested;
+        lf.payload = p.dump();
+        return lf;
+    }
+    if (type == "compact_applied") {
+        json p = json::object();
+        p["request"] = int_or(e, "request", 0);
+        lf.kind = LiveFrame::Kind::CompactApplied;
+        lf.payload = p.dump();
+        return lf;
+    }
     if (type == "compacted") {
         // The marker is a durable row with a seq, and the seq is the id the
         // page parser gives every row (push_event), so the row the drain
@@ -1442,6 +1517,12 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
             break;
         case LiveFrame::Kind::CompactionRetracted:
             sink.emit_event({StreamEventKind::CompactionRetracted, ""});
+            break;
+        case LiveFrame::Kind::CompactRequested:
+            sink.emit_event({StreamEventKind::CompactRequested, lf.payload});
+            break;
+        case LiveFrame::Kind::CompactApplied:
+            sink.emit_event({StreamEventKind::CompactApplied, lf.payload});
             break;
         case LiveFrame::Kind::Finished:
             return false;
@@ -1799,6 +1880,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     out->context = context_usage_from_state(state);
     apply_brakes_from_state(state, *out);
     agentcloud::parse_serving_model(hello.dump(), *out);
+    agentcloud::parse_pending_compaction(hello.dump(), *out);
     agentcloud::parse_attached_nodes(hello.dump(), *out);
     agentcloud::parse_plan_goal_state(hello.dump(), *out);
     agentcloud::parse_pending_asks(hello.dump(), *out);
@@ -2217,6 +2299,75 @@ Result<std::string> AgentcloudClient::rename_session(
             return Result<std::string>::success(echoed.title);
     }
 }
+
+Result<std::string> AgentcloudClient::compact_session(const std::string& session_id,
+                                                      const CompactionRequest& request) {
+    const auto fail = [](const std::string& why) {
+        return Result<std::string>::failure(why);
+    };
+    if (session_id.empty()) return fail("no conversation to compact");
+    if (request.idempotency_key.empty()) return fail("a compaction needs its idempotency key");
+
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded())
+        return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    if (str_or(hello, "type", "") == "error")
+        return fail("attach refused: " + str_or(hello, "message", "unknown reason"));
+
+    // The command has NO direct acknowledgement (spec 314): a successful send
+    // proves SENT, and only the attach subscription's compact_requested /
+    // compacting / compacted say queued, running, done. A typed `error`
+    // inside a short window is a refusal (an old server answers the frame
+    // with a generic invalid-message error) and is reported as one; the
+    // window closing quietly is "sent", nothing more.
+    const json env = {{"sub", 1},
+                      {"payload", json::parse(agentcloud::compact_command_json(request))}};
+    const std::string wire = env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size()))
+        return fail("socket closed before the compaction was sent");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    for (;;) {
+        const json msg = q.wait_for_next(deadline);
+        if (msg.is_discarded()) break;
+        if (str_or(msg, "type", "") == "error")
+            return Result<std::string>::refusal(str_or(msg, "message", "compaction refused"));
+    }
+    // Silence is "sent" only on a socket that stayed open through the
+    // window; a socket that closed may have dropped the frame -- unknown.
+    if (q.is_closed())
+        return fail(q.closed_note("the connection closed before the compaction was confirmed sent"));
+    return Result<std::string>::success(request.idempotency_key);
+}
+
 
 namespace agentcloud {
 // The wire shape of a patch (spec 115, RFC 7386 per knob): a knob the caller

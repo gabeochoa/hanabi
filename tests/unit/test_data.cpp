@@ -1612,11 +1612,192 @@ static void test_mock_model_menu_is_the_catalog_with_the_default_marked() {
     CHECK(hasOpus);
 }
 
+// "Compact now" against the mock: the send proves SENT and the receipt is
+// the pending slot; the next streamed turn takes it up in the server's
+// order (compact_applied -> compacting -> compacted); a keyed repeat while
+// pending is a no-op and a keyed repeat AFTER the compaction ran queues
+// nothing; a fresh key is a fresh request; a busy session still queues.
+static void test_mock_compact_queues_then_the_next_turn_takes_it_up() {
+    std::printf("test_mock_compact_queues_then_the_next_turn_takes_it_up\n");
+    api::MockClient m;
+    api::MockClient::compact_keys_seen().clear();
+    api::MockClient::compact_sends().clear();
+    CHECK(m.supports_compact());
+    CHECK(!m.get_session("t2").value.pending_compaction.has_value());
+
+    api::CompactionRequest req;
+    req.idempotency_key = "gesture-1";
+    auto sent = m.compact_session("t2", req);
+    CHECK(sent.ok && sent.value == "gesture-1");
+    // SENT is not queued: the authoritative fact is the slot.
+    auto s1 = m.get_session("t2");
+    CHECK(s1.ok && s1.value.pending_compaction.has_value());
+    CHECK(s1.value.pending_compaction->apply == "after_tool_round");
+    CHECK(!s1.value.pending_compaction->has_instructions);
+    // The same gesture again while pending: a no-op (still one slot).
+    CHECK(m.compact_session("t2", req).ok);
+    CHECK(m.get_session("t2").value.pending_compaction->request == 1);
+    CHECK(api::MockClient::compact_sends().size() == 2);
+
+    // The next turn takes it up, in order.
+    std::vector<api::StreamEventKind> seen;
+    api::StreamSink sink;
+    sink.on_event = [&](const api::StreamEvent& ev) { seen.push_back(ev.kind); };
+    api::OutgoingMessage msg;
+    msg.text = "carry on";
+    m.send_message_streaming("t2", msg, sink);
+    auto applied = std::find(seen.begin(), seen.end(), api::StreamEventKind::CompactApplied);
+    auto compacting = std::find(seen.begin(), seen.end(), api::StreamEventKind::Compacting);
+    auto compacted = std::find(seen.begin(), seen.end(), api::StreamEventKind::Compacted);
+    CHECK(applied != seen.end() && compacting != seen.end() && compacted != seen.end());
+    CHECK(applied < compacting && compacting < compacted);
+    auto s2 = m.get_session("t2");
+    CHECK(s2.ok && !s2.value.pending_compaction.has_value());
+    bool marker = false;
+    for (const auto& mm : s2.value.messages)
+        if (mm.kind == api::EventKind::Compaction && mm.id.find("-cq") != std::string::npos)
+            marker = true;
+    CHECK(marker);
+
+    // The SAME key after the compaction ran: answered, queues nothing.
+    CHECK(m.compact_session("t2", req).ok);
+    CHECK(!m.get_session("t2").value.pending_compaction.has_value());
+    // A fresh gesture (fresh key) queues again, with its steering noted.
+    api::CompactionRequest req2;
+    req2.idempotency_key = "gesture-2";
+    req2.apply = "end_of_turn";
+    req2.instructions = "keep the payout numbers";
+    CHECK(m.compact_session("t2", req2).ok);
+    auto s3 = m.get_session("t2");
+    CHECK(s3.ok && s3.value.pending_compaction.has_value());
+    CHECK(s3.value.pending_compaction->apply == "end_of_turn");
+    CHECK(s3.value.pending_compaction->has_instructions);
+    // A missing key is the client's defect, refused before anything is queued.
+    api::CompactionRequest bare;
+    auto r = m.compact_session("t2", bare);
+    CHECK(!r.ok && !r.refused);
+    CHECK(m.get_session("t2").value.pending_compaction->request == 2);  // unchanged
+    api::MockClient::compact_keys_seen().clear();
+    api::MockClient::compact_sends().clear();
+}
+
+// The gesture's settlement is by KEY against the server's compact_keys map
+// and the stream's compact_requested -- never by the pending slot alone.
+static void test_compaction_gesture_settles_only_on_its_own_key() {
+    std::printf("test_compaction_gesture_settles_only_on_its_own_key\n");
+    ecs::AppComponent app;
+    auto& g = app.compactionBySession["t2"];
+    g.last.idempotency_key = "ours";
+    g.outcome = ecs::AppComponent::CompactionOutcome::Sent;
+
+    api::Session fresh;
+    fresh.summary.id = "t2";
+    // A foreign key in the map and a foreign slot: nothing of ours settles.
+    fresh.compact_keys["theirs"] = 7;
+    fresh.pending_compaction = api::PendingCompaction{"after_tool_round", false, 7};
+    CHECK(!app.settle_compaction_if_known("t2", fresh));
+    CHECK(app.compaction_gesture("t2") != nullptr);
+    CHECK(!app.pending_slot_is_ours("t2", fresh));
+    // A slot with ANOTHER request even though our key is known elsewhere.
+    fresh.compact_keys["ours"] = 9;
+    CHECK(!app.pending_slot_is_ours("t2", fresh));  // slot is 7, ours is 9
+    // Our key in the map: settles -- and would even with the slot gone
+    // (fast boundary / reconnect / dedup): keys persist.
+    fresh.pending_compaction.reset();
+    CHECK(app.settle_compaction_if_known("t2", fresh));
+    CHECK(app.compaction_gesture("t2") == nullptr);
+    // Replay: settling again is a no-op, not an error.
+    CHECK(!app.settle_compaction_if_known("t2", fresh));
+
+    // The stream path: a foreign key does not settle; ours does; out of
+    // order (theirs after ours) changes nothing.
+    auto& g2 = app.compactionBySession["t9"];
+    g2.last.idempotency_key = "k9";
+    CHECK(!app.settle_compaction_if_key("t9", "someone-else"));
+    CHECK(!app.settle_compaction_if_key("t9", ""));
+    CHECK(app.compaction_gesture("t9") != nullptr);
+    CHECK(app.settle_compaction_if_key("t9", "k9"));
+    CHECK(app.compaction_gesture("t9") == nullptr);
+    CHECK(!app.settle_compaction_if_key("t9", "someone-else"));
+    // Our slot: key maps to the slot's request.
+    auto& g3 = app.compactionBySession["t3"];
+    g3.last.idempotency_key = "k3";
+    api::Session s3;
+    s3.summary.id = "t3";
+    s3.compact_keys["k3"] = 12;
+    s3.pending_compaction = api::PendingCompaction{"now", true, 12};
+    CHECK(app.pending_slot_is_ours("t3", s3));
+    // A gesture with no key (a defect upstream) settles on nothing.
+    auto& g4 = app.compactionBySession["t4"];
+    g4.last.idempotency_key.clear();
+    api::Session s4;
+    s4.compact_keys[""] = 1;
+    CHECK(!app.settle_compaction_if_known("t4", s4));
+}
+
+// The mock serves compact_keys like the server: the key persists after the
+// slot is consumed, so a late attach settles a fast-applied gesture.
+static void test_mock_compact_keys_persist_after_the_slot_is_consumed() {
+    std::printf("test_mock_compact_keys_persist_after_the_slot_is_consumed\n");
+    api::MockClient m;
+    api::MockClient::compact_keys_seen().clear();
+    api::MockClient::compact_sends().clear();
+    api::CompactionRequest req;
+    req.idempotency_key = "fast";
+    CHECK(m.compact_session("t7", req).ok);
+    auto s1 = m.get_session("t7");
+    CHECK(s1.ok && s1.value.pending_compaction.has_value());
+    CHECK(s1.value.compact_keys.count("fast") == 1 &&
+          s1.value.compact_keys.at("fast") == s1.value.pending_compaction->request);
+    api::StreamSink sink;
+    api::OutgoingMessage msg;
+    msg.text = "go";
+    m.send_message_streaming("t7", msg, sink);
+    auto s2 = m.get_session("t7");
+    CHECK(s2.ok && !s2.value.pending_compaction.has_value());
+    CHECK(s2.value.compact_keys.count("fast") == 1);  // still known
+    // The production rule over it: our gesture settles from the map alone.
+    ecs::AppComponent app;
+    app.compactionBySession["t7"].last.idempotency_key = "fast";
+    CHECK(app.settle_compaction_if_known("t7", s2.value));
+    api::MockClient::compact_keys_seen().clear();
+    api::MockClient::compact_sends().clear();
+}
+
+// compact_applied clears the cached slot only when it names THAT request:
+// an older applied event, out of order or replayed, leaves a newer queued
+// request in place.
+static void test_an_older_compact_applied_does_not_erase_a_newer_queued_request() {
+    std::printf("test_an_older_compact_applied_does_not_erase_a_newer_queued_request\n");
+    api::Session s;
+    s.pending_compaction = api::PendingCompaction{"after_tool_round", false, 12};
+    // An applied event for request 11 (older): the slot for 12 stays.
+    CHECK(!ecs::AppComponent::clear_pending_slot_if_applied(s, 11));
+    CHECK(s.pending_compaction.has_value() && s.pending_compaction->request == 12);
+    // A replay of 11 after the fact: still nothing.
+    CHECK(!ecs::AppComponent::clear_pending_slot_if_applied(s, 11));
+    // The matching applied event clears it; a second (replayed) one is a no-op.
+    CHECK(ecs::AppComponent::clear_pending_slot_if_applied(s, 12));
+    CHECK(!s.pending_compaction.has_value());
+    CHECK(!ecs::AppComponent::clear_pending_slot_if_applied(s, 12));
+    // A NEWER request queued after an old applied arrives late: untouched.
+    s.pending_compaction = api::PendingCompaction{"now", true, 13};
+    CHECK(!ecs::AppComponent::clear_pending_slot_if_applied(s, 12));
+    CHECK(s.pending_compaction->request == 13);
+    // No slot: nothing to clear, false.
+    api::Session empty;
+    CHECK(!ecs::AppComponent::clear_pending_slot_if_applied(empty, 1));
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
     test_mock_patch_session_options_follows_the_server_rules();
     test_mock_model_menu_is_the_catalog_with_the_default_marked();
+    test_mock_compact_queues_then_the_next_turn_takes_it_up();
+    test_compaction_gesture_settles_only_on_its_own_key();
+    test_mock_compact_keys_persist_after_the_slot_is_consumed();
+    test_an_older_compact_applied_does_not_erase_a_newer_queued_request();
     test_mock_create_records_the_launch_tuning_and_send_ignores_it();
     test_legacy_create_refuses_tuning_and_still_creates_untuned();
     test_attachment_draft_retains_its_bytes();

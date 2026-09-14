@@ -1,0 +1,24 @@
+# The socket closes inside the silence window: the frame may or may not have
+# reached the server, so the popover says "Sent, but not confirmed" -- never
+# "queued", never "refused" -- the button is pressable again, and the retry
+# carries the SAME key (a keyed retry is deduped server-side; a fresh key
+# would queue a second compaction for one click).
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000 HANABI_MOCK_COMPACT_CLOSE=1
+require_thread t2
+wait_frames 12
+click_ui composer_meter
+wait_frames 10
+click_ui context_compact_now
+wait_frames 20
+expect_backend_compaction t2 none 1
+expect_text "Sent, but not confirmed"
+expect_no_text "Compaction queued"
+expect_no_text "Refused"
+click_ui context_compact_now
+wait_frames 20
+expect_backend_compaction t2 none 2
+expect_compaction_keys_equal
+key ESCAPE
+wait_frames 8

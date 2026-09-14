@@ -171,6 +171,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (r.ok && r.value.summary.id == id) {
                 app.clear_attach_refusal(id);
                 adopt_attach_asks(app, r.value, /*authoritative=*/true, stamp);
+                adopt_pending_compaction(app, r.value);
             }
         }
     }
@@ -211,6 +212,32 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     stamp),
                 stamp),
             stamp);
+    }
+
+    // The attach's pending-compaction slot onto every pane showing this
+    // session: filled = the gesture was queued (its receipt ends); empty
+    // after it was filled = a boundary took it up.
+    static void adopt_pending_compaction(AppComponent& app, const api::Session& s) {
+        const auto adopt = [&s](api::Session& into) {
+            into.pending_compaction = s.pending_compaction;
+            into.compact_keys = s.compact_keys;
+            into.access = s.access;
+        };
+        for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
+            auto& pane = app.panes[i];
+            if (!pane.openSession || pane.openSession->summary.id != s.summary.id) continue;
+            adopt(*pane.openSession);
+        }
+        // MEASURED (probe_pane on 065d51a): after a tab round-trip the popover
+        // was open and owned by t2 (flags right) yet showed no queued line --
+        // the re-select restores the pane from transcriptCache, a snapshot
+        // taken BEFORE the receipt landed, so the slot the pane had adopted
+        // was gone. The cached copy carries the same facts now.
+        app.transcriptCache.amend(s.summary.id, adopt);
+        // Settled by the KEY (compact_keys), never by the slot alone: a
+        // foreign or superseded slot confirms nothing of ours, and a keyed
+        // retry the server deduped with no frame settles from the map.
+        app.settle_compaction_if_known(s.summary.id, s);
     }
 
     static void adopt_attach_asks(AppComponent& app, const api::Session& s,
@@ -1195,6 +1222,49 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             } else {
                 // Sent, not confirmed: unknown. Not a refusal, not a retry.
                 app.note_tuning_outcome(AppComponent::TuningOutcome::Unconfirmed, r.error, id);
+            }
+        }
+
+        // Compact now: one ask at a time; a backend without the verb is a
+        // restriction, not a call.
+        if (app.requestCompaction && !app.compactionFuture.valid()) {
+            auto ask = *app.requestCompaction;
+            app.requestCompaction.reset();
+            auto& g = app.compactionBySession[ask.sessionId];
+            g.last = ask.request;
+            if (!app.client || !app.client->supports_compact()) {
+                g.outcome = AppComponent::CompactionOutcome::Unsupported;
+                g.text = "This backend cannot compact a conversation.";
+            } else {
+                g.outcome = AppComponent::CompactionOutcome::Sending;
+                g.text.clear();
+                app.compactionInFlight = ask;
+                std::shared_ptr<api::Client> c = app.client;
+                const std::string id = ask.sessionId;
+                const api::CompactionRequest req = ask.request;
+                app.compactionFuture = std::async(std::launch::async, [c, id, req] {
+                    return c->compact_session(id, req);
+                });
+            }
+        }
+        if (app.compactionFuture.valid() &&
+            app.compactionFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.compactionFuture.get();
+            const std::string id =
+                app.compactionInFlight ? app.compactionInFlight->sessionId : std::string();
+            app.compactionInFlight.reset();
+            if (r.ok) {
+                // SENT, nothing more. The receipt is the attach's pending
+                // slot: ask for the session again so it can show.
+                app.note_compaction_outcome(id, AppComponent::CompactionOutcome::Sent,
+                                            "Sent. Waiting for the server to queue it.");
+                request_ask_refresh(app, id);
+            } else if (r.refused) {
+                app.note_compaction_outcome(id, AppComponent::CompactionOutcome::Refused, r.error);
+            } else {
+                app.note_compaction_outcome(id, AppComponent::CompactionOutcome::Unconfirmed,
+                                            r.error);
             }
         }
 
@@ -2377,6 +2447,26 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         }
                         if (ev.kind == api::StreamEventKind::CompactionRetracted)
                             transfer->compacting.store(false);
+                        if (ev.kind == api::StreamEventKind::CompactRequested) {
+                            transfer->compactQueued.store(true);
+                            const auto p = nlohmann::json::parse(ev.payload, nullptr, false);
+                            if (p.is_object() && p.contains("idempotency_key") &&
+                                p["idempotency_key"].is_string())
+                                out.compactRequestKeys.emplace_back(
+                                    p["idempotency_key"].get<std::string>(),
+                                    p.contains("seq") && p["seq"].is_number_integer()
+                                        ? p["seq"].get<std::int64_t>()
+                                        : 0);
+                        }
+                        if (ev.kind == api::StreamEventKind::CompactApplied) {
+                            transfer->compactQueued.store(false);
+                            const auto p = nlohmann::json::parse(ev.payload, nullptr, false);
+                            out.compactAppliedRequests.push_back(
+                                p.is_object() && p.contains("request") &&
+                                        p["request"].is_number_integer()
+                                    ? p["request"].get<std::int64_t>()
+                                    : 0);
+                        }
                     };
                     c->send_message_streaming(id, message, sink);
                     return out;
@@ -2483,6 +2573,19 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 // Under the server's own id, so the refetch that follows
                 // finds this row and refreshes it in place instead of
                 // appending its copy (transcript_reconcile.h keys on id).
+                // The stream's compact_requested keys, consumed on the main
+                // thread: ours settles the gesture; a foreign key does not.
+                for (const auto& [key, seq] : got.compactRequestKeys) {
+                    (void)seq;
+                    app.settle_compaction_if_key(streamPane.openSession->summary.id, key);
+                }
+                // The boundary took a queued compaction up: the pane's copy of
+                // the slot is cleared here, on the main thread -- but ONLY when
+                // the applied event names THIS slot's request; an older
+                // applied event (out of order, or replayed) must not erase a
+                // newer queued request.
+                for (const std::int64_t req : got.compactAppliedRequests)
+                    AppComponent::clear_pending_slot_if_applied(*streamPane.openSession, req);
                 for (const AppComponent::CompactionMarker& c : got.compactions) {
                     api::Message marker;
                     marker.id = c.id;

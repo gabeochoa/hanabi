@@ -19,4 +19,5 @@ expect_text "Send message with"
 
 key DOWN
 wait_frames 6
-expect_text "Rotate theme"
+# (Appearance is up: its first section title; the Theme rows are below the fold)
+expect_text "Reading width"

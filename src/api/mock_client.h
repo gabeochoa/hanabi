@@ -675,6 +675,32 @@ class MockClient : public Client {
             ask != nullptr && std::string_view(ask) == "child")
             sink.emit_event(
                 StreamEvent{StreamEventKind::AsksChanged, child_ask_state()});
+        {
+            // A queued compaction is taken up at this turn's boundary
+            // (spec 314): compact_applied consumes the slot, then the
+            // compacting signal and the durable marker follow.
+            Session* owed = find_mutable(session_id);
+            if (owed != nullptr && owed->pending_compaction) {
+                const int64_t req = owed->pending_compaction->request;
+                owed->pending_compaction.reset();
+                sink.emit_event(StreamEvent{StreamEventKind::CompactApplied,
+                                            "{\"request\":" + std::to_string(req) + "}"});
+                sink.emit_event(StreamEvent{
+                    StreamEventKind::Compacting,
+                    "{\"started_at_unix_ms\":" + std::to_string(mock_now() * 1000 - 1000) +
+                        ",\"output_tokens\":1200}"});
+                Message marker;
+                marker.id = session_id + "-cq" + std::to_string(req);
+                marker.role = Role::System;
+                marker.kind = EventKind::Compaction;
+                marker.text = compaction_summary_of(*owed);
+                marker.created_at = mock_now();
+                owed->messages.push_back(marker);
+                sink.emit_event(StreamEvent{
+                    StreamEventKind::Compacted,
+                    compaction_marker_payload(marker.id, marker.text)});
+            }
+        }
         if (compacts(prompt)) {
             // A summarization round in flight before the reply: the anchor
             // 3m 01s before the fixture clock, the summarizer's reading at
@@ -875,6 +901,74 @@ class MockClient : public Client {
     // resolve to is marked `default`; every model's effort menu is the five
     // tokens with "high" the default. HANABI_MOCK_NO_MODEL_MENU stages a
     // backend without the command.
+    // "Compact now" offline. The request is QUEUED -- never refused for
+    // busyness -- into the session's one pending slot (a fresh request
+    // replaces it), and the answer proves SENT only: the receipt is the
+    // pending slot on the next get_session, and the next streamed turn takes
+    // the slot up (compact_applied -> compacting -> compacted). A keyed
+    // repeat while pending is a no-op; a keyed repeat AFTER the compaction
+    // ran is answered with the original request and queues nothing (the
+    // server's compact_keys discipline). Staging: HANABI_MOCK_NO_COMPACT (a
+    // backend without the verb), HANABI_MOCK_COMPACT_REFUSE (a typed refusal),
+    // HANABI_MOCK_COMPACT_DROP (the send is swallowed: sent, never queued).
+    bool supports_compact() const override {
+        return std::getenv("HANABI_MOCK_NO_COMPACT") == nullptr;
+    }
+    static std::vector<std::string>& compact_keys_seen() {
+        static std::vector<std::string> v;
+        return v;
+    }
+    static std::vector<CompactionRequest>& compact_sends() {
+        static std::vector<CompactionRequest> v;  // every request that reached the "server"
+        return v;
+    }
+    Result<std::string> compact_session(const std::string& session_id,
+                                        const CompactionRequest& request) override {
+        if (request.idempotency_key.empty())
+            return Result<std::string>::failure("a compaction needs its idempotency key");
+        outbound_calls().fetch_add(1);
+        compact_sends().push_back(request);
+        // HANABI_MOCK_COMPACT_CLOSE: the socket closes inside the silence
+        // window -- the frame may or may not have reached the server; the
+        // client must say unconfirmed and keep the key.
+        if (std::getenv("HANABI_MOCK_COMPACT_CLOSE") != nullptr)
+            return Result<std::string>::failure("the connection closed before the compaction was confirmed sent");
+        // HANABI_MOCK_COMPACT_SEND_HOLD=latch: the send does not complete until
+        // a script's `release_compact_send` -- the worker-latch pattern the
+        // compaction round already uses -- so the in-flight state is looked
+        // at over real frames, never by a sleep.
+        if (compact_send_hold_is_latch()) {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (!compact_send_release().load() &&
+                   std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            compact_send_release().store(false);
+        }
+        if (!supports_compact())
+            return Result<std::string>::failure("this backend cannot compact a conversation");
+        if (std::getenv("HANABI_MOCK_COMPACT_REFUSE") != nullptr)
+            return Result<std::string>::refusal("compaction refused: invalid message");
+        if (std::getenv("HANABI_MOCK_COMPACT_DROP") != nullptr)
+            return Result<std::string>::success(request.idempotency_key);  // sent, lost
+        Session* target = find_mutable(session_id);
+        if (target == nullptr) return Result<std::string>::failure("no such session: " + session_id);
+        auto& seen = compact_keys_seen();
+        const bool replay = !request.idempotency_key.empty() &&
+                            std::find(seen.begin(), seen.end(), request.idempotency_key) != seen.end();
+        if (!replay) {
+            seen.push_back(request.idempotency_key);
+            PendingCompaction p;
+            p.apply = request.apply.empty() ? "after_tool_round" : request.apply;
+            p.has_instructions = !request.instructions.empty();
+            p.request = static_cast<int64_t>(seen.size());
+            target->pending_compaction = p;
+            // The server's compact_keys map: key -> the request's seq; it
+            // persists after the slot is consumed.
+            target->compact_keys[request.idempotency_key] = p.request;
+        }
+        return Result<std::string>::success(request.idempotency_key);
+    }
+
     bool supports_model_menu() const override {
         return std::getenv("HANABI_MOCK_NO_MODEL_MENU") == nullptr;
     }
@@ -1002,6 +1096,18 @@ class MockClient : public Client {
     // Test seam: let a latched compaction round (HANABI_MOCK_COMPACT_HOLD_MS=
     // latch) finish. Safe to call when none is held.
     static void release_compaction() { compact_release().store(true); }
+    static void release_compact_send() { compact_send_release().store(true); }
+    static bool compact_send_hold_is_latch() {
+        static const bool latch = [] {
+            const char* v = std::getenv("HANABI_MOCK_COMPACT_SEND_HOLD");
+            return v != nullptr && std::string_view(v) == "latch";
+        }();
+        return latch;
+    }
+    static std::atomic<bool>& compact_send_release() {
+        static std::atomic<bool> flag{false};
+        return flag;
+    }
 
   private:
     static std::vector<Attachment> accepted_attachments(
@@ -1357,6 +1463,7 @@ class MockClient : public Client {
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
+        "HANABI_MOCK_ACCESS",
     };
     // ONE TURN OF A SYNTHETIC THREAD, in the shape a real one has.
     //
@@ -2040,6 +2147,19 @@ class MockClient : public Client {
                 s.pending_asks =
                     mock_pending_asks(std::string_view(ask), s.summary.id);
             }
+            // The wider accounting hello.state.tokens would carry for t2 (spec
+            // 081): lifetime totals, cache split, last call, last compaction,
+            // sub-agent rollup. What "Full context detail" adds to the caption.
+            s.context.input_durable = 412000;
+            s.context.output_durable = 38000;
+            s.context.cache_read_durable = 301000;
+            s.context.cache_creation_durable = 44000;
+            s.context.last_call_input = 14200;
+            s.context.last_call_output = 620;
+            s.context.last_compaction_before = 188000;
+            s.context.last_compaction_after = 41000;
+            s.context.children_input = 96000;
+            s.context.children_output = 7100;
             v.push_back(std::move(s));
         }
         {
@@ -3192,6 +3312,11 @@ class MockClient : public Client {
         // Every catalog session runs on the native harness unless a fixture
         // above said otherwise -- what hello.state.harness would carry.
         for (Session& s : v) {
+            // hello.access: the fixture's, or owner (the demo user owns them).
+            if (const char* a = std::getenv("HANABI_MOCK_ACCESS"); a && *a)
+                s.access = session_access_from_wire(a);
+            else
+                s.access = SessionAccess::Owner;
             if (s.model.harness.empty()) s.model.harness = "native";
             // The harness default every untuned session resolves to (what
             // hello.state.option_defaults.llm.model says); the capture's

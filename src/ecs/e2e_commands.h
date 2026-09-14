@@ -83,6 +83,7 @@
 #include "tooltip_system.h"
 #include "../a11y_bridge.h"
 #include "components.h"
+#include "click_observer_system.h"
 #include "pane_state.h"
 
 namespace hanabi::e2e {
@@ -2693,6 +2694,242 @@ struct HandleExpectBackendTuningCommand
     }
 };
 
+// expect_backend_compaction <id> <pending|none> [<sends>]: the backend's
+// view -- whether the session's pending-compaction slot is filled (the
+// authoritative "queued") -- and, optionally, how many compact commands
+// reached it (the transport count). The two are asserted SEPARATELY on
+// purpose: a send that reached the server is not a queued compaction.
+struct HandleExpectBackendCompactionCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_backend_compaction")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_backend_compaction requires <id> <pending|none> [<sends>]");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr || !app->client) {
+            cmd.fail("expect_backend_compaction: no client");
+            return;
+        }
+        const auto r = app->client->get_session(cmd.arg(0));
+        const std::string state =
+            r.ok ? (r.value.pending_compaction ? "pending" : "none") : "unknown";
+        const int sends = static_cast<int>(api::MockClient::compact_sends().size());
+        const bool sendsOk = !cmd.has_args(3) || std::to_string(sends) == cmd.arg(2);
+        if (r.ok && state == cmd.arg(1) && sendsOk) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("backend compaction for '{}' is {} with {} send(s), expected {}{}",
+                             cmd.arg(0), state, sends, cmd.arg(1),
+                             cmd.has_args(3) ? " " + cmd.arg(2) : std::string()));
+    }
+};
+
+// expect_compaction_keys_equal: every compact command the backend saw
+// carried the SAME idempotency key (one gesture, retried), and at least one.
+struct HandleExpectCompactionKeysEqualCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_compaction_keys_equal")) return;
+        const auto& sends = api::MockClient::compact_sends();
+        if (sends.empty()) {
+            cmd.fail("expect_compaction_keys_equal: no compact command reached the backend");
+            return;
+        }
+        for (const auto& r : sends) {
+            if (r.idempotency_key.empty() || r.idempotency_key != sends.front().idempotency_key) {
+                cmd.fail(std::format("compaction keys differ across {} send(s): '{}' vs '{}'",
+                                     sends.size(), sends.front().idempotency_key,
+                                     r.idempotency_key));
+                return;
+            }
+        }
+        cmd.consume();
+    }
+};
+
+// dump_last_press: the pointer pipeline's decision on the last press frame
+// (after HandleClicks) -- hot / active / focus winners by debug name, the
+// press point, and every listener whose `down` was set. A rect containing
+// the point is not dispatch; this is.
+// release_compact_send: lets the mock's held compact send complete (pairs
+// with HANABI_MOCK_COMPACT_SEND_HOLD=latch).
+struct HandleReleaseCompactSendCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("release_compact_send")) return;
+        api::MockClient::release_compact_send();
+        cmd.consume();
+    }
+};
+
+// dump_popover_flags: the app's popover state as the frame sees it.
+struct HandleDumpPopoverFlagsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("dump_popover_flags")) return;
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr) {
+            cmd.fail("dump_popover_flags: no app");
+            return;
+        }
+        const std::string sid = app->pane().selectedId;
+        const auto* g = app->compaction_gesture(sid);
+        const bool slot = app->pane().openSession && app->pane().openSession->pending_compaction;
+        std::printf("[E2E] dump_popover_flags: contextPopoverOpen=%d contextPopoverSession='%s' "
+                    "detailsExpanded=%d composerPopoverPane=%d focusedPane=%d selected='%s' "
+                    "modelPopoverOpen=%d escape=%d | compaction: request=%d inFlight=%s future=%d "
+                    "gesture=%s paneSlot=%d transferQueued=%d\n",
+                    app->contextPopoverOpen ? 1 : 0, app->contextPopoverSession.c_str(),
+                    app->contextDetailsExpanded ? 1 : 0, app->composerPopoverPane,
+                    app->focusedPane, sid.c_str(), app->modelPopoverOpen ? 1 : 0,
+                    static_cast<int>(app->escape), app->requestCompaction ? 1 : 0,
+                    app->compactionInFlight ? app->compactionInFlight->sessionId.c_str() : "-",
+                    app->compactionFuture.valid() ? 1 : 0,
+                    g ? std::to_string(static_cast<int>(g->outcome)).c_str() : "-", slot ? 1 : 0,
+                    app->transfer && app->transfer->compactQueued.load() ? 1 : 0);
+        cmd.consume();
+    }
+};
+
+// Freshness of an imm entity: frames since it was last BUILT (0 = this
+// frame). The library retains an unbuilt entity for ui_retire_grace_frames
+// (90), rect and label intact, so a name match alone can be a ghost -- the
+// parent's hypothesis for the two Context anomalies.
+inline long e2e_frames_since_built(afterhours::EntityID id) {
+    for (const auto& [_, record] : afterhours::ui::imm::existing_ui_elements)
+        if (record.id == id)
+            return static_cast<long>(afterhours::ui::imm::ui_build_frame) -
+                   static_cast<long>(record.last_built_frame);
+    return -1;  // not an imm-built element
+}
+
+// dump_text_owners <text>: every entity whose label CONTAINS the text, with
+// id, freshness, rendered flag, hide flags and parent -- to tell a live
+// label from a retained ghost when a text assertion reads the wrong one.
+struct HandleDumpTextOwnersCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("dump_text_owners")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("dump_text_owners requires <text>");
+            return;
+        }
+        const std::string needle = joined_args(cmd, 0);  // quotes stripped, spaces kept
+        int found = 0;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!e || !e->has<afterhours::ui::UIComponent>() ||
+                !e->has<afterhours::ui::HasLabel>())
+                continue;
+            const std::string& label = e->get<afterhours::ui::HasLabel>().label;
+            if (label.find(needle) == std::string::npos) continue;
+            ++found;
+            const auto& cmp = e->get<afterhours::ui::UIComponent>();
+            const std::string name = e->has<afterhours::ui::UIComponentDebug>()
+                                         ? e->get<afterhours::ui::UIComponentDebug>().name()
+                                         : std::string("<unnamed>");
+            std::printf("[E2E] dump_text_owners '%s': id=%d name=%s builtAgo=%ld rendered=%d "
+                        "ShouldHide=%d cmp.should_hide=%d parent=%d rect=%.0f,%.0f %.0fx%.0f "
+                        "label='%s'\n",
+                        needle.c_str(), static_cast<int>(e->id), name.c_str(),
+                        e2e_frames_since_built(e->id), cmp.was_rendered_to_screen ? 1 : 0,
+                        e->has<afterhours::ui::ShouldHide>() ? 1 : 0, cmp.should_hide ? 1 : 0,
+                        static_cast<int>(cmp.parent), cmp.rect().x, cmp.rect().y,
+                        cmp.rect().width, cmp.rect().height, label.c_str());
+        }
+        if (found == 0) std::printf("[E2E] dump_text_owners '%s': none\n", needle.c_str());
+        cmd.consume();
+    }
+};
+
+// dump_focusable <name>: the five predicates HandleTabbing's can_be_focused
+// applies to an entity -- listener, skip-when-tabbing, should-hide (entity
+// and component), rendered, input allowed -- plus the components that
+// decide them. The trace said the row never entered focused_ids; this says
+// which predicate kept it out.
+struct HandleDumpFocusableCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("dump_focusable")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("dump_focusable requires <name>");
+            return;
+        }
+        auto* ctx = afterhours::EntityHelper::get_singleton_cmp<UIContext<InputAction>>();
+        const std::string& name = cmd.arg(0);
+        int found = 0;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!e || !e->has<afterhours::ui::UIComponent>() ||
+                !e->has<afterhours::ui::UIComponentDebug>())
+                continue;
+            if (e->get<afterhours::ui::UIComponentDebug>().name() != name) continue;
+            ++found;
+            const auto& cmp = e->get<afterhours::ui::UIComponent>();
+            std::printf("[E2E] dump_focusable '%s' id=%d builtAgo=%ld hot=%d focus=%d "
+                        "listener=%d drag=%d skipTab=%d "
+                        "ShouldHide=%d cmp.should_hide=%d rendered=%d allowed=%d "
+                        "inCluster=%d labelDisabled=%d parent=%d layer=%d\n",
+                        name.c_str(), static_cast<int>(e->id), e2e_frames_since_built(e->id),
+                        ctx && ctx->hot_id == e->id ? 1 : 0,
+                        ctx && ctx->focus_id == e->id ? 1 : 0,
+                        e->has<afterhours::ui::HasClickListener>() ? 1 : 0,
+                        e->has<afterhours::ui::HasDragListener>() ? 1 : 0,
+                        e->has<afterhours::ui::SkipWhenTabbing>() ? 1 : 0,
+                        e->has<afterhours::ui::ShouldHide>() ? 1 : 0, cmp.should_hide ? 1 : 0,
+                        cmp.was_rendered_to_screen ? 1 : 0,
+                        ctx && ctx->is_input_allowed(e->id) ? 1 : 0,
+                        e->has<afterhours::ui::InFocusCluster>() ? 1 : 0,
+                        e->has<afterhours::ui::HasLabel>() &&
+                                e->get<afterhours::ui::HasLabel>().is_disabled
+                            ? 1
+                            : 0,
+                        static_cast<int>(cmp.parent), cmp.render_layer);
+        }
+        if (found == 0) std::printf("[E2E] dump_focusable '%s': no such entity\n", name.c_str());
+        cmd.consume();
+    }
+};
+
+struct HandleDumpLastPressCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("dump_last_press")) return;
+        const ecs::LastPress& lp = ecs::last_press();
+        if (!lp.seen) {
+            std::printf("[E2E] dump_last_press: no press seen yet\n");
+        } else {
+            std::printf("[E2E] dump_last_press: frame=%d at=%.0f,%.0f hot=%s(%d) active=%s(%d) "
+                        "focus=%s(%d) down=[%s]\n",
+                        lp.frame, lp.x, lp.y, lp.hotName.c_str(), static_cast<int>(lp.hot),
+                        lp.activeName.c_str(), static_cast<int>(lp.active),
+                        lp.focusName.c_str(), static_cast<int>(lp.focus), lp.downNames.c_str());
+        }
+        cmd.consume();
+    }
+};
+
 struct HandleExpectOutboxRetryCountCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -2746,6 +2983,13 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectOutboxAttachmentCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxRetryCountCommand>());
     sm.register_update_system(std::make_unique<HandleExpectBackendTuningCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectBackendCompactionCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectCompactionKeysEqualCommand>());
+    sm.register_update_system(std::make_unique<HandleDumpLastPressCommand>());
+    sm.register_update_system(std::make_unique<HandleReleaseCompactSendCommand>());
+    sm.register_update_system(std::make_unique<HandleDumpPopoverFlagsCommand>());
+    sm.register_update_system(std::make_unique<HandleDumpFocusableCommand>());
+    sm.register_update_system(std::make_unique<HandleDumpTextOwnersCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());

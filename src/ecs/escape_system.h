@@ -64,6 +64,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseModelPicker;
         else if (app->planPopoverOpen)
             app->escape = EscapeIntent::ClosePlanPicker;
+        else if (app->contextPopoverOpen)
+            app->escape = EscapeIntent::CloseContextPopover;
         else if (app->foldPopoverOpen)
             app->escape = EscapeIntent::CloseFoldPicker;
         else if (app->nodePopoverOpen)

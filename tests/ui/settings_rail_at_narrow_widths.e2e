@@ -24,7 +24,8 @@ expect_text "Send message with"
 
 click_ui settings_nav_appearance
 wait_frames 8
-expect_text "Rotate theme"
+# (Appearance is up: its first section title; the Theme rows are below the fold)
+expect_text "Reading width"
 expect_no_text "Send message with"
 
 # Wide: the sidebar hosts the list, and the sheet drops its own copy.
@@ -32,7 +33,8 @@ resize 1100 760
 wait_frames 10
 assert_ui sb_settings_nav w=280
 assert_ui settings_search_row hidden=false
-expect_text "Rotate theme"
+# (Appearance is up: its first section title; the Theme rows are below the fold)
+expect_text "Reading width"
 
 click_ui sb_settings_nav_general
 wait_frames 8

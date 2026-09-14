@@ -31,7 +31,8 @@ expect_no_text "Rotate theme"
 
 click_ui sb_settings_nav_appearance
 wait_frames 8
-expect_text "Rotate theme"
+# (Appearance is up: its first section title; the Theme rows are below the fold)
+expect_text "Reading width"
 # The pane has no subtitle now (the reference's pane opens with its content); its
 # first section title says which pane is up.
 expect_text "Reading width"

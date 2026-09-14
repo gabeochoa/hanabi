@@ -441,8 +441,29 @@ struct ContextUsage {
     int64_t budget_tokens = -1;
     bool stale = false;
 
+    // The wider accounting the server serves on the attach
+    // (hello.state.tokens, agentcloud WireTokens, spec 081): lifetime
+    // durable totals and their cache split, the latest settled call, the
+    // latest compaction's telemetry, and the sub-agent rollup. -1 = the
+    // server did not say; nothing here is estimated.
+    int64_t input_durable = -1;
+    int64_t output_durable = -1;
+    int64_t cache_read_durable = -1;
+    int64_t cache_creation_durable = -1;
+    int64_t last_call_input = -1;
+    int64_t last_call_output = -1;
+    int64_t last_call_cache_read = -1;
+    int64_t last_call_cache_creation = -1;
+    int64_t last_compaction_before = -1;
+    int64_t last_compaction_after = -1;
+    int64_t children_input = -1;
+    int64_t children_output = -1;
+
     [[nodiscard]] bool counted() const { return used_tokens >= 0; }
     [[nodiscard]] bool has_denominator() const { return budget_tokens > 0; }
+    [[nodiscard]] bool has_lifetime() const {
+        return input_durable >= 0 || output_durable >= 0;
+    }
 };
 
 struct SessionPlanStep {
@@ -647,6 +668,47 @@ struct ModelMenu {
     bool operator==(const ModelMenu&) const = default;
 };
 
+// The compaction a session OWES (agentcloud WireState.pending_compaction,
+// spec 314): the request no boundary has taken up yet. At most one -- a fresh
+// request replaces it -- so this is a slot, not a queue. Present on the
+// attach so a late-attaching client renders it without journal replay.
+// This subscription's access to the session (agentcloud `hello.access`,
+// SessionAccessLevel none|read|write|owner; additive and optional -- an old
+// server omits it). Unknown is NOT read-only: the reference's
+// `isReadOnly` is `access != nil && !allowsWrite`, fail-open, and the server
+// remains the enforcer of every write.
+enum class SessionAccess { Unknown, None, Read, Write, Owner };
+inline SessionAccess session_access_from_wire(std::string_view token) {
+    if (token == "none") return SessionAccess::None;
+    if (token == "read") return SessionAccess::Read;
+    if (token == "write") return SessionAccess::Write;
+    if (token == "owner") return SessionAccess::Owner;
+    return SessionAccess::Unknown;
+}
+inline bool access_is_read_only(SessionAccess a) {
+    return a == SessionAccess::None || a == SessionAccess::Read;
+}
+
+struct PendingCompaction {
+    std::string apply;            // after_tool_round | end_of_turn | now
+    bool has_instructions = false;
+    int64_t request = 0;          // the compact_requested's seq, when known
+    bool operator==(const PendingCompaction&) const = default;
+};
+
+// One user gesture on "Compact now" (ClientCmd `compact`, spec 155/314).
+// `apply` and `instructions` are the reference's: the default boundary is
+// the live run's next tool round; instructions steer that one summary. The
+// idempotency key is minted ONCE per gesture and reused for any retry of
+// THAT gesture -- a retry that lands after the compaction ran would
+// otherwise queue a second one for one click.
+struct CompactionRequest {
+    std::string apply;            // "" = the server's default (after_tool_round)
+    std::string instructions;     // "" = none
+    std::string idempotency_key;
+    bool operator==(const CompactionRequest&) const = default;
+};
+
 struct SessionOptionsPatch {
     std::optional<std::optional<std::string>> model;
     std::optional<std::optional<std::string>> effort;
@@ -702,6 +764,16 @@ struct Session {
     // defaults by any adapter that reports none.
     ContextUsage context;
     std::optional<SessionPlan> plan;
+    // This subscription's access, from the attach (hello.access).
+    SessionAccess access = SessionAccess::Unknown;
+    // The compaction owed, from the attach (see PendingCompaction).
+    std::optional<PendingCompaction> pending_compaction;
+    // Every idempotency key a `compact` on this session already carried ->
+    // the seq of the compact_requested it named (WireState.compact_keys,
+    // spec 314 FR2). A keyed retry whose original was journaled before this
+    // attach is deduped server-side with NO frame; the client settles it
+    // from here. Keys persist after the slot is consumed.
+    std::map<std::string, int64_t> compact_keys;
     std::optional<SessionGoal> goal;
     std::vector<PendingAsk> pending_asks;
 

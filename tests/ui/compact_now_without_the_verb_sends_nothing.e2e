@@ -1,0 +1,15 @@
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000 HANABI_MOCK_NO_COMPACT=1
+require_thread t2
+wait_frames 12
+click_ui composer_meter
+wait_frames 10
+expect_text "This backend cannot compact a conversation."
+expect_a11y "Compact now" role=AXButton
+expect_a11y_press_refused "Compact now"
+click_ui context_compact_now
+wait_frames 10
+expect_backend_compaction t2 none 0
+assert_ui context_popover_title hidden=false
+key ESCAPE
+wait_frames 8

@@ -1,0 +1,16 @@
+# The server's typed refusal is shown as a refusal (its words); a backend
+# without the verb shows the button disabled with the reason and sends
+# NOTHING -- the screen reader is refused the press too.
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000 HANABI_MOCK_COMPACT_REFUSE=1
+require_thread t2
+wait_frames 12
+click_ui composer_meter
+wait_frames 10
+click_ui context_compact_now
+wait_frames 20
+expect_backend_compaction t2 none 1
+expect_text "Refused: compaction refused: invalid message"
+key ESCAPE
+wait_frames 8

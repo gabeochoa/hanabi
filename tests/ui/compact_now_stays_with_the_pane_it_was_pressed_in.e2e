@@ -1,0 +1,33 @@
+# The gesture belongs to the session and pane it was pressed in: switching
+# tabs while the send is in flight redirects nothing -- the other thread's
+# popover is untouched, and the receipt lands on the thread that asked.
+# (HANABI_CONTEXT_USAGE seeds the OPEN thread's count at launch, so the
+# meter exists on t2; t9's meter is drawn from its own estimate.)
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_CONTEXT_USAGE=258937 HANABI_CONTEXT_BUDGET_TOKENS=800000
+require_thread t2
+wait_frames 12
+click_ui composer_meter
+wait_frames 10
+click_ui context_compact_now
+wait_frames 2
+# Switch before the answer lands.
+click_ui tab_t9
+wait_frames 24
+expect_open t9
+click_ui composer_meter
+wait_frames 10
+expect_no_text "Compaction queued"
+expect_backend_compaction t9 none
+key ESCAPE
+wait_frames 8
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+click_ui composer_meter
+wait_frames 10
+expect_backend_compaction t2 pending 1
+expect_text "Compaction queued. It lands at the next tool boundary."
+key ESCAPE
+wait_frames 8
