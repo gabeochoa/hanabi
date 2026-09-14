@@ -7,11 +7,11 @@
 #
 # What it proves that the real-input scripts cannot cheaply:
 #   (1) a dismissal delivered through the slot closes with no intent;
-#   (2) a pick whose row is NOT in the snapshot (row 40; the snapshot has 13)
+#   (2) a pick whose row is NOT in the snapshot (row 40; the snapshot has 16)
 #       resolves to no action id and is REFUSED -- the menu closes and
 #       nothing toggles -- rather than being applied to whatever this
 #       frame's list holds;
-#   (3) a pick that IS in the snapshot (row 10 = "mute") lands as the intent.
+#   (3) a pick that IS in the snapshot (row 13 = "mute") lands as the intent.
 # Each menu here is opened by a real right-click, so AppKit's menu IS on
 # screen while the result is injected; the injection ends it (cancelTracking)
 # the way an item's action would. A second right-click while a menu tracks
@@ -43,12 +43,14 @@ native_menu_expect idle
 expect_no_ui row_menu_native_eater
 expect_no_text "Session muted"
 expect_no_text "Session archived"
-# (3) in-snapshot pick lands: row 10 is "mute" for t6 (separators hold
-# rows 1, 4, 9, 11); the intent applies.
+# (3) in-snapshot pick lands: row 13 is "mute" for t6 (rows: 0 Open,
+# 1 Open & Pin, 2 sep, 3 Open in Split, 4 sep, 5 Rename, 6 Fork, 7 sep,
+# 8 Copy Title, 9 link, 10 Copy Session ID, 11 Open in Web, 12 sep,
+# 13 Mute, 14 sep, 15 Archive); the intent applies.
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6
 native_menu_expect busy session:t6
-native_menu_inject 10
+native_menu_inject 13
 wait_frames 10
 native_menu_expect idle
 expect_text "Session muted"

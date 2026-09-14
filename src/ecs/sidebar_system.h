@@ -783,6 +783,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         enum class Action {
             Open,
+            OpenPinned,
+            OpenSplit,
             Rename,
             CopyTitle,
             Fork,
@@ -810,31 +812,19 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             items.push_back(std::move(m));
             actions.push_back(a);
         };
-        {
-            hanabi::surface::MenuItem open{"Open\xe2\x80\xa6",
-                                           "row_menu_open",
-                                           false,
-                                           false,
-                                           {{"Open in a Tab", "row_menu_open_tab", false, false},
-                                            {"Open in Split", "row_menu_open_split", false,
-                                             false}}};
-            open.action_id = "open";
-            items.push_back(std::move(open));
-            actions.push_back(Action::Open);
-        }
-        // Groups and casing are the reference's session menu (measured on
-        // its dark capture): Open | Rename | the copy/open-elsewhere block |
-        // Pin/Mute | Archive -- a hairline between groups, Title Case, and
-        // Archive an ORDINARY row (the reference does not paint it as
-        // destructive). Fork has no reference row; it sits with the session
-        // operations after Rename. Only rows Hanabi implements are drawn.
-        // A divider takes an `actions` slot too, so a row's index stays its
-        // action's index.
         const auto divider = [&](const char* name) {
             items.push_back(hanabi::surface::MenuItem::divider(name));
             actions.push_back(Action::Divider);
         };
+        const bool alreadyOpen = [&] {
+            const auto* strip = find_singleton<TabStripComponent>();
+            return strip != nullptr && model::session_is_open(*strip, target->id);
+        }();
+        add("Open", "row_menu_open", Action::Open, "open");
+        add("Open & Pin", "row_menu_open_pin", Action::OpenPinned, "open_pin");
         divider("row_menu_divider_open");
+        add("Open in Split", "row_menu_open_split", Action::OpenSplit, "open_split", alreadyOpen);
+        divider("row_menu_divider_split");
         add("Rename\xe2\x80\xa6", "row_menu_rename", Action::Rename, "rename",
             !(app.client && app.client->supports_rename()));
         add("Fork Session", "row_menu_fork", Action::Fork, "fork",
@@ -918,12 +908,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             }
             switch (actions[row]) {
                 case Action::Open:
-                    if (result.activated_child == 0)
-                        app.requestOpenTab = targetId;
-                    else if (result.activated_child == 1)
-                        app.requestSplitOpen = targetId;
-                    else
-                        return;
+                    app.requestOpenTab = targetId;
+                    app.requestOpenTabPane = app.focusedPane;
+                    app.requestOpenTabKeep = false;
+                    break;
+                case Action::OpenPinned:
+                    app.requestOpenTab = targetId;
+                    app.requestOpenTabPane = app.focusedPane;
+                    app.requestOpenTabKeep = true;
+                    app.requestOpenTabPin = true;
+                    break;
+                case Action::OpenSplit:
+                    app.requestSplitOpen = targetId;
                     break;
                 case Action::Rename:
                     app.renameOpen = true;

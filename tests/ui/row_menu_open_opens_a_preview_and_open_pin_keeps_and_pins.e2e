@@ -1,0 +1,43 @@
+# The row menu's flat Open opens a closed thread the way a click does -- in
+# the preview slot, not starred -- while Open & Pin is one act: the thread is
+# opened kept, the tab pinned into the kept prefix, and the thread pinned
+# (starred) for the sidebar's Pinned view. Both act on the row that was
+# right-clicked, in the pane that was focused when the menu opened.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_tab t6 absent
+expect_starred t6 no
+right_click_text "SKU backfill"
+wait_frames 8
+expect_text "Open & Pin"
+click_text "Open"
+wait_frames 16
+expect_no_text "CONVERSATION"
+expect_open t6
+expect_tab t6 preview
+assert_ui tab_preview hidden=false
+expect_starred t6 no
+# Open & Pin on a different closed thread: kept, pinned, starred, selected.
+expect_tab t7 absent
+right_click_text "coordinating 3 shard workers"
+wait_frames 8
+click_text "Open & Pin"
+wait_frames 16
+expect_no_text "CONVERSATION"
+expect_open t7
+expect_tab t7 pinned
+expect_starred t7 yes
+assert_ui tab_pin hidden=false
+# The preview slot was not consumed by the pinned open: t6 is still there.
+expect_tab t6 preview
+# The thread already open as t2's kept tab stays kept and unstarred: Open
+# on it only selects it.
+right_click_ui chat_row_id_t2
+wait_frames 8
+click_text "Open"
+wait_frames 16
+expect_open t2
+expect_tab t2 kept
+expect_tab t2 unpinned
+expect_starred t2 no

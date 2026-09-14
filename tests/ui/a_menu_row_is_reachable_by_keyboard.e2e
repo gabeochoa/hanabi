@@ -10,6 +10,12 @@ right_click_text "coordinating 3 shard workers"
 wait_frames 10
 expect_text "CONVERSATION"
 
+# Open, Open & Pin, Open in Split, then past the disabled Rename and Fork
+# to Copy Title, then Copy Deeplink: five presses.
+arrow down
+wait_frames 6
+arrow down
+wait_frames 6
 arrow down
 wait_frames 6
 arrow down
@@ -25,35 +31,16 @@ expect_clipboard "navi://session/t7"
 
 right_click_text "coordinating 3 shard workers"
 wait_frames 10
+# The flat Open row: Right on it does nothing (no submenu any more); Enter
+# opens the thread as a preview, like a click, and the menu is gone.
 arrow down
 wait_frames 6
 arrow right
 wait_frames 8
-expect_text "Open in a Tab"
-
-key ESCAPE
-wait_frames 8
-expect_no_text "Open in a Tab"
 expect_text "CONVERSATION"
-
-arrow down
-wait_frames 6
-expect_text "CONVERSATION"
-
-key ESCAPE
-wait_frames 8
+expect_no_ui row_menu_open_submenu
+key ENTER
+wait_frames 16
 expect_no_text "CONVERSATION"
-
-right_click_text "coordinating 3 shard workers"
-wait_frames 10
-expect_text "CONVERSATION"
-arrow down
-wait_frames 6
-arrow right
-wait_frames 8
-expect_text "Open in a Tab"
-key ESCAPE
-wait_frames 8
-key ESCAPE
-wait_frames 8
-expect_no_text "CONVERSATION"
+expect_open t7
+assert_ui tab_preview hidden=false

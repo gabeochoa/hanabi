@@ -1,0 +1,43 @@
+# Open from a background row does not disturb the focused pane's draft, and
+# the row the menu was opened on is the row that opens -- switching the
+# selection with the menu up does not redirect the action. Escape and an
+# outside click act on nothing.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+click_ui composer_reply_input
+wait_frames 2
+type "half a reply"
+wait_frames 6
+expect_input_text composer_reply_input "half a reply"
+expect_reply_draft t2 0 "half a reply"
+right_click_text "SKU backfill"
+wait_frames 8
+key ESCAPE
+wait_frames 8
+expect_no_text "CONVERSATION"
+expect_tab t6 absent
+right_click_text "SKU backfill"
+wait_frames 8
+click 900 40
+wait_frames 8
+expect_no_text "CONVERSATION"
+expect_tab t6 absent
+# Keyboard: Down to Open & Pin, Enter.
+right_click_text "SKU backfill"
+wait_frames 8
+arrow down
+wait_frames 4
+arrow down
+wait_frames 4
+key ENTER
+wait_frames 16
+expect_open t6
+expect_tab t6 pinned
+expect_starred t6 yes
+# Back on t2 the draft is exactly as typed.
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+expect_input_text composer_reply_input "half a reply"
+expect_reply_draft t2 0 "half a reply"

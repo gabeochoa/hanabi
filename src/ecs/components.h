@@ -479,6 +479,7 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string requestOpenTab;
     int requestOpenTabPane = -1;
     bool requestOpenTabKeep = false;
+    bool requestOpenTabPin = false;
     bool subagentSidebarOpen = false;
     bool subagentSidebarSeeded = false;
     bool requestSubagentRefresh = false;

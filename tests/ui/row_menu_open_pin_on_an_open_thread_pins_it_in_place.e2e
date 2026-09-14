@@ -1,0 +1,30 @@
+# Open & Pin on a thread that already has a tab does not open a second one
+# or move the tab elsewhere: the existing tab is pinned (kept prefix, star)
+# and selected. Open in Split is disabled for an open thread and enabled for
+# a closed one.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+click_text "kicker-tick"
+wait_frames 16
+expect_open t9
+expect_tab t9 preview
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Open in Split"
+expect_a11y "Open in Split" says="Open in Split, menuitem, dimmed"
+click_text "Open & Pin"
+wait_frames 16
+expect_open t2
+expect_tab t2 pinned
+expect_starred t2 yes
+# Still one tab for t2 and the preview of t9 untouched.
+expect_tab t9 preview
+right_click_text "SKU backfill"
+wait_frames 8
+expect_a11y "Open in Split" says="Open in Split, menuitem"
+key ESCAPE
+wait_frames 8
+expect_no_text "CONVERSATION"
+expect_tab t6 absent
+expect_starred t6 no

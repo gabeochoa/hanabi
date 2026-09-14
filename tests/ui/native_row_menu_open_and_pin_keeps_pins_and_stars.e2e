@@ -1,0 +1,51 @@
+# NATIVE ARM, real input: Open & Pin from the NSMenu (Down, Down, Return) on a
+# closed thread is one act with the reference's receipts -- the thread opens
+# KEPT, its tab pinned into the kept prefix (pin glyph drawn), the thread
+# starred for the sidebar's Pinned view, and selected. Then the same pick on
+# a thread that already has a tab pins that tab in place: still one tab, now
+# pinned and starred, and selected (the reference's setThreadPinned selects
+# on pin). The preview opened in between is untouched by either.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1 HANABI_OPEN=t2
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+expect_tab t7 absent
+expect_starred t7 no
+native_right_click_text "coordinating 3 shard workers"
+wait_frames 6
+native_menu_expect open session:t7
+wait_frames 8
+native_menu_expect frames_driven>=4
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 16
+native_menu_expect closed
+expect_no_ui row_menu_native_eater
+expect_open t7
+expect_tab t7 pinned
+expect_starred t7 yes
+assert_ui tab_pin hidden=false
+# A preview of another thread, opened by a plain click, sits beside it.
+native_click_text "kicker-tick"
+wait_frames 16
+expect_open t9
+expect_tab t9 preview
+# Open & Pin on the thread that already has a kept tab (t2): pinned in place.
+native_right_click_ui chat_row_id_t2
+wait_frames 6
+native_menu_expect open session:t2
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 16
+native_menu_expect closed
+expect_open t2
+expect_tab t2 pinned
+expect_starred t2 yes
+expect_tab t7 pinned
+expect_tab t9 preview

@@ -1792,8 +1792,7 @@ struct HandleNativeMenuInjectCommand
                     scope = app->nativeMessageMenu.scope;
             }
             if (scope.empty())
-                if (auto* strip = afterhours::EntityHelper::get_singleton_cmp<
-                        ecs::TabStripComponent>())
+                if (auto* strip = ecs::find_singleton<ecs::TabStripComponent>())
                     if (strip->nativeMenu.open()) scope = strip->nativeMenu.scope;
             // `frames_driven>=N`: the adapter's heartbeat drove at least N app
             // frames while the current/last menu tracked -- the runtime proof
@@ -3374,6 +3373,70 @@ struct HandleDumpMessageMenuCommand
     }
 };
 
+struct HandleExpectTabStateCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_tab")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_tab requires <session id> <kept|preview|pinned|unpinned|absent>");
+            return;
+        }
+        const std::string& id = cmd.arg(0);
+        const std::string& want = cmd.arg(1);
+        std::string actual = "absent";
+        if (auto* strip = ecs::find_singleton<ecs::TabStripComponent>()) {
+            for (auto tabId : strip->tabOrder) {
+                auto o = afterhours::EntityHelper::getEntityForID(tabId);
+                if (!o.valid() || !o->has<ecs::Tab>() || o->get<ecs::Tab>().sessionId != id)
+                    continue;
+                const ecs::Tab& tab = o->get<ecs::Tab>();
+                actual = tab.pinned ? "pinned" : tab.keptOpen ? "kept" : "preview";
+                break;
+            }
+        }
+        const bool ok = want == actual || (want == "kept" && actual == "pinned") ||
+                        (want == "unpinned" && (actual == "kept" || actual == "preview"));
+        if (ok) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_tab: '{}' is {}, expected {}", id, actual, want));
+    }
+};
+
+struct HandleExpectStarredCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_starred")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_starred requires <session id> <yes|no>");
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        const api::SessionSummary* s = app ? app->find_summary(cmd.arg(0)) : nullptr;
+        const bool starred = s != nullptr && s->starred;
+        const bool want = cmd.arg(1) == "yes";
+        if (s != nullptr && starred == want) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_starred: '{}' is {}, expected {}", cmd.arg(0),
+                             s == nullptr ? "unknown" : (starred ? "yes" : "no"), cmd.arg(1)));
+    }
+};
+
 struct HandleDumpLastPressCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -3455,6 +3518,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleDumpFocusableCommand>());
     sm.register_update_system(std::make_unique<HandleDumpTextOwnersCommand>());
     sm.register_update_system(std::make_unique<HandleDumpMessageMenuCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectTabStateCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectStarredCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());

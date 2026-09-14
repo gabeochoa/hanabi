@@ -13,9 +13,7 @@ expect_hit_targets
 
 arrow down
 wait_frames 6
-arrow right
-wait_frames 8
-expect_text "Open in a Tab"
+expect_text "Open & Pin"
 expect_hit_targets
 
 key ESCAPE

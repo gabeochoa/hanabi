@@ -9,6 +9,13 @@ right_click_text "coordinating 3 shard workers"
 wait_frames 10
 expect_text "CONVERSATION"
 
+# Open -> Open & Pin -> Open in Split -> (Rename is disabled on t7: skipped)
+# -> Fork Session -> Copy Title -> Copy Deeplink: five presses, the disabled
+# row costing none.
+arrow down
+wait_frames 6
+arrow down
+wait_frames 6
 arrow down
 wait_frames 6
 arrow down

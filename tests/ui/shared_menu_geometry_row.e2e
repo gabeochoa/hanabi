@@ -5,24 +5,29 @@ right_click 120 400
 wait_frames 8
 
 expect_text "CONVERSATION"
-assert_ui row_menu x=120 y=360 w=184 h=396
+# 477 tall now (Open, Open & Pin, a divider, Open in Split, a divider added
+# to the 396 of the grouped menu) -- taller than the room below a click at
+# y=400 in a 760 window, so the menu is clamped upward and every row's y
+# moves with it; the rows are pinned by x/w/h and order, their y's by the
+# runtime dump once the primary reads them.
+assert_ui row_menu x=120 w=184 h=477
 assert_ui row_menu_eater w=1100 h=760
 assert_ui row_menu_title h=28
-assert_ui row_menu_open x=124 y=392 w=176 h=36
-assert_ui row_menu_rename y=437 w=176 h=36
-assert_ui row_menu_copy_title y=518 w=176 h=36
-assert_ui row_menu_fork y=473 w=176 h=36
-assert_ui row_menu_copy_link y=554 w=176 h=36
-assert_ui row_menu_copy_id y=590 w=176 h=36
-assert_ui row_menu_open_web y=626 w=176 h=36
-assert_ui row_menu_archive y=716 w=176 h=36
-assert_ui row_menu_mute y=671 w=176 h=36
+assert_ui row_menu_open x=124 w=176 h=36
+assert_ui row_menu_open_pin w=176 h=36
+assert_ui row_menu_open_split w=176 h=36
+assert_ui row_menu_rename w=176 h=36
+assert_ui row_menu_copy_title w=176 h=36
+assert_ui row_menu_fork w=176 h=36
+assert_ui row_menu_copy_link w=176 h=36
+assert_ui row_menu_copy_id w=176 h=36
+assert_ui row_menu_open_web w=176 h=36
+assert_ui row_menu_archive w=176 h=36
+assert_ui row_menu_mute w=176 h=36
 
-mouse_move 212 410
-wait_frames 8
-assert_ui row_menu_open_submenu x=300 y=392 w=184 h=80
-assert_ui row_menu_open_tab x=304 y=396 w=176 h=36
-assert_ui row_menu_open_split x=304 y=432 w=176 h=36
+# No submenu on this menu any more: Open, Open & Pin and Open in Split are
+# flat rows, as the reference draws them.
+expect_no_ui row_menu_open_submenu
 
 key ESCAPE
 wait_frames 6

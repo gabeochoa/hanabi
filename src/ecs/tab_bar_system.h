@@ -1185,10 +1185,12 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
 
         if (app.requestOpenTab.empty()) return;
         std::string id = app.requestOpenTab;
-        const bool keep = app.requestOpenTabKeep;
+        const bool pin = app.requestOpenTabPin;
+        const bool keep = app.requestOpenTabKeep || pin;
         int targetPane = app.requestOpenTabPane;
         app.requestOpenTab.clear();
         app.requestOpenTabKeep = false;
+        app.requestOpenTabPin = false;
         app.requestOpenTabPane = -1;
         auto* strip = find_singleton<TabStripComponent>();
         if (!strip) return;
@@ -1198,6 +1200,14 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             targetPane = originalPane;
         app.focusedPane = targetPane;
         TabBarSystem::open_session_in_tab(*strip, app, id, keep);
+        if (pin) {
+            for (auto tabId : strip->tabOrder) {
+                auto tab = EntityHelper::getEntityForID(tabId);
+                if (!tab.valid() || !tab->has<Tab>() || tab->get<Tab>().sessionId != id) continue;
+                if (!tab->get<Tab>().pinned) model::pin_thread_tab(*strip, app, tab.asE(), true);
+                break;
+            }
+        }
         if (targetPane != originalPane) {
             app.focusedPane = originalPane;
             for (auto tabId : strip->tabOrder) {

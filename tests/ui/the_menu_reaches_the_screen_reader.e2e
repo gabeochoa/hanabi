@@ -13,18 +13,12 @@ wait_frames 10
 expect_a11y "CONVERSATION" role=AXMenu
 expect_a11y "Archive" role=AXMenuItem parent=CONVERSATION
 expect_a11y "Rename…" role=AXMenuItem parent=CONVERSATION says="Rename…, menuitem, dimmed"
-expect_a11y "Open…" role=AXMenuItem parent=CONVERSATION
-
+expect_a11y "Open" role=AXMenuItem parent=CONVERSATION
+expect_a11y "Open & Pin" role=AXMenuItem parent=CONVERSATION
+expect_a11y "Open in Split" role=AXMenuItem parent=CONVERSATION
 arrow down
 wait_frames 6
-expect_a11y "Open…" says="Open…, menuitem, selected, submenu"
-
-arrow right
-wait_frames 8
-expect_a11y "Open…" says="Open…, menuitem, selected, submenu expanded" children=2
-expect_a11y "Open in a Tab" role=AXMenuItem parent=Open…
-expect_a11y "Open in Split" role=AXMenuItem parent=Open…
-
+expect_a11y "Open" says="Open, menuitem, selected"
 key ESCAPE
 wait_frames 8
 key ESCAPE

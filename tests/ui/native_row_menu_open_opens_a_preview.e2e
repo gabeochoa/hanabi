@@ -1,0 +1,35 @@
+# NATIVE ARM, real input: a right-click on a closed thread's sidebar row
+# through NSApp opens the row menu as an NSMenu; Down, Return picks the first
+# row, "Open". The receipt is the app's own tab state: the thread is open in
+# the focused pane as a PREVIEW (the click's slot), its tab neither kept nor
+# pinned, the thread not starred -- Open does not pin. Windowed, mock-only,
+# private stores, like the other native menu scripts.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1 HANABI_OPEN=t2
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+expect_tab t6 absent
+expect_starred t6 no
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect open session:t6
+assert_ui row_menu_native_eater hidden=false
+wait_frames 8
+native_menu_expect frames_driven>=4
+# Down (125) selects the first row, Open; Return (36) picks it.
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 16
+native_menu_expect closed
+expect_no_ui row_menu_native_eater
+expect_open t6
+expect_tab t6 preview
+assert_ui tab_preview hidden=false
+expect_starred t6 no
+# The thread that was open stays kept and unstarred.
+expect_tab t2 kept
+expect_tab t2 unpinned
+expect_starred t2 no
