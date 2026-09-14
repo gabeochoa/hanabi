@@ -34,6 +34,7 @@
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/status_mark.h"
+#include "../ui/transcript_copy.h"
 #include "thread_model.h"
 
 namespace ecs {
@@ -902,7 +903,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
         enum Act {
             CloseTab, CloseOthers, CloseRight, Divider, Rename, CopyTitle,
-            CopyWeblink, CopyDeeplink, CopyId, OpenWeb, Halt, HaltSubtree, Resume, Pin, Split
+            CopyWeblink, CopyDeeplink, CopyId, OpenWeb, ExportClipboard, Halt, HaltSubtree,
+            Resume, Pin, Split
         };
         std::vector<hanabi::surface::MenuItem> items;
         std::vector<Act> actions;
@@ -958,6 +960,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             add("Copy Session ID", "tab_menu_copy_id", CopyId);
             add("Open in Web", "tab_menu_open_web", OpenWeb, !webBase);
             divider("tab_menu_divider_copy");
+            // Export to Clipboard (see SidebarSystem::render_row_menu): the
+            // attached session's messages as loaded; disabled until attached.
+            // Conversation tabs only -- this is the non-surface branch.
+            add("Export to Clipboard", "tab_menu_export_clipboard", ExportClipboard,
+                app.session_with_messages(keepId) == nullptr);
+            divider("tab_menu_divider_export");
             // Halt / Resume, the tab's own attach being the observation
             // (see SidebarSystem::render_row_menu for the rule).
             if (const api::Session* attached = app.session_with_messages(keepId);
@@ -1070,7 +1078,29 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         hanabi::links::open(url);
                     break;
                 case Pin:
-                    model::pin_thread_tab(strip, app, tabEntity, !tab.pinned);
+                    if (isSurface) {
+                        // Keep Tab Open on a SURFACE: a tab fact only -- there
+                        // is no thread to pin, no shelf, no star, no undo
+                        // toast -- so it keeps the tab directly. The drain
+                        // below would find no session for a surface id and
+                        // do nothing (measured: Stop Keeping Open vanished).
+                        model::pin_thread_tab(strip, app, tabEntity, !tab.pinned);
+                        break;
+                    }
+                    // A conversation's Pin: the same request the sidebar's
+                    // star glyph and row menu make, applied at the single-
+                    // writer spot through model::set_thread_pinned (this tab
+                    // found by id), with the undo toast -- one entry point
+                    // for every THREAD pin gesture.
+                    app.requestToggleStar = keepId;
+                    break;
+                case ExportClipboard:
+                    if (const auto payload = hanabi::transcript_copy::export_clipboard_payload(
+                            app.session_with_messages(keepId),
+                            app.find_summary(keepId) ? app.find_summary(keepId)->title
+                                                     : std::string_view{},
+                            keepId))
+                        hanabi::clipboard::set_text(*payload);
                     break;
                 case Split:
                     app.requestSplitOpen = keepId;

@@ -1,0 +1,16 @@
+# control: fail expect_text_drawn 15
+# NEGATIVE CONTROL for `expect_text_drawn`: a label whose TEXT still exists on
+# an entity that is not drawn must NOT pass. t6's bubble is put on screen and
+# proven drawn; the pane then switches to t2 -- t6's bubble entity may live on
+# in the imm retention grace with its label intact, but it is in no render
+# list and on no screen -- and the same read must FAIL at its own bound (30),
+# with the handler's message, terminally: the sentinel line after it must
+# never dispatch (a second error line fails the driver's exactly-one rule).
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+click_ui chat_row_id_t6
+expect_text_drawn "61% through 2.1M rows" within=120
+click_ui tab_t2
+expect_text_drawn "61% through 2.1M rows" within=30
+expect_text "THIS LINE MUST NOT DISPATCH"

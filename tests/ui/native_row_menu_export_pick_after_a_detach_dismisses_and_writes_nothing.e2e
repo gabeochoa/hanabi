@@ -1,0 +1,46 @@
+# NATIVE ARM, real input -- the VALID-PICK-PAYLOAD-LOST path executed. The
+# NSMenu is built while t9 is ATTACHED in the right pane: its frozen snapshot
+# carries export_clipboard ENABLED. t9 is then detached through the scripted
+# seam (`detach_thread`, the same model::close_tab the tab's Close Tab uses;
+# no pointer can reach a pane close under a tracking menu) while the NSMenu
+# keeps tracking -- AppKit's items are frozen at open, so Export is still
+# offered and Return picks it. The pick resolves by action id against the
+# frozen snapshot, reaches the handler, which re-reads
+# session_with_messages(t9) at pick time, finds nothing, and writes nothing
+# -- not the cache's copy (still held, proven), not the attached left pane's
+# t2 -- and the menu is dismissed like any accepted pick. Down x8: Open,
+# Open & Pin, (Split disabled), Rename, Fork, Copy Title, (Weblink disabled:
+# no base), Copy Deeplink, Copy Session ID, (Open in Web disabled), Export.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t9 HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+require_thread t9
+expect_panes t2 t9 0
+native_mode on
+wait_frames 4
+reset_clipboard_probe
+native_right_click_ui chat_row_id_t9
+wait_frames 6
+native_menu_expect open session:t9
+native_menu_expect enabled export_clipboard
+native_menu_expect frames_driven>=4
+detach_thread t9
+expect_tab t9 absent within=60
+expect_cached t9 min=2 within=60
+native_menu_expect open session:t9
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_clipboard ""
+expect_no_ui row_menu_native_eater
+wait_frames 12
+native_menu_expect drained

@@ -58,6 +58,7 @@
 #include "sidebar_footer_status.h"
 #include "child_rows.h"
 #include "settings_system.h"
+#include "../ui/transcript_copy.h"
 #include "../keys.h"
 #include "ui_imports.h"
 
@@ -97,22 +98,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app->subagentSidebarSeeded = true;
         }
 
-        // Apply a pending star-toggle request (set by a row's star affordance).
-        // The mutation lives HERE so this owned system is the single writer of
-        // the sessions vector's starred flag — flipping it updates the Starred
-        // smart-view count + membership immediately, on the very next render.
+        // The one act behind the row's star glyph, the row menu's Pin, and the
+        // undo toast: the thread's pin, mirrored onto its open tab if it has
+        // one (model::set_thread_pinned). Applied HERE so this owned system is
+        // the single writer of the sessions vector's starred flag (the Starred
+        // view's count and membership move on the very next render), and
+        // toggled against the state at APPLY time, not the label that was
+        // drawn.
         if (!app->requestToggleStar.empty()) {
             for (auto& s : app->sessions) {
                 if (s.id == app->requestToggleStar) {
                     const bool starred = !s.starred;
-                    app->apply_starred(s.id, starred);
-                    // Persist so the star survives relaunch (Settings is the
-                    // durable source of truth; the loader re-applies it to
-                    // freshly-fetched sessions on the next launch).
-                    Settings::get().set_starred(s.id, starred);
-                    app->raise_toast(
-                        starred ? "Session starred" : "Session unstarred", s.id,
-                        AppComponent::ToastUndo::Star);
+                    model::set_thread_pinned(*app, find_singleton<TabStripComponent>(), s.id,
+                                             starred);
+                    app->raise_toast(starred ? "Thread pinned" : "Thread unpinned", s.id,
+                                     AppComponent::ToastUndo::Star);
                     break;
                 }
             }
@@ -790,6 +790,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             Fork,
             CopyWeblink,
             CopyDeeplink,
+            Pin,
+            ExportClipboard,
             CopyId,
             OpenWeb,
             Archive,
@@ -849,6 +851,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         add("Copy Session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
         add("Open in Web", "row_menu_open_web", Action::OpenWeb, "open_web", !webBase);
         divider("row_menu_divider_copy");
+        // Export to Clipboard: the whole conversation as Markdown, from the
+        // ATTACHED session's messages as loaded -- never a fetch, never the
+        // cache: a copy that needed a round trip would lose the race with the
+        // paste that follows. Disabled (present, dimmed) for a row this app
+        // has not attached. Its own group, after the links.
+        add("Export to Clipboard", "row_menu_export_clipboard", Action::ExportClipboard,
+            "export_clipboard", app.session_with_messages(target->id) == nullptr);
+        divider("row_menu_divider_export");
         // Halt / Resume: the one group that changes what the SESSION does.
         // Offered only for a thread this app has ATTACHED (an open pane
         // carries its fresh observation) on a backend that serves the verb;
@@ -878,6 +888,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             }
             if (rows.any()) divider("row_menu_divider_halt");
         }
+        // Pin names the THREAD (the tab menu says the same word for the same
+        // act): the thread's pin, mirrored onto its open tab if it has one;
+        // a closed row's pin opens nothing. The word is the STATE -- "Unpin"
+        // over a pinned thread -- and pins are local Settings, always known.
+        add(target->starred ? "Unpin" : "Pin", "row_menu_pin", Action::Pin,
+            target->starred ? "unpin" : "pin");
         add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute,
             target->muted ? "unmute" : "mute");
         divider("row_menu_divider_mute");
@@ -1001,6 +1017,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::Archive:
                     app.requestToggleArchive = targetId;
+                    break;
+                case Action::Pin:
+                    // The same request the row's star glyph makes: applied at
+                    // the single-writer spot against the state THEN, with the
+                    // undo toast, and mirrored onto an open tab there.
+                    app.requestToggleStar = targetId;
+                    break;
+                case Action::ExportClipboard:
+                    // Resolved at PICK time against the id captured at open:
+                    // a thread detached since the menu was built writes
+                    // nothing (the drawn row was disabled; a stale snapshot is
+                    // dropped here), and no other pane's session stands in.
+                    if (const auto payload = hanabi::transcript_copy::export_clipboard_payload(
+                            app.session_with_messages(targetId),
+                            app.find_summary(targetId) ? app.find_summary(targetId)->title
+                                                       : std::string_view{},
+                            targetId))
+                        hanabi::clipboard::set_text(*payload);
                     break;
                 case Action::Mute:
                     app.requestToggleMute = targetId;

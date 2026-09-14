@@ -1,0 +1,60 @@
+# NATIVE ARM, real input: Pin from the REAL NSMenu on a CLOSED row. Right-
+# click t6, Down to Pin, Return: the thread is pinned (starred), NO tab is
+# opened for it and the open thread t2 stays in front. Selectable rows with
+# no web base: Open, Open & Pin, Open in Split, Rename, Fork, Copy Title,
+# (Weblink disabled), Copy Deeplink, Copy Session ID, (Open in Web disabled),
+# (Export to Clipboard disabled: t6 is not attached), Pin -> Down x9. A second real right-click shows the word as the state
+# (`unpin` in the frozen snapshot); Down x9 + Return unpins.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+expect_starred t6 no
+expect_tab t6 absent
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect open session:t6
+native_menu_expect action pin
+native_menu_expect frames_driven>=4
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 16
+native_menu_expect closed
+expect_starred t6 yes
+expect_tab t6 absent
+expect_open t2
+expect_text "Thread pinned"
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect open session:t6
+native_menu_expect action unpin
+native_menu_expect no_action pin
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 16
+native_menu_expect closed
+expect_starred t6 no
+expect_tab t6 absent
+expect_open t2
+wait_frames 12
+native_menu_expect drained

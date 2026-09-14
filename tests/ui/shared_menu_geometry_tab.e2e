@@ -5,10 +5,11 @@ require_thread t2
 # No caption row (the reference's tab menu has none): thirteen 36 px rows
 # and four 9 px hairlines inside 4 px of padding. The Halt group (Halt, Halt
 # with 2 Sub-agents) appears because t2 is ATTACHED in this fixture and the
-# mock serves halt_v1; Copy Deeplink beside Copy Weblink. 4 + 14*36 + 4*9 + 4 = 521.
+# mock serves halt_v1; Copy Deeplink beside Copy Weblink; Export to Clipboard
+# in its own group. 4 + 15*36 + 5*9 + 4 = 566.
 expect_no_text "TAB ACTIONS"
 expect_no_ui tab_menu_title
-assert_ui tab_menu w=184 h=521
+assert_ui tab_menu w=184 h=566
 assert_ui tab_menu_eater w=1100 h=760
 assert_ui tab_menu_close w=176 h=36
 assert_ui tab_menu_close_others w=176 h=36
@@ -23,6 +24,8 @@ assert_ui tab_menu_copy_weblink w=176 h=36
 assert_ui tab_menu_copy_deeplink w=176 h=36
 assert_ui tab_menu_copy_id w=176 h=36
 assert_ui tab_menu_open_web w=176 h=36
+assert_ui tab_menu_export_clipboard w=176 h=36
+assert_ui tab_menu_divider_export w=176 h=9
 assert_ui tab_menu_halt w=176 h=36
 assert_ui tab_menu_halt_subtree w=176 h=36
 assert_ui tab_menu_divider_halt w=176 h=9

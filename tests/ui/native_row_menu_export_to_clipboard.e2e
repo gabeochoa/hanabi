@@ -1,0 +1,57 @@
+# NATIVE ARM, real input: Export to Clipboard from the REAL NSMenu on an
+# ATTACHED thread's row -- t9 held by the right pane while t2 holds the
+# focused left pane. The frozen snapshot carries export_clipboard ENABLED;
+# Down x8 + Return (Open, Open & Pin, (Split disabled: t9 is open), Rename,
+# Fork, Copy Title, (Weblink disabled: no base), Copy Deeplink, Copy Session
+# ID, (Open in Web disabled), Export -> the 8th selectable) writes t9's exact
+# bytes to the private clipboard and moves neither a thread nor keyboard
+# focus (the caret is placed in the focused pane's composer first and shown
+# stable through idle frames; expect_panes … 0 says which pane). A row open
+# in no pane
+# (t6) shows the same row DISABLED in its frozen snapshot.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t9 HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
+require_thread t2
+require_thread t9
+expect_panes t2 t9 0
+native_mode on
+wait_frames 4
+# Real keyboard focus in the focused pane's composer (pane 0 by expect_panes),
+# stable before the export.
+native_click_ui composer_reply_input
+wait_frames 6
+expect_focused composer_reply_input
+wait_frames 30
+expect_focused composer_reply_input
+expect_panes t2 t9 0
+reset_clipboard_probe
+native_right_click_ui chat_row_id_t9
+wait_frames 6
+native_menu_expect open session:t9
+native_menu_expect action export_clipboard
+native_menu_expect enabled export_clipboard
+native_menu_expect frames_driven>=4
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_clipboard_escaped "# kicker-tick\n\n*(recurring: kick the pending queue every ten minutes.)*\n\n### **Agentcloud**\n\nKicked 41 pending items. Draining what came back; nothing for you yet.\n\n"
+expect_panes t2 t9 0
+expect_focused composer_reply_input
+native_right_click_ui chat_row_id_t6
+wait_frames 6
+native_menu_expect open session:t6
+native_menu_expect disabled export_clipboard
+native_key 53
+wait_frames 12
+native_menu_expect closed
+wait_frames 12
+native_menu_expect drained

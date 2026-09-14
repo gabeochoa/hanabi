@@ -567,6 +567,30 @@ inline void pin_thread_tab(TabStripComponent& strip, AppComponent& app,
     if (pinned) switch_to_tab(app, tabEntity);
 }
 
+// ONE writer for a thread's pin, whatever surface asked: the row menu, the
+// row's star glyph, the tab menu, the undo toast. The thread's pin (Settings +
+// the sessions vector) is written always; the tab half only when a tab for the
+// thread EXISTS -- pinning a closed row opens nothing and navigates nowhere
+// (the reference's setThreadPinned guards on index(of:)). With a tab present
+// the whole of pin_thread_tab applies: kept prefix, and a select on PIN only.
+// Returns whether a tab was touched, for a caller that reports it.
+inline bool set_thread_pinned(AppComponent& app, TabStripComponent* strip,
+                              const std::string& id, bool pinned) {
+    if (strip != nullptr) {
+        for (auto tabId : strip->tabOrder) {
+            auto tab = afterhours::EntityHelper::getEntityForID(tabId);
+            if (!tab.valid() || !tab->has<Tab>() || tab->get<Tab>().sessionId != id) continue;
+            pin_thread_tab(*strip, app, tab.asE(), pinned);
+            return true;
+        }
+    }
+    if (!is_surface_tab(id)) {
+        app.apply_starred(id, pinned);
+        Settings::get().set_starred(id, pinned);
+    }
+    return false;
+}
+
 inline void close_all(TabStripComponent& strip, AppComponent& app) {
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);

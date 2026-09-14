@@ -59,11 +59,29 @@ right_click 400 48
 wait_frames 3
 expect_text "Pin"
 click_ui tab_menu_pin
-wait_frames 6
+wait_frames 8
 expect_open r8
 assert_ui tab_active hidden=false
 expect_text "Tab: quota migration, week 3, pinned, active"
 expect_text "Pinned tab"
+# The tab menu's Pin is the same act as the row menu's and the star glyph's,
+# through the same door: the thread is pinned and the undo toast is up.
+expect_starred r8 yes
+expect_text "Thread pinned"
+# Undo reverts BOTH halves -- the tab's pin and the thread's -- and never
+# moves the selection (unpin does not select).
+click_ui toast_undo
+wait_frames 12
+expect_starred r8 no
+expect_tab r8 unpinned
+expect_open r8
+expect_text "Thread unpinned"
+# Pin again for the rest of the script, which needs r8 pinned and active.
+right_click_ui tab_active
+wait_frames 3
+click_ui tab_menu_pin
+wait_frames 8
+expect_tab r8 pinned
 
 # Close Other Tabs from the pinned, active r8: every unpinned tab goes, t1
 # (pinned) stays, r8 stays active.

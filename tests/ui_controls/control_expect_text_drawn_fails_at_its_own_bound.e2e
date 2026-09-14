@@ -1,0 +1,11 @@
+# control: fail expect_text_drawn 9
+# FAILURE CONTROL: text that is never drawn fails `expect_text_drawn … within=90`
+# at ITS OWN bound (90 frames, past the runner's 30), with the handler's own
+# message, and TERMINALLY: the trailing lines must never dispatch -- were they
+# to run, the sentinel expect_text would add a second error line, which the
+# controls driver refuses (exactly one error, at this command's line).
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+expect_text_drawn "THIS TEXT IS NEVER DRAWN ANYWHERE" within=90
+expect_text "THIS LINE MUST NOT DISPATCH"
+click_ui chat_row_id_t6

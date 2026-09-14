@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -135,6 +136,64 @@ inline std::string copy_message_payload(const std::vector<api::Message>& message
 inline std::string copy_turn_payload(const std::vector<api::Message>& messages,
                                      std::string_view id) {
     return render_turn(messages, turn_around(messages, id));
+}
+
+// The whole conversation as Markdown, for Export to Clipboard: a title heading,
+// then body_of for EVERY message in fold order -- the same per-row function
+// Copy Turn uses, so the export and a single turn cannot render one row two
+// ways -- and NO trailing trim: only render_turn trims, and this is the
+// reference's whole-transcript shape. Over the messages AS LOADED (the attach
+// window, whatever older pages were fetched, live appends), never a history
+// fetch. An empty conversation is exactly "# <title>\n\n".
+// The export header's title -- the reference's catalog `displayTitle`
+// (copyableTitle, else eight characters of the id), NOT the tab label: a tab
+// label falls back to the whole id and answers a different question. Rule:
+// the STORED title trimmed of surrounding whitespace only -- an export is a
+// copy of stored text, not a render, so a leading "[P]" (the user's own
+// parked-thread convention, which display_title_view hides at render time
+// and Copy Title copies raw) stays -- unless empty or the create
+// placeholder; else the open session's the same way; else the id's first
+// eight characters. The placeholder is the title a prompt-less create gives
+// a thread before anyone names it (the mock's "New task"); the reference
+// also lets a human-set title win even when it equals the placeholder and
+// falls to a status subject/headline before the id -- api::SessionSummary
+// carries neither `title_is_human` nor a status subject, so those two
+// branches cannot be matched and are stated, not faked.
+inline constexpr std::string_view kCreatePlaceholderTitle = "New task";
+inline std::string_view usable_export_title(std::string_view t) {
+    while (!t.empty() && (t.front() == ' ' || t.front() == '\t' || t.front() == '\n')) t.remove_prefix(1);
+    while (!t.empty() && (t.back() == ' ' || t.back() == '\t' || t.back() == '\n')) t.remove_suffix(1);
+    if (t.empty() || t == kCreatePlaceholderTitle) return {};
+    return t;
+}
+inline std::string export_title(std::string_view catalogTitle, std::string_view openTitle,
+                                std::string_view id) {
+    if (const auto t = usable_export_title(catalogTitle); !t.empty()) return std::string(t);
+    if (const auto t = usable_export_title(openTitle); !t.empty()) return std::string(t);
+    return std::string(id.substr(0, 8));
+}
+
+inline std::string render_transcript(const std::vector<api::Message>& messages,
+                                     std::string_view title) {
+    std::string out = "# ";
+    out += title;
+    out += "\n\n";
+    for (const api::Message& m : messages) out += body_of(m);
+    return out;
+}
+
+// The export's PICK-TIME resolution, as one pure step: the payload for a
+// captured id is built ONLY from the session a pane holds live (`attached`,
+// the caller's session_with_messages(id) read at pick time) -- never from a
+// cache copy, never from another pane's session. A null `attached` means the
+// target detached between the menu's build and the pick: nothing is written
+// (nullopt), which the caller honours by not touching the clipboard.
+inline std::optional<std::string> export_clipboard_payload(const api::Session* attached,
+                                                           std::string_view catalogTitle,
+                                                           std::string_view id) {
+    if (attached == nullptr || attached->summary.id != id) return std::nullopt;
+    return render_transcript(attached->messages,
+                             export_title(catalogTitle, attached->summary.title, id));
 }
 
 }

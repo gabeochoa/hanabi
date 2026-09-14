@@ -1,0 +1,33 @@
+# A thread open in a BACKGROUND tab: Pin from its sidebar row pins the thread,
+# keeps the tab (preview -> kept, into the pinned prefix) and SELECTS it -- a
+# pin says you are keeping this thread, the promotion a click into a preview
+# makes (the reference's setThreadPinned does the same). Unpin never selects:
+# with t2 in front again, Unpin on t9's row leaves t2 in front. Rows are
+# anchored by id: "kicker-tick" is t9's row title AND its tab label while the
+# tab is open, and a text anchor could land on either.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_open t2
+expect_tab t9 kept
+
+right_click_ui chat_row_id_t9
+wait_frames 8
+click_ui row_menu_pin
+wait_frames 16
+expect_starred t9 yes
+expect_tab t9 pinned
+expect_open t9
+
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_text "Unpin"
+click_ui row_menu_pin
+wait_frames 16
+expect_starred t9 no
+expect_tab t9 unpinned
+expect_open t2

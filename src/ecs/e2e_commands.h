@@ -36,6 +36,7 @@
 //                         viewport.
 //
 //   reset_clipboard_probe  Clear the test-only write generation.
+//   expect_clipboard_escaped <text>  exact bytes, `\\n` = newline (multi-line)
 //   expect_clipboard <text> Assert that a fresh tab-menu copy reached the
 //                           platform clipboard rather than only changing UI.
 //
@@ -281,13 +282,29 @@ struct HandleExpectClipboardCommand
         // substring, for a copy whose full text the script cannot spell
         // (the kept-message notice copies a line break the runner has no
         // escape for).
+        // expect_clipboard_escaped <text>: exact bytes, with `\\n` in the
+        // argument standing for a newline -- so a multi-line payload (the
+        // whole-transcript export) can be asserted byte for byte.
         const bool contains = cmd.is("expect_clipboard_contains");
-        if (cmd.is_consumed() || (!cmd.is("expect_clipboard") && !contains)) return;
+        const bool escaped = cmd.is("expect_clipboard_escaped");
+        if (cmd.is_consumed() || (!cmd.is("expect_clipboard") && !contains && !escaped)) return;
         if (!cmd.has_args(1)) {
             cmd.fail("expect_clipboard requires text");
             return;
         }
-        const std::string expected = joined_args(cmd, 0);
+        std::string expected = joined_args(cmd, 0);
+        if (escaped) {
+            std::string unescaped;
+            for (std::size_t i = 0; i < expected.size(); ++i) {
+                if (expected[i] == '\\' && i + 1 < expected.size() && expected[i + 1] == 'n') {
+                    unescaped.push_back('\n');
+                    ++i;
+                } else {
+                    unescaped.push_back(expected[i]);
+                }
+            }
+            expected = std::move(unescaped);
+        }
         const auto& probe = hanabi::clipboard::test_probe();
         std::string actual;
         bool fresh = probe.generation > 0;
@@ -2798,34 +2815,24 @@ struct HandleInjectedInputWhileNativeCommand
 };
 
 // ---------------------------------------------------------------------------
-// A bounded per-command deadline past the runner's 30 frames.
+// `within=<frames>`: a fixed per-command deadline, a dispatch barrier, a
+// watchdog and a terminal failure -- the app-owned answer to two runner
+// behaviours the vendor does not offer a contract for (the cleanup's 30-frame
+// lifetime overrides a handler's retries; dispatch never waits for a retrying
+// command). The full account -- vendor lines, measurements, the clock
+// arithmetic for the headless and windowed arms, the three controls, and the
+// API that would remove this -- is afterhours_gaps.md #591 (extended at
+// d90db15); this comment only names the moving parts.
 //
-// The runner's cleanup system kills EVERY non-wait command whose
-// `frames_alive` passes MAX_FRAMES = 30 (pending_command.h:60,
-// command_handlers.h:988), before or regardless of what the app's handler
-// decided that frame; a handler's own wider retry budget was therefore a
-// promise the runner broke (afterhours_gaps.md #591; measured on the halt
-// latch scripts). A command that carries `within=<frames>` gets ONE fixed
-// deadline, set the first frame it is seen and never moved by a retry,
-// recorded here by command entity; each frame before the deadline this
-// pre-handler (registered ahead of the builtins and the cleanup) pins
-// `frames_alive` back under the vendor's cap so the cleanup does not fire,
-// and past the deadline it lets go so the vendor path fails the command at
-// the intended bound. Handlers that honour `within=` read THIS table for
-// their own retry decision (`within::budget_open`), so there is one clock.
-// The runner's per-script clock (10 s of summed host dt, runner.h:260,361)
-// stays the outer bound and is the ONE that can fire first: it counts
-// seconds, this table counts frames, and 540 frames is under 10 s only at
-// 54 Hz or better -- a slow or throttled host reaches the script timeout
-// first, and the runner's own "[TIMEOUT] <script> after N.NNs" line is the
-// diagnostic that names it. A `within=` past kWithinMaxFrames is clamped,
-// with a warning naming both limits. Nothing here blocks: one table read
-// per frame per command. Entries outlive a consumed command until its
-// entity id is recycled (the vendor destroys the entity at end of frame,
-// so the pre-handler rarely sees `is_consumed`); `entry_for` then drops the
-// stale entry by script line -- a bounded residue, not a leak.
+// One fixed deadline per command, recorded the first frame it is seen (keyed
+// by entity id AND script line, since ids are recycled), never moved by a
+// retry, clamped to kWithinMaxFrames. The pre-handler runs ahead of every
+// handler and the vendor cleanup and pins `frames_alive` under the vendor
+// cap while the deadline is open. Consumers read this table for their retry
+// decision (`budget_open`): one clock. Entries outlive a consumed command
+// until its id is recycled; `entry_for` drops the stale one by line.
 namespace within {
-inline constexpr int kWithinMaxFrames = 540;  // < 10 s only at >= 54 Hz; see above
+inline constexpr int kWithinMaxFrames = 540;  // frames; seconds depend on the arm (#591)
 struct Deadline {
     int budget = 0;
     int frames_seen = 0;  // this command's own clock, ticked once per frame here
@@ -2866,8 +2873,8 @@ inline int budget_for(afterhours::EntityID id,
         budget = std::max(kGiveUpFrame, *w);
         if (budget > kWithinMaxFrames) {
             std::fprintf(stderr,
-                         "[E2E WARN] %s (line %d): within=%d frames clamped to %d -- the runner's "
-                         "10 s script clock (summed host dt) is the outer bound and may still fire first\n",
+                         "[E2E WARN] %s (line %d): within=%d frames clamped to %d (frames; the runner's "
+                         "script clock is paused while a within= barrier holds -- afterhours_gaps.md #591)\n",
                          cmd.name.c_str(), cmd.line_number, *w, kWithinMaxFrames);
             budget = kWithinMaxFrames;
         }
@@ -2883,22 +2890,13 @@ inline bool budget_open(afterhours::EntityID id,
     return d != nullptr && d->frames_seen < budget;
 }
 
-// The BARRIER half. The runner dispatches one script command per tick and
-// never waits for a retrying one (runner.h:395-416): `expect_halt ...
-// within=120` runs CONCURRENTLY with every command after it, so an
-// `expect_no_text` two lines down decides while the receipt is still
-// pending -- the halt latch flake, in full (009's diagnosis, 2026-09-14).
-// While an unconsumed command carrying `within=` exists, the app skips the
-// runner's tick: nothing further is dispatched until that command settles
-// or its deadline (the pre-handler above) fails it. Pending commands keep
-// being serviced by their handlers -- those are ordinary systems, not the
-// runner -- and the UI, render pass and workers run every frame, so the
-// barrier holds the SCRIPT, not the frame. The runner's own script clock
-// (`elapsed_time_`) does not advance while the tick is skipped -- the
-// same as during the vendor's `wait_frames`, which returns before the
-// `+= dt` (runner.h:350-361); the bound while held is therefore the
-// `within=` deadline in frames (clamped, pre-handler above), not the
-// 10 s clock. A command without `within=` never raises the barrier.
+// The BARRIER: while an unconsumed `within=` command exists the app skips
+// the runner's tick (main.cpp, both arms), so no later script line is
+// dispatched until it settles or its deadline fails it. Handlers, UI,
+// render and workers still run every frame -- the barrier holds the script,
+// not the frame -- and the runner's script clock, which lives inside its
+// tick, is paused meanwhile; the watchdog in the pre-handler is the bound
+// while held. A command without `within=` never raises the barrier. (#591.)
 inline bool within_barrier_holds() {
     for (const afterhours::Entity& e :
          afterhours::EntityQuery().whereHasComponent<afterhours::testing::PendingE2ECommand>().gen()) {
@@ -3704,7 +3702,7 @@ struct HandleExpectLinkOpenedCommand
 
 struct HandleExpectTabStateCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
-    void for_each_with(afterhours::Entity&,
+    void for_each_with(afterhours::Entity& e,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
         if (cmd.is_consumed() || !cmd.is("expect_tab")) return;
@@ -3731,11 +3729,11 @@ struct HandleExpectTabStateCommand
             cmd.consume();
             return;
         }
-        if (cmd.frames_alive < kGiveUpFrame) {
+        if (within::budget_open(e.id, cmd)) {
             cmd.retry();
             return;
         }
-        cmd.fail(std::format("expect_tab: '{}' is {}, expected {}", id, actual, want));
+        within::fail_terminal(cmd, std::format("expect_tab: '{}' is {}, expected {}", id, actual, want));
     }
 };
 
@@ -3763,6 +3761,176 @@ struct HandleExpectStarredCommand
         }
         cmd.fail(std::format("expect_starred: '{}' is {}, expected {}", cmd.arg(0),
                              s == nullptr ? "unknown" : (starred ? "yes" : "no"), cmd.arg(1)));
+    }
+};
+
+// expect_cached <session id> [min=N] [within=F]: the in-memory
+// transcript cache holds a copy of the thread with at least N messages
+// (default 1: populated history, not an empty entry) -- what a KEPT
+// BACKGROUND tab has once its pane moved on -- so a script can prove
+// "history loaded, no pane owns it" before asserting what that state is
+// offered (Export's attachment boundary, puffin_gaps.md Tabs & Windows #7).
+// A `within=` consumer like expect_halt: it raises the dispatch barrier while
+// it retries and fails terminally, so the lines after it cannot run ahead of
+// the receipt. A thread that never loaded fails it, so the negative case
+// cannot pass vacuously.
+struct HandleExpectCachedCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity& e,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_cached")) return;
+        if (!cmd.has_args(1)) {
+            within::fail_terminal(cmd, "expect_cached requires <session id> [min=N] [within=F]");
+            return;
+        }
+        int wantMessages = 1;
+        for (std::size_t i = 1; i < cmd.args.size(); ++i)
+            if (cmd.arg(i).rfind("min=", 0) == 0) wantMessages = std::atoi(cmd.arg(i).c_str() + 4);
+        const ecs::AppComponent* app = app_component();
+        // peek: const, no LRU touch -- a receipt, not a read.
+        const api::Session* held = app != nullptr ? app->transcriptCache.peek(cmd.arg(0)) : nullptr;
+        const int have = held != nullptr ? static_cast<int>(held->messages.size()) : -1;
+        if (have >= wantMessages) {
+            cmd.consume();
+            return;
+        }
+        if (within::budget_open(e.id, cmd)) {
+            cmd.retry();
+            return;
+        }
+        within::fail_terminal(
+            cmd, std::format("expect_cached: '{}' cached with {} message(s), expected >= {}", cmd.arg(0),
+                             have, wantMessages));
+    }
+};
+
+// expect_text_drawn <text...> [within=F]: a RENDERED, ON-SCREEN label
+// contains the text -- every UI entity with a HasLabel whose UIComponent was
+// in the last frame's render list, is not hidden, and whose clipped rect
+// has a pixel inside the viewport (the registry's own visibility test),
+// matched on the label's whole text -- as a `within=` consumer: it raises the dispatch
+// barrier while it retries and fails terminally, so a later line cannot run
+// ahead of the render it waits for. Cache readiness is not render
+// readiness; this is the render receipt. The whole label, not the
+// visible-text registry: the vendor's render pass registers each drawn RUN
+// (a markdown inline run, a wrapped line -- rendering.h:748/:1064), so a
+// phrase that crosses a run or wrap boundary never appears there as one
+// text, while the label it belongs to is one string. `was_rendered_to_
+// screen` is set by the render pass, which runs AFTER this system: the read
+// describes the previous frame's paint, one frame behind, and the retry
+// absorbs it. Substring match; the `within=` token is not part of the text.
+// Named apart from the vendor's own `expect_drawn` (a DRAW-OP assertion,
+// draw_commands.h), which is registered among the builtins and would take
+// the verb first: custom verb names must not collide with the vendor's (the
+// one deliberate collision, `resize`, is a documented pre-handler override).
+struct HandleExpectTextDrawnCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity& e,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_text_drawn")) return;
+        std::string want;
+        for (std::size_t i = 0; i < cmd.args.size(); ++i) {
+            if (cmd.arg(i).rfind("within=", 0) == 0) continue;
+            if (!want.empty()) want.push_back(' ');
+            want += cmd.arg(i);
+        }
+        if (want.size() >= 2 && ((want.front() == '"' && want.back() == '"') ||
+                                 (want.front() == '\'' && want.back() == '\'')))
+            want = want.substr(1, want.size() - 2);
+        if (want.empty()) {
+            within::fail_terminal(cmd, "expect_text_drawn requires <text> [within=F]");
+            return;
+        }
+        // At least one frame must have elapsed since the command was armed,
+        // so a paint from before it cannot answer it (the same guard the
+        // registry-based assertions take through a render generation).
+        if (cmd.seen_render < 0) {
+            cmd.seen_render = 0;
+            cmd.retry();
+            return;
+        }
+        // "Drawn" = in last frame's render list (was_rendered_to_screen, set
+        // by the render pass for this frame's imm-built elements and cleared
+        // every frame -- a retained or hidden element is not), not hidden,
+        // AND at least one pixel of its clipped rect inside the viewport with
+        // w,h >= 1 -- the same visibility test the registry's
+        // register_text_if_visible applies (rendering.h:748), which the
+        // rendered flag alone does not (it checks only non-negative size, so
+        // a label scrolled out of its pane would otherwise count).
+        auto* pcr = afterhours::EntityHelper::get_singleton_cmp<
+            afterhours::window_manager::ProvidesCurrentResolution>();
+        const float vw = pcr ? static_cast<float>(pcr->width()) : 1280.f;
+        const float vh = pcr ? static_cast<float>(pcr->height()) : 720.f;
+        const std::string firstWord = want.substr(0, want.find(' '));
+        std::string near;
+        for (const auto& ent : afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!ent || !ent->has<afterhours::ui::UIComponent>() ||
+                !ent->has<afterhours::ui::HasLabel>())
+                continue;
+            const auto& cmp = ent->get<afterhours::ui::UIComponent>();
+            if (!cmp.was_rendered_to_screen || cmp.should_hide || ent->has<afterhours::ui::ShouldHide>())
+                continue;
+            RectangleType vis = afterhours::testing::ui_commands::get_screen_rect(*ent);
+            const auto [hasClip, clip] = afterhours::ui::detail::compute_intersected_clip_rect(*ent);
+            if (hasClip) vis = afterhours::ui::detail::intersect_rects(vis, clip);
+            const bool onScreen = vis.width >= 1.f && vis.height >= 1.f && vis.x + vis.width > 0 &&
+                                  vis.y + vis.height > 0 && vis.x < vw && vis.y < vh;
+            if (!onScreen) continue;
+            const std::string& label = ent->get<afterhours::ui::HasLabel>().label;
+            if (label.find(want) != std::string::npos) {
+                cmd.consume();
+                return;
+            }
+            if (!firstWord.empty() && label.find(firstWord) != std::string::npos)
+                near += "\n  | " + label;
+        }
+        if (within::budget_open(e.id, cmd)) {
+            cmd.retry();
+            return;
+        }
+        // Readable failure: the rendered labels that share the wanted text's
+        // first word, from the LAST frame tried.
+        within::fail_terminal(
+            cmd, std::format("expect_text_drawn: '{}' was not in any rendered label within the budget; "
+                             "rendered labels containing '{}':{}",
+                             want, firstWord, near.empty() ? " (none)" : near));
+    }
+};
+
+// detach_thread <session id>: close the thread's tab through the SAME path
+// the tab's Close Tab and close glyph use (model::close_tab -> panes
+// reconciled), from a script line rather than a press -- so a detachment
+// can be made while a drawn menu is standing and eating presses. A test seam
+// for the stale-routing case only: the menu that was built on an attached
+// target is then picked, and what the pick does with an id that no longer
+// resolves is asserted.
+struct HandleDetachThreadCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("detach_thread")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("detach_thread requires <session id>");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        auto* strip = ecs::find_singleton<ecs::TabStripComponent>();
+        if (app == nullptr || strip == nullptr) {
+            cmd.fail("detach_thread: no app / tab strip");
+            return;
+        }
+        for (std::size_t i = 0; i < strip->tabOrder.size(); ++i) {
+            auto o = afterhours::EntityHelper::getEntityForID(strip->tabOrder[i]);
+            if (!o.valid() || !o->has<ecs::Tab>() || o->get<ecs::Tab>().sessionId != cmd.arg(0)) continue;
+            const bool wasActive = o->has<ecs::ActiveTab>();
+            ecs::model::close_tab(*strip, *app, strip->tabOrder[i], i, wasActive);
+            cmd.consume();
+            return;
+        }
+        cmd.fail(std::format("detach_thread: '{}' has no tab", cmd.arg(0)));
     }
 };
 
@@ -3960,6 +4128,9 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectCachedCommand>());
+    sm.register_update_system(std::make_unique<HandleDetachThreadCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectTextDrawnCommand>());
     sm.register_update_system(std::make_unique<HandleSeedReplyDraftCommand>());
     sm.register_update_system(std::make_unique<HandleExpectReplyDraftCommand>());
     sm.register_update_system(std::make_unique<HandleSubmitThenFocusCommand>());

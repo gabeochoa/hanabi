@@ -52,6 +52,7 @@ wait_frames 10
 assert_ui tab_menu hidden=false
 expect_no_ui tab_menu_copy_id
 expect_no_ui tab_menu_pin
+expect_no_ui tab_menu_export_clipboard
 expect_text "Keep Tab Open"
 click_ui tab_menu_keep
 wait_frames 10

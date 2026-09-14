@@ -24,6 +24,7 @@
 #include "../../src/api/create_outcome.h"
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
+#include "../../src/ecs/tab_model.h"
 #include "../../src/ecs/pane_state.h"
 #include "../../src/ecs/thread_model.h"
 #include "../../src/util/format.h"
@@ -31,6 +32,7 @@
 #include "../../src/ui/slash_commands.h"
 #include "../../src/ui/model_menu.h"
 #include "../../src/ui/transcript_copy.h"
+#include "../../src/launch_policy.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -1907,6 +1909,227 @@ static void test_copy_turn_spans_from_the_opening_user_message_to_the_next() {
     CHECK(tc::copy_turn_payload(ms, "t1") == turn1);
     CHECK(tc::copy_turn_payload(ms, "th1") == turn1);
 }
+// Export to Clipboard's payload: "# <title>\n\n" then body_of for every loaded
+// message in order, with NO trailing trim (the reference's whole-transcript
+// render; only renderTurn trims). Thinking is omitted; a run outcome rides on
+// its message; an empty conversation is the header alone.
+static void test_export_transcript_is_the_title_then_every_row_untrimmed() {
+    std::printf("test_export_transcript_is_the_title_then_every_row_untrimmed\n");
+    namespace tc = hanabi::transcript_copy;
+    // Empty: header, two newlines, nothing else -- not nil, not a beep.
+    CHECK(tc::render_transcript({}, "quiet thread") == "# quiet thread\n\n");
+    CHECK(tc::render_transcript({}, "") == "# \n\n");
+
+    std::vector<api::Message> ms;
+    ms.push_back(tc_msg("u1", api::Role::User, "first question"));
+    ms.push_back(tc_msg("th1", api::Role::Assistant, "private reasoning", api::EventKind::Thinking));
+    api::Message tool = tc_msg("t1", api::Role::Tool, "ls output");
+    tool.subtitle = "bash";
+    tool.tool_node = "boulder";
+    tool.tool_status = "completed";
+    ms.push_back(tool);
+    api::Message a1 = tc_msg("a1", api::Role::Assistant, "first answer\n");
+    a1.run_outcome = "completed";
+    ms.push_back(a1);
+    ms.push_back(tc_msg("n1", api::Role::Assistant, "the node went away", api::EventKind::Notice));
+    ms.push_back(tc_msg("c1", api::Role::System, "", api::EventKind::Compaction));
+    api::Message sk = tc_msg("k1", api::Role::Assistant, "", api::EventKind::Skill);
+    sk.subtitle = "meta-cli";
+    ms.push_back(sk);
+    api::Message d1 = tc_msg("d1", api::Role::Assistant, "shipped it", api::EventKind::Delivery);
+    d1.subtitle = "gchat";
+    ms.push_back(d1);
+    ms.push_back(tc_msg("s1", api::Role::System, "Halted by the owner", api::EventKind::Status));
+    api::Message un = tc_msg("x1", api::Role::Assistant, "payload", api::EventKind::Unsupported);
+    un.subtitle = "mystery_event";
+    ms.push_back(un);
+    ms.push_back(tc_msg("u2", api::Role::User, "second question"));
+    ms.push_back(tc_msg("a2", api::Role::Assistant, "second answer"));
+
+    const std::string got = tc::render_transcript(ms, "SKU backfill");
+    const std::string want =
+        "# SKU backfill\n\n"
+        "### **You**\n\nfirst question\n\n"
+        "*tool: bash on boulder \xe2\x80\x94 completed*\n\n"
+        "### **Agentcloud**\n\nfirst answer\n\n\n"
+        "---\n\n*(turn completed)*\n\n"
+        "> **notice** \xe2\x80\x94 the node went away\n\n"
+        "*(context compacted)*\n\n"
+        "*(skill: meta-cli)*\n\n"
+        "### **Delivered** (gchat)\n\nshipped it\n\n"
+        "*(halted by the owner)*\n\n"
+        "> **mystery_event** \xe2\x80\x94 payload\n\n"
+        "### **You**\n\nsecond question\n\n"
+        "### **Agentcloud**\n\nsecond answer\n\n";
+    if (got != want) std::printf("export:\n%s\n--- want:\n%s\n", got.c_str(), want.c_str());
+    CHECK(got == want);
+    CHECK(got.find("private reasoning") == std::string::npos);
+    // Untrimmed: the whole ends with the last row's own two newlines, and the
+    // turn's "\n\n\n" before the outcome rule is kept as body_of wrote it
+    // (render_turn would have trimmed both).
+    CHECK(got.size() >= 2 && got.compare(got.size() - 2, 2, "\n\n") == 0);
+    CHECK(got.find("first answer\n\n\n---") != std::string::npos);
+    // Every row is body_of's, in order: the export is the concatenation.
+    std::string concat = "# SKU backfill\n\n";
+    for (const auto& m : ms) concat += tc::body_of(m);
+    CHECK(got == concat);
+}
+// The export header's title: the STORED catalog title trimmed of whitespace
+// only (a "[P]" the user wrote stays -- an export copies stored text, as Copy
+// Title does; only renders hide it) unless empty or the create placeholder;
+// else the open session's; else eight characters of the id -- the
+// reference's displayTitle, not the tab label.
+static void test_export_title_is_the_catalog_title_else_eight_id_characters() {
+    std::printf("test_export_title_is_the_catalog_title_else_eight_id_characters\n");
+    namespace tc = hanabi::transcript_copy;
+    CHECK(tc::export_title("SKU backfill", "", "t6") == "SKU backfill");
+    CHECK(tc::export_title("  [P] SKU backfill \n", "", "t6") == "[P] SKU backfill");
+    // The catalog wins over the open session's title when both are usable.
+    CHECK(tc::export_title("catalog says", "open says", "t6") == "catalog says");
+    // Empty or placeholder catalog title: the open session's stands in.
+    CHECK(tc::export_title("", "open says", "t6") == "open says");
+    CHECK(tc::export_title("New task", "open says", "t6") == "open says");
+    CHECK(tc::export_title("  ", "[P] open says", "t6") == "[P] open says");
+    // Neither usable: eight characters of the id, or the whole short id.
+    CHECK(tc::export_title("", "", "0123456789abcdef") == "01234567");
+    CHECK(tc::export_title("New task", "New task", "abc-123") == "abc-123");
+    CHECK(tc::export_title("", "", "t6") == "t6");
+    // The header then reads it.
+    CHECK(tc::render_transcript({}, tc::export_title("", "", "0123456789ab")) == "# 01234567\n\n");
+}
+// Model / pick-time-guard test, not a live race: the payload exists for the
+// captured target while a PANE holds it; when that pane lets go -- the cache
+// still holding a copy, another pane still attached to a different thread --
+// the payload for the old id is ABSENT, never the cache's copy, never the
+// other pane's text. The clipboard non-write follows from the `if` around
+// this helper at the two pick sites (read, not executed here: unit binaries
+// carry no clipboard probe).
+static void test_export_payload_is_absent_for_a_detached_target_even_with_cache_and_another_pane_live() {
+    std::printf("test_export_payload_is_absent_for_a_detached_target_even_with_cache_and_another_pane_live\n");
+    namespace tc = hanabi::transcript_copy;
+    ecs::AppComponent app;
+    app.splitOpen = true;
+    api::Session left;
+    left.summary.id = "t2";
+    left.summary.title = "left thread";
+    left.messages.push_back(tc_msg("l1", api::Role::User, "left body"));
+    api::Session right;
+    right.summary.id = "t9";
+    right.summary.title = "kicker-tick";
+    right.messages.push_back(tc_msg("r1", api::Role::Assistant, "right body"));
+    app.panes[0].selectedId = "t2";
+    app.panes[0].openSession = left;
+    app.panes[1].selectedId = "t9";
+    app.panes[1].openSession = right;
+    app.transcriptCache.put(right);  // the cache holds t9 too, as it would after its load
+
+    // Attached: the payload is t9's, from the pane, with the catalog title.
+    const auto before = tc::export_clipboard_payload(app.session_with_messages("t9"), "kicker-tick", "t9");
+    CHECK(before.has_value());
+    CHECK(*before == "# kicker-tick\n\n### **Agentcloud**\n\nright body\n\n");
+
+    // Detach t9 through the real model step a tab close takes for the pane
+    // (reconcile_panes_with_tabs -> reset_pane_to): the right pane lets go;
+    // the cache KEEPS its copy; the left pane stays attached to t2.
+    ecs::model::reset_pane_to(app.panes[1], "");
+    CHECK(app.transcriptCache.peek("t9") != nullptr);
+    CHECK(app.panes[0].openSession && app.panes[0].openSession->summary.id == "t2");
+    CHECK(app.session_with_messages("t9") == nullptr);
+
+    // The same captured id now resolves to nothing: no payload -- not the
+    // cache's t9 copy, not the attached left pane's text.
+    const auto after = tc::export_clipboard_payload(app.session_with_messages("t9"), "kicker-tick", "t9");
+    CHECK(!after.has_value());
+    // And a pane holding a DIFFERENT thread is never a stand-in for the id.
+    CHECK(!tc::export_clipboard_payload(app.session_with_messages("t2"), "kicker-tick", "t9").has_value());
+    // The left thread itself still exports, from its own pane.
+    const auto other = tc::export_clipboard_payload(app.session_with_messages("t2"), "left thread", "t2");
+    CHECK(other.has_value() && other->find("left body") != std::string::npos &&
+          other->find("right body") == std::string::npos);
+}
+// The test binary's launch policy, as both checks in main() decide it: the
+// SET of modes argv requested against the policy parsed from
+// HANABI_E2E_HEADLESS_ONLY. Unset admits everything (behaviour unchanged);
+// "1" admits exactly `--e2e <script>` alone with HANABI_E2E_WINDOWED
+// unarmed and refuses every other mode (--version and the URL parsers
+// included) and every combination, naming what was requested; any other value is malformed and refuses naming the value.
+// This is what the binary calls -- the exe-side guard's coverage is here,
+// since the runner's stub tests cannot reach code inside the real binary.
+static void test_launch_policy_admits_only_the_headless_e2e_entry() {
+    std::printf("test_launch_policy_admits_only_the_headless_e2e_entry\n");
+
+    namespace lp = hanabi::policy;
+    using R = lp::EntryRequest;
+    const auto e2e = [] { R r; r.e2e_script = true; return r; };
+    const auto with = [](R r, auto f) { f(r); return r; };
+    // parse_policy: exactly "1" is the policy; unset/empty is no policy; any
+    // other spelling is MALFORMED (fail closed).
+    CHECK(lp::parse_policy(nullptr) == lp::Policy::Unset);
+    CHECK(lp::parse_policy("") == lp::Policy::Unset);
+    CHECK(lp::parse_policy("1") == lp::Policy::HeadlessOnly);
+    CHECK(lp::parse_policy("0") == lp::Policy::Malformed);
+    CHECK(lp::parse_policy("yes") == lp::Policy::Malformed);
+    CHECK(lp::parse_policy("HEADLESS_ONLY") == lp::Policy::Malformed);
+    CHECK(lp::windowed_armed("1") && lp::windowed_armed("yes") && !lp::windowed_armed("0") &&
+          !lp::windowed_armed("") && !lp::windowed_armed(nullptr));
+    // Unset x every mode -> admitted (behaviour unchanged).
+    {
+        R modes[] = {e2e(), with(R{}, [](R& r) { r.screenshot = true; }),
+                     with(R{}, [](R& r) { r.atlas_stress = true; }),
+                     with(R{}, [](R& r) { r.native_diagnostics = true; }),
+                     with(R{}, [](R& r) { r.notify_probe = true; }),
+                     with(R{}, [](R& r) { r.chime_probe = true; }),
+                     with(R{}, [](R& r) { r.parse_url = true; }),
+                     with(R{}, [](R& r) { r.version = true; }),
+                     with(R{}, [](R& r) { r.default_app = true; }),
+                     with(e2e(), [](R& r) { r.windowed_env_active = true; }),
+                     with(e2e(), [](R& r) { r.screenshot = true; })};
+        for (const R& r : modes) CHECK(lp::admits(r, lp::Policy::Unset).admitted);
+    }
+    // HeadlessOnly x {e2e only} -> admitted.
+    CHECK(lp::admits(e2e(), lp::Policy::HeadlessOnly).admitted);
+    // HeadlessOnly x each refused shape -> refused, reason naming the mode.
+    const auto refused_naming = [&](R r, const char* needle) {
+        const auto v = lp::admits(r, lp::Policy::HeadlessOnly);
+        return !v.admitted && v.reason.find(needle) != std::string::npos;
+    };
+    CHECK(refused_naming(with(e2e(), [](R& r) { r.windowed_env_active = true; }), "HANABI_E2E_WINDOWED (armed)"));
+    CHECK(refused_naming(with(e2e(), [](R& r) { r.screenshot = true; }), "--screenshot"));
+    CHECK(refused_naming(with(e2e(), [](R& r) { r.atlas_stress = true; }), "--atlas-stress"));
+    CHECK(refused_naming(with(R{}, [](R& r) { r.screenshot = true; }), "--screenshot"));
+    CHECK(refused_naming(with(R{}, [](R& r) { r.default_app = true; }), "default app launch"));
+    CHECK(refused_naming(with(R{}, [](R& r) { r.atlas_stress = true; }), "--atlas-stress"));
+    CHECK(refused_naming(with(R{}, [](R& r) { r.notify_probe = true; }), "--notify-probe"));
+    CHECK(refused_naming(with(R{}, [](R& r) { r.chime_probe = true; }), "--chime-probe"));
+    CHECK(refused_naming(with(R{}, [](R& r) { r.native_diagnostics = true; }), "--native-diagnostics"));
+    // `--e2e ""` is the default launch (main.cpp: an empty script string
+    // selects no e2e), so it arrives as default_app and refuses.
+    CHECK(refused_naming(with(R{}, [](R& r) { r.default_app = true; }), "no script"));
+    // A conflict names BOTH modes.
+    {
+        const auto v = lp::admits(with(e2e(), [](R& r) { r.screenshot = true; }), lp::Policy::HeadlessOnly);
+        CHECK(!v.admitted && v.reason.find("--screenshot") != std::string::npos &&
+              v.reason.find("beside --e2e") != std::string::npos);
+        const auto w = lp::admits(with(e2e(), [](R& r) { r.screenshot = true; r.windowed_env_active = true; }),
+                                  lp::Policy::HeadlessOnly);
+        CHECK(!w.admitted && w.reason.find("HANABI_E2E_WINDOWED (armed), --screenshot") != std::string::npos);
+    }
+    // --version and the URL parsers open no window but are not the test
+    // path: refused alone, refused beside a script.
+    CHECK(refused_naming(with(R{}, [](R& r) { r.version = true; }), "--version"));
+    CHECK(refused_naming(with(R{}, [](R& r) { r.parse_url = true; }), "--parse-thread-url/--parse-settings-url"));
+    CHECK(refused_naming(with(e2e(), [](R& r) { r.version = true; }), "--version"));
+    CHECK(refused_naming(with(e2e(), [](R& r) { r.parse_url = true; }), "--parse-thread-url/--parse-settings-url"));
+    // The pre-window backstop's shape: e2e requested but the window reached.
+    CHECK(refused_naming(with(e2e(), [](R& r) { r.default_app = true; }), "default app launch"));
+    // Malformed x {e2e only, default} -> refused naming the value.
+    for (const char* bad : {"0", "yes", "HEADLESS_ONLY"}) {
+        const auto a = lp::admits(e2e(), lp::Policy::Malformed, bad);
+        const auto b = lp::admits(with(R{}, [](R& r) { r.default_app = true; }), lp::Policy::Malformed, bad);
+        CHECK(!a.admitted && a.reason.find(std::string("'") + bad + "'") != std::string::npos);
+        CHECK(!b.admitted && b.reason.find(std::string("'") + bad + "'") != std::string::npos);
+    }
+}
 static void test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind() {
     std::printf("test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind\n");
     namespace tc = hanabi::transcript_copy;
@@ -1954,6 +2177,10 @@ int main() {
     test_copy_message_trims_trailing_newlines_and_is_offered_only_with_text();
     test_copy_turn_spans_from_the_opening_user_message_to_the_next();
     test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind();
+    test_export_transcript_is_the_title_then_every_row_untrimmed();
+    test_export_title_is_the_catalog_title_else_eight_id_characters();
+    test_export_payload_is_absent_for_a_detached_target_even_with_cache_and_another_pane_live();
+    test_launch_policy_admits_only_the_headless_e2e_entry();
     test_access_follows_every_attach_even_when_the_slot_snapshot_is_older();
     test_mock_create_records_the_launch_tuning_and_send_ignores_it();
     test_legacy_create_refuses_tuning_and_still_creates_untuned();

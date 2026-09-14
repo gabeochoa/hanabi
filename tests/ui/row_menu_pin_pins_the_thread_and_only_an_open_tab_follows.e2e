@@ -1,0 +1,61 @@
+# Pin on the ROW menu names the THREAD: the thread's pin is written (the star
+# the row draws, the Pinned shelf), and only a tab that ALREADY EXISTS follows
+# it. A closed row's Pin opens nothing and navigates nowhere -- t2 stays the
+# open thread throughout -- and the row's identity is the one right-clicked,
+# not the selection. Unpin reverses both halves; the undo toast reverts both.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_open t2
+expect_starred t6 no
+expect_tab t6 absent
+
+# Closed row: Pin -> thread pinned, no tab, still on t2.
+right_click_ui chat_row_id_t6
+wait_frames 8
+expect_text "Pin"
+click_ui row_menu_pin
+wait_frames 12
+expect_starred t6 yes
+expect_tab t6 absent
+expect_open t2
+expect_text "Thread pinned"
+
+# The word is the state: the same row now offers Unpin.
+right_click_ui chat_row_id_t6
+wait_frames 8
+expect_text "Unpin"
+key ESCAPE
+wait_frames 6
+
+# Undo reverts the thread's pin (no tab to revert here).
+click_ui toast_undo
+wait_frames 12
+expect_starred t6 no
+expect_text "Thread unpinned"
+expect_open t2
+
+# Open thread: Pin from its row pins the thread AND its tab, in place.
+right_click_ui chat_row_id_t2
+wait_frames 8
+click_ui row_menu_pin
+wait_frames 12
+expect_starred t2 yes
+expect_tab t2 pinned
+expect_open t2
+
+# Unpin from the row clears both halves and does not move the selection.
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Unpin"
+click_ui row_menu_pin
+wait_frames 12
+expect_starred t2 no
+expect_tab t2 unpinned
+expect_open t2
+
+# Undo of the unpin puts BOTH halves back.
+click_ui toast_undo
+wait_frames 12
+expect_starred t2 yes
+expect_tab t2 pinned

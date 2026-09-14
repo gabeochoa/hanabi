@@ -23,7 +23,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT" || exit 2
 
-EXE="$ROOT/output/hanabi_uitest.exe"
+# HANABI_UI_EXE points the runner at another executable. It exists for the
+# runner's OWN policy tests (scripts/run_ui_policy_tests.sh), which drive this
+# script against a stub that records what it was asked to launch and opens
+# nothing; the manifest names the executable actually used, so a run against
+# a stub cannot be mistaken for a run against the app.
+EXE="${HANABI_UI_EXE:-$ROOT/output/hanabi_uitest.exe}"
 DIR="${HANABI_UI_TESTS:-$ROOT/tests/ui}"
 
 # The runner takes NO positional arguments: it runs every .e2e under $DIR.
@@ -37,6 +42,55 @@ if [ "$#" -gt 0 ]; then
     exit 64
 fi
 TIMEOUT="${HANABI_UI_TIMEOUT:-60}"
+
+# ---------------------------------------------------------------------------
+# RUN-LEVEL LAUNCH POLICY -- decided ONCE, here, before any fixture is read,
+# and never changed by a fixture.
+#
+#   HANABI_UI_POLICY=headless-only   (default) Every script runs against the
+#       headless backend, in this process's own terms: a script that DECLARES
+#       a windowed run (`# env: HANABI_E2E_WINDOWED=1`) is SKIPPED with that
+#       reason -- never run headless in its place, never run windowed. The
+#       app is launched with HANABI_E2E_HEADLESS_ONLY=1 so a windowed request
+#       that somehow escaped this runner is refused inside the binary before
+#       a window exists (main.cpp, the --e2e entry).
+#   HANABI_UI_POLICY=all             Unrestricted: a script runs in the mode
+#       it declares, INCLUDING windowed/native scripts, which open real
+#       windows and post real input. Only under an explicit grant.
+#
+# Whatever the policy: the MODE of a script comes from the fixture's own
+# `# env:` line and from nothing else. An inherited HANABI_E2E_WINDOWED in
+# this shell would make every script windowed (or, stripped, would silently
+# change what a script declared), so it is a configuration error: refused
+# before any launch; so is an inherited HANABI_E2E_HEADLESS_ONLY, which is
+# this runner's own variable to set. A fixture that sets a POLICY key
+# (HANABI_UI_POLICY, HANABI_E2E_HEADLESS_ONLY, HANABI_UI_EXE, HANABI_UI_TESTS)
+# is trying to move the boundary
+# from inside it: refused, and the run fails. Two `# env:` lines, or the
+# same key twice on one line, is ambiguous: refused likewise. Refusals are
+# recorded in the manifest with their reason, and a run with any refusal
+# exits non-zero even if every selected script passed.
+POLICY="${HANABI_UI_POLICY:-headless-only}"
+case "$POLICY" in
+    headless-only|all) ;;
+    *)
+        echo "run_ui_tests.sh: HANABI_UI_POLICY='$POLICY' is not a policy (headless-only|all)" >&2
+        exit 65
+        ;;
+esac
+readonly POLICY
+is_armed() { [ -n "${1:-}" ] && [ "$1" != "0" ]; }
+if is_armed "${HANABI_E2E_WINDOWED:-}"; then
+    echo "run_ui_tests.sh: refusing to run: HANABI_E2E_WINDOWED='$HANABI_E2E_WINDOWED' is set in this shell." >&2
+    echo "  a script's mode is declared in its own '# env:' line and nowhere else; unset it and rerun." >&2
+    exit 66
+fi
+if [ -n "${HANABI_E2E_HEADLESS_ONLY:-}" ]; then
+    echo "run_ui_tests.sh: refusing to run: HANABI_E2E_HEADLESS_ONLY='$HANABI_E2E_HEADLESS_ONLY' is set in this shell." >&2
+    echo "  that variable is this runner's to set, from HANABI_UI_POLICY; unset it and rerun." >&2
+    exit 66
+fi
+POLICY_KEYS="HANABI_UI_POLICY HANABI_E2E_HEADLESS_ONLY HANABI_UI_EXE HANABI_UI_TESTS"
 
 # ---------------------------------------------------------------------------
 # THE FIXTURE'S CLOCK, PINNED.
@@ -70,6 +124,29 @@ if [ ! -x "$EXE" ]; then
     exit 2
 fi
 
+# ---------------------------------------------------------------------------
+# THE MANIFEST: one JSON record per script, written BEFORE its launch (the
+# decision) and completed AFTER it (the result), so the file is the account
+# of what this run selected, skipped, refused, launched and observed -- and
+# the totals at the end are COUNTED FROM IT, never from a running tally.
+# Fields are the whitelisted launch facts only: never HOME, never a token
+# path, never the environment wholesale.
+MANIFEST="${HANABI_UI_MANIFEST:-/tmp/hanabi_uitest_manifest.jsonl}"
+: > "$MANIFEST"
+sha256_of() {  # portable: macOS ships shasum, most Linux ships sha256sum
+    if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" 2>/dev/null | cut -c1-64
+    elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" 2>/dev/null | cut -c1-64
+    else echo unknown; fi
+}
+EXE_SHA="$(sha256_of "$EXE")"
+if SRC_HEAD="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)"; then
+    SRC_DIRTY="$(git -C "$ROOT" status --porcelain 2>/dev/null | grep -cv '^??' || true)"
+else
+    SRC_HEAD=unknown; SRC_DIRTY=null
+fi
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
 # One temp ROOT for the whole run, one SUBDIRECTORY per script inside it. The
 # per-script dir is what makes a script hermetic; the shared root is what
 # keeps it cheap (a mkdir each, not a fresh anything -- the suite's runtime is
@@ -85,20 +162,78 @@ fi
 # a flake.
 SUITE_TMP="$(mktemp -d /tmp/hanabi_uitest_home.XXXXXX)"
 KEEP_HOMES="${HANABI_UI_KEEP_HOMES:-0}"
+
+# ---------------------------------------------------------------------------
+# PROCESS OWNERSHIP: BY PID, NEVER BY NAME.
+#
+# This runner kills only processes it launched -- the pids it recorded at
+# launch and their descendants -- and never anything matched by command
+# line. The previous `pkill -9 -f "^$EXE"` on exit killed every process
+# whose argv began with this worktree's binary path: a concurrent suite from
+# the same checkout, a manual run, a copy held under a debugger; and it
+# fired on every exit, a refusal before any launch included. Path match is
+# not ownership.
+#
+# Each launch is `( exec env … "$EXE" … ) &`: the subshell becomes env,
+# env becomes the binary, and `$!` IS the binary's pid. The decision and
+# accounting live in scripts/lib/reaper.sh; the PROVIDERS -- how a parent
+# pid, liveness, children, a signal and a grace tick are done -- are bound
+# HERE, ONCE, UNCONDITIONALLY, to the real thing. No environment variable
+# and no fixture line can rebind them (scripts/run_ui_policy_tests.sh
+# asserts by grep that this file's one `reaper_bind` names only real_*).
+. "$SCRIPT_DIR/lib/reaper.sh"
+real_ppid() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; }
+real_alive() { kill -0 "$1" 2>/dev/null; }
+real_children() { pgrep -P "$1" 2>/dev/null; }
+real_signal() { kill "-$1" "$2" 2>/dev/null; }
+real_sleep() { sleep 0.1; }
+real_comm() { ps -o comm= -p "$1" 2>/dev/null | sed 's#.*/##; s/^ *//; s/ *$//'; }
+reaper_bind real_ppid real_alive real_children real_signal real_sleep real_comm "$$" "$(basename "$EXE")"
+
+# ACTIVE owned pids only: a pid is added at launch and REMOVED once it has
+# been waited for (normal exit or after a timeout reap), so the exit reaper
+# sees only launches still in flight when the runner dies -- never a
+# finished child's number, which the OS may already have reused.
+ACTIVE_PIDS=()
+forget_pid() {  # forget_pid <pid>: drop it from ACTIVE_PIDS
+    local keep=() p
+    for p in ${ACTIVE_PIDS[@]+"${ACTIVE_PIDS[@]}"}; do
+        [ "$p" = "$1" ] || keep+=("$p")
+    done
+    ACTIVE_PIDS=(${keep[@]+"${keep[@]}"})
+}
+REAPED_AT_EXIT=0
 cleanup() {
-    # scoped to THIS worktree's binary: other checkouts run their suites on the
-    # same machine and a bare `pkill -f hanabi_uitest.exe` kills theirs
-    pkill -9 -f "^$EXE" >/dev/null 2>&1
+    # A pure reaper over launches still in flight; never the manifest,
+    # never the exit status (the trap restores it).
+    local p
+    for p in ${ACTIVE_PIDS[@]+"${ACTIVE_PIDS[@]}"}; do
+        if real_alive "$p"; then
+            reap_pid "$p"
+            REAPED_AT_EXIT=$((REAPED_AT_EXIT + 1))
+            wait "$p" 2>/dev/null
+        fi
+    done
+    # The cleanup's own evidence: a per-run record in the manifest and the
+    # summary lines. An unconfirmed live process is never hidden and never
+    # changes a script's verdict -- it is printed on its own line so a green
+    # script tally cannot read as a green cleanup claim.
+    # (The manifest exists only once the run got past its preflight; a
+    # refusal before that reaped nothing and has no manifest to write to.)
+    [ -n "${MANIFEST:-}" ] && [ -f "$MANIFEST" ] && \
+        printf '{"run_id":"%s","record":"cleanup","active_at_exit":%s,"reaped_at_exit":%s,"left_alone":%s,"left_alone_pids":[%s]}\n' \
+            "${RUN_ID:-}" "${#ACTIVE_PIDS[@]}" "$REAPED_AT_EXIT" "$REAPER_LEFT_ALONE" "$(reaper_left_alone_json)" >> "$MANIFEST"
+    reaper_report "$REAPED_AT_EXIT"
+    [ -n "${HANABI_UI_DEBUG_PIDS:-}" ] && \
+        printf 'active_at_exit=%s reaped_at_exit=%s left_alone=%s\n' "${#ACTIVE_PIDS[@]}" "$REAPED_AT_EXIT" "$REAPER_LEFT_ALONE" >> "$HANABI_UI_DEBUG_PIDS"
     if [ "$KEEP_HOMES" = "1" ]; then
         echo "kept per-test homes under $SUITE_TMP"
     else
         rm -rf "$SUITE_TMP"
     fi
 }
-trap cleanup EXIT
+trap 'st=$?; cleanup; exit $st' EXIT
 
-PASS=0
-FAIL=0
 FAILED_NAMES=""
 
 shopt -s nullglob
@@ -132,11 +267,60 @@ if [ -n "$SEED" ]; then
     SCRIPTS=("${ORDERED[@]}")
 fi
 
-echo "=== scripted UI tests ($DIR) ==="
+echo "=== scripted UI tests ($DIR) === policy: $POLICY === manifest: $MANIFEST"
 [ -n "$SEED" ] && echo "=== shuffled order, seed $SEED ==="
 for s in "${SCRIPTS[@]}"; do
     name="$(basename "$s" .e2e)"
     log="/tmp/hanabi_uitest_${name}.log"
+    script_sha="$(sha256_of "$s")"
+
+    # --- the fixture's declared environment, RESOLVED before anything else ---
+    # Every `# env:` line is read (the old head -1 silently dropped a second
+    # one). One line, each key once; policy keys never. The declared mode is
+    # HANABI_E2E_WINDOWED's value on that line: armed = windowed, absent or
+    # "0" = headless.
+    env_lines="$(sed -nE 's/^# env:[[:space:]]*//p' "$s")"
+    env_line_count="$(printf '%s' "$env_lines" | grep -c . || true)"
+    declared_env=()
+    fixture_keys=""
+    refuse_reason=""
+    if [ "$env_line_count" -gt 1 ]; then
+        refuse_reason="ambiguous: $env_line_count '# env:' lines (one is allowed)"
+    elif [ "$env_line_count" -eq 1 ]; then
+        while IFS= read -r kv; do
+            [ -n "$kv" ] || continue
+            key="${kv%%=*}"
+            case " $POLICY_KEYS " in
+                *" $key "*) refuse_reason="fixture sets policy key $key"; break ;;
+            esac
+            case " $fixture_keys " in
+                *" $key "*) refuse_reason="ambiguous: $key declared twice"; break ;;
+            esac
+            fixture_keys="$fixture_keys $key"
+            declared_env+=("$kv")
+        done < <(printf '%s' "$env_lines" | xargs -n1 2>/dev/null)
+    fi
+    declared_windowed=""
+    for kv in ${declared_env[@]+"${declared_env[@]}"}; do
+        case "$kv" in HANABI_E2E_WINDOWED=*) declared_windowed="${kv#*=}" ;; esac
+    done
+    if is_armed "$declared_windowed"; then declared_mode=windowed; else declared_mode=headless; fi
+
+    # --- the decision, from the immutable policy and the declared mode ---
+    decision=selected; reason=""; effective_mode="$declared_mode"
+    if [ -n "$refuse_reason" ]; then
+        decision=refused; reason="$refuse_reason"; effective_mode=none
+    elif [ "$POLICY" = "headless-only" ] && [ "$declared_mode" = "windowed" ]; then
+        decision=skipped; reason="policy headless-only: script declares HANABI_E2E_WINDOWED=$declared_windowed"; effective_mode=none
+    fi
+    fixture_keys="$(printf '%s' "$fixture_keys" | sed 's/^ //')"
+
+    if [ "$decision" != "selected" ]; then
+        printf '{"run_id":"%s","script":"%s","script_sha256":"%s","exe":"%s","exe_sha256":"%s","source_head":"%s","source_dirty_files":%s,"policy":"%s","declared_mode":"%s","effective_mode":"%s","decision":"%s","reason":"%s","fixture_env_keys":"%s","launched":false,"rc":null,"result":"%s","gfx_init_logged":null}\n' \
+            "$RUN_ID" "$(json_str "$name")" "$script_sha" "$(json_str "$EXE")" "$EXE_SHA" "$SRC_HEAD" "$SRC_DIRTY" "$POLICY" "$declared_mode" "$effective_mode" "$decision" "$(json_str "$reason")" "$fixture_keys" "$decision" >> "$MANIFEST"
+        printf '  %-34s %s  (%s)\n' "$name" "$(printf '%s' "$decision" | tr a-z A-Z)" "$reason"
+        continue
+    fi
 
     # THIS SCRIPT'S OWN HOME. Everything the app can persist -- the settings
     # file, the disk cache, the token store -- is addressed relative to HOME
@@ -153,18 +337,19 @@ for s in "${SCRIPTS[@]}"; do
     [ -n "$cfg" ] || cfg='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'
     printf '%s\n' "$cfg" > "$ISO_HOME/Library/Application Support/hanabi/settings.json"
 
-    # A leading "# env: KEY=VAL KEY='two words'" line adds environment for this
-    # script. Needed for any state a click cannot reach — an overlay whose only
-    # binding is a Cmd chord, for instance, which the injector cannot produce
+    # The fixture's `# env:` line adds environment for this script. Needed for
+    # any state a click cannot reach — an overlay whose only binding is a Cmd
+    # chord, for instance, which the injector cannot produce
     # (afterhours_gaps.md #49). Values may be single-quoted to hold spaces;
-    # parsed with `xargs` rather than word-splitting so they survive.
-    env_line="$(sed -nE 's/^# env:[[:space:]]*//p' "$s" | head -1)"
-    extra_env=()
-    if [ -n "$env_line" ]; then
-        while IFS= read -r kv; do
-            [ -n "$kv" ] && extra_env+=("$kv")
-        done < <(printf '%s' "$env_line" | xargs -n1 2>/dev/null)
-    fi
+    # parsed with `xargs` above rather than word-splitting so they survive.
+    # Rebuilt from THIS script's line alone every iteration: nothing declared
+    # by an earlier script is in it.
+    extra_env=(${declared_env[@]+"${declared_env[@]}"})
+    # Under headless-only, the binary is told the policy too (main.cpp refuses
+    # a windowed entry before a window exists); under `all` the variable is
+    # absent and the script's own declaration decides.
+    policy_env=()
+    [ "$POLICY" = "headless-only" ] && policy_env+=("HANABI_E2E_HEADLESS_ONLY=1")
 
     # A FRESH on-disk cache per script, INSIDE this script's own home. The
     # cache is where an unconfirmed local-first OUTBOX entry lives, and the
@@ -186,41 +371,91 @@ for s in "${SCRIPTS[@]}"; do
     # `# env:` line can point a run at the user's general pasteboard. The
     # test binary refuses to start without it (native_extras.mm).
     private_pasteboard="hanabi-e2e-${name}-$$-$(date +%s)"
-    ( env HOME="$ISO_HOME" HANABI_CONFIG="$ISO_HOME/no-such-config.json" \
+    # `env -u HANABI_E2E_WINDOWED`: the inherited value was refused above and
+    # a declared one is in extra_env only when the policy selected it, so
+    # this is belt to those braces -- the process starts from a known state.
+    # `exec` so that $! is the binary itself (env execs it in place), which is
+    # what the timeout and the exit reaper own -- see PROCESS OWNERSHIP above.
+    ( exec env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY \
+        HOME="$ISO_HOME" HANABI_CONFIG="$ISO_HOME/no-such-config.json" \
         HANABI_CACHE_DIR="$script_cache" TZ="$PIN_TZ" \
         HANABI_MOCK_NOW="$PIN_NOW" \
         HANABI_TOKEN_FILE="$ISO_HOME/token.json" HANABI_BACKEND=mock \
         ${extra_env[@]+"${extra_env[@]}"} \
+        ${policy_env[@]+"${policy_env[@]}"} \
         HANABI_PASTEBOARD_NAME="$private_pasteboard" \
-        "$EXE" --e2e "$s" >"$log" 2>&1 ) &
+        "$EXE" --e2e "$s" ) >"$log" 2>&1 &
     pid=$!
+    ACTIVE_PIDS+=("$pid")
     for ((i=0; i<TIMEOUT; i++)); do
         kill -0 "$pid" 2>/dev/null || break
         sleep 1
     done
     if kill -0 "$pid" 2>/dev/null; then
-        kill -9 "$pid" 2>/dev/null
+        reap_pid "$pid"
+        wait "$pid" 2>/dev/null   # join the zombie so the pid is freed
         rc=124
     else
         wait "$pid"; rc=$?
     fi
+    forget_pid "$pid"   # waited for: no longer ours to reap, whoever holds the number next
 
-    if [ "$rc" -eq 0 ]; then
+    # OBSERVED mode, cross-checked against the effective one: "Gfx init:" is
+    # logged only by app_init(), the windowed path; the headless run never
+    # logs it. A headless launch whose log carries it opened a window it was
+    # not selected to open -- a policy failure, not a pass, whatever rc says.
+    if grep -q 'Gfx init:' "$log" 2>/dev/null; then gfx=true; else gfx=false; fi
+    result=pass
+    if [ "$rc" -eq 124 ]; then result=timeout
+    elif [ "$rc" -ne 0 ]; then result=fail
+    fi
+    if [ "$effective_mode" = "headless" ] && [ "$gfx" = "true" ]; then
+        result=mode_mismatch
+    fi
+    printf '{"run_id":"%s","script":"%s","script_sha256":"%s","exe":"%s","exe_sha256":"%s","source_head":"%s","source_dirty_files":%s,"policy":"%s","declared_mode":"%s","effective_mode":"%s","decision":"selected","reason":"","fixture_env_keys":"%s","launched":true,"pid":%s,"rc":%s,"result":"%s","gfx_init_logged":%s,"log":"%s"}\n' \
+        "$RUN_ID" "$(json_str "$name")" "$script_sha" "$(json_str "$EXE")" "$EXE_SHA" "$SRC_HEAD" "$SRC_DIRTY" "$POLICY" "$declared_mode" "$effective_mode" "$fixture_keys" "$pid" "$rc" "$result" "$gfx" "$(json_str "$log")" >> "$MANIFEST"
+
+    if [ "$result" = "pass" ]; then
         printf '  %-34s PASS\n' "$name"
-        PASS=$((PASS+1))
     else
-        printf '  %-34s FAIL (rc=%s)  %s\n' "$name" "$rc" "$log"
+        printf '  %-34s %s (rc=%s)  %s\n' "$name" "$(printf '%s' "$result" | tr a-z A-Z)" "$rc" "$log"
         sed -n '/E2E ERROR\|TIMEOUT\|FAIL/p' "$log" | head -8 | sed 's/^/      /'
-        FAIL=$((FAIL+1))
         FAILED_NAMES="$FAILED_NAMES $name"
     fi
 done
 
+# TOTALS FROM THE RECORDS. Each count is a grep over the manifest; nothing
+# here is a running tally or a subtraction, and selected + skipped + refused
+# must equal the number of records, which must equal the number of scripts
+# found -- or the run is broken and says so.
+# Script records only: the cleanup record is appended by the EXIT trap after
+# these totals and carries no "decision".
+count() { grep -c "$1" "$MANIFEST" || true; }
+N_RECORDS="$(count '"decision":"')"
+N_SELECTED="$(count '"decision":"selected"')"
+N_SKIPPED="$(count '"decision":"skipped"')"
+N_REFUSED="$(count '"decision":"refused"')"
+N_PASS="$(count '"result":"pass"')"
+N_FAIL="$(count '"result":"fail"')"
+N_TIMEOUT="$(count '"result":"timeout"')"
+N_MISMATCH="$(count '"result":"mode_mismatch"')"
 echo "----------------------------------------"
-echo "  $PASS passed, $FAIL failed"
-if [ "$FAIL" -ne 0 ]; then
+echo "  policy $POLICY: $N_RECORDS scripts = $N_SELECTED selected + $N_SKIPPED skipped + $N_REFUSED refused"
+echo "  selected: $N_PASS passed, $N_FAIL failed, $N_TIMEOUT timed out, $N_MISMATCH mode-mismatch"
+echo "  manifest: $MANIFEST"
+rc_all=0
+if [ "$N_RECORDS" -ne "${#SCRIPTS[@]}" ] || [ $((N_SELECTED + N_SKIPPED + N_REFUSED)) -ne "$N_RECORDS" ] \
+   || [ $((N_PASS + N_FAIL + N_TIMEOUT + N_MISMATCH)) -ne "$N_SELECTED" ]; then
+    echo "  MANIFEST BROKEN: records do not reconcile with the scripts found" >&2
+    rc_all=3
+fi
+if [ "$N_REFUSED" -ne 0 ]; then
+    echo "  refused fixtures are a configuration error; see the manifest reasons" >&2
+    rc_all=2
+fi
+if [ "$N_FAIL" -ne 0 ] || [ "$N_TIMEOUT" -ne 0 ] || [ "$N_MISMATCH" -ne 0 ]; then
     echo "  failed:$FAILED_NAMES" >&2
     [ -n "$SEED" ] && echo "  reproduce this order with HANABI_UI_SEED=$SEED" >&2
-    exit 1
+    [ "$rc_all" -eq 0 ] && rc_all=1
 fi
-exit 0
+exit "$rc_all"

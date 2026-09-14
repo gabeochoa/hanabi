@@ -4,15 +4,16 @@
 # by ACTION ID against the snapshot the menu opened with; the intent lands as
 # app.requestToggleMute and the row shows muted. The row list here:
 #   Open / Open & Pin | Open in Split | Rename… / Fork Session | Copy Title /
-#   Copy Weblink / Copy Deeplink / Copy Session ID / Open in Web | Mute |
-#   Archive (+ Reset Order only if the row was reordered; not in this
-#   fixture; "|" = a separator). t6 has no tab here, so Open in Split is
-#   enabled. NO web base is configured in this script, so Copy Weblink and
-#   Open in Web are DISABLED rows.
-# AppKit's Down skips separators AND disabled rows, so Mute is the 9th
-# selectable row: Down x9 from the top (the first Down lands on Open), then
-# Return. (Before the two-link rows it was x10: Open in Web was enabled then,
-# opening the app scheme through the browser door -- the thing this fixes.)
+#   Copy Weblink / Copy Deeplink / Copy Session ID / Open in Web | Export to
+#   Clipboard | Pin / Mute | Archive (+ Reset Order only if the row was
+#   reordered; not in this fixture; "|" = a separator). t6 has no tab here, so
+#   Open in Split is enabled. NO web base is configured in this script, so
+#   Copy Weblink and Open in Web are DISABLED rows; t6 is not attached, so
+#   Export to Clipboard is DISABLED too.
+# AppKit's Down skips separators AND disabled rows, so Mute is the 10th
+# selectable row: Down x10 from the top (the first Down lands on Open), then
+# Return. (Pin sits before Mute now; before the two-link rows Open in Web was
+# enabled and opened the app scheme through the browser door -- fixed.)
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1
 require_thread t2
@@ -24,6 +25,7 @@ wait_frames 6
 native_menu_expect open session:t6
 native_menu_expect frames_driven>=4
 # Down arrow = key code 125, Return = 36.
+native_key 125
 native_key 125
 native_key 125
 native_key 125

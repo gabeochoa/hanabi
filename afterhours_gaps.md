@@ -13497,6 +13497,84 @@ the script deadline is still `timeout_seconds_ = 10.0f` fed by `dt`
 (`runner.h:331,364,656`). No `wait_wall`, no `steady_clock`, no sleep anywhere in
 `e2e_testing/`. The latch workaround stands.
 
+**Extended at d90db15 (2026-09-14): two more faces of the same missing contract, measured on the Halt increment.**
+The compaction latch bounded a WORKER; the Halt/Resume scripts needed a
+COMMAND to outwait a released latch (the mock's re-attach lands after a
+5 ms wall-clock poll, 3-60 headless frames), and two runner behaviours,
+both read from source at the pinned vendor `d90db15`, stood in the way:
+
+1. *The cleanup system's 30-frame lifetime overrides a handler's own retry
+   decision.* `E2ECommandCleanupSystem` fails every non-wait command whose
+   `frames_alive` passes `MAX_FRAMES = 30` (`pending_command.h:60`,
+   `tick_frame()` `:64-67`; `command_handlers.h:988`), before or regardless
+   of what the app's handler decided that frame. A handler that widens its
+   own retry budget (`within=120`) is making a promise the runner breaks:
+   the command is killed at 30 with "timed out after 30 frames". Measured:
+   `expect_halt … within=120` failed at frame 30 while the awaited Hello
+   landed correctly afterwards (the app's state model was never at fault).
+2. *The runner dispatches one script line per tick and never waits for a
+   retrying command.* `tick()` dispatches `commands_[index_]` every tick it
+   is not inside a `wait`/`wait_frames` and not draining at a script
+   boundary (`runner.h:395-416`); a command that returned `retry()` keeps
+   being serviced by its handler, but the NEXT line is created the next
+   tick and runs CONCURRENTLY. Measured: `expect_no_text` two lines below a
+   retrying `expect_halt` decided ~34 frames after the release, before the
+   receipt, and read the pre-receipt caption — the "halt caption flake",
+   diagnosed from a stderr-ordered trace (`[E2E ERROR] expect_no_text` at
+   log line 302 preceding the app's `cleared` line at 329).
+
+Neither is a defect in what the runner promises: it never promised to wait
+for a retrying command or to honour a handler's budget. Same class, MISSING.
+
+**The app-owned workaround (hanabi, source of record `src/ecs/e2e_commands.h`
+`namespace within`, `HandleWithinDeadlineSystem`; the tick sites in
+`src/main.cpp` headless and windowed).** A command carrying `within=<frames>`
+gets ONE fixed deadline, recorded the first frame it is seen in a side
+table keyed by command entity (and by script line, since entity ids are
+recycled), never moved by a retry, clamped to 540 frames; a pre-handler
+registered ahead of every handler and the vendor cleanup pins
+`frames_alive` under the vendor cap each frame while that deadline is open,
+so the cleanup does not fire, and stops past it. Both `within=` consumers
+(`expect_halt`, `expect_backend_compaction`) read the same table for their
+retry decision — one clock. While an unconsumed `within=` command exists
+the app skips `runner.tick()` — a DISPATCH barrier: handlers, UI, render
+and workers run every frame, only the next script line waits. The runner's
+own script clock (`elapsed_time_ += dt`, `runner.h:361`, against
+`DEFAULT_TIMEOUT_SECONDS = 10.0f`, `:260`) lives inside `tick()`, so it does
+NOT advance while the barrier holds (the same as during the vendor's own
+`wait_frames`, which returns before the add, `:350-361`); the bound while
+held is an independent watchdog in the pre-handler — the budget plus 30
+frames, or 30 s of `steady_clock` since first sight — which fails the
+command terminally. A failed `within=` command is TERMINAL for the script:
+the consumer sets a flag and the next frame the tick site calls the
+runner's public `skip_current_script()` (`runner.h:489-495`: consume all
+pending, finalise the script as failed with its error count, walk to the
+end) instead of ticking, so no dependent line dispatches. Clock arithmetic,
+verified against the two tick sites: headless ticks a fixed `kDt = 1/60`
+(`main.cpp`), so 540 frames is 9.0 nominal seconds; windowed feeds the
+host's `dt` capped at 0.1 s, so the same 540 frames is however long the host
+took. Neither clock is "the first to fire" in general — which one bounds a
+run depends on whether a barrier is holding the tick.
+
+**Controls (`tests/ui_controls/`, run by `scripts/run_ui_controls.sh`, 11):**
+`control_within_is_a_barrier` (release → `expect_halt … within=120` →
+`expect_text` → `expect_no_text` with NO wait; must PASS — the flake's exact
+shape); `control_within_fails_at_its_own_deadline_not_at_thirty` (a never-
+arriving receipt fails at its own line with the handler's message, not the
+vendor's 30-frame text, and a trailing sentinel line must never dispatch);
+`control_without_within_still_dies_at_thirty` (a command without `within=`
+keeps the 30-frame kill — no blanket increase).
+
+**What API would remove THIS half of the workaround.** (a) A per-command
+deadline the cleanup honours — a `PendingE2ECommand` field (or a `within=`
+the parser understands) that replaces `MAX_FRAMES` for that command, so a
+handler's retry past 30 is not a hang. (b) A runner option, or a `wait_for
+<command>` spelling, that blocks dispatch of the next line while a named
+command is retrying, and a documented terminal-failure mode for it (the
+public `skip_current_script()` is the right primitive; it just is not
+wired to a failing command). Acceptance: the three controls above pass
+against the vendor with hanabi's pre-handler, barrier and watchdog deleted.
+
 CLASS: MISSING
 
 ---

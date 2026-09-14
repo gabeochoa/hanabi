@@ -1,0 +1,33 @@
+# control: pass
+# `expect_text_drawn … within=` is a BARRIER: the script does not advance past it
+# until the text is DRAWN. The row click opens t6 as a preview and its reply
+# renders some frames later. Without the barrier the very next line runs the
+# next tick -- before the render -- and a plain `expect_no_text` of the reply
+# passes VACUOUSLY (never drawn yet), telling nothing. With the barrier, the
+# lines after it run only once the reply was on screen: the switch back to
+# t2 then REMOVES a text that was provably there, and the `expect_no_text`
+# that follows is a real absence, not a not-yet. The barrier reads rendered
+# LABELS (whole), not the run-level registry a wrapped paragraph splits. The no-within control for
+# ordinary behaviour is control_without_within_still_dies_at_thirty.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+# Baseline: no rendered label carries t6's reply before the click. The
+# dump prints owners; a rendered one would be a line -- none is asserted by
+# the registry read as well (the reply's fragment is in no run either).
+expect_no_text "2.1M rows"
+click_ui chat_row_id_t6
+expect_text_drawn "61% through 2.1M rows" within=120
+# Present as a rendered LABEL (the barrier's own read, re-asserted with a
+# fresh budget) -- the registry may hold it only as wrapped runs.
+expect_text_drawn "61% through 2.1M rows" within=30
+click_ui tab_t2
+expect_open t2
+# t2's own transcript, by a fragment its bubble renders whole (the sidebar
+# row title is ellipsised on screen, so it is not the target).
+expect_text_drawn "Reconciled 4,812 accounts" within=60
+# Real absence after the switch: the reply's label is no longer rendered --
+# a registry read (run-level) that could only pass vacuously without the
+# barrier before the switch, and is meaningful because the barrier proved
+# the label was on screen first.
+expect_no_text "2.1M rows"

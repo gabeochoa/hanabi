@@ -1,0 +1,33 @@
+# BUILD-TIME GATING after a detachment (classified so; the stale-routing
+# case is its own script, export_menu_pick_after_a_scripted_detach_writes_
+# nothing). While t9 is attached in the right pane its row menu offers Export
+# ENABLED. This script proves the gate on the same captured id at the NEXT
+# build: dismiss the menu, close t9 through its own tab menu, and the
+# reopened row menu offers Export DISABLED for t9 -- no fall-back to the cache
+# that still holds t9 (proven, with its two messages), nor to t2's attached
+# session -- and the clipboard is untouched by any of it.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t9
+require_thread t2
+require_thread t9
+expect_panes t2 t9 0
+reset_clipboard_probe
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_a11y "Export to Clipboard" says="Export to Clipboard, menuitem"
+key ESCAPE
+wait_frames 6
+expect_no_text "CONVERSATION"
+right_click_ui tab_t9
+wait_frames 8
+click_ui tab_menu_close
+wait_frames 16
+expect_tab t9 absent within=60
+expect_cached t9 min=2 within=60
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_a11y "Export to Clipboard" says="Export to Clipboard, menuitem, dimmed"
+click_ui row_menu_export_clipboard
+wait_frames 8
+expect_clipboard ""
+expect_text "CONVERSATION"

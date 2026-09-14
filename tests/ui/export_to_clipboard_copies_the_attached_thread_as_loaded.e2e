@@ -1,0 +1,107 @@
+# Export to Clipboard, row and tab menus, exact bytes. "Attached" means the
+# thread's session is held by a PANE (the reference's live session): here t9
+# is attached in the RIGHT pane while t2 holds the focused left pane. Export
+# from t9's ROW writes t9's whole conversation -- "# <title>\n\n" then every
+# loaded row as Copy Turn renders it, with no trailing trim -- not t2's, not
+# the focused pane's -- and moves neither a thread nor keyboard focus: the
+# caret is put in the focused pane's composer first (`composer_reply_input`
+# names the FOCUSED pane's field; `expect_panes … 0` is the independent
+# truth of WHICH pane that is) and shown to hold through idle frames, and
+# both are asserted after each export. The same from
+# t9's TAB menu. t6 offers the row DISABLED (dimmed) and a press writes
+# nothing -- both as a kept BACKGROUND tab with cached history (the
+# attachment boundary hanabi has and the reference does not: puffin_gaps.md
+# Tabs & Windows #7; its preconditions are proven, not assumed) and as a
+# never-opened row; Copy Deeplink beside it still works, so "disabled" is the
+# gate and not the clipboard door. Rows are anchored by id: a thread's title
+# is also its tab label while a tab is open.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t9
+require_thread t2
+require_thread t9
+expect_panes t2 t9 0
+# Real keyboard focus: the focused pane's composer (pane 0 by expect_panes),
+# stable before anything is exported.
+click_ui composer_reply_input
+wait_frames 6
+expect_focused composer_reply_input
+expect_panes t2 t9 0
+wait_frames 30
+expect_focused composer_reply_input
+expect_panes t2 t9 0
+reset_clipboard_probe
+
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_text "Export to Clipboard"
+expect_a11y "Export to Clipboard" says="Export to Clipboard, menuitem"
+click_ui row_menu_export_clipboard
+wait_frames 8
+expect_clipboard_escaped "# kicker-tick\n\n*(recurring: kick the pending queue every ten minutes.)*\n\n### **Agentcloud**\n\nKicked 41 pending items. Draining what came back; nothing for you yet.\n\n"
+expect_panes t2 t9 0
+expect_focused composer_reply_input
+
+reset_clipboard_probe
+right_click_ui tab_t9
+wait_frames 8
+click_ui tab_menu_export_clipboard
+wait_frames 8
+expect_clipboard_escaped "# kicker-tick\n\n*(recurring: kick the pending queue every ten minutes.)*\n\n### **Agentcloud**\n\nKicked 41 pending items. Draining what came back; nothing for you yet.\n\n"
+expect_panes t2 t9 0
+expect_focused composer_reply_input
+
+# The boundary the reference does not have (puffin_gaps.md Tabs & Windows
+# #7): a thread OPEN in a kept background tab -- t6, whose transcript sits in
+# the cache from its own load -- holds no live pane session in hanabi, so its
+# row is DISABLED and a press writes nothing; no cache is read, nothing is
+# fetched. Preconditions in order, each a receipt gated by a within= barrier
+# (no fixed wait does the work): t6 opens as a PREVIEW, a second row click
+# KEEPS it, the cache holds t6 with its two messages (an empty entry would
+# not pass: min=2), its reply is DRAWN (a within= render receipt -- the cache
+# filling is not the transcript rendering), then the pane is back on t2 with
+# t6 still kept.
+click_ui chat_row_id_t6
+expect_open t6
+expect_tab t6 preview within=60
+# The second click on the same row KEEPS it (open_session_in_tab on an
+# already-open thread: keep_tab + switch) -- the transition itself asserted,
+# not just the end state. Every gating receipt is a within= consumer, so no
+# later line dispatches ahead of it; the vendor's expect_text is not one and
+# gates nothing here -- it follows the barrier that settled the attach.
+click_ui chat_row_id_t6
+expect_tab t6 kept within=60
+expect_cached t6 min=2 within=60
+# Cache readiness is not render readiness: the reply must be DRAWN before the
+# pane moves on -- a within= receipt, so the tab switch cannot run ahead of
+# the render it waits for (the vendor's expect_text is not a barrier). The
+# phrase is one the transcript draws in a single run (the same fragment
+# sidebar_opens_thread_in_tab asserts); the sentence as a whole is drawn in
+# pieces and never registers as one text.
+expect_text_drawn "61% through 2.1M rows" within=120
+click_ui tab_t2
+expect_panes t2 t9 0
+expect_tab t6 kept within=60
+reset_clipboard_probe
+right_click_ui chat_row_id_t6
+wait_frames 8
+expect_a11y "Export to Clipboard" says="Export to Clipboard, menuitem, dimmed"
+click_ui row_menu_export_clipboard
+wait_frames 8
+expect_clipboard ""
+expect_text "CONVERSATION"
+key ESCAPE
+wait_frames 6
+
+# Not attached to any pane and never opened: present, dimmed, inert.
+reset_clipboard_probe
+right_click_ui chat_row_id_t6
+wait_frames 8
+expect_text "Export to Clipboard"
+expect_a11y "Export to Clipboard" says="Export to Clipboard, menuitem, dimmed"
+click_ui row_menu_export_clipboard
+wait_frames 8
+expect_clipboard ""
+expect_text "CONVERSATION"
+click_ui row_menu_copy_deeplink
+wait_frames 8
+expect_clipboard "hanabi://thread/t6"

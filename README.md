@@ -111,6 +111,37 @@ zig build --help       # every step, with what it does
 
 Every step's outputs land under `output/` at the paths the scripts read
 (`output/hanabi.exe`, `output/hanabi_uitest.exe`, `output/tests/<name>`).
+
+**Scripted-UI launch policy.** `scripts/run_ui_tests.sh` decides once, before
+any fixture is read, what it may launch, from `HANABI_UI_POLICY`:
+`headless-only` (the default) runs every script against the headless backend
+and **skips** a script that declares a windowed run (`# env:
+HANABI_E2E_WINDOWED=1`) with that reason -- never runs it headless in its
+place, never opens a window; `all` is **unrestricted execution and includes
+the windowed/native scripts**, which open real windows and post real input,
+so it is for an explicit grant only. A script's mode comes from its own
+`# env:` line and nothing else: an inherited `HANABI_E2E_WINDOWED` or
+`HANABI_E2E_HEADLESS_ONLY` in the invoking shell, a fixture that names a
+policy key, two `# env:` lines or a key declared twice are configuration
+errors -- refused, recorded, and the run exits non-zero. Under
+`headless-only` the binary is launched with `HANABI_E2E_HEADLESS_ONLY=1`,
+and `src/launch_policy.h` refuses inside the process, right after argv is
+parsed, every entry but `--e2e <script>` without `HANABI_E2E_WINDOWED` -- a
+windowed e2e, `--screenshot`, a bare launch -- and once more at the one call
+that creates the window. Every run writes a manifest (one JSON record per
+script: declared and effective mode, decision and reason, rc and result, the
+`Gfx init:` cross-check, the executable's and the script's hashes, the source
+head) to `/tmp/hanabi_uitest_manifest.jsonl` (`HANABI_UI_MANIFEST=`), and the
+totals it prints are counted from those records. Processes are owned by pid,
+never by name: a launch is reaped only as this shell's un-waited direct child,
+its descendants only while their parentage still leads to it; whatever the
+reaper declines to touch is counted, listed in a final `cleanup` manifest
+record and printed as `CLEANUP UNCERTAIN` -- a zero means *no observed
+unconfirmed processes* (the snapshot knows only what was in the lineage while
+the root lived), never "no processes left". `scripts/run_ui_policy_tests.sh`
+proves the policy against a stub executable that opens nothing;
+`tests/runner_policy/launch_policy_check.cpp` is the in-process predicate's
+standalone check.
 Every object is its own node with a depfile, cached by content: an edit to a
 header rebuilds exactly the objects that include it, a new commit rebuilds
 only `build_stamp.cpp` (three lines) and relinks, and a no-op `zig build`

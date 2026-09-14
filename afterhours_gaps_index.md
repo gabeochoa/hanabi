@@ -880,7 +880,7 @@ correction narrows them rather than closing them.
 | 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
 | 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
 | 590 | Button variants drop per-widget text inset | FOOTGUN | HIGH | XS | app workaround |
-| 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited | MISSING | MED | XS | live (re-tested 1ac6db2) · extends #223; app workaround: latch + `release_compaction` |
+| 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited — and (extended d90db15) the cleanup's 30-frame lifetime overrides a handler's retries, and dispatch never waits for a retrying command | MISSING | MED | S | live (re-tested 1ac6db2; extended d90db15) · extends #223; app workaround: latch + `release_compaction`; `within=` fixed deadline pre-handler + dispatch barrier + watchdog + terminal `skip_current_script()` (3 controls) |
 | 592 | Every click on a `HasClickListener` moves keyboard focus to it; no activate-without-focus | FOOTGUN | HIGH | XS | live (re-tested 1ac6db2) · app workaround (refocus) |
 | 593 | `System<>`'s six overrides lack `override`; a consumer compiling the library as user code gets 18 warnings per TU | SHARP EDGE | LOW | XS | fixed at d90db15 (`f923254`, proven on pristine headers); proposal retired |
 | 594 | No way to drive a LIVE window resize (AppKit's tracking loop) from the library or its e2e runner | MISSING | HIGH | S | live · app driver (`HANABI_RESIZE_DRIVE`) + gate |

@@ -5,6 +5,7 @@
 #include "native_menu.h"
 #include "pointer_probe.h"
 #include "native_e2e_guard.h"
+#include "launch_policy.h"
 
 #include <algorithm>
 #include <chrono>
@@ -2936,6 +2937,44 @@ int main(int argc, char* argv[]) {
                      "--notify-probe"});
     cmdl.parse(argc, argv);
 
+    // EARLY-ENTRY DOMINANCE. HANABI_E2E_HEADLESS_ONLY=1 is the runner's
+    // run-level policy, carried into the process so that a request which
+    // escaped the runner's own filtering -- a fixture's `# env:` line, an
+    // inherited shell variable, a different argv -- is refused HERE, right
+    // after argv is parsed and before ANY branch below initialises anything,
+    // rather than trusted to the shell. The decision is launch_policy.h's:
+    // the SET of modes argv requested, against the policy. Under it exactly
+    // `--e2e <script>` alone, with HANABI_E2E_WINDOWED unarmed, is admitted;
+    // a windowed --e2e, --screenshot, --atlas-stress, the probes, the
+    // diagnostics, a bare launch, and any combination are refused by
+    // construction, their code untouched; a malformed policy value refuses
+    // too. Without the variable every entry behaves exactly as before.
+    const char* policyValue = std::getenv("HANABI_E2E_HEADLESS_ONLY");
+    const hanabi::policy::Policy launchPolicy = hanabi::policy::parse_policy(policyValue);
+    const auto entry_request = [&](bool reachedWindow) {
+        hanabi::policy::EntryRequest r;
+        r.e2e_script = !cmdl("e2e").str().empty();
+        r.screenshot = !cmdl("screenshot").str().empty();
+        r.atlas_stress = cmdl["--atlas-stress"];
+        r.native_diagnostics = cmdl["--native-diagnostics"];
+        r.notify_probe = !cmdl("notify-probe").str().empty();
+        r.chime_probe = !cmdl("chime-probe").str().empty();
+        r.parse_url = !cmdl("parse-thread-url").str().empty() ||
+                      !cmdl("parse-settings-url").str().empty();
+        r.version = cmdl["--version"] || cmdl["-V"];
+        r.default_app = reachedWindow ||
+                        !(r.e2e_script || r.screenshot || r.atlas_stress || r.native_diagnostics ||
+                          r.notify_probe || r.chime_probe || r.parse_url || r.version);
+        r.windowed_env_active = hanabi::policy::windowed_armed(std::getenv("HANABI_E2E_WINDOWED"));
+        return r;
+    };
+    if (const auto v = hanabi::policy::admits(entry_request(false), launchPolicy,
+                                              policyValue ? policyValue : "");
+        !v.admitted) {
+        std::fprintf(stderr, "hanabi: refusing this launch: %s\n", v.reason.c_str());
+        return 3;
+    }
+
     // --version prints and exits.
     if (cmdl["--version"] || cmdl["-V"]) {
         printf("%s %s\n", product_branding::kAppName, hanabi::kVersion);
@@ -3019,7 +3058,8 @@ int main(int argc, char* argv[]) {
         int sw = 1100, sh = 760;
         if (const char* ew = std::getenv("HANABI_WIN_W"); ew && *ew) sw = atoi(ew);
         if (const char* eh = std::getenv("HANABI_WIN_H"); eh && *eh) sh = atoi(eh);
-        if (const char* w = std::getenv("HANABI_E2E_WINDOWED"); w && *w && std::string_view(w) != "0") {
+        if (hanabi::policy::windowed_armed(std::getenv("HANABI_E2E_WINDOWED"))) {
+            // (Under the headless-only policy this branch was refused above.)
             // Before app_init reads a config, adopts a token or opens a
             // store: a windowed script posts real input into a real window,
             // and the only backend it may reach is the offline mock in a
@@ -3068,6 +3108,18 @@ int main(int argc, char* argv[]) {
     cfg.frame = app_frame;
     cfg.cleanup = app_cleanup;
 
+    // PRE-WINDOW BACKSTOP. The one call that creates the window, decided once
+    // more with the same rule and the request AS REACHED (the window is the
+    // default launch, whatever argv said), so that any entry added above
+    // this line in the future is covered whether or not it thought about the
+    // policy: a headless-only process does not open a window.
+    if (const auto v = hanabi::policy::admits(entry_request(true), launchPolicy,
+                                              policyValue ? policyValue : "");
+        !v.admitted) {
+        std::fprintf(stderr, "hanabi: a headless-only process refuses to open a window: %s\n",
+                     v.reason.c_str());
+        return 3;
+    }
     afterhours::graphics::run(cfg);
     if (const int code = windowed_e2e_exit_code(); code >= 0) return code;
     return 0;

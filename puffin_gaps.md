@@ -34,14 +34,14 @@ The entries are grouped by functional area. Each group has a count of gaps and s
 
 ## By The Numbers
 
-**Total gaps: 79** across 13 functional areas.
+**Total gaps: 82** across 13 functional areas.
 
 | Area | Count | Priority |
 |------|-------|----------|
 | Sidebar & Navigation | 9 | 4 table-stakes + 5 polish |
-| Transcript & Rendering | 14 | 6 table-stakes + 8 polish |
+| Transcript & Rendering | 16 | 6 table-stakes + 9 polish + 1 niche |
 | Composer & Sending | 11 | 3 table-stakes + 8 polish |
-| Tabs & Windows | 6 | 4 important + 2 polish |
+| Tabs & Windows | 7 | 5 important + 2 polish |
 | Search & Find | 5 | 3 table-stakes + 2 polish |
 | Session Lifecycle | 7 | 6 table-stakes + 1 polish |
 | Drafts & Undo | 2 | 1 important + 1 polish |
@@ -177,7 +177,7 @@ collapse/expand.
 
 ---
 
-## TRANSCRIPT & RENDERING (14 gaps)
+## TRANSCRIPT & RENDERING (16 gaps)
 
 ### 1. Timestamp rows (dates, not just times)
 **What it does:** When a message is >4 hours older than the previous, a thin grey date divider appears above it (e.g., "Monday, August 19"). Time still shows per-row below the divider.
@@ -335,6 +335,28 @@ collapse/expand.
 
 ---
 
+### 15. Transcript rows the export/copy mapper cannot spell (data-model delta, not a feature)
+**What it does:** The reference's per-row Markdown mapper (`TranscriptMarkdown.body(of:)`, used by both Copy Turn and Export to Clipboard) has arms for artifact rows (`*(artifact: <title> — version <v>)*`), elicitation rows (`### **The agent asks**` + prompt/options/answer lines), context rows (`*(<label>: <detail>)*`), fork boundaries (`---\n\n*(forked from …)*`), and audio-attachment lines on user/delivery rows.
+
+**Where in puffin:** `TranscriptExport.swift` `body(of:)` (:74-160)
+
+**Hanabi today:** `api::Message` (`src/api/types.h`) models none of artifact / elicitation / context / fork-boundary / audio, so `hanabi::transcript_copy::body_of` has no arm for them and such rows fall through the generic act/text arms. This is a pre-existing Copy Turn delta that Export to Clipboard (2026-09-14) inherits by design (it reuses `body_of`); neither feature is "at parity" for these kinds and neither claims to be. Closing it is a model change first (new `api::Message` kinds parsed from the wire), then one mapper arm each.
+
+**Importance:** Polish. Threads that carry these rows export with a generic line where the reference writes a specific one; nothing is dropped silently except the row's specific wording.
+
+**Size:** Medium. The hard part is the wire parsing for five row kinds, not the mapper.
+
+### 16. Export header title falls back to the id, not a status subject/headline (data-model delta)
+**What it does:** The reference's export header uses the catalog row's `displayTitle`: a human-set title wins even when it equals the create placeholder; otherwise the stored title unless placeholder; otherwise the session's status subject or headline; otherwise eight characters of the id (`AgentcloudSessionList.swift:230-240, :433, :449`).
+
+**Where in puffin:** `AgentcloudSessionList.swift` (`copyableTitle`, `ThreadTitle.named`)
+
+**Hanabi today:** `transcript_copy::export_title` (2026-09-14) matches the stored-title-unless-empty-or-placeholder rule and the eight-character id fallback, trimming whitespace only. `api::SessionSummary` carries no `title_is_human` and no status subject/headline, so the "human title beats placeholder" and "subject/headline before id" branches have no inputs and are not emulated.
+
+**Importance:** Niche. Only an unnamed thread with a status subject reads differently (id characters instead of the subject).
+
+**Size:** Small once the fields exist on the wire model; the mapper is two lines.
+
 ## COMPOSER & SENDING (11 gaps)
 
 ### 1. Composer history walk (arrow keys)
@@ -471,7 +493,7 @@ collapse/expand.
 
 ---
 
-## TABS & WINDOWS (6 gaps)
+## TABS & WINDOWS (7 gaps)
 
 ### 1. Tab drag-and-drop to reorder
 **What it does:** Drag a tab by its title to the left/right to reorder it. Other tabs shift. New order persists in UserDefaults.
@@ -540,6 +562,17 @@ collapse/expand.
 **Size:** Medium. Horizontal ScrollView wrapper + min-width logic + arrow buttons. ~80 lines (afterhours gap: no horizontal ScrollView yet).
 
 ---
+
+### 7. Every open tab holds a live session (attachment architecture)
+**What it does:** In the reference, every open conversation tab keeps its session object live — `WindowManager.liveSession(id:)` answers for any open tab, foreground or background — so actions gated on "attached" (Export to Clipboard, `isCopyable`) are enabled for every open tab, and a background tab's export reads its live fold.
+
+**Where in puffin:** `WindowManager.liveSession(id:)`; `TranscriptExport.swift:306-308` (`isCopyable`)
+
+**Hanabi today:** A live session exists only for a thread a PANE shows (`pane.openSession`, read by `session_with_messages`); a thread open in a kept BACKGROUND tab keeps its transcript in the `transcriptCache` but holds no live session. Export to Clipboard (2026-09-14) therefore offers the row disabled for a background tab — by design for this increment: the contract forbids a cache read or a fetch on the copy path — and the script `export_to_clipboard_copies_the_attached_thread_as_loaded` pins that boundary (kept background tab with cached history → dimmed, writes nothing). Closing the gap is an attachment-architecture change (live sessions per open tab, or a pane-independent attach), not a menu change.
+
+**Importance:** Important. A reader with several tabs open expects Export (and any future attached-only action) on all of them, not only the two panes.
+
+**Size:** Large. The hard part is what "live" means for a tab no pane draws — stream subscription, refetch cadence and memory for every open tab.
 
 ## SEARCH & FIND (5 gaps)
 
@@ -1080,22 +1113,23 @@ Ranked by user impact + ease:
 
 ## Count Summary
 
-- **Total gaps: 79**
+- **Total gaps: 82**
 - **Table stakes (must-have): 26**
-- **Important (should-have): 36**
-- **Polish (nice-to-have): 17**
-- **Niche (optional): 0**
+- **Important (should-have): 37**
+- **Polish (nice-to-have): 18**
+- **Niche (optional): 1**
 
 Effort distribution:
-- **Small (30–80 lines): 25 gaps** — quick wins, 1–2 hours each
-- **Medium (80–200 lines): 40 gaps** — 4–8 hours each
-- **Large (200+ lines): 14 gaps** — 1–3 days each
+- **Small (30–80 lines): 26 gaps** — quick wins, 1–2 hours each
+- **Medium (80–200 lines): 41 gaps** — 4–8 hours each
+- **Large (200+ lines): 15 gaps** — 1–3 days each
 
 Blocked on backend/vendor:
 - Spaces grouping (backend `workspace` field missing from session rows)
 - Thinking rows (data layer must emit `thinking` frame type)
 - Tool call sub-rows (data layer block-splitting, merged in wt/live-sse)
 - Context meter real numbers (data layer must parse `hello.state.tokens`)
+- Export/Copy Turn row kinds and export-title fields (`api::Message` / `api::SessionSummary` lack them; Transcript #15, #16)
 - Minimap (afterhours needs basic geometry; WIP in vendor)
 - Spotlight (needs .app bundle + LaunchServices; parked in Phase G)
 - Horizontal scroll on tabs (afterhours gap #26, addressed in todo.md)

@@ -1,0 +1,49 @@
+# LIVE RE-GATING of the DRAWN menu after a scripted detachment (classified
+# so; the pointer cannot reach a pane close under the eater, so the detach
+# is `detach_thread`, not a click; the build-time gate is its own script;
+# the frozen-native accepted-pick-loses-its-payload case is
+# native_row_menu_export_pick_after_a_detach_dismisses_and_writes_nothing). The row menu is built while t9 is ATTACHED in the right pane
+# (Export enabled), and t9 is then detached WITHOUT touching the menu:
+# `detach_thread` closes the tab through the same model::close_tab path the
+# tab's Close Tab and close glyph use, from a script line rather than a press
+# -- the drawn menu's eater owns the pointer (a model fact, not a gap). Nothing
+# in the close path closes the row menu (reconcile_panes_with_tabs resets the
+# pane; close_row_menu is reached only by the menu's own dismissals), so the
+# menu STANDS.
+#
+# What the DRAWN arm then does, measured and asserted: the menu is rebuilt
+# from current state every frame, so the Export row is now DISABLED (t9 has
+# no live pane); a click on a disabled drawn row is INERT by the menu's own
+# rule -- nothing activates, the menu stays open, nothing is written -- the
+# same rule every disabled row follows. The clipboard is untouched: not the
+# cache's copy (still held, proven), not the attached left pane's t2. Escape
+# then dismisses. (The NATIVE arm differs by construction: AppKit fires a pick
+# from its FROZEN snapshot regardless of the rebuilt state, so there the pick
+# reaches the handler, which re-reads session_with_messages(t9), writes
+# nothing, and dismisses; that arm is exercised by the pure guard's unit in
+# test_data.cpp and the handler's disabled-row drop, and has no scripted
+# detach verb yet.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+# env: HANABI_OPEN=t2 HANABI_SPLIT=t9
+require_thread t2
+require_thread t9
+expect_panes t2 t9 0
+reset_clipboard_probe
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_a11y "Export to Clipboard" says="Export to Clipboard, menuitem"
+detach_thread t9
+expect_tab t9 absent within=60
+expect_cached t9 min=2 within=60
+# The menu is still up (its own dismissals are the only thing that close
+# it) and now shows the row for what t9 is: not attached.
+expect_text "CONVERSATION"
+expect_a11y "Export to Clipboard" says="Export to Clipboard, menuitem, dimmed"
+click_ui row_menu_export_clipboard
+wait_frames 8
+expect_clipboard ""
+expect_text "CONVERSATION"
+key ESCAPE
+wait_frames 6
+expect_no_text "CONVERSATION"
+expect_clipboard ""
