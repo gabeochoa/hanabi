@@ -1,0 +1,24 @@
+# The Settings pane's "default for new tasks" model and effort are LAUNCH
+# defaults: a new conversation is created with them (the create command's
+# `options.llm`), read once at the moment the kickoff is asked for. The
+# receipt is the backend's own view of the NEW session's tuning -- not the
+# Settings file. An existing thread is never retuned by them: t2 stays
+# untuned throughout.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","default_model":"claude-opus-5","default_effort":"low"}
+# env: HANABI_TEST_OVERLAY=composer
+wait_frames 16
+expect_text "What can I help with?"
+expect_backend_tuning t2 - -
+click_ui composer_reply_input
+type "start with my defaults"
+wait_frames 6
+click_ui composer_send
+wait_frames 60
+require_thread new1
+expect_backend_message new1 "start with my defaults"
+expect_backend_tuning new1 claude-opus-5 low
+# The new thread's chip says what it was created with.
+expect_text "Opus 5 (Low)"
+# Nothing retroactive.
+expect_backend_tuning t2 - -

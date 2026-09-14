@@ -42,8 +42,8 @@ click_ui slash_item_0
 wait_frames 8
 expect_text "Server default"
 expect_text "Opus 5"
-click_ui model_row_1
-wait_frames 8
+click_ui model_row_claude-opus-5
+wait_frames 12
 expect_text "Opus 5"
 expect_input_text composer_reply_input ""
 
@@ -54,10 +54,15 @@ wait_frames 8
 expect_text "choose the thinking effort"
 click_ui slash_item_0
 wait_frames 8
-expect_text "Thinking effort"
-expect_text "middle of the ladder"
-click_ui effort_row_0
-wait_frames 8
+# /effort opens the one model panel at its Effort section (the reference's
+# shape: effort is a section of the model panel).
+assert_ui model_popover_title hidden=false
+expect_text "Effort"
+click_ui effort_row_low
+wait_frames 12
+# The model chosen above through /model is still the session's; /effort
+# added the effort beside it.
+expect_backend_tuning t2 claude-opus-5 low
 expect_text "(Low)"
 expect_input_text composer_reply_input ""
 

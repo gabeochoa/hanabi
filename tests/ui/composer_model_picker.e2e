@@ -1,39 +1,67 @@
-# The composer's model chip opens a picker, and the model chosen there is what
-# the chip then says.
-#
-# The chip used to be a fixed label reading "Opus 4.8 (xhigh)" whatever the app
-# was set to, so the assertion is a model NAME that only the picker can put
-# there: nothing else in the UI says "Sonnet 5".
+# The composer's model chip opens the ONE model panel (the reference's:
+# model rows with a `default` row, then an Effort section with its meter,
+# levels and `default`), and a row changes THIS SESSION's tuning on the
+# backend -- not a Settings default. The chip reports the session's folded
+# tuning, so it moves when the backend's echo lands, and the receipt is the
+# backend's own view of the session.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-
 require_thread t2
-
 expect_text "needs a decision"
-
-# Nothing is picked yet, so the chip reports the server's own choice.
-expect_text "Server default"
-expect_no_text "Sonnet 5"
-
+expect_backend_tuning t2 - -
 click_ui composer_model
 wait_frames 8
-
-# The picker lists the models this deployment serves.
+assert_ui model_popover_title hidden=false
+expect_text "Model"
+expect_text "Effort"
 expect_text "Opus 5"
 expect_text "Sonnet 5"
 expect_text "GPT-5.5"
+assert_ui model_row_default hidden=false
+assert_ui effort_row_default hidden=false
+expect_no_ui model_popover_restriction
 
-click_ui model_row_4
-wait_frames 10
-
-# The popover is gone and the chip carries the choice.
-expect_no_text "GPT-5.5"
+# Pick a model: the panel closes, the backend holds the pin, the chip says it.
+click_ui model_row_claude-sonnet-5
+wait_frames 12
+expect_no_ui model_popover_title
+expect_backend_tuning t2 claude-sonnet-5 -
 expect_text "Sonnet 5"
 
-# It is a real preference, not a one-way trip: pick the server's default back.
+# Pick an effort: only the effort knob moves; the model pin stays.
 click_ui composer_model
 wait_frames 8
-click_ui model_row_0
-wait_frames 10
-expect_text "Server default"
-expect_no_text "Sonnet 5"
+click_ui effort_row_xhigh
+wait_frames 12
+expect_no_ui model_popover_title
+expect_backend_tuning t2 claude-sonnet-5 xhigh
+expect_text "Sonnet 5 (XHigh)"
+
+# Unpin the model through its `default` row: the effort pin is untouched.
+click_ui composer_model
+wait_frames 8
+click_ui model_row_default
+wait_frames 12
+expect_backend_tuning t2 - xhigh
+expect_no_text "Sonnet 5 (XHigh)"
+
+# Unpin the effort the same way: back to nothing pinned.
+click_ui composer_model
+wait_frames 8
+click_ui effort_row_default
+wait_frames 12
+expect_backend_tuning t2 - -
+
+# Escape and an outside click close the panel without sending anything.
+click_ui composer_model
+wait_frames 8
+assert_ui model_popover_title hidden=false
+key ESCAPE
+wait_frames 8
+expect_no_ui model_popover_title
+click_ui composer_model
+wait_frames 8
+click 900 200
+wait_frames 8
+expect_no_ui model_popover_title
+expect_backend_tuning t2 - -

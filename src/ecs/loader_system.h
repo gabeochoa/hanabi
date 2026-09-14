@@ -510,6 +510,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptPendingId.clear();
                 if (r.ok) {
                     reconcile_optimistic(pane, r.value);
+                    // A fresh attach IS the reconciliation an unconfirmed
+                    // options change waits for: the server's own tuning
+                    // just landed in r.value.model, so the lock lifts.
+                    if (app.tuningOutcomeSessionId == completedId) app.clear_tuning_outcome();
                     // Insert into the cache (capped to the last 20 msgs) and
                     // mark most-recently-used, then render. Also persist to
                     // disk for the next session's instant (stale) paint.
@@ -1123,6 +1127,48 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.renameError = r.error;
             }
             app.renameInFlightId.clear();
+        }
+
+        // spec 115: one change in flight at a time; the ask keeps the session
+        // id it was pressed for. The echo (the merged tuning) REPLACES the
+        // session's ServingModel wherever that session is open; a refusal is
+        // recorded against the session, for the panel's footnote, and changes
+        // nothing. A late echo for a session no pane shows any more is
+        // harmless: it updates the cached Session if it is still held and is
+        // otherwise dropped -- it never touches another pane's session.
+        if (app.requestSessionOptions && !app.tuningFuture.valid()) {
+            app.tuningInFlight = std::move(*app.requestSessionOptions);
+            app.requestSessionOptions.reset();
+            app.clear_tuning_outcome();
+            std::shared_ptr<api::Client> c = app.client;
+            const std::string id = app.tuningInFlight->sessionId;
+            const api::SessionOptionsPatch patch = app.tuningInFlight->patch;
+            app.tuningFuture = std::async(std::launch::async, [c, id, patch] {
+                return c->patch_session_options(id, patch);
+            });
+        } else if (app.requestSessionOptions) {
+            // A second press while one is outstanding: refused locally, in
+            // the server's own terms (it would refuse a raced change too).
+            app.note_tuning_outcome(AppComponent::TuningOutcome::Refused,
+                                    "Waiting for the server to confirm the last change.",
+                                    app.requestSessionOptions->sessionId);
+            app.requestSessionOptions.reset();
+        }
+        if (app.tuningFuture.valid() &&
+            app.tuningFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            auto r = app.tuningFuture.get();
+            const std::string id = app.tuningInFlight ? app.tuningInFlight->sessionId
+                                                      : std::string();
+            app.tuningInFlight.reset();
+            if (r.ok) {
+                app.apply_session_tuning(id, r.value);
+            } else if (r.refused) {
+                app.note_tuning_outcome(AppComponent::TuningOutcome::Refused, r.error, id);
+            } else {
+                // Sent, not confirmed: unknown. Not a refusal, not a retry.
+                app.note_tuning_outcome(AppComponent::TuningOutcome::Unconfirmed, r.error, id);
+            }
         }
 
         if (!app.requestAskSessionId.empty() && !app.askFuture.valid()) {

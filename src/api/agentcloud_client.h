@@ -20,6 +20,7 @@
 #include <memory>
 #include <map>
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <set>
 #include <string>
@@ -67,6 +68,18 @@ class AgentcloudClient : public Client {
     Result<std::string> interrupt_session(const std::string& session_id) override;
     Result<std::string> rename_session(const std::string& session_id,
                                        const std::string& title) override;
+
+    // spec 115 `patch_session_options`, over a fresh attach like rename: the
+    // attach snapshot is `hello.state` (not a frame), so the first
+    // `options_changed` FRAME after our send is post-send by construction;
+    // it settles the one ask this connection has outstanding -- the
+    // reference's rule too (an options_changed settles the oldest
+    // outstanding patch; the protocol carries no request id) -- and the
+    // echoed merged options, not the requested value, are what we return.
+    // A typed `error` frame is the refusal.
+    bool supports_session_options() const override { return ready(); }
+    Result<SessionOptionsEcho> patch_session_options(
+        const std::string& session_id, const SessionOptionsPatch& patch) override;
 
     Result<std::vector<NodeInfo>> list_nodes() override;
     Result<std::string> attach_node(const std::string& session_id,
@@ -188,7 +201,8 @@ void parse_attached_nodes(const std::string& hello_json, Session& out);
 // The create command a new thread sends, with its node clause when one was
 // picked.
 std::string create_command_json(const std::string& title,
-                                const std::string& node_id);
+                                const std::string& node_id,
+                                const LaunchTuning& launch = {});
 bool hello_has_capability(const std::string& hello_json,
                           const std::string& capability);
 
@@ -370,6 +384,23 @@ LiveFrame classify_live_frame_parsed(const nlohmann::json& root,
 // text that is not a frame at all — the same never-throw contract the rest of
 // the fold has.
 bool fold_session_renamed(const std::string& msg_json, SessionSummary& summary);
+// spec 115: the patch's wire shape, and the merged-options echo.
+nlohmann::json session_options_patch_json(const SessionOptionsPatch& patch);
+bool fold_options_changed(const std::string& msg_json, SessionOptionsEcho& out);
+bool echo_satisfies_patch(const SessionOptionsPatch& patch, const SessionOptionsEcho& echo);
+enum class PatchSettle { Ignore, Settled, Refused };
+// Boundary gate (hello.boundary; only durable seq > boundary) + postcondition
+// (the echo reflects every touched knob) + typed error = refusal.
+PatchSettle settle_options_patch(const std::string& msg_json, int64_t boundary,
+                                 const SessionOptionsPatch& patch,
+                                 SessionOptionsEcho& echo, std::string& refusal);
+// The production wait loop over any message source (the socket's queue in
+// production, a scripted sequence in tests): a discarded json from `next`
+// means the source ran dry -> failure(dry_note()), an UNKNOWN outcome.
+Result<SessionOptionsEcho> await_options_patch(
+    const std::function<nlohmann::json(std::chrono::steady_clock::time_point)>& next,
+    std::chrono::steady_clock::time_point deadline, int64_t boundary,
+    const SessionOptionsPatch& patch, const std::function<std::string()>& dry_note);
 
 // Accumulated live text -> the increment StreamSink wants. Exposed for the
 // test: getting this wrong duplicates or drops text in a live bubble, and it

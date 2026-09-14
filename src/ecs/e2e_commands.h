@@ -558,8 +558,8 @@ struct HandleKickoffThenFocusCommand
             ecs::model::pane_key(target.pane_index, target.draft_key));
         const std::string text = joined_args(cmd, 1);
         state.replyDraft = text;
-        app->requestKickoff = ecs::model::snapshot_outgoing(
-            state, text, target, app->client->supports_attachments());
+        app->request_kickoff(ecs::model::snapshot_outgoing(
+            state, text, target, app->client->supports_attachments()));
         app->focusedPane = std::clamp(cmd.arg_as<int>(0), 0, 1);
         cmd.consume();
     }
@@ -2139,6 +2139,44 @@ struct HandleExpectMockOutboundCallsCommand
     }
 };
 
+// expect_backend_tuning <id> <model|-> <effort|->: the mock session's OWN
+// tuning as the backend holds it after a patch_session_options -- the
+// receipt that the change reached the session (and the right one), read
+// from the client, not from the chip. `-` = no pin.
+struct HandleExpectBackendTuningCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_backend_tuning")) return;
+        if (!cmd.has_args(3)) {
+            cmd.fail("expect_backend_tuning requires <id> <model|-> <effort|->");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr || !app->client) {
+            cmd.fail("expect_backend_tuning: no client");
+            return;
+        }
+        const auto r = app->client->get_session(cmd.arg(0));
+        std::string model = "-", effort = "-";
+        if (r.ok) {
+            if (r.value.model.model_pinned) model = r.value.model.requested;
+            if (!r.value.model.requested_effort.empty()) effort = r.value.model.requested_effort;
+        }
+        if (r.ok && model == cmd.arg(1) && effort == cmd.arg(2)) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("backend tuning for '{}' is model={} effort={}, expected {} {}",
+                             cmd.arg(0), model, effort, cmd.arg(1), cmd.arg(2)));
+    }
+};
+
 struct HandleExpectOutboxRetryCountCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -2191,6 +2229,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectToastCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxAttachmentCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxRetryCountCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectBackendTuningCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleSeedReplyDraftCommand>());

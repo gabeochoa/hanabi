@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -1747,11 +1748,301 @@ static void test_the_node_roster_and_the_create_node_clause() {
         api::agentcloud::create_command_json("", "od-1"));
     CHECK(!withNode.contains("title"));
     CHECK(withNode["node"]["existing"]["node_id"] == "od-1");
+    // Neither launch knob: no `options` at all (the create seam's
+    // skip-if-empty rule; the outer layers apply).
+    CHECK(!bare.contains("options"));
+    CHECK(!withNode.contains("options"));
+}
+
+// The launch tuning a create carries (`options.llm`, the create command's own
+// field): model only, effort only, both, neither -- an empty knob is OMITTED
+// (never "" or null), and title/node ride unchanged beside it.
+static void test_create_carries_the_launch_tuning_as_options_llm() {
+    std::printf("test_create_carries_the_launch_tuning_as_options_llm\n");
+    using api::LaunchTuning;
+    using api::agentcloud::create_command_json;
+    using nlohmann::json;
+    {
+        const auto j = json::parse(create_command_json("t", "od-1", LaunchTuning{"gpt-5.5", ""}));
+        CHECK(j["cmd"] == "create" && j["title"] == "t");
+        CHECK(j["node"]["existing"]["node_id"] == "od-1");
+        CHECK(j["options"]["llm"]["model"] == "gpt-5.5");
+        CHECK(!j["options"]["llm"].contains("effort"));
+        CHECK(j["options"].size() == 1);
+    }
+    {
+        const auto j = json::parse(create_command_json("t", "", LaunchTuning{"", "xhigh"}));
+        CHECK(j["options"]["llm"]["effort"] == "xhigh");
+        CHECK(!j["options"]["llm"].contains("model"));
+        CHECK(!j.contains("node"));
+    }
+    {
+        const auto j = json::parse(create_command_json("", "", LaunchTuning{"claude-opus-5", "low"}));
+        CHECK(j["options"]["llm"]["model"] == "claude-opus-5");
+        CHECK(j["options"]["llm"]["effort"] == "low");
+        CHECK(!j.contains("title") && !j.contains("node"));
+    }
+    {
+        const auto j = json::parse(create_command_json("t", "od-1", LaunchTuning{}));
+        CHECK(!j.contains("options"));
+        CHECK(j["title"] == "t" && j["node"]["existing"]["node_id"] == "od-1");
+    }
+    CHECK(LaunchTuning{}.empty());
+    CHECK(!(LaunchTuning{"", "low"}.empty()));
+}
+
+// ── spec 115: patch_session_options wire shape and its echo ─────────────
+static void test_session_options_patch_wire_shape() {
+    std::printf("test_session_options_patch_wire_shape\n");
+    using api::SessionOptionsPatch;
+    using api::agentcloud::session_options_patch_json;
+    // RFC 7386 per knob: absent = untouched, null = unset, value = set. A
+    // patch that names one knob must not mention the other.
+    {
+        const auto j = session_options_patch_json(SessionOptionsPatch::set_model("gpt-5.5"));
+        CHECK(j["llm"]["model"] == "gpt-5.5");
+        CHECK(!j["llm"].contains("effort"));
+    }
+    {
+        const auto j = session_options_patch_json(SessionOptionsPatch::unset_effort());
+        CHECK(j["llm"].contains("effort"));
+        CHECK(j["llm"]["effort"].is_null());
+        CHECK(!j["llm"].contains("model"));
+    }
+    {
+        SessionOptionsPatch both = SessionOptionsPatch::set_effort("xhigh");
+        both.model = std::optional<std::string>{};  // unset model, set effort
+        const auto j = session_options_patch_json(both);
+        CHECK(j["llm"]["model"].is_null());
+        CHECK(j["llm"]["effort"] == "xhigh");
+    }
+    CHECK(SessionOptionsPatch{}.empty());
+    CHECK(!SessionOptionsPatch::unset_model().empty());
+}
+
+static void test_options_changed_echo_is_the_merged_layer() {
+    std::printf("test_options_changed_echo_is_the_merged_layer\n");
+    using api::agentcloud::fold_options_changed;
+    api::SessionOptionsEcho echo;
+    // The echo carries the COMPLETE merged llm layer: a knob the patch did
+    // not touch comes back as it was (here effort survives a model change).
+    CHECK(fold_options_changed(
+        R"({"type":"frame","seq":41,"event":{"type":"options_changed","principal":{"kind":"user"},"options":{"llm":{"model":"claude-sonnet-5","effort":"xhigh"}}}})",
+        echo));
+    CHECK(echo.model == "claude-sonnet-5");
+    CHECK(echo.effort == "xhigh");
+    // Unset knobs are absent (or null) in the merged layer: "" here.
+    CHECK(fold_options_changed(
+        R"({"type":"frame","seq":42,"event":{"type":"options_changed","options":{"llm":{"effort":"low"}}}})",
+        echo));
+    CHECK(echo.model.empty());
+    CHECK(echo.effort == "low");
+    // An untuned session echoes no llm layer at all.
+    CHECK(fold_options_changed(
+        R"({"type":"frame","seq":43,"event":{"type":"options_changed","options":{}}})", echo));
+    CHECK(echo.model.empty() && echo.effort.empty());
+    // Anything else is not this echo: another event, a typed error, garbage.
+    CHECK(!fold_options_changed(
+        R"({"type":"frame","seq":44,"event":{"type":"session_renamed","title":"x"}})", echo));
+    CHECK(!fold_options_changed(R"({"type":"error","message":"unknown effort 'turbo'"})", echo));
+    CHECK(!fold_options_changed("not json", echo));
+}
+
+static void test_hello_state_folds_the_session_tuning() {
+    std::printf("test_hello_state_folds_the_session_tuning\n");
+    api::Session s;
+    // The attach snapshot: a pinned model and effort in state.options; the
+    // harness default in option_defaults.
+    api::agentcloud::parse_serving_model(
+        R"({"type":"hello","state":{"option_defaults":{"llm":{"model":"claude-fable-5"}},"options":{"llm":{"model":"gpt-5.5","effort":"max"}}}})",
+        s);
+    CHECK(s.model.model_pinned);
+    CHECK(s.model.requested == "gpt-5.5");
+    CHECK(s.model.requested_effort == "max");
+    CHECK(s.model.harness_default == "claude-fable-5");
+    // Untuned: requested copies the harness default but is NOT a pin, and
+    // there is no effort pin -- the "default" rows are what is current.
+    api::Session u;
+    api::agentcloud::parse_serving_model(
+        R"({"type":"hello","state":{"option_defaults":{"llm":{"model":"claude-fable-5"}},"options":{}}})",
+        u);
+    CHECK(!u.model.model_pinned);
+    CHECK(u.model.requested == "claude-fable-5");
+    CHECK(u.model.requested_effort.empty());
+}
+
+// ── spec 115: the settle rule over an actual message sequence ────────────
+// Everything the loop can see after our send, in order, classified against
+// OUR patch. The protocol has no request id; what decides is the typed error
+// (ours, on our connection) or the postcondition on the echoed merged layer.
+static void test_options_patch_settles_only_on_its_own_postcondition() {
+    std::printf("test_options_patch_settles_only_on_its_own_postcondition\n");
+    using api::SessionOptionsPatch;
+    using api::agentcloud::PatchSettle;
+    api::SessionOptionsEcho echo;
+    std::string why;
+    const auto set_model = SessionOptionsPatch::set_model("claude-sonnet-5");
+    // Boundary 0 here: every durable frame is post-snapshot; the boundary
+    // gate has its own test below.
+    const auto settle_options_patch = [&](const std::string& m, const SessionOptionsPatch& p,
+                                          api::SessionOptionsEcho& e, std::string& w) {
+        return api::agentcloud::settle_options_patch(m, 0, p, e, w);
+    };
+
+    // 1. The attach snapshot is a hello, not a frame: ignored even though it
+    //    carries options (and even options equal to our ask).
+    CHECK(settle_options_patch(
+              R"({"type":"hello","state":{"options":{"llm":{"model":"claude-sonnet-5"}}}})",
+              set_model, echo, why) == PatchSettle::Ignore);
+    // 2. Unrelated frames between send and echo: ignored.
+    CHECK(settle_options_patch(R"({"type":"frame","seq":7,"event":{"type":"run_started"}})",
+                               set_model, echo, why) == PatchSettle::Ignore);
+    CHECK(settle_options_patch(R"({"type":"pong"})", set_model, echo, why) == PatchSettle::Ignore);
+    // 3. ANOTHER client's options_changed landing first, to a different
+    //    value: it does not satisfy our postcondition -> ignored, keep reading.
+    CHECK(settle_options_patch(
+              R"({"type":"frame","frame":"durable","seq":8,"event":{"type":"options_changed","options":{"llm":{"model":"gpt-5.5"}}}})",
+              set_model, echo, why) == PatchSettle::Ignore);
+    // 4. Our own echo: the merged layer carries our value -> settled, and the
+    //    echo (not the request) is what we hand back -- including the effort
+    //    the other client may have set meanwhile, untouched by us.
+    CHECK(settle_options_patch(
+              R"({"type":"frame","frame":"durable","seq":9,"event":{"type":"options_changed","options":{"llm":{"model":"claude-sonnet-5","effort":"low"}}}})",
+              set_model, echo, why) == PatchSettle::Settled);
+    CHECK(echo.model == "claude-sonnet-5" && echo.effort == "low");
+    // 5. A typed error on our connection: the refusal, in the server's words.
+    CHECK(settle_options_patch(R"({"type":"error","message":"unknown effort 'turbo'"})",
+                               set_model, echo, why) == PatchSettle::Refused);
+    CHECK(why == "unknown effort 'turbo'");
+
+    // Null unsets ONE knob: the postcondition for unset_model is "no model
+    // pin in the merged layer"; an echo that still pins a model is not ours.
+    const auto unset_model = SessionOptionsPatch::unset_model();
+    CHECK(settle_options_patch(
+              R"({"type":"frame","frame":"durable","seq":10,"event":{"type":"options_changed","options":{"llm":{"model":"gpt-5.5","effort":"xhigh"}}}})",
+              unset_model, echo, why) == PatchSettle::Ignore);
+    CHECK(settle_options_patch(
+              R"({"type":"frame","frame":"durable","seq":11,"event":{"type":"options_changed","options":{"llm":{"effort":"xhigh"}}}})",
+              unset_model, echo, why) == PatchSettle::Settled);
+    CHECK(echo.model.empty() && echo.effort == "xhigh");  // effort survived
+
+    // A two-knob patch needs BOTH satisfied.
+    SessionOptionsPatch both = SessionOptionsPatch::set_effort("max");
+    both.model = std::optional<std::string>{"gpt-5.5"};
+    CHECK(settle_options_patch(
+              R"({"type":"frame","frame":"durable","seq":12,"event":{"type":"options_changed","options":{"llm":{"model":"gpt-5.5"}}}})",
+              both, echo, why) == PatchSettle::Ignore);
+    CHECK(settle_options_patch(
+              R"({"type":"frame","frame":"durable","seq":13,"event":{"type":"options_changed","options":{"llm":{"model":"gpt-5.5","effort":"max"}}}})",
+              both, echo, why) == PatchSettle::Settled);
+
+    // Same state made true by someone else IS the postcondition: settled.
+    // (The caller asked for a state, and the authoritative layer has it.)
+    CHECK(settle_options_patch(
+              R"({"type":"frame","frame":"durable","seq":14,"event":{"type":"options_changed","options":{"llm":{"model":"claude-sonnet-5"}}}})",
+              set_model, echo, why) == PatchSettle::Settled);
+}
+
+// ── spec 115 FR5, at the PRODUCTION loop over a scripted source: the
+// hello's boundary gates replay; the postcondition gates concurrent changes;
+// a typed error is a refusal; a dry source is an UNKNOWN outcome, not a
+// refusal. Mirrors agentcloud's own client test
+// (clients/ctl/src/lib_test.rs `patch_options_settles_on_the_durable_echo`).
+static void test_patch_awaits_the_boundary_gated_durable_echo() {
+    std::printf("test_patch_awaits_the_boundary_gated_durable_echo\n");
+    using api::SessionOptionsPatch;
+    using api::agentcloud::await_options_patch;
+    using nlohmann::json;
+    const auto far = std::chrono::steady_clock::now() + std::chrono::hours(1);
+    const auto scripted = [](std::vector<std::string> frames) {
+        auto at = std::make_shared<std::size_t>(0);
+        auto held = std::make_shared<std::vector<std::string>>(std::move(frames));
+        return [at, held](std::chrono::steady_clock::time_point) -> json {
+            if (*at >= held->size()) return json(json::value_t::discarded);
+            return json::parse((*held)[(*at)++]);
+        };
+    };
+    const auto dry = [] { return std::string("no confirmation (sent, not confirmed)"); };
+    // The patch the ctl test sends: model set to m2, effort unset (null).
+    SessionOptionsPatch patch = SessionOptionsPatch::set_model("m2");
+    patch.effort = std::optional<std::string>{};
+
+    // Hello boundary 5. seq 3 REFLECTS the patch but is replay (<= boundary):
+    // skipped by the boundary gate alone -- made observably stale by a field
+    // the patch leaves alone, as the ctl test does. seq 6 is a live
+    // concurrent change to a different model: skipped by the postcondition.
+    // seq 7 is our echo: settled, and what we return is seq 7's layer.
+    {
+        auto r = await_options_patch(
+            scripted({
+                R"({"type":"frame","frame":"durable","seq":3,"event":{"type":"options_changed","options":{"tenant":"replayed","llm":{"model":"m2"}}}})",
+                R"({"type":"frame","frame":"durable","seq":6,"event":{"type":"options_changed","options":{"llm":{"model":"other"}}}})",
+                R"({"type":"frame","frame":"durable","seq":7,"event":{"type":"options_changed","options":{"llm":{"model":"m2"}}}})",
+            }),
+            far, /*boundary=*/5, patch, dry);
+        CHECK(r.ok);
+        CHECK(r.value.model == "m2");
+        CHECK(r.value.effort.empty());
+    }
+    // Only the replay arrives, then the source runs dry: NOT confirmed, and
+    // NOT a refusal -- the outcome is unknown.
+    {
+        auto r = await_options_patch(
+            scripted({
+                R"({"type":"frame","frame":"durable","seq":3,"event":{"type":"options_changed","options":{"llm":{"model":"m2"}}}})",
+            }),
+            far, 5, patch, dry);
+        CHECK(!r.ok);
+        CHECK(!r.refused);
+        CHECK(r.error == "no confirmation (sent, not confirmed)");
+    }
+    // A live concurrent change, then the server's typed refusal of OUR
+    // command: refused, never falsely confirmed by the concurrent frame.
+    {
+        auto r = await_options_patch(
+            scripted({
+                R"({"type":"frame","frame":"durable","seq":6,"event":{"type":"options_changed","options":{"llm":{"model":"other"}}}})",
+                R"({"type":"error","message":"a concurrent change won; retry against the new state"})",
+            }),
+            far, 5, patch, dry);
+        CHECK(!r.ok);
+        CHECK(r.refused);
+        CHECK(r.error == "a concurrent change won; retry against the new state");
+    }
+    // A live (value) frame and a non-durable frame at seq > boundary are not
+    // durable echoes; the hello is never one.
+    {
+        auto r = await_options_patch(
+            scripted({
+                R"({"type":"hello","boundary":5,"state":{"options":{"llm":{"model":"m2"}}}})",
+                R"({"type":"frame","frame":"value","seq":9,"event":{"type":"options_changed","options":{"llm":{"model":"m2"}}}})",
+            }),
+            far, 5, patch, dry);
+        CHECK(!r.ok && !r.refused);
+    }
+    // Same-state replay UNDER the boundary is not confirmation of our
+    // command even when the live layer already equals the ask: only a
+    // durable frame beyond the boundary settles.
+    {
+        auto r = await_options_patch(
+            scripted({
+                R"({"type":"frame","frame":"durable","seq":5,"event":{"type":"options_changed","options":{"llm":{"model":"m2"}}}})",
+                R"({"type":"frame","frame":"durable","seq":8,"event":{"type":"options_changed","options":{"llm":{"model":"m2"}}}})",
+            }),
+            far, 5, patch, dry);
+        CHECK(r.ok);
+    }
 }
 
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
+    test_session_options_patch_wire_shape();
+    test_create_carries_the_launch_tuning_as_options_llm();
+    test_options_changed_echo_is_the_merged_layer();
+    test_hello_state_folds_the_session_tuning();
+    test_options_patch_settles_only_on_its_own_postcondition();
+    test_patch_awaits_the_boundary_gated_durable_echo();
     test_percent_encode_keeps_unreserved();
     test_percent_encode_escapes_the_rest();
     test_unconfigured_by_default();

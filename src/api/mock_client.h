@@ -343,6 +343,19 @@ class MockClient : public Client {
         }
         auto created = create_session(message.text);
         if (!created.ok) return Result<CreateOutcome>::failure(created.error);
+        // The create's `options.llm`, as the server would journal it on
+        // session_created: the new session's own tuning, which the panel and
+        // `expect_backend_tuning` read back. A message to an EXISTING session
+        // never comes through here, so a default can never retune one.
+        if (Session* fresh = find_mutable(created.value)) {
+            if (!message.launch.model.empty()) {
+                fresh->model.requested = message.launch.model;
+                fresh->model.serving = message.launch.model;
+                fresh->model.model_pinned = true;
+                fresh->model.fallback = false;
+            }
+            fresh->model.requested_effort = message.launch.effort;
+        }
         Session* session = find_mutable(created.value);
         if (session != nullptr && !session->messages.empty())
             session->messages.back().attachments = accepted_attachments(message);
@@ -841,6 +854,68 @@ class MockClient : public Client {
 
     bool supports_rename() const override {
         return std::getenv("HANABI_MOCK_NO_RENAME") == nullptr;
+    }
+
+    // spec 115 offline. The server's own refusals, in its words: an empty
+    // patch, an effort token it does not know, a model this session's
+    // harness does not serve (the mock serves the picker's catalog, so an
+    // id outside it is "not served"), plus HANABI_MOCK_REFUSE_OPTIONS=<why>
+    // to stage a refusal for a script. `null` unsets ONLY the knob it names;
+    // the echo is the merged session layer, not the patch -- the reader
+    // replaces what it holds from it. Counted as an outbound call so the
+    // zero-network receipt stays a receipt.
+    bool supports_session_options() const override {
+        return std::getenv("HANABI_MOCK_NO_SESSION_OPTIONS") == nullptr;
+    }
+    Result<SessionOptionsEcho> patch_session_options(
+        const std::string& session_id, const SessionOptionsPatch& patch) override {
+        outbound_calls().fetch_add(1);
+        if (patch.empty())
+            return Result<SessionOptionsEcho>::refusal("the patch is empty");
+        if (const char* why = std::getenv("HANABI_MOCK_REFUSE_OPTIONS"); why && *why)
+            return Result<SessionOptionsEcho>::refusal(why);
+        Session* target = find_mutable(session_id);
+        if (!target)
+            return Result<SessionOptionsEcho>::refusal("no such session: " + session_id);
+        static constexpr std::string_view kEfforts[] = {"low", "medium", "high",
+                                                        "xhigh", "max"};
+        static constexpr std::string_view kServed[] = {
+            "claude-opus-5",    "claude-fable-5",          "claude-opus-4-8",
+            "claude-sonnet-5",  "avocado-code-flex",       "muse-spark-1.2-internal",
+            "gpt-5.6-sol",      "gpt-5.5"};
+        if (patch.effort.has_value() && patch.effort->has_value()) {
+            bool known = false;
+            for (auto e : kEfforts) known = known || e == **patch.effort;
+            if (!known)
+                return Result<SessionOptionsEcho>::refusal(
+                    "unknown effort '" + **patch.effort + "'");
+        }
+        if (patch.model.has_value() && patch.model->has_value()) {
+            bool served = false;
+            for (auto m : kServed) served = served || m == **patch.model;
+            if (!served)
+                return Result<SessionOptionsEcho>::refusal(
+                    "model '" + **patch.model + "' is not served by this session's harness");
+        }
+        // Apply: absent = untouched, null = unset, value = set.
+        auto& m = target->model;
+        if (patch.model.has_value()) {
+            if (patch.model->has_value()) {
+                m.requested = **patch.model;
+                m.model_pinned = true;
+            } else {
+                m.requested = m.harness_default;
+                m.model_pinned = false;
+            }
+            m.serving = m.requested;
+            m.fallback = false;
+        }
+        if (patch.effort.has_value())
+            m.requested_effort = patch.effort->has_value() ? **patch.effort : std::string();
+        SessionOptionsEcho echo;
+        echo.model = m.model_pinned ? m.requested : std::string();
+        echo.effort = m.requested_effort;
+        return Result<SessionOptionsEcho>::success(echo);
     }
 
     // Rename offline, echo-shaped: the reply carries the title the "server"
@@ -2475,6 +2550,7 @@ class MockClient : public Client {
             pin.model.harness_default = "claude-fable-5";
             pin.model.requested = "gpt-5.5";
             pin.model.serving = "gpt-5.5";
+            pin.model.model_pinned = true;
             v.push_back(std::move(pin));
         }
 

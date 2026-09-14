@@ -21,6 +21,7 @@
 #include <afterhours/src/ecs.h>
 
 #include "../../src/api/disk_cache.h"
+#include "../../src/api/create_outcome.h"
 #include "../../src/api/mock_client.h"
 #include "../../src/ecs/components.h"
 #include "../../src/ecs/pane_state.h"
@@ -1444,9 +1445,156 @@ static void test_the_mock_catalog_cannot_carry_paused() {
     unsetenv("HANABI_BRAKES_DEMO");
 }
 
+// ── spec 115 in the mock: the server's refusals, null-unsets-one-knob, the
+// echo as the merged layer, and that a change is counted as outbound ──────
+static void test_mock_patch_session_options_follows_the_server_rules() {
+    std::printf("test_mock_patch_session_options_follows_the_server_rules\n");
+    api::MockClient m;
+    using P = api::SessionOptionsPatch;
+    const int before = api::MockClient::outbound_calls().load();
+
+    // Refusals, in the server's terms, and nothing changes.
+    // ...and each is a TYPED refusal (the server said no), never the unknown
+    // outcome a dry socket would be.
+    for (auto r : {m.patch_session_options("t2", P{}),
+                   m.patch_session_options("t2", P::set_effort("turbo")),
+                   m.patch_session_options("t2", P::set_model("not-a-model")),
+                   m.patch_session_options("nope", P::set_effort("low"))}) {
+        CHECK(!r.ok);
+        CHECK(r.refused);
+    }
+    {
+        auto s = m.get_session("t2");
+        CHECK(s.ok && !s.value.model.model_pinned && s.value.model.requested_effort.empty());
+    }
+
+    // Set model: pinned, echo carries it, effort untouched (empty).
+    auto r1 = m.patch_session_options("t2", P::set_model("claude-sonnet-5"));
+    CHECK(r1.ok && r1.value.model == "claude-sonnet-5" && r1.value.effort.empty());
+    // Set effort: the echo is the MERGED layer -- the model pin survives.
+    auto r2 = m.patch_session_options("t2", P::set_effort("xhigh"));
+    CHECK(r2.ok && r2.value.model == "claude-sonnet-5" && r2.value.effort == "xhigh");
+    // Unset the model only: effort survives; the resolved model falls back
+    // to the harness default and is no longer a pin.
+    auto r3 = m.patch_session_options("t2", P::unset_model());
+    CHECK(r3.ok && r3.value.model.empty() && r3.value.effort == "xhigh");
+    {
+        auto s = m.get_session("t2");
+        CHECK(s.ok && !s.value.model.model_pinned);
+        CHECK(s.value.model.requested == s.value.model.harness_default);
+        CHECK(s.value.model.requested_effort == "xhigh");
+    }
+    // Unset the effort only.
+    auto r4 = m.patch_session_options("t2", P::unset_effort());
+    CHECK(r4.ok && r4.value.model.empty() && r4.value.effort.empty());
+
+    // Another session was never touched.
+    {
+        auto s = m.get_session("t9");
+        CHECK(s.ok && !s.value.model.model_pinned && s.value.model.requested_effort.empty());
+    }
+    // Every attempt -- refused or not -- was an outbound call.
+    CHECK(api::MockClient::outbound_calls().load() == before + 8);
+}
+
+// A create's launch tuning becomes the NEW session's own (what the panel and
+// expect_backend_tuning read); a message to an existing session carries a
+// launch field too (every OutgoingMessage has one) and it changes nothing.
+static void test_mock_create_records_the_launch_tuning_and_send_ignores_it() {
+    std::printf("test_mock_create_records_the_launch_tuning_and_send_ignores_it\n");
+    api::MockClient m;
+    api::StreamSink sink;
+    api::OutgoingMessage kick;
+    kick.text = "start the regional backfill.";
+    kick.launch = api::LaunchTuning{"claude-opus-5", "low"};
+    auto created = m.create_with_message(kick, sink);
+    CHECK(created.ok && !created.value.session_id.empty());
+    {
+        auto s = m.get_session(created.value.session_id);
+        CHECK(s.ok && s.value.model.model_pinned);
+        CHECK(s.value.model.requested == "claude-opus-5");
+        CHECK(s.value.model.requested_effort == "low");
+    }
+    // Neither knob: the new session is untuned.
+    api::OutgoingMessage plain;
+    plain.text = "plain";
+    auto created2 = m.create_with_message(plain, sink);
+    CHECK(created2.ok);
+    {
+        auto s = m.get_session(created2.value.session_id);
+        CHECK(s.ok && !s.value.model.model_pinned && s.value.model.requested_effort.empty());
+    }
+    // A send to an EXISTING session with a launch field set: untouched.
+    api::OutgoingMessage follow;
+    follow.text = "and now this";
+    follow.launch = api::LaunchTuning{"gpt-5.5", "max"};
+    (void)m.send_message(created2.value.session_id, follow);
+    {
+        auto s = m.get_session(created2.value.session_id);
+        CHECK(s.ok && !s.value.model.model_pinned && s.value.model.requested_effort.empty());
+    }
+    CHECK(!m.get_session("t2").value.model.model_pinned);
+}
+
+// A backend whose create has no place for tuning (the base Client's legacy
+// path) REFUSES a tuned kickoff before any create -- it does not start an
+// untuned thread as if nothing had been asked -- and still creates an
+// untuned one.
+namespace {
+struct LegacyCreateClient : api::Client {
+    int creates = 0;
+    api::Result<std::vector<api::SessionSummary>> list_sessions() override {
+        return api::Result<std::vector<api::SessionSummary>>::success({});
+    }
+    api::Result<api::Session> get_session(const std::string&) override {
+        return api::Result<api::Session>::failure("none");
+    }
+    std::string backend_label() const override { return "legacy"; }
+    api::Result<std::string> create_session(const std::string&) override {
+        ++creates;
+        return api::Result<std::string>::success("legacy-1");
+    }
+};
+}  // namespace
+
+static void test_legacy_create_refuses_tuning_and_still_creates_untuned() {
+    std::printf("test_legacy_create_refuses_tuning_and_still_creates_untuned\n");
+    LegacyCreateClient c;
+    api::StreamSink sink;
+    api::OutgoingMessage tuned;
+    tuned.text = "go";
+    tuned.launch = api::LaunchTuning{"", "low"};
+    auto refused = c.create_with_message(tuned, sink);
+    // A known, local outcome: the Result is ok, the outcome says not
+    // created, and the failure is a definite Rejected -- so the verdict
+    // is "nothing was created" with a retry, never "we never heard".
+    CHECK(refused.ok);
+    CHECK(!refused.value.created);
+    CHECK(refused.value.create_failure.kind == api::SendFailureKind::Rejected);
+    CHECK(refused.value.create_failure.message.find("model or effort") !=
+          std::string::npos);
+    CHECK(c.creates == 0);
+    {
+        const api::CreateVerdict v = api::classify_create(refused);
+        CHECK(v.disposition == api::CreateDisposition::NotCreatedRejected);
+        CHECK(v.restore_draft);
+        CHECK(v.offer_retry);
+        CHECK(v.notice.find("nothing was created") != std::string::npos);
+        CHECK(v.notice.find("never heard") == std::string::npos);
+    }
+    api::OutgoingMessage plain;
+    plain.text = "go";
+    auto made = c.create_with_message(plain, sink);
+    CHECK(made.ok && made.value.session_id == "legacy-1");
+    CHECK(c.creates == 1);
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
+    test_mock_patch_session_options_follows_the_server_rules();
+    test_mock_create_records_the_launch_tuning_and_send_ignores_it();
+    test_legacy_create_refuses_tuning_and_still_creates_untuned();
     test_attachment_draft_retains_its_bytes();
     test_disk_cache_round_trips_the_brakes();
     test_disk_cache_round_trips_an_unknown_event_row();

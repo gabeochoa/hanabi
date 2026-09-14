@@ -106,3 +106,20 @@ affordance, hover and selection fills, the footer, or the collapsed rail's
 metrics. Those need the pinned capture to say anything honest about, because
 the screenshot is one width and the source gives their rules but not their
 rendered result.
+
+## Appearance pane catalog — the reference's rows against hanabi's (from SettingsAppearanceTab.swift at fb84b1d4 and the first valid same-category capture, 2026-09-13)
+
+The reference's Appearance pane, top to bottom, and what each row becomes here. "REAL" means the row drives an actual behaviour in hanabi; nothing here is a control that stores a value nobody reads.
+
+| # | Reference row (section) | Reference storage / behaviour | hanabi today | Plan |
+|---|---|---|---|---|
+| A0 | origin legend capsule ("On this Mac") | `SettingsOriginLegend(pane:)` | pane title + subtitle + "This Mac: kept here only" line | drop title/subtitle/line; one capsule row like the reference's |
+| A1 | **Icons** · Icon set: Normal / the reference's own | `iconTheme` — swaps the app's symbol set | one sprite atlas (Lucide) | OPEN until a second icon set exists in `resources/icons`; a segmented control with one real choice is a fake — not drawn |
+| A2 | **Reading width** · Transcript width: Comfortable / Wide / Full width (+ help text) | `TranscriptWidth` 768 / 1024 / ∞ column, transcript AND composer follow | fixed 768 band (`kComposerReadCol`) and 736 (`kReadCol`) | REAL: new setting `transcript_width` (comfortable/wide/full); both bands read it |
+| A3 | **Context** · Full context detail (toggle + help) | `contextDetail`: meter popover shows lifetime totals, cache split, last call, compaction, sub-agent rollup | hanabi's context meter popover exists (`contextMeter`) with a fixed level of detail | REAL: new setting `context_detail`; the popover shows the extra lines when on (whatever hanabi already has data for; lines without data are not invented) |
+| A4 | **Composer** · Tool, thinking and delivery chips (toggle + help) | `showDisclosureChips`: chips open by default | hanabi has per-thread tool fold modes (`get_tool_fold`) and a global finished-subagents switch | REAL: new setting `disclosure_chips_open` = the default fold state for tool/thinking/delivery chips in a conversation with no per-thread choice |
+| A5 | **Typeface** · Your messages / replies: design (System/Serif/Rounded/Monospaced) × weight (Light…Bold) + help | `MessageTypographySet` per side | per-side FONT (default/hyperlegible/mono via `user_font`/`assistant_font`) + ONE global weight | REAL: per-side weight (`user_weight`, `assistant_weight`, migrated from the global `font_weight`); design: hanabi ships Roboto, Atkinson Hyperlegible, JetBrains Mono — Serif and Rounded need a font file → OPEN for those two, the segmented control lists the designs hanabi has |
+| A6 | **Theme** · One theme / Rotate themes (+ caption, per-thread hint, "Thread colours in the sidebar" toggle, theme list with Default/Use per theme) | `ThemeManager.rotateThemes`: each CONVERSATION gets its own theme; blocklist per theme; `sidebarThreadColour` tints rows | hanabi's `theme_rotate_secs` is a TIMER that flips light/dark — different semantics; no per-conversation theme; no row tint | per-conversation theme is its own feature (also the row menu's Theme ▸) → OPEN with a plan; the timer row is hanabi-only and moves off this pane; "Thread colours in the sidebar" lands with per-conversation theme |
+| A7 | **Custom theme** · Create/Edit/Delete a palette of eleven colours | `ThemeManager.custom` | accent + find-highlight choices only | OPEN: the eleven-colour editor is a feature; hanabi's two swatch rows stay until it exists |
+
+Layout facts to match (measured on the pair, 1280x720 @2x): content column x≈438..1130 (692 wide) vs hanabi 326..1242; section title outside and above each card; a card is one or more rows of glyph + title with the control right-aligned at the card's right edge; help text inside the card under its row in the secondary colour; toggles are the small system switch (≈38x22 at 1x), not 52x28; segmented controls are compact pill groups sized to their labels, right-aligned, only the selected segment filled.

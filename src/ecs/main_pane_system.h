@@ -1482,7 +1482,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // carrying a caret, which is exactly what composer_holds_keyboard says.
     bool composerHeldKeyboard_ = true;
     bool modelPopoverWasOpen_ = false;
-    bool effortPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
     struct AskRowId {
         const std::string* question;
@@ -4536,9 +4535,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::surface::Rect{r.x, r.y, r.width, r.height});
     }
 
+    // The reference's one model panel (ModelPopover): "Model" header; a
+    // restriction line when the rows cannot act; the model rows with a
+    // `default` row naming what unpinning resolves to; "Effort" with a meter
+    // and the level rows plus its own `default`; a footnote while a change is
+    // in flight or when the server refused. Every row changes THIS SESSION's
+    // tuning through `patch_session_options` (spec 115) -- never a Settings
+    // default -- and "current" is read off the session's FOLDED tuning, so
+    // the radio moves when the server's echo lands, not when the row is
+    // pressed. The reference's harness section is not drawn: hanabi has no
+    // harness catalog to draw it from (api-parity.md, open). Dismissal is the
+    // reference's InWindowPanel rule: a click anywhere outside the panel and
+    // its chip closes it -- a click into the other split pane included -- and
+    // so does Escape; a dismissal never writes anything.
     void render_model_popover(UIContext<InputAction>& ctx, Entity& parent,
                               AppComponent& app, Entity& anchorEnt,
-                              const std::string& currentModel) {
+                              const Pane& ownPane) {
         if (!app.modelPopoverOpen && !modelPopoverWasOpen_) return;
         auto popRoot = mk(parent, 3200);
         RectangleType anchor =
@@ -4552,16 +4564,52 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         modelPopoverWasOpen_ = true;
-        constexpr float kRowH = 28.0f;
-        constexpr float kPopW = 252.0f;
-        constexpr float kHeadH = 44.0f;
+
+        const api::Session* session = ownPane.openSession ? &*ownPane.openSession : nullptr;
+        const std::string sessionId = session ? session->summary.id : std::string();
+        const api::Session::ServingModel* tuning = session ? &session->model : nullptr;
+        const bool backendCan = app.client && app.client->supports_session_options();
+        const bool inFlight = app.tuningInFlight.has_value() &&
+                              app.tuningInFlight->sessionId == sessionId;
+        const bool outcomeHere = app.tuningOutcomeSessionId == sessionId &&
+                                 app.tuningOutcome != AppComponent::TuningOutcome::None;
+        const bool unconfirmed =
+            outcomeHere && app.tuningOutcome == AppComponent::TuningOutcome::Unconfirmed;
+        const bool refused =
+            outcomeHere && app.tuningOutcome == AppComponent::TuningOutcome::Refused;
+        // The rows act only for a live conversation, on a backend that has
+        // the verb, with nothing outstanding for this session -- and not
+        // while the last change's outcome is UNKNOWN: an unconfirmed send is
+        // never retried blind; reopening the thread re-reads the server.
+        const bool canChange = session != nullptr && backendCan && !inFlight && !unconfirmed;
+        std::string restriction;
+        if (session == nullptr)
+            restriction = "Start the conversation to change its model.";
+        else if (!backendCan)
+            restriction = "This backend does not support changing a session's options.";
+        else if (unconfirmed)
+            restriction = "Last change unconfirmed; reopen the thread to see what the server holds.";
+
         const auto& models = hanabi::models::all();
-        const auto rowMetrics = afterhours::ui::imm::measure_config(
-            hanabi::surface::option_row(kPopW - 8.0f, kRowH, false, 8),
-            kPopW - 8.0f, kRowH);
+        const auto& levels = hanabi::effort::all();
+        // Model rows skip the catalog's "default" entry: the reference draws
+        // unpinning as its own `default` row that names the resolved model.
+        std::vector<const hanabi::models::Entry*> modelRows;
+        for (const auto& m : models)
+            if (m.id != "default") modelRows.push_back(&m);
+
+        constexpr float kRowH = 28.0f;
+        constexpr float kPopW = 300.0f;
+        constexpr float kHeadH = 30.0f;
+        constexpr float kSectionH = 26.0f;
+        constexpr float kLineH = 20.0f;
+        const bool hasFootnote = inFlight || refused || unconfirmed;
         const float popH =
-            kHeadH + rowMetrics.pitch().y * static_cast<float>(models.size()) +
-            8.0f;
+            kHeadH + (restriction.empty() ? 0.0f : kLineH) +
+            kSectionH + kRowH * static_cast<float>(modelRows.size() + 1) +
+            kSectionH + kRowH * static_cast<float>(levels.size() + 1) +
+            (hasFootnote ? kLineH : 0.0f) + 12.0f;
+
         const auto previousSurface = ctx.theme.surface;
         ctx.theme.surface = theme::panel_bg_2();
         auto pop = afterhours::ui::imm::popover(
@@ -4572,165 +4620,139 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         ctx.theme.surface = previousSurface;
         if (!pop) return;
         publish_popover_occluder(pop.ent());
-        div(ctx, mk(pop.ent(), 900),
-            ComponentConfig{}
-                .with_label("Model")
-                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(22)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::BODY)
-                .with_alignment(TextAlignment::Left)
-                .with_margin(Margin{.left = pixels(8)})
-                .with_debug_name("model_popover_title"));
-        div(ctx, mk(pop.ent(), 901),
-            ComponentConfig{}
-                .with_label("Default for new tasks")
-                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_margin(Margin{.left = pixels(8)})
-                .with_debug_name("model_popover_subtitle"));
-        for (size_t i = 0; i < models.size(); ++i) {
-            const auto& model = models[i];
-            const bool selected = model.id == currentModel;
+
+        int key = 900;
+        const auto line = [&](const std::string& text, theme::Color color,
+                              float h, const char* name, float fontSize) {
+            div(ctx, mk(pop.ent(), key++),
+                ComponentConfig{}
+                    .with_label(text)
+                    .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(h)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(color)
+                    .with_font_size(fontSize)
+                    .with_alignment(TextAlignment::Left)
+                    .with_margin(Margin{.left = pixels(8)})
+                    .with_debug_name(name));
+        };
+        line("Model", theme::text_primary(), kHeadH, "model_popover_title",
+             theme::type::BODY);
+        if (!restriction.empty())
+            line(restriction, theme::text_faint(), kLineH, "model_popover_restriction",
+                 theme::type::SM);
+
+        // One row: radio (filled = current; open circle = can change; the
+        // reference's dashed circle when locked is drawn as the faint circle)
+        // and a press that captures the session id NOW, so a pane switch
+        // between press and echo cannot redirect the change.
+        int rowKey = 0;
+        const auto choice = [&](const std::string& label, bool current,
+                                const std::string& name,
+                                api::SessionOptionsPatch patch) {
+            hanabi::control::State st;
+            st.selected = current;
+            st.disabled = !canChange && !current;
             auto row = button(
-                ctx, mk(pop.ent(), static_cast<int>(i)),
-                hanabi::surface::option_row(kPopW - 8.0f, kRowH,
-                                            selected, 8,
+                ctx, mk(pop.ent(), rowKey++),
+                hanabi::surface::option_row(kPopW - 8.0f, kRowH, st, 8,
                                             theme::panel_bg_2())
-                    .with_margin(Margin{.left = pixels(4.0f),
-                                        .right = pixels(4.0f)})
-                    .with_label(std::string(model.name))
+                    .with_margin(Margin{.left = pixels(4.0f), .right = pixels(4.0f)})
+                    .with_label(label)
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
-                    .with_on_draw_fg([selected](RectangleType r) {
+                    .with_on_draw_fg([current, canChange](RectangleType r) {
                         hanabi::glyph::radio(
-                            RectangleType{r.x + 9.0f, r.y, 12.0f, r.height},
-                            selected,
-                            selected ? theme::accent() : theme::text_faint());
+                            RectangleType{r.x + 9.0f, r.y, 12.0f, r.height}, current,
+                            current ? theme::accent()
+                                    : (canChange ? theme::text_secondary()
+                                                 : theme::text_faint()));
                     })
-                    .with_debug_name("model_row_" + std::to_string(i)));
+                    .with_debug_name(name));
             row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
                 Vector2Type{28.0f, 0.0f});
             row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
-            hanabi::ui::act_on_press(row, [&app, id = std::string(model.id)] {
-                Settings::get().set_default_model(id);
-                app.modelPopoverOpen = false;
-            });
-        }
-    }
+            hanabi::a11y::set_name(row.ent(), label + (current ? ", selected" : "") +
+                                                  (st.disabled ? ", unavailable" : ""));
+            const int paneAt = pane_index(app, ownPane);
+            hanabi::ui::act_on_press(
+                row, [&app, canChange, current, sessionId, paneAt, patch] {
+                    if (!canChange || current || sessionId.empty()) return;
+                    app.requestSessionOptions =
+                        AppComponent::SessionOptionsAsk{sessionId, paneAt, patch};
+                    app.modelPopoverOpen = false;
+                });
+        };
 
-    // Persistent composer pinned to the bottom of the transcript pane. A real,
-    // functional afterhours text_input + a Send affordance.
-    //
-    // WIRING (Phase SEND): the api::Client interface now exposes
-    // send_message(session_id, prompt) + supports_send(). When the backend
-    // supports replies (the mock DOES; a chat-path-configured http backend
-    // does), the Send button is ENABLED whenever the draft is non-empty: on
-    // click it sets app.requestSendPrompt (serviced by LoaderSystem, which runs
-    // send_message async and appends the user prompt + assistant reply to
-    // app.pane().openSession->messages) and clears the local draft. When the backend
-    // can't reply (an unconfigured http backend), the button stays disabled-
-    // styled with an honest caption instead of faking it.
-    // The effort picker: a popover over the composer strip with the server's
-    // own ladder (src/ui/effort_menu.h), the current level marked. Choosing
-    // writes the local preference and closes — there is no request in flight,
-    // so there is no spinner and no "patching…" state to show. A slider was
-    // the sketch; five discrete named levels are not a continuum, and a row
-    // per level says what each one means where a notch cannot.
-    void render_effort_popover(UIContext<InputAction>& ctx, Entity& parent,
-                               AppComponent& app, Entity& anchorEnt,
-                               const std::string& currentEffort) {
-        if (!app.effortPopoverOpen && !effortPopoverWasOpen_) return;
-        auto popRoot = mk(parent, 3300);
-        RectangleType anchor =
-            anchorEnt.get<afterhours::ui::UIComponent>().rect();
-        anchor.y -= 24.0f;
-        if (!app.effortPopoverOpen) {
-            afterhours::ui::imm::popover(
-                ctx, popRoot, anchor, app.effortPopoverOpen,
-                afterhours::ui::overlay::Placement::Above);
-            effortPopoverWasOpen_ = false;
-            return;
+        // ── Model ──
+        const bool modelPinned = tuning && tuning->model_pinned;
+        line("", theme::text_faint(), 4.0f, "model_popover_gap_a", theme::type::SM);
+        for (const auto* m : modelRows) {
+            const bool current = modelPinned && tuning->requested == m->id;
+            choice(std::string(m->name), current, "model_row_" + std::string(m->id),
+                   api::SessionOptionsPatch::set_model(std::string(m->id)));
         }
-        effortPopoverWasOpen_ = true;
-        constexpr float kRowH = 34.0f;
-        constexpr float kPopW = 286.0f;
-        constexpr float kHeadH = 44.0f;
-        const auto& levels = hanabi::effort::all();
-        const float popH = kHeadH +
-                           kRowH * static_cast<float>(levels.size()) + 8.0f;
-        const auto previousSurface = ctx.theme.surface;
-        ctx.theme.surface = theme::panel_bg_2();
-        auto pop = afterhours::ui::imm::popover(
-            ctx, popRoot, anchor, app.effortPopoverOpen,
-            afterhours::ui::overlay::Placement::Above,
-            hanabi::surface::menu(kPopW, popH, 7)
-                .with_debug_name("effort_popover"));
-        ctx.theme.surface = previousSurface;
-        if (!pop) return;
-        publish_popover_occluder(pop.ent());
-        div(ctx, mk(pop.ent(), 900),
-            ComponentConfig{}
-                .with_label("Thinking effort")
-                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(22)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::BODY)
-                .with_alignment(TextAlignment::Left)
-                .with_margin(Margin{.left = pixels(8)})
-                .with_debug_name("effort_popover_title"));
-        div(ctx, mk(pop.ent(), 901),
-            ComponentConfig{}
-                .with_label("Default for new tasks")
-                .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(18)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_margin(Margin{.left = pixels(8)})
-                .with_debug_name("effort_popover_subtitle"));
-        for (size_t i = 0; i < levels.size(); ++i) {
-            const auto& level = levels[i];
-            const bool selected = level.id == currentEffort;
-            auto row = button(
-                ctx, mk(pop.ent(), static_cast<int>(i)),
-                hanabi::surface::option_row(kPopW - 8.0f, kRowH,
-                                            selected, 8,
-                                            theme::panel_bg_2())
-                    .with_margin(Margin{.left = pixels(4.0f),
-                                        .right = pixels(4.0f)})
-                    .with_label(std::string(level.name) + "   \xc2\xb7   " +
-                                std::string(level.note))
-                    .with_font_size(theme::type::SM)
+        {
+            const std::string resolved =
+                tuning && !tuning->harness_default.empty()
+                    ? hanabi::models::display_name(tuning->harness_default)
+                    : std::string();
+            choice(resolved.empty() ? "default" : "default  " + resolved,
+                   tuning && !modelPinned, "model_row_default",
+                   api::SessionOptionsPatch::unset_model());
+        }
+
+        // ── Effort ──
+        const std::string effortNow = tuning ? tuning->requested_effort : std::string();
+        int filled = 0;
+        for (std::size_t i = 0; i < levels.size(); ++i)
+            if (levels[i].id == effortNow) filled = static_cast<int>(i) + 1;
+        {
+            const int total = static_cast<int>(levels.size());
+            div(ctx, mk(pop.ent(), key++),
+                ComponentConfig{}
+                    .with_label("Effort")
+                    .with_size(ComponentSize{pixels(kPopW - 8.0f), pixels(kSectionH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::BODY)
                     .with_alignment(TextAlignment::Left)
-                    .with_on_draw_fg([selected](RectangleType r) {
-                        hanabi::glyph::radio(
-                            RectangleType{r.x + 9.0f, r.y, 12.0f, r.height},
-                            selected,
-                            selected ? theme::accent()
-                                     : theme::text_faint());
+                    .with_margin(Margin{.left = pixels(8)})
+                    .with_on_draw_fg([filled, total](RectangleType r) {
+                        // The meter: `total` cells at the right edge, the
+                        // first `filled` lit. No pin = nothing lit.
+                        const float cellW = 10.0f, gap = 3.0f, cellH = 8.0f;
+                        const float x0 = r.x + r.width - 8.0f -
+                                         static_cast<float>(total) * (cellW + gap);
+                        const float y = r.y + (r.height - cellH) * 0.5f;
+                        for (int i = 0; i < total; ++i) {
+                            afterhours::draw_rectangle(
+                                RectangleType{x0 + static_cast<float>(i) * (cellW + gap), y,
+                                              cellW, cellH},
+                                i < filled ? theme::accent() : theme::border());
+                        }
                     })
-                    .with_debug_name("effort_row_" + std::to_string(i)));
-            row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
-                Vector2Type{28.0f, 0.0f});
-            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
-            // In the listener, not on `if (row)`: src/ui/act_on_press.h.
-            hanabi::ui::act_on_press(row, [&app, id = std::string(level.id)] {
-                Settings::get().set_default_effort(id);
-                app.effortPopoverOpen = false;
-            });
+                    .with_debug_name("effort_section"));
         }
+        for (const auto& l : levels) {
+            const bool current = effortNow == l.id;
+            choice(std::string(l.name), current, "effort_row_" + std::string(l.id),
+                   api::SessionOptionsPatch::set_effort(std::string(l.id)));
+        }
+        choice("default", tuning && effortNow.empty(), "effort_row_default",
+               api::SessionOptionsPatch::unset_effort());
+
+        // ── Footnote ──
+        if (inFlight)
+            line("Waiting for the server to confirm.", theme::text_faint(), kLineH,
+                 "model_popover_footnote", theme::type::SM);
+        else if (refused)
+            line("Refused: " + app.tuningOutcomeText, theme::status_review(), kLineH,
+                 "model_popover_footnote", theme::type::SM);
+        else if (unconfirmed)
+            line("Sent, but not confirmed: " + app.tuningOutcomeText, theme::status_review(),
+                 kLineH, "model_popover_footnote", theme::type::SM);
     }
 
-    // ---- Composer attachments (pasted images / dropped files) -------------
-    // Height of the chips block, and the ONE place the number comes from: the
-    // strip's total height is reserved a full system earlier (layout->
-    // composerHeight, set in for_each_with), so a block that measured itself
-    // differently from what it draws would leave the input hanging off the
-    // bottom of the strip.
     static model::PaneState& staged_state(const api::OutgoingTarget& target) {
         return model::pane_states().touch(
             model::pane_key(target.pane_index, target.draft_key));
@@ -6845,7 +6867,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     remember_composer_snapshot(submitted.message);
                     consume_composer_snapshot(submitted.message);
                     if (target.session_id.empty())
-                        app.requestKickoff = std::move(submitted.message);
+                        app.request_kickoff(std::move(submitted.message));
                     else if (canStream)
                         app.requestStream = std::move(submitted.message);
                     else
@@ -7112,12 +7134,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 render_node_popover(ctx, parent, app, nodeChip.ent(), stripSession);
         }
         {
-            const std::string currentModel = Settings::get().get_default_model();
+            // ONE chip, the reference's: the session's model, with its effort
+            // pin in parentheses when it has one (ChipSegments: name + effort).
+            // No session yet (kickoff): the Settings default for new tasks is
+            // what the next conversation will start with, so that is the name
+            // shown -- the panel then says the rows cannot act until the
+            // conversation exists.
             const api::Session::ServingModel* serving =
                 ownPane.openSession ? &ownPane.openSession->model : nullptr;
             const bool servingKnown = serving && !serving->serving.empty();
             std::string modelText = hanabi::models::display_name(
-                servingKnown ? serving->serving : currentModel);
+                servingKnown ? serving->serving
+                             : (serving && !serving->requested.empty()
+                                    ? serving->requested
+                                    : Settings::get().get_default_model()));
+            if (serving && !serving->requested_effort.empty())
+                modelText += " (" + hanabi::effort::display_name(serving->requested_effort) + ")";
             const bool fellBack = servingKnown && serving->fallback;
             if (fellBack) modelText += " (fell back)";
             auto modelChip = button(ctx, mk(leftMeta.ent(), 1),
@@ -7141,44 +7173,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (app.escape == EscapeIntent::CloseModelPicker)
                 app.modelPopoverOpen = false;
             if (ownsPopovers)
-                render_model_popover(ctx, parent, app, modelChip.ent(), currentModel);
-
-            // The effort, parenthesised directly onto the model the way Puffin
-            // renders it — its `ModelChipLabel` is one `HStack(spacing: 0)` of
-            // `Text(name)` then `Text(" (\(effort))").opacity(0.7)`, which is why
-            // the reference reads "Opus 5 (high)" as a single run of words.
-            //
-            // Two widgets rather than one, because hanabi's model and effort are
-            // two SEPARATE pickers where Puffin's are one popover. Butted together
-            // and drawn a shade fainter, they are the same run of text on screen;
-            // each half still opens its own list, and `composer_effort` stays the
-            // name the effort test clicks.
-            const std::string currentEffort = Settings::get().get_default_effort();
-            const std::string effortText =
-                "(" + hanabi::effort::display_name(currentEffort) + ")";
-            auto effortChip = button(ctx, mk(leftMeta.ent(), 2),
-                ComponentConfig{}
-                    .with_label(effortText)
-                    .with_size(ComponentSize{
-                        pixels(run_box(effortText, kLabelInset)),
-                        pixels(hanabi::control::kMinHitTarget)})
-                    .with_transparent_bg()
-                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
-                    .with_custom_text_color(theme::text_secondary())
-                    .with_font_size(theme::type::SM)
-                    .with_cursor(afterhours::ui::CursorType::Pointer)
-                    .with_alignment(TextAlignment::Left)
-                    .with_click_activation(ClickActivationMode::Press)
-                    .with_debug_name(cname("composer_effort")));
-            if (effortChip) {
-                app.effortPopoverOpen = !app.effortPopoverOpen;
-                app.composerPopoverPane = paneIndex;
-            }
-            if (app.escape == EscapeIntent::CloseEffortPicker)
-                app.effortPopoverOpen = false;
-            if (ownsPopovers)
-                render_effort_popover(ctx, parent, app, effortChip.ent(),
-                                  currentEffort);
+                render_model_popover(ctx, parent, app, modelChip.ent(), ownPane);
         }
 
         const bool uploadCancelable =
@@ -8230,16 +8225,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 set_target_field(target, typed);
                 return;
             }
-            if (cmd->name == "model") {
+            // /model and /effort open the ONE panel (the reference's: effort
+            // is a section of the model panel), owned by the pane that typed.
+            if (cmd->name == "model" || cmd->name == "effort") {
                 app.modelPopoverOpen = true;
-                app.effortPopoverOpen = false;
-                app.slashNotice.clear();
-                set_target_field(target, "");
-                return;
-            }
-            if (cmd->name == "effort") {
-                app.effortPopoverOpen = true;
-                app.modelPopoverOpen = false;
+                app.composerPopoverPane = target.pane_index;
                 app.slashNotice.clear();
                 set_target_field(target, "");
                 return;
@@ -8581,7 +8571,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 remember_composer_snapshot(message);
                 consume_composer_snapshot(message);
                 if (targetKickoff)
-                    app.requestKickoff = std::move(message);
+                    app.request_kickoff(std::move(message));
                 else if (canStream)
                     app.requestStream = std::move(message);
                 else

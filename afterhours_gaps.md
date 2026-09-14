@@ -13215,7 +13215,7 @@ This is visible in Hanabi's model and effort pickers: the selection radio occupi
 
 ## Hanabi workaround
 
-`src/ecs/main_pane_system.h::render_model_popover` and `render_effort_popover` compensate the immediate renderer with `HasLabel::text_x_offset` after `button()` has applied its variant. `tests/ui/composer_model_picker.e2e` and `composer_effort_picker.e2e` exercise the rows; screenshot baselines `18j` through `18m` preserve the result.
+`src/ecs/main_pane_system.h::render_model_popover` and `render_effort_popover` compensate the immediate renderer with `HasLabel::text_x_offset` after `button()` has applied its variant. `tests/ui/composer_model_picker.e2e` exercises the rows (the effort rows live in the same panel since the combined model panel; its own script retired); screenshot baselines `18j` and `18k` preserve the result.
 
 ## Minimal upstream fix
 
@@ -13909,7 +13909,7 @@ frame N+2: open=0, panel not rendered.
 
 Frame log: hanabi `.ab/popover-diag.d90db15.log` from `HANABI_POPOVER_DIAG=1`
 (read-only prints in `render_effort_popover`, `src/ecs/main_pane_system.h`),
-script `tests/ui/composer_effort_picker.e2e` (`click_ui effort_row_3`).
+script `tests/ui/composer_slash_commands.e2e` (`click_ui effort_row_low` in the combined model panel).
 
 **At 1ac6db2** the same popover built the panel, ran the body, and only THEN set
 `open = false` when `!detail::focus_within(ctx, panel)` (`menu.h@1ac6db2:335-340`):
@@ -13942,7 +13942,7 @@ value. Correct under both pins.
 row's `HasClickListener::cb` to the selection lambda on every build.
 `src/ecs/main_pane_system.h` (`hanabi::ui::act_on_press(row`) — the four popover
 row families (effort, model, tool fold, node) act there; their `if (row)` paths
-are gone. Tests: `tests/ui/composer_effort_picker.e2e`,
+are gone. Tests: `tests/ui/composer_model_picker.e2e` (effort rows now in the same panel),
 `tests/ui/composer_slash_commands.e2e`, `tests/ui/tool_fold_modes.e2e`,
 `tests/ui/a_node_is_picked_before_the_thread_exists.e2e` (all four failed at
 d90db15 before the change, pass after).
@@ -13997,6 +13997,33 @@ callers can attach accessibility to the thing that is pressed.
 to the new value the same frame, and the next press changes the value
 exactly once. `a11y::set_name` on the returned entity reaches the pressable
 element.
+
+---
+
+### #600 — `imm::popover` drops the caller's debug name: the panel is always "popover_panel"
+
+**Class:** library API shape (`plugins/ui/menu.h` popover, both 1ac6db2 and
+d90db15). `popover(ctx, ep, anchor, open, placement, config)` builds its
+root and panel with `ComponentConfig::inherit_from(config, "popover_root")`
+/ `inherit_from(config, "popover_panel")`, and `inherit_from` REPLACES the
+debug name with its second argument. Whatever the caller named the popover
+(`.with_debug_name("model_popover")`) reaches no entity.
+
+**Cost.** Every popover in the app is "popover_panel" to a script, a focus
+dump and the accessibility tree; a test cannot ask "is THE model panel up"
+by the name the code gave it, and two popovers are indistinguishable.
+
+**Workaround (hanabi).** Presence is asserted on a child the caller DOES
+name (the panel's title row, `model_popover_title`); interaction is
+asserted through the rows (`model_row_<id>`, `effort_row_<level>`) and the
+backend receipt (`expect_backend_tuning`), never through the title alone.
+
+**Minimal upstream fix.** Keep the caller's debug name on the panel when
+one was given (`config.debug_name.empty() ? "popover_panel" :
+config.debug_name`), or expose the panel entity so the caller can name it.
+
+**Acceptance.** `popover(..., cfg.with_debug_name("x"))` yields an entity
+named "x" that `assert_ui x` finds.
 
 ---
 

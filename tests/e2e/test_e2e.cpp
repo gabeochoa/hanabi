@@ -1829,9 +1829,52 @@ static void test_session_overlays_reach_both_panes() {
     }
 }
 
+// spec 115: a change is bound to the SESSION it was asked for. Its echo
+// landing after the person has moved on -- pane refocused, the tab shown
+// elsewhere, or closed -- updates that session where it is still open and
+// touches no other pane's session.
+static void test_session_tuning_echo_binds_to_its_session_not_the_pane() {
+    std::printf("test_session_tuning_echo_binds_to_its_session_not_the_pane\n");
+    auto& app = setup_app_with_sessions();
+    api::MockClient mock;
+    app.splitOpen = true;
+    app.panes[0].openSession = mock.get_session("t2").value;
+    app.panes[1].openSession = mock.get_session("t9").value;
+    app.focusedPane = 0;
+    api::SessionOptionsEcho echo;
+    echo.model = "claude-sonnet-5";
+    echo.effort = "xhigh";
+
+    // The ask was pressed for t2 in pane 0; by the time the echo lands the
+    // focus is on pane 1. Only t2 changes.
+    app.focusedPane = 1;
+    CHECK(app.apply_session_tuning("t2", echo) == 1);
+    CHECK(app.panes[0].openSession->model.model_pinned);
+    CHECK(app.panes[0].openSession->model.requested == "claude-sonnet-5");
+    CHECK(app.panes[0].openSession->model.requested_effort == "xhigh");
+    CHECK(!app.panes[1].openSession->model.model_pinned);
+    CHECK(app.panes[1].openSession->model.requested_effort.empty());
+
+    // The pane has since switched to another thread: the late echo for t2
+    // finds no pane showing it and changes nothing -- not the pane's new
+    // session, not the other pane.
+    app.panes[0].openSession = mock.get_session("t4").value;
+    CHECK(app.apply_session_tuning("t2", echo) == 0);
+    CHECK(!app.panes[0].openSession->model.model_pinned);
+    CHECK(!app.panes[1].openSession->model.model_pinned);
+
+    // Both panes on the same session: both take it.
+    app.panes[1].openSession = mock.get_session("t4").value;
+    api::SessionOptionsEcho unset;  // merged layer with nothing pinned
+    CHECK(app.apply_session_tuning("t4", unset) == 2);
+    CHECK(app.panes[0].openSession->model.requested ==
+          app.panes[0].openSession->model.harness_default);
+}
+
 int main() {
     std::printf("=== test_e2e ===\n");
     test_list_loads_sorted_and_has_samples();
+    test_session_tuning_echo_binds_to_its_session_not_the_pane();
     test_state_model_and_glyphs();
     test_status_glyph_is_one_vocabulary();
     test_brake_refuses_only_what_it_must();

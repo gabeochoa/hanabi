@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <functional>
 #include <condition_variable>
 #include <ctime>
 #include <limits>
@@ -636,7 +637,8 @@ Result<CreateOutcome> AgentcloudClient::create_with_message(
     if (title.size() > 120) title.resize(120);
     std::string error;
     const std::string reply = round_trip(
-        agentcloud::create_command_json(title, message.node_id), "created",
+        agentcloud::create_command_json(title, message.node_id, message.launch),
+        "created",
         &error, kForkTimeoutSecs);
     if (reply.empty()) return Result<CreateOutcome>::failure(error);
     CreateOutcome outcome;
@@ -849,10 +851,16 @@ std::string llm_model_of(const json& options) {
     return str_or(obj_at(options, "llm"), "model", "");
 }
 
+std::string llm_effort_of(const json& options) {
+    return str_or(obj_at(options, "llm"), "effort", "");
+}
+
 void apply_serving_model_from_state(const json& state, Session& out) {
     Session::ServingModel m;
     m.harness_default = llm_model_of(obj_at(state, "option_defaults"));
     m.requested = llm_model_of(obj_at(state, "options"));
+    m.model_pinned = !m.requested.empty();
+    m.requested_effort = llm_effort_of(obj_at(state, "options"));
     if (m.requested.empty()) m.requested = m.harness_default;
     const json& fb = obj_at(state, "model_fallback");
     const std::string to = str_or(fb, "to", "");
@@ -904,11 +912,20 @@ void parse_attached_nodes(const std::string& hello_json, Session& out) {
 }
 
 std::string create_command_json(const std::string& title,
-                                const std::string& node_id) {
+                                const std::string& node_id,
+                                const LaunchTuning& launch) {
     json command = {{"cmd", "create"}};
     if (!title.empty()) command["title"] = title;
     if (!node_id.empty())
         command["node"] = {{"existing", {{"node_id", node_id}}}};
+    // `options.llm` is the create seam's own launch-tuning field (additive,
+    // skip-if-empty: an untuned create carries no `options`). An empty knob
+    // is OMITTED, never sent as "" or null -- absent means "the outer layers
+    // (the user's server-side preference, the harness default) apply".
+    json llm = json::object();
+    if (!launch.model.empty()) llm["model"] = launch.model;
+    if (!launch.effort.empty()) llm["effort"] = launch.effort;
+    if (!llm.empty()) command["options"] = {{"llm", llm}};
     return command.dump();
 }
 
@@ -2167,6 +2184,173 @@ Result<std::string> AgentcloudClient::rename_session(
         if (agentcloud::fold_session_renamed(msg.dump(), echoed))
             return Result<std::string>::success(echoed.title);
     }
+}
+
+namespace agentcloud {
+// The wire shape of a patch (spec 115, RFC 7386 per knob): a knob the caller
+// did not touch is ABSENT; a knob to unset is `null`; a value sets it.
+json session_options_patch_json(const SessionOptionsPatch& patch) {
+    json llm = json::object();
+    if (patch.model.has_value())
+        llm["model"] = patch.model->has_value() ? json(**patch.model) : json(nullptr);
+    if (patch.effort.has_value())
+        llm["effort"] = patch.effort->has_value() ? json(**patch.effort) : json(nullptr);
+    return json{{"llm", llm}};
+}
+
+// The echo: `options_changed` carries the session layer's COMPLETE merged
+// options; the fold replaces what it holds. Untouched knobs come back as
+// they were, so nothing here reads the patch.
+bool fold_options_changed(const std::string& msg_json, SessionOptionsEcho& out) {
+    json root = json::parse(msg_json, nullptr, false);
+    if (root.is_discarded() || !root.is_object()) return false;
+    const json& e = obj_at(root, "event");
+    if (str_or(e, "type", "") != "options_changed") return false;
+    const json& options = obj_at(e, "options");
+    out.model = llm_model_of(options);
+    out.effort = llm_effort_of(options);
+    return true;
+}
+
+// Does the merged layer the server echoed SATISFY what we asked? Per touched
+// knob: set -> the echo carries that value; unset -> the echo carries no pin.
+// Untouched knobs are not read. This is the postcondition the caller wanted,
+// checked on the authoritative echo -- not an inference from ordering.
+bool echo_satisfies_patch(const SessionOptionsPatch& patch, const SessionOptionsEcho& echo) {
+    if (patch.model.has_value()) {
+        const std::string want = patch.model->has_value() ? **patch.model : std::string();
+        if (echo.model != want) return false;
+    }
+    if (patch.effort.has_value()) {
+        const std::string want = patch.effort->has_value() ? **patch.effort : std::string();
+        if (echo.effort != want) return false;
+    }
+    return true;
+}
+
+// One message off the socket after our send, classified against OUR ask.
+// The protocol carries no request id; two gates decide, the same two the
+// platform's own client applies (agentcloud ctl, spec 115 FR5): (1) the
+// BOUNDARY -- the hello names the journal seq the attach snapshot stands at,
+// and only a DURABLE frame with seq > boundary is a change that happened
+// after it; anything at or below is replay of history the snapshot already
+// folded, whatever it says; (2) the POSTCONDITION -- the merged layer must
+// reflect every knob the patch touched (set == value, unset == no pin;
+// untouched knobs unconstrained), so a concurrent different change after the
+// boundary is skipped too. A typed `error` on this connection answers the
+// one command it has outstanding: refused. Everything else is ignored.
+PatchSettle settle_options_patch(const std::string& msg_json, int64_t boundary,
+                                 const SessionOptionsPatch& patch,
+                                 SessionOptionsEcho& echo, std::string& refusal) {
+    json root = json::parse(msg_json, nullptr, false);
+    if (root.is_discarded() || !root.is_object()) return PatchSettle::Ignore;
+    const std::string type = str_or(root, "type", "");
+    if (type == "error") {
+        refusal = str_or(root, "message", "change refused");
+        return PatchSettle::Refused;
+    }
+    if (type != "frame") return PatchSettle::Ignore;
+    if (str_or(root, "frame", "") != "durable") return PatchSettle::Ignore;
+    if (int_or(root, "seq", 0) <= boundary) return PatchSettle::Ignore;
+    if (!fold_options_changed(msg_json, echo)) return PatchSettle::Ignore;
+    return echo_satisfies_patch(patch, echo) ? PatchSettle::Settled : PatchSettle::Ignore;
+}
+
+// The production wait, over any message source: the hello has been read
+// (its boundary is `boundary`) and the patch has been sent; read until the
+// echo settles, the server refuses, or the source runs dry. A dry source is
+// NOT a refusal: the outcome is unknown ("sent, not confirmed") and the
+// caller must say so rather than retry blind.
+Result<SessionOptionsEcho> await_options_patch(
+    const std::function<nlohmann::json(std::chrono::steady_clock::time_point)>& next,
+    std::chrono::steady_clock::time_point deadline, int64_t boundary,
+    const SessionOptionsPatch& patch, const std::function<std::string()>& dry_note) {
+    for (;;) {
+        const json msg = next(deadline);
+        if (msg.is_discarded())
+            return Result<SessionOptionsEcho>::failure(dry_note());
+        SessionOptionsEcho echo;
+        std::string refusal;
+        switch (settle_options_patch(msg.dump(), boundary, patch, echo, refusal)) {
+            case PatchSettle::Settled:
+                return Result<SessionOptionsEcho>::success(echo);
+            case PatchSettle::Refused:
+                return Result<SessionOptionsEcho>::refusal(refusal);
+            case PatchSettle::Ignore:
+                break;
+        }
+    }
+}
+}  // namespace agentcloud
+
+Result<SessionOptionsEcho> AgentcloudClient::patch_session_options(
+    const std::string& session_id, const SessionOptionsPatch& patch) {
+    const auto fail = [](const std::string& why) {
+        return Result<SessionOptionsEcho>::failure(why);
+    };
+    if (patch.empty()) return Result<SessionOptionsEcho>::refusal("nothing to change");
+
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded()) {
+        auth_.invalidate();
+        return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    }
+    if (str_or(hello, "type", "") == "error") {
+        auth_.invalidate();
+        return fail("attach refused: " +
+                    str_or(hello, "message", "(no message)"));
+    }
+
+    // The hello's boundary: the journal seq the attach snapshot stands at.
+    // Only a durable frame beyond it is a change that happened after.
+    const int64_t boundary = int_or(hello, "boundary", 0);
+
+    const json env = {{"sub", 1},
+                      {"payload",
+                       {{"cmd", "patch_session_options"},
+                        {"patch", agentcloud::session_options_patch_json(patch)}}}};
+    const std::string wire = env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size()))
+        return fail("socket closed before the change was sent");
+
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(kReplyTimeoutSecs);
+    return agentcloud::await_options_patch(
+        [&q](std::chrono::steady_clock::time_point d) { return q.wait_for_next(d); },
+        deadline, boundary, patch, [&q, &session_id] {
+            return q.closed_note("no confirmation for " + session_id +
+                                 " (sent, not confirmed)");
+        });
 }
 
 // The bare interrupt: attach, send `{"cmd":"interrupt"}`, done. No text, no

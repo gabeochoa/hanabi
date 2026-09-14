@@ -193,10 +193,24 @@ struct OutgoingTarget {
     bool operator==(const OutgoingTarget&) const = default;
 };
 
+// The launch tuning a NEW session is created with (agentcloud `create`'s
+// `options.llm`): the person's stored defaults for new conversations, read
+// ONCE at the moment the kickoff is requested and carried on the request --
+// the worker never reads mutable Settings. "" = no pin for that knob; a
+// create with neither carries no `options` at all. Only a create reads it: a
+// message to an existing session leaves the session's own tuning alone.
+struct LaunchTuning {
+    std::string model;
+    std::string effort;
+    [[nodiscard]] bool empty() const { return model.empty() && effort.empty(); }
+    bool operator==(const LaunchTuning&) const = default;
+};
+
 struct OutgoingMessage {
     std::string local_id;
     std::string text;
     std::vector<Attachment> attachments;
+    LaunchTuning launch;  // meaningful for a kickoff (create) only
     // The worker node a NEW thread should be born with. Read only by the
     // create path; a reply to an existing thread ignores it.
     std::string node_id;
@@ -599,6 +613,46 @@ struct AskAnswer {
 };
 
 // A full session: summary + ordered transcript.
+// A mid-session tuning change (agentcloud spec 115, `patch_session_options`):
+// RFC 7386 per knob -- an unset outer optional leaves the knob untouched, an
+// inner nullopt sends `null` (unset the session's pin, the outer layers apply
+// again), a value sets it. v1 carries the `llm` concern: model and effort.
+struct SessionOptionsPatch {
+    std::optional<std::optional<std::string>> model;
+    std::optional<std::optional<std::string>> effort;
+    [[nodiscard]] bool empty() const {
+        return !model.has_value() && !effort.has_value();
+    }
+    static SessionOptionsPatch set_model(std::string id) {
+        SessionOptionsPatch p;
+        p.model = std::optional<std::string>{std::move(id)};
+        return p;
+    }
+    static SessionOptionsPatch unset_model() {
+        SessionOptionsPatch p;
+        p.model = std::optional<std::string>{};
+        return p;
+    }
+    static SessionOptionsPatch set_effort(std::string token) {
+        SessionOptionsPatch p;
+        p.effort = std::optional<std::string>{std::move(token)};
+        return p;
+    }
+    static SessionOptionsPatch unset_effort() {
+        SessionOptionsPatch p;
+        p.effort = std::optional<std::string>{};
+        return p;
+    }
+    bool operator==(const SessionOptionsPatch&) const = default;
+};
+
+// What the server echoed after a patch: the session layer's COMPLETE merged
+// llm tuning (not the delta), so the caller replaces what it holds.
+struct SessionOptionsEcho {
+    std::string model;   // "" = no model pin
+    std::string effort;  // "" = no effort pin
+};
+
 struct Session {
     SessionSummary summary;
     std::vector<Message> messages;
@@ -630,6 +684,14 @@ struct Session {
         std::string requested;
         std::string serving;
         bool fallback = false;
+        // The session's own effort pin (state.options.llm.effort, and the
+        // merged options on every `options_changed`); "" = no pin, the
+        // model's own default runs.
+        std::string requested_effort;
+        // Whether the session layer pins a model at all: `requested` copies
+        // the harness default when it does not, so this is the fact a
+        // "default" row needs.
+        bool model_pinned = false;
     };
     ServingModel model;
 

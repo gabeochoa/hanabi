@@ -17,14 +17,15 @@
 // them. When hanabi learns the `models` verb, this becomes the fallback for a
 // server that answers nothing.
 //
-// WHAT PICKING ONE DOES. It writes the SAME preference the settings sheet's
-// "Default model" row writes — `Settings::set_default_model`, pushed to the
-// backend as `defaultModelId` by the loader's debounced settings sync. There
-// is no per-session model verb in this client: `PatchSessionOptions`
-// (agentcloud spec 115) is real on the wire but hanabi's api::Client has no
-// call for it, and inventing one here would be inventing a wire call. So the
-// picker sets the default for the work you start next, which is a true thing
-// it can do, rather than pretending to retune the running session.
+// WHAT PICKING ONE DOES. The settings sheet's "Default model" row writes
+// `Settings::set_default_model`: the LAUNCH default, stamped on a new
+// session's kickoff request by AppComponent::request_kickoff and carried by
+// the create command as `options.llm.model` ("default" = no pin, omitted).
+// An existing session's model is changed through the composer's model panel
+// (`patch_session_options`, spec 115), never by this default. The default is
+// not pushed as a user preference: agentcloud's preferences are a WWW GraphQL
+// mutation (snake_case `default_model`); the legacy camelCase
+// `update_settings` body is another backend's contract.
 // ---------------------------------------------------------------------------
 
 #include <cstddef>

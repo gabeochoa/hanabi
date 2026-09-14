@@ -402,8 +402,6 @@ capture 18h_search_empty_dark "$NOTABS_DARK" HANABI_XSEARCH_DEMO=zzzz-no-match
 capture 18i_search_empty_light "$NOTABS_LIGHT" HANABI_XSEARCH_DEMO=zzzz-no-match
 capture 18j_model_picker_dark "$TABS_DARK" HANABI_TEST_OVERLAY=model
 capture 18k_model_picker_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=model
-capture 18l_effort_picker_dark "$TABS_DARK" HANABI_TEST_OVERLAY=effort
-capture 18m_effort_picker_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=effort
 capture 18n_slash_menu_dark "$TABS_DARK" HANABI_TEST_OVERLAY=slash
 capture 18o_slash_menu_light "$TABS_LIGHT" HANABI_TEST_OVERLAY=slash
 capture 18p_context_menu_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu
@@ -419,7 +417,6 @@ capture 18ab_menu_pressed_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=row-menu HAN
 capture 18ac_menu_disabled_dark "$NOTABS_DARK" HANABI_TEST_OVERLAY=row-menu HANABI_MOCK_NO_RENAME=1 HANABI_MOCK_NO_FORK=1
 capture 18ad_menu_disabled_light "$NOTABS_LIGHT" HANABI_TEST_OVERLAY=row-menu HANABI_MOCK_NO_RENAME=1 HANABI_MOCK_NO_FORK=1
 capture_sized 18ak_model_picker_narrow_dark "760 x 620" "$NARROW_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=model
-capture_sized 18al_effort_picker_narrow_dark "760 x 620" "$NARROW_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=effort
 capture_sized 18am_slash_menu_narrow_dark "760 x 620" "$NARROW_DARK" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_TEST_OVERLAY=slash
 capture_sized 18an_model_picker_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=r8 HANABI_SPLIT=t2 HANABI_TEST_OVERLAY=model
 capture_sized 18ao_slash_menu_split_dark "760 x 620" "$NARROW_SPLIT" HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_OPEN=r8 HANABI_SPLIT=t2 HANABI_TEST_OVERLAY=slash

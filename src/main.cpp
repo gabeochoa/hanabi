@@ -1358,7 +1358,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "palette") app->paletteOpen = true;
         else if (os == "search") app->sessionSearchOpen = true;
         else if (os == "model") app->modelPopoverOpen = true;
-        else if (os == "effort") app->effortPopoverOpen = true;
+        else if (os == "effort") app->modelPopoverOpen = true;  // one panel now
         else if (os == "plan") app->planPopoverOpen = true;
         else if (os == "nodes") app->nodePopoverOpen = true;
         else if (os == "slash") {
@@ -1504,8 +1504,10 @@ static void apply_test_knobs(ecs::AppComponent* app) {
     if (const char* d = std::getenv("HANABI_KICKOFF_DEMO"); d && *d &&
         std::string(d) != "0") {
         app->view = ecs::SmartView::Home;
-        app->requestKickoff = api::attachments::outgoing(
-            d, {}, api::OutgoingTarget{app->focusedPane, "", "__kickoff__"});
+        // Through the one kickoff door, so the demo's new thread carries the
+        // launch defaults the same way a typed kickoff does.
+        app->request_kickoff(api::attachments::outgoing(
+            d, {}, api::OutgoingTarget{app->focusedPane, "", "__kickoff__"}));
     }
 }
 

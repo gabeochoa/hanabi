@@ -1,0 +1,44 @@
+# In a split, the panel belongs to the pane whose chip opened it, and a
+# click anywhere outside the panel and its chip dismisses it -- the
+# reference's InWindowPanel rule ("a click anywhere else dismisses it"),
+# including a click into the OTHER pane's composer. Nothing is written by
+# the dismissal. Reopened from the left chip after the focus has moved to
+# the right pane, a row still acts on the session the chip belongs to (t2),
+# not on the focused pane's thread (t9).
+#
+# settings: {"window_width":1440,"window_height":900,"open_tabs":["t2","t9"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t9"],"split_focused_pane":0,"theme":"dark"}
+require_thread t2
+require_thread t9
+wait_frames 12
+expect_panes t2 t9 0
+click_ui composer_model
+wait_frames 8
+assert_ui model_popover_title hidden=false
+# A click into the other pane's composer is an outside click: the panel goes,
+# the focus moves, nothing was sent.
+click_ui composer_reply_input_other
+wait_frames 10
+expect_panes t2 t9 1
+expect_no_ui model_popover_title
+expect_backend_tuning t2 - -
+expect_backend_tuning t9 - -
+# A draft in the now-focused right pane, to prove the panel's act leaves it.
+type "right pane draft stays"
+wait_frames 6
+expect_input_text composer_reply_input "right pane draft stays"
+# Focus is on the right pane (t9). Open the LEFT pane's panel from ITS chip
+# -- the non-focused composer's controls carry the _other suffix -- and pick
+# an effort: the ask carries the chip's session, t2, not the focused pane's
+# t9; the backend receipt says so, and the right pane's draft is untouched.
+click_ui composer_model_other
+wait_frames 8
+assert_ui model_popover_title hidden=false
+click_ui effort_row_low
+wait_frames 14
+expect_backend_tuning t2 - low
+expect_backend_tuning t9 - -
+# Pressing the LEFT chip focused the left pane (a click in a pane focuses
+# it); the right pane's draft did not move -- it is the non-focused
+# composer now, so its name carries the suffix.
+expect_panes t2 t9 0
+expect_input_text composer_reply_input_other "right pane draft stays"

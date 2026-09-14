@@ -328,11 +328,15 @@ struct Settings {
     std::size_t last_read_count() const;
 
     // ── Preference slots (settings modal). Each auto-persists (mirrors
-    // set_theme) AND marks the sync-dirty flag so the loader can push the
-    // change to the backend when a write path is configured. These map onto
-    // the web PUT-preferences schema (yapLevel / autoArchiveDays /
-    // notificationSound / memoryBackend / defaultModelId) but persist locally
-    // FIRST — the app is fully usable offline; the server just gets a copy.
+    // set_theme) AND marks the sync-dirty flag. They persist locally FIRST --
+    // the app is fully usable offline. The loader's `update_settings` push
+    // (a camelCase JSON body) goes ONLY to the legacy HTTP backend's
+    // configured `settings_update_path`; it is not a contract of agentcloud,
+    // whose user preferences live behind the WWW GraphQL
+    // `xfb_agentcloud_user_preference_patch` (snake_case default_model /
+    // default_effort) and are not written by this client. The launch
+    // defaults (default model / effort) reach agentcloud through the create
+    // command's own `options.llm` -- see AppComponent::request_kickoff.
 
     // Yap / verbosity level: 0 = No yapping, 1 = A little, 2 = Full. Default 2.
     int get_yap_level() const;

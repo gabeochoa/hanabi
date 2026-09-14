@@ -1,0 +1,17 @@
+# "default" for the model and no stored effort pin: the create carries no
+# `options` and the new session is untuned -- the outer layers (the person's
+# server-side preference, the harness default) apply. The Settings default
+# for effort ships as "high", which IS a pin the person can see in the
+# Settings pane; this fixture clears it to prove the omit path.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","default_model":"default","default_effort":""}
+# env: HANABI_TEST_OVERLAY=composer
+wait_frames 16
+expect_text "What can I help with?"
+click_ui composer_reply_input
+type "untuned start"
+wait_frames 6
+click_ui composer_send
+wait_frames 60
+require_thread new1
+expect_backend_tuning new1 - -

@@ -68,7 +68,6 @@ enum class EscapeIntent {
     CloseFind,
     CloseSlashMenu,
     CloseModelPicker,
-    CloseEffortPicker,
     ClosePlanPicker,
     CloseFoldPicker,
     CloseNodePicker,
@@ -803,7 +802,25 @@ struct AppComponent : public afterhours::BaseComponent {
     // serviced by LoaderSystem via the same std::async + poll pattern as
     // list/transcript. Set by the composer (kickoff) / transcript composer
     // (reply); cleared on consume.
+    // A kickoff (create) request. Set ONLY through request_kickoff(): that is
+    // the action boundary where the person's stored launch defaults -- the
+    // Settings pane's "default for new tasks" model and effort -- are read
+    // once and stamped on the request, so the worker never reads mutable
+    // Settings and a default changed mid-flight cannot retune a create that
+    // was already asked for. A caller that already chose launch values on the
+    // message (a non-empty knob) keeps them: the default fills only what is
+    // empty. The reference reads its stored launch choice at the same point
+    // (AgentcloudSessionList.createSession -> socket.create(model:effort:)).
     std::optional<api::OutgoingMessage> requestKickoff;
+    void request_kickoff(api::OutgoingMessage message) {
+        const Settings& s = Settings::get();
+        if (message.launch.model.empty()) {
+            const std::string m = s.get_default_model();
+            if (m != "default") message.launch.model = m;
+        }
+        if (message.launch.effort.empty()) message.launch.effort = s.get_default_effort();
+        requestKickoff = std::move(message);
+    }
     std::optional<api::OutgoingMessage> requestSend;
     std::string requestRetrySessionId;
     std::optional<api::OutgoingMessage> requestRetryMessage;
@@ -875,7 +892,6 @@ struct AppComponent : public afterhours::BaseComponent {
     bool modelPopoverOpen = false;
     // The composer strip's effort picker. One flag: the popover is a list of
     // levels and a click, with nothing in flight behind it.
-    bool effortPopoverOpen = false;
     bool planPopoverOpen = false;
     // The composer strip's tool-fold picker (Fold all / Expand all / Auto).
     bool foldPopoverOpen = false;
@@ -1386,6 +1402,41 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string renameInFlightId;
     std::future<api::Result<std::string>> renameFuture;
 
+    // A model / effort change for ONE session (spec 115), captured at the
+    // press: the session id and the pane it was pressed in travel with the
+    // request, so a pane switch or a tab close between press and echo cannot
+    // redirect it, and the outcome lands on the pane it came from. The panel
+    // draws "current" from the session's FOLDED tuning (ServingModel), never
+    // from the click; `tuningInFlight` is the ask the footnote is waiting on,
+    // `tuningOutcome` what the last one came to.
+    struct SessionOptionsAsk {
+        std::string sessionId;
+        int pane = 0;
+        api::SessionOptionsPatch patch;
+    };
+    std::optional<SessionOptionsAsk> requestSessionOptions;  // one-shot
+    std::optional<SessionOptionsAsk> tuningInFlight;
+    std::future<api::Result<api::SessionOptionsEcho>> tuningFuture;
+    // The last change's outcome, for the panel's footnote, typed: Refused is
+    // the server's typed no (nothing journaled; the rows may act again);
+    // Unconfirmed is "sent, no confirmation" -- the outcome is UNKNOWN, so
+    // the rows stay closed for that session until a fresh open of it (a new
+    // attach) re-reads what the server actually holds. Never retried blind.
+    enum class TuningOutcome { None, Refused, Unconfirmed };
+    TuningOutcome tuningOutcome = TuningOutcome::None;
+    std::string tuningOutcomeText;       // the server's words / the dry note
+    std::string tuningOutcomeSessionId;  // whose it is
+    void note_tuning_outcome(TuningOutcome o, std::string text, std::string sid) {
+        tuningOutcome = o;
+        tuningOutcomeText = std::move(text);
+        tuningOutcomeSessionId = std::move(sid);
+    }
+    void clear_tuning_outcome() {
+        tuningOutcome = TuningOutcome::None;
+        tuningOutcomeText.clear();
+        tuningOutcomeSessionId.clear();
+    }
+
     std::string requestForkSourceId;
     std::optional<api::OutgoingMessage> requestForkMessage;
     std::string requestForkTitle;
@@ -1433,6 +1484,26 @@ struct AppComponent : public afterhours::BaseComponent {
             ++subagentCatalogRevision;
             if (subagentCatalogRevision == 0) subagentCatalogRevision = 1;
         }
+    }
+
+    // The echo of a session-options change (the merged layer) REPLACES the
+    // folded tuning of that session wherever it is open. Bound to the
+    // session id the ask carried, never to a pane index: a pane that has
+    // moved on to another thread is left alone, and an echo for a session no
+    // pane shows any more changes nothing. Returns how many panes took it.
+    int apply_session_tuning(const std::string& id, const api::SessionOptionsEcho& echo) {
+        int applied = 0;
+        for (Pane& p : panes) {
+            if (!p.openSession || p.openSession->summary.id != id) continue;
+            auto& m = p.openSession->model;
+            m.model_pinned = !echo.model.empty();
+            m.requested = m.model_pinned ? echo.model : m.harness_default;
+            m.requested_effort = echo.effort;
+            m.serving = m.requested;
+            m.fallback = false;
+            ++applied;
+        }
+        return applied;
     }
 
     void apply_starred(const std::string& id, bool starred) {
@@ -1831,7 +1902,7 @@ inline bool overlay_up(const AppComponent& app) {
 }
 
 inline bool composer_strip_surface_up(const AppComponent& app) {
-    return app.slashMenuOpen || app.modelPopoverOpen || app.effortPopoverOpen ||
+    return app.slashMenuOpen || app.modelPopoverOpen ||
            app.planPopoverOpen || app.foldPopoverOpen || app.nodePopoverOpen;
 }
 

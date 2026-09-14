@@ -55,6 +55,32 @@ Same session / message / stream / event concept-shape, with three adaptations:
 
 All three sit behind the SAME adapter seam — no second bespoke client.
 
+### Session options (spec 115) — wired 2026-09-13
+
+`patch_session_options` rides the session websocket as
+`{"sub":1,"payload":{"cmd":"patch_session_options","patch":{"llm":{...}}}}`,
+RFC 7386 per knob (absent = untouched, `null` = unset, value = set); the
+server journals the merged result and every attached client receives an
+`options_changed` frame whose `options` is the COMPLETE new session layer;
+refusals are a typed `error` frame (empty patch, unknown effort token, a model
+the harness does not serve, a concurrent change that won). `api::Client::
+patch_session_options` implements it over a fresh attach, like `rename`, and
+the composer's model panel is its only caller. The attach snapshot
+(`hello.state.options.llm.{model,effort}`, `option_defaults`) is folded into
+`Session::ServingModel` (`requested`, `model_pinned`, `requested_effort`).
+
+Still open against the reference's panel, because the CONTRACT is not there
+yet (not because a wrapper is missing):
+- **Per-model effort lists** — the reference draws the efforts of the current
+  model (`models.first{key}.efforts`); the OpenAPI spec exposes no per-model
+  effort catalog, so hanabi lists the flat ladder (`hanabi::effort::all`).
+- **Harness section** — the reference lists harnesses and marks the session's
+  as Locked; no harness catalog is served to clients today.
+- **Correlation** — the protocol carries no request id: an `options_changed`
+  settles the oldest outstanding patch (the reference's rule too). hanabi
+  keeps ONE change in flight per session and refuses a second locally until
+  the echo lands, so the rule is never ambiguous here.
+
 ## The two real gaps (present on BOTH backends)
 
 ### Gap 1 — no explicit thread-STATE field

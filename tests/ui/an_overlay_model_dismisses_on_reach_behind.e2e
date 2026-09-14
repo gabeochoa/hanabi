@@ -21,8 +21,9 @@
 
 require_thread t2
 expect_text "The agent is asking"
-expect_text "Default for new tasks"
+assert_ui model_popover_title hidden=false
+expect_text "Effort"
 
 focus_ui ask_option_q1_0
 wait_frames 12
-expect_no_text "Default for new tasks"
+expect_no_ui model_popover_title

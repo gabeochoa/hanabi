@@ -29,11 +29,6 @@ expect_hit_targets
 key ESCAPE
 wait_frames 6
 
-click_ui composer_effort
-wait_frames 10
-expect_hit_targets
-key ESCAPE
-wait_frames 6
 
 click_ui composer_fold
 wait_frames 10

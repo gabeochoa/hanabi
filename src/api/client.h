@@ -624,6 +624,24 @@ class Client {
         if (!message.attachments.empty())
             return Result<CreateOutcome>::failure(
                 "this backend does not support attachments");
+        // The legacy create has no place for launch tuning. A request that
+        // carries some is REFUSED here, before any network, rather than
+        // created untuned as if the person had asked for nothing -- the
+        // same honesty rule as attachments above. A backend that can carry
+        // it overrides this method (the socket client does).
+        // A DEFINITE local rejection -- nothing was attempted, so the
+        // outcome is known, not unknown: the verdict says "nothing was
+        // created, your draft and files are back" and offers a retry,
+        // rather than "we never heard whether it was created".
+        if (!message.launch.empty()) {
+            CreateOutcome refused;
+            refused.created = false;
+            refused.create_failure.kind = SendFailureKind::Rejected;
+            refused.create_failure.message =
+                "This backend cannot start a conversation with a chosen "
+                "model or effort";
+            return Result<CreateOutcome>::success(std::move(refused));
+        }
         Result<std::string> created = create_session(message.text);
         if (!created.ok) return Result<CreateOutcome>::failure(created.error);
         CreateOutcome outcome;
@@ -747,6 +765,23 @@ class Client {
     // Whether this client can rename. Gates the "Rename…" context-menu item, so
     // a backend without the verb never offers an action that cannot work.
     virtual bool supports_rename() const { return false; }
+
+    // Change the SESSION's model / effort mid-session (agentcloud spec 115,
+    // `patch_session_options`). The returned value is what the server echoed
+    // (`options_changed`, the merged tuning), which callers display -- never
+    // the requested value. A failure carries the server's typed refusal:
+    // empty patch, unknown effort token, a model the session's harness does
+    // not serve, or a concurrent change that won (retry against the new
+    // state). Accepted regardless of run state; applies at the session's
+    // next boundary.
+    virtual bool supports_session_options() const { return false; }
+    virtual Result<SessionOptionsEcho> patch_session_options(
+        const std::string& session_id, const SessionOptionsPatch& patch) {
+        (void)session_id;
+        (void)patch;
+        return Result<SessionOptionsEcho>::failure(
+            "this backend cannot change a session's model or effort");
+    }
 
     // Stop the running turn WITHOUT a message -- the composer's Stop button
     // (the reference: session.interrupt(), `{"cmd":"interrupt"}` with no text).

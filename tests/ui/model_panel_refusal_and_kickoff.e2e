@@ -1,0 +1,36 @@
+# The panel tells the truth about what it cannot do. (1) With no conversation
+# yet (Home's kickoff composer) the rows are offered but cannot act, and the
+# restriction line says why -- nothing is written anywhere, not a Settings
+# default either. (2) A change the server refuses leaves the session as it
+# was and the footnote carries the server's words.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=composer HANABI_MOCK_REFUSE_OPTIONS='not served by this harness'
+wait_frames 16
+expect_text "What can I help with?"
+click_ui composer_model
+wait_frames 8
+assert_ui model_popover_title hidden=false
+expect_text "Start the conversation to change its model."
+click_ui model_row_gpt-5.5
+wait_frames 10
+# Still open, nothing asked of anyone.
+assert_ui model_popover_title hidden=false
+expect_mock_outbound_calls 0
+key ESCAPE
+wait_frames 8
+
+# Open a thread; the server (staged) refuses the change.
+click_text "needs a decision before it can go on"
+wait_frames 20
+expect_open t2
+click_ui composer_model
+wait_frames 8
+click_ui model_row_gpt-5.5
+wait_frames 14
+expect_backend_tuning t2 - -
+click_ui composer_model
+wait_frames 8
+expect_text "Refused: not served by this harness"
+key ESCAPE
+wait_frames 8
