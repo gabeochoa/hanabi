@@ -218,7 +218,7 @@ const app_sources = [_][]const u8{
 // Compiled on its own with the commit hash as a define; see build_stamp.h.
 const app_stamp_source = [_][]const u8{"src/build_stamp.cpp"};
 const app_objc_sources = [_][]const u8{
-    "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_extras.mm", "src/pointer_probe.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
+    "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_capture_probe.mm", "src/native_extras.mm", "src/pointer_probe.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
 };
 // ws_socket.mm is the one ObjC++ file compiled under ARC.
 const app_arc_sources = [_][]const u8{"src/ws_socket.mm"};

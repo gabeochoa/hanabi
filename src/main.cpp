@@ -81,6 +81,7 @@
 #include "ecs/focus_routing_system.h"
 #include "ecs/text_edit_chords_system.h"
 #include "ecs/rename_modal_system.h"
+#include "ecs/capture_marker_system.h"
 #include "ecs/toast_system.h"
 #include "ecs/layout_system.h"
 #include "ecs/loader_system.h"
@@ -470,6 +471,11 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::SessionSearchSystem>());
     sm.register_update_system(std::make_unique<ecs::RenameModalSystem>());
     sm.register_update_system(std::make_unique<ecs::ToastSystem>());
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    // Test-only: the flat marker the capture receipt is proven on. Draws
+    // nothing until a script switches it on.
+    sm.register_update_system(std::make_unique<ecs::CaptureMarkerSystem>());
+#endif
     // Auth overlay draws on top of everything (login gates the app). No-op
     // unless AppComponent::showAuth is true, so it costs nothing when auth is
     // not configured.

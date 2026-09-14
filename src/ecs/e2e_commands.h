@@ -54,6 +54,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <format>
 #include <map>
@@ -67,6 +68,9 @@
 #include "../api/attachments.h"
 #include "../api/disk_cache.h"
 #include "../api/mock_client.h"
+#include "../build_stamp.h"
+#include "../native_capture_probe.h"
+#include "capture_marker_system.h"
 #include "../resize_drive.h"
 #include "../test_hooks.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
@@ -1457,6 +1461,204 @@ struct HandleExpectUiRowsJoinCommand
         }
         cmd.fail(std::format("expect_ui_rows_join: {} rows under '{}': {}", rows.size(),
                              cmd.arg(0), why));
+    }
+};
+
+// capture_receipt <debug_name> [expect_scale=<s>]: WHERE a painted widget is,
+// for cropping an outside capture of THIS window -- every number read from
+// afterhours' own letterbox and AppKit's own conversions, none guessed. One
+// line on stdout:
+//
+//   [capture-receipt] name=<n> stamp=<build> pid=<p> window=<num> owned=1
+//       backing=<scale> content_pt=<x>,<y>,<w>x<h> window_pt=<x>,<y>,<w>x<h>
+//       screen_pt=<x>,<y>,<w>x<h> frame_pt=<x>,<y>,<w>x<h>
+//       crop_px=<x>,<y>,<w>x<h> fill=<RRGGBB|-> letterbox=<dest x,y,wxh>
+//       letterbox_scale=<s>
+//
+// Spaces, named exactly: `content_pt` is the UI's own coordinate space
+// (afterhours logical points, top-left) -- the rect as the app laid it out;
+// `window_pt` is that rect through the letterbox's inverse (equal to
+// content_pt when letterbox_scale is 1, as it is here); `screen_pt` /
+// `frame_pt` are AppKit points; `crop_px` is PIXELS = points x `backing`.
+// The one field in pixels is crop_px. (`scale` used to name two different
+// things on one line -- the backing scale and the letterbox scale -- and a
+// reader taking "the scale field" got the wrong one.)
+//
+// `crop_px` is the rect inside `screencapture -x -o -l <window>` of this
+// window (that capture is the window FRAME without shadow, at backing
+// scale): crop the PNG at exactly those pixels -- that is the whole rigid
+// transform. Verification is the crop's own edges against the reported
+// rect, never against the reference image.
+//
+// Refuses when: headless / no window; the backend is not the offline mock;
+// the widget was not painted this frame; the window server says the window
+// is not this process's; the letterbox scale is not 1 (a letterboxed frame
+// means the content is not 1:1 with the window and a crop would need a
+// resample, which this never does); or the two content sizes -- sokol's and
+// AppKit's contentView -- disagree by more than a point.
+// capture_marker on <x> <y> <w> <h> | off: the flat test marker the receipt is
+// PROVEN on (see capture_marker_system.h). Same gate as capture_receipt --
+// windowed, offline mock -- and never persisted.
+struct HandleCaptureMarkerCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("capture_marker")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("capture_marker requires on <x> <y> <w> <h> | off");
+            return;
+        }
+        auto& m = ecs::capture_marker_state();
+        if (cmd.arg(0) == "off") {
+            m = {};
+            cmd.consume();
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        const std::string backend = app ? app->backend_label : std::string("none");
+        if (backend != "mock") {
+            cmd.fail(std::format("capture_marker refuses a '{}' backend", backend));
+            return;
+        }
+        if (!hanabi_native_has_window()) {
+            cmd.fail("capture_marker needs a real window (HANABI_E2E_WINDOWED=1)");
+            return;
+        }
+        if (cmd.arg(0) != "on" || !cmd.has_args(5)) {
+            cmd.fail("capture_marker requires on <x> <y> <w> <h> | off");
+            return;
+        }
+        m.on = true;
+        m.x = std::atof(cmd.arg(1).c_str());
+        m.y = std::atof(cmd.arg(2).c_str());
+        m.w = std::atof(cmd.arg(3).c_str());
+        m.h = std::atof(cmd.arg(4).c_str());
+        cmd.consume();
+    }
+};
+
+struct HandleCaptureReceiptCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("capture_receipt")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("capture_receipt requires <debug_name> [expect_scale=<s>]");
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        const std::string backend = app ? app->backend_label : std::string("none");
+        if (backend != "mock") {
+            cmd.fail(std::format("capture_receipt refuses a '{}' backend: a window "
+                                 "capture may only be taken of the offline mock.",
+                                 backend));
+            return;
+        }
+        if (!hanabi_native_has_window()) {
+            cmd.fail("capture_receipt needs a real window: this run is headless "
+                     "(HANABI_E2E_WINDOWED=1).");
+            return;
+        }
+        const std::string& name = cmd.arg(0);
+        const afterhours::Entity* target = nullptr;
+        for (const auto& e :
+             afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!e || !e->has<afterhours::ui::UIComponent>() ||
+                !e->has<afterhours::ui::UIComponentDebug>())
+                continue;
+            if (e->get<afterhours::ui::UIComponentDebug>().name() != name) continue;
+            if (!e->get<afterhours::ui::UIComponent>().was_rendered_to_screen) continue;
+            target = e.get();
+        }
+        if (target == nullptr) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("capture_receipt: no painted widget named '{}'", name));
+            return;
+        }
+        const auto r = target->get<afterhours::ui::UIComponent>().rect();
+
+        // Content -> window: the letterbox's inverse, the same Viewport the
+        // pointer's window_to_content reads. Refuse a scaled letterbox: the
+        // crop is rigid or it is nothing.
+        const int winW = afterhours::graphics::get_screen_width();
+        const int winH = afterhours::graphics::get_screen_height();
+        const auto vp = afterhours::window_manager::content_viewport(winW, winH);
+        if (std::fabs(vp.scale - 1.0f) > 0.001f) {
+            cmd.fail(std::format("capture_receipt: the content is letterboxed at scale {:.4f} "
+                                 "(dest {:.0f},{:.0f} {:.0f}x{:.0f} in a {}x{} window); a "
+                                 "rigid crop cannot represent that.",
+                                 vp.scale, vp.dest.x, vp.dest.y, vp.dest.width,
+                                 vp.dest.height, winW, winH));
+            return;
+        }
+        const auto tl = afterhours::window_manager::content_to_window(
+            Vector2Type{r.x, r.y}, winW, winH);
+        const auto br = afterhours::window_manager::content_to_window(
+            Vector2Type{r.x + r.width, r.y + r.height}, winW, winH);
+        const double wx = tl.x, wy = tl.y, ww = br.x - tl.x, wh = br.y - tl.y;
+
+        HanabiNativeWindowReceipt win{};
+        hanabi_native_window_receipt(&win);
+        if (!win.ok) {
+            cmd.fail(std::format("capture_receipt: {}", win.why));
+            return;
+        }
+        // sokol's window size and AppKit's contentView must be the same
+        // surface, or the content->window step above is about a different
+        // rectangle than the one AppKit will capture.
+        if (std::fabs(win.content_w - winW) > 1.0 || std::fabs(win.content_h - winH) > 1.0) {
+            cmd.fail(std::format("capture_receipt: sokol says the window is {}x{} but "
+                                 "AppKit's contentView is {:.1f}x{:.1f}; transforms disagree.",
+                                 winW, winH, win.content_w, win.content_h));
+            return;
+        }
+        if (cmd.args.size() >= 2) {
+            const std::string& a = cmd.arg(1);
+            if (a.rfind("expect_scale=", 0) == 0) {
+                const double want = std::atof(a.c_str() + 13);
+                if (std::fabs(want - win.backing_scale) > 0.001) {
+                    cmd.fail(std::format("capture_receipt: backing scale is {:.2f}, expected {:.2f}",
+                                         win.backing_scale, want));
+                    return;
+                }
+            }
+        }
+        double sx = 0, sy = 0, sw = 0, sh = 0, fx = 0, fy = 0;
+        if (!hanabi_native_content_rect_to_screen(wx, wy, ww, wh, &sx, &sy, &sw, &sh, &fx, &fy)) {
+            cmd.fail("capture_receipt: the window went away during the read");
+            return;
+        }
+        const double k = win.backing_scale;
+        // The widget's own fill this frame, so the check can prove the crop
+        // holds THESE pixels (its border is this colour, one pixel outside is
+        // not) rather than merely a rectangle of the right size. "-" when the
+        // widget paints no fill of its own.
+        std::string fill = "-";
+        if (target->has<afterhours::HasColor>()) {
+            const auto c = target->get<afterhours::HasColor>().color();
+            if (c.a == 255)
+                fill = std::format("{:02X}{:02X}{:02X}", static_cast<unsigned>(c.r),
+                                   static_cast<unsigned>(c.g), static_cast<unsigned>(c.b));
+        }
+        std::printf(
+            "[capture-receipt] name=%s stamp=%s pid=%d window=%ld owned=%d visible=%d "
+            "backing=%.2f content_pt=%.1f,%.1f,%.1fx%.1f window_pt=%.1f,%.1f,%.1fx%.1f "
+            "screen_pt=%.1f,%.1f,%.1fx%.1f frame_pt=%.1f,%.1f,%.1fx%.1f "
+            "contentview_pt=%.1f,%.1f,%.1fx%.1f crop_px=%.0f,%.0f,%.0fx%.0f fill=%s "
+            "letterbox=%.0f,%.0f,%.0fx%.0f letterbox_scale=%.4f\n",
+            name.c_str(), build_stamp(), win.pid, win.window_number, win.owned, win.visible,
+            k, r.x, r.y, r.width, r.height, wx, wy, ww, wh, sx, sy, sw, sh, win.frame_x,
+            win.frame_y, win.frame_w, win.frame_h, win.content_x, win.content_y,
+            win.content_w, win.content_h, std::round(fx * k), std::round(fy * k),
+            std::round(sw * k), std::round(sh * k), fill.c_str(), vp.dest.x, vp.dest.y,
+            vp.dest.width, vp.dest.height, vp.scale);
+        std::fflush(stdout);
+        cmd.consume();
     }
 };
 
@@ -3011,6 +3213,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleNativeDragResizeCommand>());
     sm.register_update_system(std::make_unique<HandleNativeKeyCommand>());
     sm.register_update_system(std::make_unique<HandleExpectContentSizeCommand>());
+    sm.register_update_system(std::make_unique<HandleCaptureReceiptCommand>());
+    sm.register_update_system(std::make_unique<HandleCaptureMarkerCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRowsJoinCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRelCommand>());
     sm.register_update_system(std::make_unique<HandleDoubleClickWordCommand>());

@@ -1,0 +1,37 @@
+# env: HANABI_E2E_WINDOWED=1 HANABI_OPEN=t2 HANABI_TEST_OVERLAY=model
+# The capture receipt, proven on the flat marker and then used on a panel.
+#
+# `capture_marker on` draws a test-only opaque rectangle with a known corner
+# pattern at a content rect; its receipt maps that rect into a capture of THIS
+# window (frame, no shadow, backing scale). The sidecar
+# (scripts/capture_receipt_hold.sh, started before the run) captures the
+# window by number during each `wait` hold; scripts/capture_receipt_check.sh
+# then proves, on the marker only, that the crop holds the marker's exact
+# pixels at the receipt's offsets -- before AND after a real native resize --
+# and applies the same transform to the model panel with bounds/pid/frame
+# checks. Never against the reference image; rows never shifted.
+#
+# Windowed, mock-only: both commands refuse anything else.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+native_mode on
+wait_frames 6
+# The marker: well inside the content, away from every panel edge.
+capture_marker on 300 200 120 80
+wait_frames 4
+capture_receipt capture_marker expect_scale=2
+wait 6
+capture_receipt popover_panel expect_scale=2
+wait 6
+# A real resize: the window grows by 60pt, the receipt must follow AppKit's
+# reported content size, and the marker's pixels must still be where the new
+# receipt says.
+native_drag_resize 0 60 12
+wait_frames 30
+expect_content_size 1100 820
+capture_receipt capture_marker expect_scale=2
+wait 6
+capture_receipt popover_panel expect_scale=2
+wait 6
+capture_marker off
