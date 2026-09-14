@@ -234,9 +234,13 @@ extern "C" void native_open_url(const char* url);
 inline void open(const std::string& url) {
     if (url.empty()) return;
     last_opened() = url;
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    return;
+#else
     if (headless()) return;
 #if defined(__APPLE__)
     native_open_url(url.c_str());
+#endif
 #endif
 }
 

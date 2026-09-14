@@ -1,0 +1,41 @@
+# "Copy Link" writes exactly the tracker URL for the id under the pointer
+# through the clipboard wrapper; "Open Link" routes that URL through the
+# app's one external-open door, which a test build records instead of
+# launching anything. The Copy Message / Copy Turn payloads are unchanged
+# beside them.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_OPEN=t1 HANABI_TRACKER_BASE_URL=https://tracker.example.com HANABI_LINK_AUDIT=1
+require_thread t1
+wait_frames 12
+reset_clipboard_probe
+reset_link_opened
+right_click_link D948120
+wait_frames 8
+click_text "Copy Link"
+wait_frames 8
+expect_no_text "Copy Link"
+expect_clipboard "https://tracker.example.com/D948120"
+expect_link_opened ""
+right_click_link D948120
+wait_frames 8
+click_text "Open Link"
+wait_frames 8
+expect_no_text "Open Link"
+expect_link_opened "https://tracker.example.com/D948120"
+expect_clipboard "https://tracker.example.com/D948120"
+# Copy Message from the same menu still copies the message, not the link.
+reset_clipboard_probe
+right_click_link D948120
+wait_frames 8
+click_text "Copy Message"
+wait_frames 8
+expect_clipboard_contains "Built the config diff D948120 adding Tier 1/2/3 price points."
+# Keyboard: Down to Open Link, Enter.
+reset_link_opened
+right_click_link D948120
+wait_frames 8
+arrow down
+wait_frames 4
+key ENTER
+wait_frames 8
+expect_link_opened "https://tracker.example.com/D948120"

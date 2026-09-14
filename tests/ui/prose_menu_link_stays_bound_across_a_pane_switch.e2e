@@ -1,0 +1,25 @@
+# The link the menu was opened on is the link the pick acts on: switching the
+# pane to another conversation while the menu is up closes it with nothing
+# copied or opened; a later menu on another message carries no stale link.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_OPEN=t1 HANABI_TRACKER_BASE_URL=https://tracker.example.com HANABI_LINK_AUDIT=1
+require_thread t1
+wait_frames 12
+reset_clipboard_probe
+reset_link_opened
+right_click_link D948120
+wait_frames 8
+expect_text "Open Link"
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+expect_no_text "Open Link"
+expect_clipboard ""
+expect_link_opened ""
+right_click_text "Reconciled 4,812 accounts"
+wait_frames 8
+expect_text "Copy Message"
+expect_no_text "Open Link"
+dump_message_menu
+key ESCAPE
+wait_frames 8

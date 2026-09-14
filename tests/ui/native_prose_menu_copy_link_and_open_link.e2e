@@ -1,0 +1,43 @@
+# NATIVE ARM, real input: a right-click through NSApp on the tracker id's
+# glyphs opens the message menu as an NSMenu scoped to that message with the
+# link bound; Down, Down, Return picks "Copy Link" -- the exact URL lands on
+# the private clipboard; a second real right-click, Down, Return picks "Open
+# Link" -- the URL is recorded by the test build's external-open door, which
+# launches nothing. Windowed, mock-only, private stores.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1 HANABI_OPEN=t1 HANABI_TRACKER_BASE_URL=https://tracker.example.com
+require_thread t1
+wait_frames 10
+native_mode on
+wait_frames 4
+expect_text "Built the config diff"
+reset_clipboard_probe
+reset_link_opened
+native_right_click_link D948120
+wait_frames 6
+native_menu_expect open message:t1/m2
+dump_message_menu
+native_menu_expect items=5
+native_menu_expect action open_link
+native_menu_expect action copy_link
+native_menu_expect action copy_message
+native_menu_expect action copy_turn
+wait_frames 8
+native_menu_expect frames_driven>=4
+native_key 125
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_clipboard "https://tracker.example.com/D948120"
+expect_link_opened ""
+native_right_click_link D948120
+wait_frames 6
+native_menu_expect open message:t1/m2
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_link_opened "https://tracker.example.com/D948120"

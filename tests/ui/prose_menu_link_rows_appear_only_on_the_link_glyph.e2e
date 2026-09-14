@@ -1,0 +1,42 @@
+# A right-click ON the tracker id's glyphs offers "Open Link" and "Copy Link"
+# above the Copy Message / Copy Turn group; a right-click on the same line
+# just past the id's box offers no link rows; a message with no id offers
+# none. The link the menu was opened on is bound at that instant.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_OPEN=t1 HANABI_TRACKER_BASE_URL=https://tracker.example.com HANABI_LINK_AUDIT=1
+require_thread t1
+wait_frames 12
+expect_text "Built the config diff"
+reset_clipboard_probe
+reset_link_opened
+right_click_link D948120
+wait_frames 8
+expect_text "Open Link"
+expect_text "Copy Link"
+expect_text "Copy Message"
+expect_text "Copy Turn"
+dump_message_menu
+expect_message_menu_link D948120
+assert_ui message_menu_open_link hidden=false
+assert_ui message_menu_copy_link hidden=false
+key ESCAPE
+wait_frames 8
+expect_no_text "Open Link"
+expect_clipboard ""
+expect_link_opened ""
+# Beside the glyph box, on the same line: the message menu without link rows.
+right_click_beside_link D948120
+wait_frames 8
+expect_text "Copy Message"
+expect_message_menu_link -
+expect_no_text "Open Link"
+expect_no_text "Copy Link"
+key ESCAPE
+wait_frames 8
+# A message with no id: no link rows.
+right_click_text "All CI green, shadow matched"
+wait_frames 8
+expect_text "Copy Message"
+expect_no_text "Open Link"
+key ESCAPE
+wait_frames 8

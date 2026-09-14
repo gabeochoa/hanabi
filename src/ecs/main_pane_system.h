@@ -3261,6 +3261,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                                   ctx.mouse.pos.x,
                                                   ctx.mouse.pos.y);
         if (id.empty()) return;
+        if (AppComponent* app = app_singleton();
+            app != nullptr && app->messageMenuOpen && !app->messageMenuNativeTried &&
+            ctx.mouse.right_just_released && ctx.mouse_was_in_subtree(el.id)) {
+            app->messageMenuLinkId = id;
+            app->messageMenuLinkUrl = hanabi::links::url_for(app->trackerBaseUrl, id);
+        }
         if (el.has<afterhours::ui::HasCursor>())
             el.get<afterhours::ui::HasCursor>().cursor =
                 afterhours::ui::CursorType::Pointer;
@@ -11731,6 +11737,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const api::Message& target = session->messages[static_cast<std::size_t>(at)];
 
         std::vector<hanabi::surface::MenuItem> items;
+        if (!app.messageMenuLinkUrl.empty()) {
+            hanabi::surface::MenuItem openLink{"Open Link", "message_menu_open_link", false, false};
+            openLink.action_id = "open_link";
+            items.push_back(std::move(openLink));
+            hanabi::surface::MenuItem copyLink{"Copy Link", "message_menu_copy_link", false, false};
+            copyLink.action_id = "copy_link";
+            items.push_back(std::move(copyLink));
+            items.push_back(hanabi::surface::MenuItem::divider("message_menu_divider_link"));
+        }
         if (hanabi::transcript_copy::offers_copy_message(target)) {
             hanabi::surface::MenuItem copyMessage{"Copy Message", "message_menu_copy", false, false};
             copyMessage.action_id = "copy_message";
@@ -11766,7 +11781,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (!pickedAction.empty()) {
             std::string payload;
-            if (pickedAction == "copy_message")
+            if (pickedAction == "open_link") {
+                if (!app.messageMenuLinkUrl.empty()) hanabi::links::open(app.messageMenuLinkUrl);
+            } else if (pickedAction == "copy_link") {
+                payload = app.messageMenuLinkUrl;
+            } else if (pickedAction == "copy_message")
                 payload = hanabi::transcript_copy::copy_message_payload(session->messages,
                                                                         app.messageMenuMessageId);
             else if (pickedAction == "copy_turn")

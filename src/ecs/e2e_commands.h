@@ -158,7 +158,9 @@ struct HandleClickLinkCommand
     void for_each_with(afterhours::Entity&,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
-        if (cmd.is_consumed() || !cmd.is("click_link")) return;
+        if (cmd.is_consumed() || (!cmd.is("click_link") && !cmd.is("right_click_link") &&
+                                  !cmd.is("right_click_beside_link")))
+            return;
         if (!cmd.has_args(1)) {
             cmd.fail("click_link requires a link id");
             return;
@@ -168,8 +170,16 @@ struct HandleClickLinkCommand
         const auto it = painted.find(want);
         if (it != painted.end()) {
             const auto& r = it->second;
-            afterhours::testing::test_input::simulate_click(
-                r.x + r.width * 0.5f, r.y + r.height * 0.5f);
+            if (cmd.is("click_link")) {
+                afterhours::testing::test_input::simulate_click(
+                    r.x + r.width * 0.5f, r.y + r.height * 0.5f);
+            } else if (cmd.is("right_click_link")) {
+                afterhours::testing::test_input::simulate_right_click(
+                    r.x + r.width * 0.5f, r.y + r.height * 0.5f);
+            } else {
+                afterhours::testing::test_input::simulate_right_click(
+                    r.x + r.width + 12.0f, r.y + r.height * 0.5f);
+            }
             cmd.consume();
             return;
         }
@@ -1020,10 +1030,11 @@ struct HandleNativeClickTargetCommand
         // open and hold the menu too.
         const bool rightByName = cmd.is("native_right_click_ui") || cmd.is("native_right_click_ui_quick");
         const bool rightByText = cmd.is("native_right_click_text");
+        const bool rightByLink = cmd.is("native_right_click_link");
         const bool byName = cmd.is("native_click_ui") || rightByName;
         const bool byText = cmd.is("native_click_text") || rightByText;
-        if (!byName && !byText) return;
-        const int right = (rightByName || rightByText) ? 1 : 0;
+        if (!byName && !byText && !rightByLink) return;
+        const int right = (rightByName || rightByText || rightByLink) ? 1 : 0;
         if (!cmd.has_args(1)) {
             cmd.fail("native_click_ui/native_right_click_ui/native_click_text require a target");
             return;
@@ -1040,9 +1051,16 @@ struct HandleNativeClickTargetCommand
             std::string target = byName ? cmd.arg(0) : joined_args(cmd, 0);
             if (target.size() >= 2 && target.front() == '"' && target.back() == '"')
                 target = target.substr(1, target.size() - 2);
-            const auto pos =
-                byName ? afterhours::testing::ui_commands::find_component_center<InputAction>(target)
-                       : afterhours::testing::ui_commands::find_component_with_text<InputAction>(target);
+            std::optional<afterhours::testing::Position> pos;
+            if (rightByLink) {
+                const auto& painted = links::painted_rects();
+                if (const auto it = painted.find(target); it != painted.end())
+                    pos = afterhours::testing::Position{it->second.x + it->second.width * 0.5f,
+                                                        it->second.y + it->second.height * 0.5f};
+            } else {
+                pos = byName ? afterhours::testing::ui_commands::find_component_center<InputAction>(target)
+                             : afterhours::testing::ui_commands::find_component_with_text<InputAction>(target);
+            }
             if (!pos.has_value()) {
                 cmd.fail(std::format("native click target not on screen: {}", target));
                 return;
@@ -1786,14 +1804,56 @@ struct HandleNativeMenuInjectCommand
             // close yet) -- the only state a heartbeat bracket may read.
             // `closed`: not on screen (may still be busy for a turn).
             std::string scope;
+            const hanabi::native_menu::Open* openState = nullptr;
             if (const ecs::AppComponent* app = app_component()) {
-                if (app->nativeRowMenu.open()) scope = app->nativeRowMenu.scope;
-                if (scope.empty() && app->nativeMessageMenu.open())
+                if (app->nativeRowMenu.open()) {
+                    scope = app->nativeRowMenu.scope;
+                    openState = &app->nativeRowMenu;
+                }
+                if (scope.empty() && app->nativeMessageMenu.open()) {
                     scope = app->nativeMessageMenu.scope;
+                    openState = &app->nativeMessageMenu;
+                }
             }
             if (scope.empty())
                 if (auto* strip = ecs::find_singleton<ecs::TabStripComponent>())
-                    if (strip->nativeMenu.open()) scope = strip->nativeMenu.scope;
+                    if (strip->nativeMenu.open()) {
+                        scope = strip->nativeMenu.scope;
+                        openState = &strip->nativeMenu;
+                    }
+            if (cmd.arg(0) == "action" || cmd.arg(0).rfind("items=", 0) == 0) {
+                const bool tracking = hanabi::native_menu::tracking() && openState != nullptr &&
+                                      openState->generation == hanabi::native_menu::current_generation();
+                bool ok = false;
+                std::string got;
+                if (tracking) {
+                    if (cmd.arg(0) == "action") {
+                        const std::string want = cmd.has_args(2) ? cmd.arg(1) : std::string();
+                        for (const std::string& id : openState->action_ids) {
+                            if (!got.empty()) got += ",";
+                            got += id.empty() ? "-" : id;
+                            if (!want.empty() && id == want) ok = true;
+                        }
+                    } else {
+                        const auto want = static_cast<std::size_t>(std::atoll(cmd.arg(0).c_str() + 6));
+                        got = std::to_string(openState->action_ids.size());
+                        ok = openState->action_ids.size() == want;
+                    }
+                }
+                if (ok) {
+                    cmd.consume();
+                    return;
+                }
+                if (cmd.frames_alive < kGiveUpFrame) {
+                    cmd.retry();
+                    return;
+                }
+                cmd.fail(std::format(
+                    "native_menu_expect {} {}: the open generation's frozen rows are [{}] (tracking={} scope='{}')",
+                    cmd.arg(0), cmd.has_args(2) ? cmd.arg(1) : std::string(), got, tracking ? 1 : 0,
+                    scope));
+                return;
+            }
             // `frames_driven>=N`: the adapter's heartbeat drove at least N app
             // frames while the current/last menu tracked -- the runtime proof
             // that rendering continued under AppKit's tracking loop.
@@ -3358,11 +3418,13 @@ struct HandleDumpMessageMenuCommand
             cmd.fail("dump_message_menu: no app");
             return;
         }
-        std::printf("[E2E] dump_message_menu: open=%d session='%s' message='%s' nativeTried=%d "
+        std::printf("[E2E] dump_message_menu: open=%d session='%s' message='%s' link='%s' url='%s' "
+                    "nativeTried=%d "
                     "nativeScope='%s' nativeGen=%llu nativeOpenScope='%s' adapterBusy=%d "
                     "adapterGen=%llu clipboardGen=%llu clipboardLen=%zu\n",
                     app->messageMenuOpen ? 1 : 0, app->messageMenuSessionId.c_str(),
-                    app->messageMenuMessageId.c_str(), app->messageMenuNativeTried ? 1 : 0,
+                    app->messageMenuMessageId.c_str(), app->messageMenuLinkId.c_str(),
+                    app->messageMenuLinkUrl.c_str(), app->messageMenuNativeTried ? 1 : 0,
                     app->messageMenuNativeScope.c_str(),
                     static_cast<unsigned long long>(app->nativeMessageMenu.generation),
                     app->nativeMessageMenu.scope.c_str(), hanabi::native_menu::busy() ? 1 : 0,
@@ -3370,6 +3432,62 @@ struct HandleDumpMessageMenuCommand
                     static_cast<unsigned long long>(hanabi::clipboard::test_probe().generation),
                     hanabi::clipboard::test_probe().text.size());
         cmd.consume();
+    }
+};
+
+struct HandleExpectMessageMenuLinkCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_message_menu_link")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_message_menu_link requires <link id> or -");
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        const std::string& want = cmd.arg(0);
+        const std::string got = app == nullptr ? std::string("(no app)")
+                                : app->messageMenuOpen ? app->messageMenuLinkId
+                                                       : std::string("(menu closed)");
+        const bool ok = app != nullptr && app->messageMenuOpen &&
+                        (want == "-" ? app->messageMenuLinkId.empty() : app->messageMenuLinkId == want);
+        if (ok) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_message_menu_link: bound link is '{}', expected '{}'", got, want));
+    }
+};
+
+struct HandleExpectLinkOpenedCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        const bool reset = cmd.is("reset_link_opened");
+        if (cmd.is_consumed() || (!cmd.is("expect_link_opened") && !reset)) return;
+        if (reset) {
+            hanabi::links::last_opened().clear();
+            cmd.consume();
+            return;
+        }
+        const std::string want = joined_args(cmd, 0);
+        const std::string& got = hanabi::links::last_opened();
+        if (got == want) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_link_opened: last external open is '{}', expected '{}'", got,
+                             want));
     }
 };
 
@@ -3520,6 +3638,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleDumpMessageMenuCommand>());
     sm.register_update_system(std::make_unique<HandleExpectTabStateCommand>());
     sm.register_update_system(std::make_unique<HandleExpectStarredCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectLinkOpenedCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectMessageMenuLinkCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());

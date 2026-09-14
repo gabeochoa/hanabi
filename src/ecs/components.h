@@ -1323,6 +1323,8 @@ struct AppComponent : public afterhours::BaseComponent {
     bool messageMenuOpen = false;
     std::string messageMenuSessionId;
     std::string messageMenuMessageId;
+    std::string messageMenuLinkId;
+    std::string messageMenuLinkUrl;
     float messageMenuX = 0.0f;
     float messageMenuY = 0.0f;
     bool messageMenuNativeTried = false;
@@ -1333,6 +1335,8 @@ struct AppComponent : public afterhours::BaseComponent {
         messageMenuOpen = true;
         messageMenuSessionId = std::move(sessionId);
         messageMenuMessageId = std::move(messageId);
+        messageMenuLinkId.clear();
+        messageMenuLinkUrl.clear();
         messageMenuX = x;
         messageMenuY = y;
         menuCursor = {};
@@ -1344,6 +1348,8 @@ struct AppComponent : public afterhours::BaseComponent {
         messageMenuOpen = false;
         messageMenuSessionId.clear();
         messageMenuMessageId.clear();
+        messageMenuLinkId.clear();
+        messageMenuLinkUrl.clear();
         menuCursor = {};
         if (nativeMessageMenu.open()) hanabi::native_menu::cancel(nativeMessageMenu.generation);
         messageMenuNativeTried = false;
