@@ -181,11 +181,18 @@ for s in "${SCRIPTS[@]}"; do
     # expanding an EMPTY array under `set -u` is an unbound-variable error. Bash
     # 4.4 fixed that, so the plain form works for anyone on a newer bash and
     # fails every script without an "# env:" line on a stock Mac.
+    # The pasteboard the app may read for a paste or a drop is a PRIVATE
+    # named board, unique per script, set AFTER the fixture's env so no
+    # `# env:` line can point a run at the user's general pasteboard. The
+    # test binary refuses to start without it (native_extras.mm).
+    private_pasteboard="hanabi-e2e-${name}-$$-$(date +%s)"
     ( env HOME="$ISO_HOME" HANABI_CONFIG="$ISO_HOME/no-such-config.json" \
         HANABI_CACHE_DIR="$script_cache" TZ="$PIN_TZ" \
         HANABI_MOCK_NOW="$PIN_NOW" \
         HANABI_TOKEN_FILE="$ISO_HOME/token.json" HANABI_BACKEND=mock \
-        ${extra_env[@]+"${extra_env[@]}"} "$EXE" --e2e "$s" >"$log" 2>&1 ) &
+        ${extra_env[@]+"${extra_env[@]}"} \
+        HANABI_PASTEBOARD_NAME="$private_pasteboard" \
+        "$EXE" --e2e "$s" >"$log" 2>&1 ) &
     pid=$!
     for ((i=0; i<TIMEOUT; i++)); do
         kill -0 "$pid" 2>/dev/null || break

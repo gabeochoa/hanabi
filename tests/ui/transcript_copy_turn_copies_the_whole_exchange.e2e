@@ -1,0 +1,25 @@
+# "Copy Turn" from any message of a turn copies the exchange as markdown --
+# the opening question, every reply -- with the reference's headings, and the
+# same bytes whichever member was clicked.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+require_thread t2
+wait_frames 12
+reset_clipboard_probe
+right_click_text "Both look like a rounding artifact"
+wait_frames 6
+click_text "Copy Turn"
+wait_frames 6
+expect_clipboard_contains "### **You**"
+expect_clipboard_contains "Reconcile this cycle's Stars payouts against the ledger before the batch runs."
+expect_clipboard_contains "### **Agentcloud**"
+expect_clipboard_contains "  acct 8842 - ledger $128.60, computed $116.20 (delta $12.40)"
+expect_clipboard_contains "Hold, or proceed and I'll flag the two for manual follow-up?"
+# From the opener: identical bytes.
+reset_clipboard_probe
+right_click_ui user_turn
+wait_frames 6
+click_text "Copy Turn"
+wait_frames 6
+expect_clipboard_contains "### **You**"
+expect_clipboard_contains "Hold, or proceed and I'll flag the two for manual follow-up?"

@@ -44,7 +44,7 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::ClosePalette;
         else if (app->sessionSearchOpen)
             app->escape = EscapeIntent::CloseSessionSearch;
-        else if (app->rowMenuOpen ||
+        else if (app->rowMenuOpen || app->messageMenuOpen ||
                  (find_singleton<TabStripComponent>() &&
                   find_singleton<TabStripComponent>()->menuOpen))
             app->escape = EscapeIntent::CloseContextMenu;

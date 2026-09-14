@@ -31,6 +31,8 @@
 
 #include <afterhours/src/plugins/clipboard.h>
 #include <afterhours/src/plugins/ui/text_selection.h>
+
+#include "../util/clipboard.h"
 #include "find_highlight.h"
 #include "theme.h"
 
@@ -380,7 +382,7 @@ inline void update(afterhours::EntityID id, RectangleType rect,
 inline bool copy() {
     const std::string sel = selected_text();
     if (sel.empty()) return false;
-    afterhours::clipboard::set_text(sel);
+    hanabi::clipboard::set_text(sel);
     return true;
 }
 

@@ -1,0 +1,30 @@
+# The menu is bound to the session and message it was opened on: switching
+# the pane to another conversation while it is up closes it and copies
+# nothing; a stream update to the transcript does not change which message
+# the pick copies.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+require_thread t2
+wait_frames 12
+reset_clipboard_probe
+right_click_ui user_turn
+wait_frames 6
+expect_text "Copy Message"
+click_ui tab_t9
+wait_frames 12
+expect_open t9
+expect_no_text "Copy Message"
+expect_clipboard ""
+# Back on t2, the pick copies t2's message even after the transcript grows.
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+right_click_ui user_turn
+wait_frames 6
+expect_text "Copy Message"
+type "carry on"
+key ENTER
+wait_frames 20
+click_text "Copy Message"
+wait_frames 6
+expect_clipboard "Reconcile this cycle's Stars payouts against the ledger before the batch runs."

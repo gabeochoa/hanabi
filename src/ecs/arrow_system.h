@@ -45,7 +45,8 @@ struct ArrowSystem : afterhours::System<UIContext<InputAction>> {
         // The palette's own field is focused while it is up, but Up/Down there
         // mean "move the selection", so it outranks the text field.
         const auto* strip = find_singleton<TabStripComponent>();
-        if (app->rowMenuOpen || (strip != nullptr && strip->menuOpen))
+        if (app->rowMenuOpen || app->messageMenuOpen ||
+            (strip != nullptr && strip->menuOpen))
             app->arrow = ArrowIntent::ContextMenu;
         else if (app->paletteOpen)
             app->arrow = ArrowIntent::Palette;

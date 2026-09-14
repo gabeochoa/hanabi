@@ -30,6 +30,7 @@
 #include "../../src/util/textscan.h"
 #include "../../src/ui/slash_commands.h"
 #include "../../src/ui/model_menu.h"
+#include "../../src/ui/transcript_copy.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -1830,6 +1831,116 @@ static void test_access_follows_every_attach_even_when_the_slot_snapshot_is_olde
     CHECK(!have.pending_compaction.has_value());
 }
 
+// Copy Message / Copy Turn payloads (reference: a message copies its text
+// minus trailing newlines and is offered only when that leaves something; a
+// turn runs from the user message that opened it to the message before the
+// next, rendered by one per-row mapping, thinking omitted, trailing blank
+// lines cut to one).
+static api::Message tc_msg(const char* id, api::Role role, const char* text,
+                           api::EventKind kind = api::EventKind::Text) {
+    api::Message m(id, role, text, 0, "");
+    m.kind = kind;
+    return m;
+}
+static void test_copy_message_trims_trailing_newlines_and_is_offered_only_with_text() {
+    std::printf("test_copy_message_trims_trailing_newlines_and_is_offered_only_with_text\n");
+    namespace tc = hanabi::transcript_copy;
+    CHECK(tc::clipboard_text("ls -la\n") == "ls -la");
+    CHECK(tc::clipboard_text("a\n\n\r\n") == "a");
+    CHECK(tc::clipboard_text("  keep leading  ") == "  keep leading  ");
+    CHECK(tc::clipboard_text("code {\n  x\n}\n") == "code {\n  x\n}");
+    CHECK(tc::clipboard_text("\n\n").empty());
+    CHECK(!tc::is_worth_showing("\n"));
+    CHECK(tc::is_worth_showing("x\n"));
+    CHECK(tc::offers_copy_message(tc_msg("u", api::Role::User, "hi")));
+    CHECK(tc::offers_copy_message(tc_msg("a", api::Role::Assistant, "yes")));
+    CHECK(tc::offers_copy_message(tc_msg("d", api::Role::Assistant, "delivered", api::EventKind::Delivery)));
+    CHECK(!tc::offers_copy_message(tc_msg("e", api::Role::Assistant, "")));
+    CHECK(!tc::offers_copy_message(tc_msg("t", api::Role::Tool, "bash output")));
+    CHECK(!tc::offers_copy_message(tc_msg("s", api::Role::System, "joined")));
+    CHECK(!tc::offers_copy_message(tc_msg("th", api::Role::Assistant, "hmm", api::EventKind::Thinking)));
+    CHECK(!tc::offers_copy_message(tc_msg("n", api::Role::Assistant, "note", api::EventKind::Notice)));
+    std::vector<api::Message> ms{tc_msg("u1", api::Role::User, "hello\n")};
+    CHECK(tc::copy_message_payload(ms, "u1") == "hello");
+    CHECK(tc::copy_message_payload(ms, "nope").empty());
+    CHECK(tc::copy_message_payload(ms, "").empty());
+}
+static void test_copy_turn_spans_from_the_opening_user_message_to_the_next() {
+    std::printf("test_copy_turn_spans_from_the_opening_user_message_to_the_next\n");
+    namespace tc = hanabi::transcript_copy;
+    std::vector<api::Message> ms;
+    ms.push_back(tc_msg("u1", api::Role::User, "first question"));
+    ms.push_back(tc_msg("th1", api::Role::Assistant, "private reasoning", api::EventKind::Thinking));
+    api::Message tool = tc_msg("t1", api::Role::Tool, "ls output");
+    tool.subtitle = "bash";
+    tool.tool_node = "boulder";
+    tool.tool_status = "completed";
+    ms.push_back(tool);
+    api::Message a1 = tc_msg("a1", api::Role::Assistant, "first answer\n");
+    a1.run_outcome = "completed";
+    ms.push_back(a1);
+    ms.push_back(tc_msg("u2", api::Role::User, "second question"));
+    ms.push_back(tc_msg("a2", api::Role::Assistant, "second answer"));
+
+    const auto span1 = tc::turn_around(ms, "t1");
+    CHECK(span1.first == 0 && span1.last == 3);
+    // The anchor being the user message must not end the turn it starts.
+    const auto spanU = tc::turn_around(ms, "u1");
+    CHECK(spanU.first == 0 && spanU.last == 3);
+    const auto span2 = tc::turn_around(ms, "a2");
+    CHECK(span2.first == 4 && span2.last == 5);
+    CHECK(tc::turn_around(ms, "missing").empty());
+
+    const std::string turn1 = tc::copy_turn_payload(ms, "a1");
+    const std::string want1 =
+        "### **You**\n\nfirst question\n\n"
+        "*tool: bash on boulder \xe2\x80\x94 completed*\n\n"
+        "### **Agentcloud**\n\nfirst answer\n\n\n"
+        "---\n\n*(turn completed)*\n";
+    if (turn1 != want1) std::printf("turn1:\n%s\n--- want:\n%s\n", turn1.c_str(), want1.c_str());
+    CHECK(turn1 == want1);
+    CHECK(turn1.find("private reasoning") == std::string::npos);
+    CHECK(tc::copy_turn_payload(ms, "u2") == "### **You**\n\nsecond question\n\n### **Agentcloud**\n\nsecond answer\n");
+    CHECK(tc::copy_turn_payload(ms, "missing").empty());
+    // Copying from the same turn by any member yields the same bytes.
+    CHECK(tc::copy_turn_payload(ms, "u1") == turn1);
+    CHECK(tc::copy_turn_payload(ms, "t1") == turn1);
+    CHECK(tc::copy_turn_payload(ms, "th1") == turn1);
+}
+static void test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind() {
+    std::printf("test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind\n");
+    namespace tc = hanabi::transcript_copy;
+    std::vector<api::Message> ms;
+    ms.push_back(tc_msg("a0", api::Role::Assistant, "mid-turn answer, opener paged out"));
+    api::Message d = tc_msg("d1", api::Role::Assistant, "the platform said", api::EventKind::Delivery);
+    d.subtitle = "cron";
+    ms.push_back(d);
+    ms.push_back(tc_msg("n1", api::Role::Assistant, "watch out", api::EventKind::Notice));
+    api::Message sk = tc_msg("s1", api::Role::Assistant, "meta-cli", api::EventKind::Skill);
+    ms.push_back(sk);
+    ms.push_back(tc_msg("c1", api::Role::Assistant, "", api::EventKind::Compaction));
+    ms.push_back(tc_msg("nd", api::Role::Assistant, "Node attached", api::EventKind::Node));
+    api::Message un = tc_msg("x1", api::Role::Assistant, "payload", api::EventKind::Unsupported);
+    un.subtitle = "future_event";
+    ms.push_back(un);
+    ms.push_back(tc_msg("sys", api::Role::System, "Halted by the owner"));
+    const std::string got = tc::copy_turn_payload(ms, "n1");
+    const std::string want =
+        "### **Agentcloud**\n\nmid-turn answer, opener paged out\n\n"
+        "### **Delivered** (cron)\n\nthe platform said\n\n"
+        "> **notice** \xe2\x80\x94 watch out\n\n"
+        "*(skill: meta-cli)*\n\n"
+        "*(context compacted)*\n\n"
+        "*(node attached)*\n\n"
+        "> **future_event** \xe2\x80\x94 payload\n\n"
+        "*(halted by the owner)*\n";
+    if (got != want) std::printf("got:\n%s\n--- want:\n%s\n", got.c_str(), want.c_str());
+    CHECK(got == want);
+    // Delivery text is worth copying on its own; a turn never starts at it.
+    CHECK(tc::copy_message_payload(ms, "d1") == "the platform said");
+    CHECK(tc::turn_around(ms, "d1").first == 0);
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
@@ -1840,6 +1951,9 @@ int main() {
     test_mock_compact_keys_persist_after_the_slot_is_consumed();
     test_an_older_compact_applied_does_not_erase_a_newer_queued_request();
     test_an_older_refetch_cannot_clear_a_newer_pending_slot();
+    test_copy_message_trims_trailing_newlines_and_is_offered_only_with_text();
+    test_copy_turn_spans_from_the_opening_user_message_to_the_next();
+    test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind();
     test_access_follows_every_attach_even_when_the_slot_snapshot_is_older();
     test_mock_create_records_the_launch_tuning_and_send_ignores_it();
     test_legacy_create_refuses_tuning_and_still_creates_untuned();

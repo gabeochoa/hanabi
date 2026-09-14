@@ -1,0 +1,25 @@
+# A right-click on a message offers "Copy Message" (its own text, trailing
+# newlines dropped) above "Copy Turn"; the pick copies exactly the bubble's
+# bytes and closes the menu. Headless: the drawn fallback of the shared menu
+# adapter. The native arm is the transcript_copy_native_* scripts.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+require_thread t2
+wait_frames 12
+reset_clipboard_probe
+right_click_ui user_turn
+wait_frames 6
+expect_text "Copy Message"
+expect_text "Copy Turn"
+click_text "Copy Message"
+wait_frames 6
+expect_no_text "Copy Message"
+expect_clipboard "Reconcile this cycle's Stars payouts against the ledger before the batch runs."
+# The agent's reply: the bytes keep their inner newlines and indentation.
+reset_clipboard_probe
+right_click_text "Reconciled 4,812 accounts"
+wait_frames 6
+click_text "Copy Message"
+wait_frames 6
+expect_clipboard_contains "  acct 8842 - ledger $128.60, computed $116.20 (delta $12.40)"
+expect_clipboard_contains "  acct 1097 - ledger $54.10, computed $51.00 (delta $3.10)"

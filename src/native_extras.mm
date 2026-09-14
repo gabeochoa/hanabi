@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "api/attachments.h"
+#include "native_e2e_guard.h"
 #include "native_extras.h"
 
 // Debug-only native logging. The hotkey register/unregister fires on EVERY
@@ -1059,10 +1060,26 @@ int native_pick_attachments(void) {
 // clipboard).
 static NSPasteboard* hanabi_paste_source(void) {
     const char* name = getenv("HANABI_PASTEBOARD_NAME");
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    // The test binary never touches the user's general pasteboard, in any
+    // input mode: the runner names a private board per script, and a run
+    // without one -- or one naming the general board -- is refused, never
+    // fallen back from.
+    if (name == nullptr ||
+        !hanabi::native_e2e::is_private_pasteboard_name(std::string_view(name))) {
+        std::fprintf(stderr,
+                     "[e2e] refusing to read a pasteboard: HANABI_PASTEBOARD_NAME must be in the "
+                     "runner's private namespace (hanabi-e2e-...) in a test build (got '%s')\n",
+                     name == nullptr ? "" : name);
+        std::abort();
+    }
+    return [NSPasteboard pasteboardWithName:[NSString stringWithUTF8String:name]];
+#else
     if (name != nullptr && name[0] != '\0')
         return [NSPasteboard pasteboardWithName:[NSString
                                                     stringWithUTF8String:name]];
     return [NSPasteboard generalPasteboard];
+#endif
 }
 
 // Raw pasted pixels have no file behind them, so give them one: a PNG under

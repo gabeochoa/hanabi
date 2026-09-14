@@ -1,0 +1,40 @@
+# Escape and an outside click close the message menu and copy NOTHING; the
+# keyboard reaches and activates a row; a tool block offers only Copy Turn.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r5"],"active_tab":"r5","theme":"dark"}
+# env: HANABI_OPEN=r5
+require_thread r5
+wait_frames 12
+reset_clipboard_probe
+right_click_ui user_turn
+wait_frames 6
+expect_text "Copy Message"
+key ESCAPE
+wait_frames 6
+expect_no_text "Copy Message"
+expect_clipboard ""
+right_click_ui user_turn
+wait_frames 6
+expect_text "Copy Message"
+click 40 40
+wait_frames 6
+expect_no_text "Copy Message"
+expect_clipboard ""
+# Keyboard: Down to the second row, Enter picks it.
+right_click_ui user_turn
+wait_frames 6
+key DOWN
+wait_frames 2
+key DOWN
+wait_frames 2
+key ENTER
+wait_frames 6
+expect_no_text "Copy Turn"
+expect_clipboard_contains "### **You**"
+# A tool block: no Copy Message row, Copy Turn present.
+reset_clipboard_probe
+right_click_ui tool_head
+wait_frames 6
+expect_text "Copy Turn"
+expect_no_text "Copy Message"
+key ESCAPE
+wait_frames 6

@@ -12,7 +12,7 @@ inline hanabi::activate::Surfaces activate_surfaces(const AppComponent& app,
     hanabi::activate::Surfaces out;
     out.palette = app.paletteOpen;
     out.sessionSearch = app.sessionSearchOpen;
-    out.contextMenu = app.rowMenuOpen || tabMenuOpen;
+    out.contextMenu = app.rowMenuOpen || app.messageMenuOpen || tabMenuOpen;
     out.rename = app.renameOpen;
     out.recordingShortcut = app.shortcutRecording >= 0;
     out.shortcuts = app.showShortcuts;
@@ -38,7 +38,7 @@ struct ActivateSystem : afterhours::System<UIContext<InputAction>> {
         const bool right = hanabi::keys::pressed(hanabi::keys::kRight);
         if (left != right) {
             const auto* lateralStrip = find_singleton<TabStripComponent>();
-            if (app->rowMenuOpen ||
+            if (app->rowMenuOpen || app->messageMenuOpen ||
                 (lateralStrip != nullptr && lateralStrip->menuOpen))
                 app->menuLateral = right ? 1 : -1;
         }

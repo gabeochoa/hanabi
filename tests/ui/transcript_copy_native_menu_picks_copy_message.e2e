@@ -1,0 +1,30 @@
+# NATIVE ARM, real input: a right-click on a transcript bubble through NSApp
+# opens the message menu as an NSMenu scoped to THIS session and message;
+# Return on the first row ("Copy Message") copies exactly the bubble's bytes
+# and the menu closes. The app kept rendering while AppKit tracked
+# (frames_driven). Windowed, mock-only, like the row-menu native scripts.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1 HANABI_OPEN=t2
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+reset_clipboard_probe
+native_right_click_text "Reconcile this cycle's Stars payouts"
+wait_frames 6
+native_menu_expect open message:t2/m1
+expect_no_ui message_menu_title
+assert_ui message_menu_native_eater hidden=false
+wait_frames 12
+native_menu_expect open message:t2/m1
+native_menu_expect frames_driven>=4
+# AppKit selects nothing until a key moves the highlight: Down to the first
+# row, then Return picks it.
+native_key 125
+wait_frames 2
+native_key 36
+wait_frames 12
+native_menu_expect closed
+expect_no_ui message_menu_native_eater
+dump_message_menu
+expect_clipboard "Reconcile this cycle's Stars payouts against the ledger before the batch runs."

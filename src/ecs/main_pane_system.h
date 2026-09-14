@@ -67,6 +67,10 @@
 #include "../settings.h"
 #include "line_draw_state.h"
 #include "ui_imports.h"
+#include "../ui/context_menu.h"
+#include "../ui/transcript_copy.h"
+#include "../util/clipboard.h"
+#include "pointer_state_system.h"
 
 #include <afterhours/src/plugins/clipboard.h>
 
@@ -348,6 +352,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                 cr.height, composerKickoff, cr.x, cr.y);
             }
         }
+        render_message_menu(ctx, uiRoot, *app);
     }
 
   private:
@@ -10881,7 +10886,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     joined += lines[k];
                     if (k + 1 < lines.size()) joined += "\n";
                 }
-                afterhours::clipboard::set_text(joined);
+                hanabi::clipboard::set_text(joined);
                 hanabi::test_hooks::record_clipboard_text(joined);
                 record_copied(ckey);
             }
@@ -11619,7 +11624,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                        copied ? "Copied" : "Copy",
                        copied, ActionIcon::Copy);
         if (copyButton.get<afterhours::ui::HasClickListener>().down) {
-            afterhours::clipboard::set_text(rawText);
+            hanabi::clipboard::set_text(rawText);
             hanabi::test_hooks::record_clipboard_text(rawText);
             record_copied(key);
         }
@@ -11693,6 +11698,90 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // A conversational message (User / Assistant). Assistant = full-column
     // doc-feed turn (no bubble); User = compact right-aligned MUTED-GREY bubble.
     // Heights match bubble_height() exactly so virtualization spacers line up.
+    static void offer_message_menu(UIContext<InputAction>& ctx, Entity& rowEnt,
+                                   const api::Message& m) {
+        if (!ctx.is_right_click(rowEnt.id)) return;
+        AppComponent* app = app_singleton();
+        Pane* pane = building_pane();
+        if (app == nullptr || pane == nullptr || !pane->openSession || m.id.empty()) return;
+        app->open_message_menu(pane->openSession->summary.id, m.id, ctx.mouse.pos.x,
+                               ctx.mouse.pos.y);
+    }
+
+    void render_message_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {
+        if (!app.messageMenuOpen) return;
+        const std::string scope =
+            "message:" + app.messageMenuSessionId + "/" + app.messageMenuMessageId;
+        if (app.messageMenuNativeScope != scope) {
+            if (app.nativeMessageMenu.open())
+                hanabi::native_menu::cancel(app.nativeMessageMenu.generation);
+            app.nativeMessageMenu.clear();
+            app.messageMenuNativeTried = false;
+            app.messageMenuNativeScope = scope;
+        }
+        const api::Session* session = app.session_with_messages(app.messageMenuSessionId);
+        const int at = session == nullptr
+                           ? -1
+                           : hanabi::transcript_copy::index_of(session->messages,
+                                                               app.messageMenuMessageId);
+        if (at < 0) {
+            app.close_message_menu();
+            return;
+        }
+        const api::Message& target = session->messages[static_cast<std::size_t>(at)];
+
+        std::vector<hanabi::surface::MenuItem> items;
+        if (hanabi::transcript_copy::offers_copy_message(target)) {
+            hanabi::surface::MenuItem copyMessage{"Copy Message", "message_menu_copy", false, false};
+            copyMessage.action_id = "copy_message";
+            items.push_back(std::move(copyMessage));
+        }
+        hanabi::surface::MenuItem copyTurn{"Copy Turn", "message_menu_copy_turn", false, false};
+        copyTurn.action_id = "copy_turn";
+        items.push_back(std::move(copyTurn));
+
+        hanabi::surface::MenuMetrics metrics;
+        metrics.width = hanabi::surface::kContextMenuW;
+        hanabi::surface::MenuResult result;
+        std::string pickedAction;
+        if (!app.messageMenuNativeTried) {
+            app.messageMenuNativeTried = true;
+            hanabi::surface::native_menu_open(app.nativeMessageMenu, scope, "message_menu", items,
+                                              app.messageMenuX, app.messageMenuY,
+                                              static_cast<long long>(ctx.focus_id));
+        }
+        if (app.nativeMessageMenu.open()) {
+            (void)take_menu_keys(app);
+            result = hanabi::surface::native_menu_frame(ctx, uiRoot, 8892, "message_menu",
+                                                        app.nativeMessageMenu, scope);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = app.nativeMessageMenu.action_of(result.activated);
+        } else {
+            result = hanabi::surface::context_menu(
+                ctx, uiRoot, 8892, metrics, app.messageMenuX, app.messageMenuY, "",
+                "message_menu", items, app.menuCursor, take_menu_keys(app),
+                hanabi::surface::kContextMenuLayer, std::string_view());
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = items[result.activated].action_id;
+        }
+        if (!pickedAction.empty()) {
+            std::string payload;
+            if (pickedAction == "copy_message")
+                payload = hanabi::transcript_copy::copy_message_payload(session->messages,
+                                                                        app.messageMenuMessageId);
+            else if (pickedAction == "copy_turn")
+                payload = hanabi::transcript_copy::copy_turn_payload(session->messages,
+                                                                     app.messageMenuMessageId);
+            if (!payload.empty()) {
+                hanabi::clipboard::set_text(payload);
+                hanabi::test_hooks::record_clipboard_text(payload);
+            }
+            app.close_message_menu();
+            return;
+        }
+        if (result.dismissed || result.cancelled) app.close_message_menu();
+    }
+
     void render_bubble(UIContext<InputAction>& ctx, Entity& parent, int index,
                        const api::Message& m, float paneWidth,
                        bool isLive = false,
@@ -11759,6 +11848,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             uturn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
                 [](Entity&) {});
             uturn.ent().get<afterhours::HasColor>().skip_hover_override = true;
+            offer_message_menu(ctx, uturn.ent(), m);
             auto row = div(ctx, mk(uturn.ent(), 1),
                 ComponentConfig{}
                     .with_size(ComponentSize{percent(1.0f), children()})
@@ -11927,6 +12017,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         turn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         turn.ent().get<afterhours::HasColor>().skip_hover_override = true;
+        offer_message_menu(ctx, turn.ent(), m);
 
         // Meta row above the body: STATE only, right-aligned, on the first
         // assistant message of a turn (V2 grouping) — continuation fragments
@@ -13671,9 +13762,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                 oneCmd, 1, tool_duration(m), m.tool_status,
                                 /*showCount=*/false,
                                 api::tool_kinds::classify(m.subtitle));
+        head.addComponentIfMissing<afterhours::ui::HasClickListener>([](Entity&) {});
+        offer_message_menu(ctx, head, m);
         if (expandable && app && !key.empty()) {
-            head.addComponentIfMissing<afterhours::ui::HasClickListener>(
-                [](Entity&) {});
             if (head.get<afterhours::ui::HasClickListener>().down) {
                 tool_toggle(*app, key, open, index);
             }

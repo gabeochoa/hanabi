@@ -1319,6 +1319,42 @@ struct AppComponent : public afterhours::BaseComponent {
         rowMenuNativeScope.clear();
         nativeRowMenu.clear();
     }
+    bool messageMenuOpen = false;
+    std::string messageMenuSessionId;
+    std::string messageMenuMessageId;
+    float messageMenuX = 0.0f;
+    float messageMenuY = 0.0f;
+    bool messageMenuNativeTried = false;
+    std::string messageMenuNativeScope;
+    hanabi::native_menu::Open nativeMessageMenu;
+    void open_message_menu(std::string sessionId, std::string messageId, float x, float y) {
+        close_row_menu();
+        messageMenuOpen = true;
+        messageMenuSessionId = std::move(sessionId);
+        messageMenuMessageId = std::move(messageId);
+        messageMenuX = x;
+        messageMenuY = y;
+        menuCursor = {};
+        messageMenuNativeTried = false;
+        messageMenuNativeScope.clear();
+        nativeMessageMenu.clear();
+    }
+    void close_message_menu() {
+        messageMenuOpen = false;
+        messageMenuSessionId.clear();
+        messageMenuMessageId.clear();
+        menuCursor = {};
+        if (nativeMessageMenu.open()) hanabi::native_menu::cancel(nativeMessageMenu.generation);
+        messageMenuNativeTried = false;
+        messageMenuNativeScope.clear();
+        nativeMessageMenu.clear();
+    }
+    const api::Session* session_with_messages(const std::string& id) const {
+        for (std::size_t i = 0; i < active_pane_count(); ++i)
+            if (panes[i].openSession && panes[i].openSession->summary.id == id)
+                return &*panes[i].openSession;
+        return nullptr;
+    }
     void close_row_menu() {
         rowMenuOpen = false;
         rowMenuSessionId.clear();
@@ -2091,7 +2127,8 @@ inline hanabi::ask::KeyOwnership key_ownership(const AppComponent& app,
     hanabi::ask::KeyOwnership own;
     own.modalSheet = overlay_up(app);
     own.recordingShortcut = app.shortcutRecording >= 0;
-    own.transientUi = app.sessionSearchOpen || app.rowMenuOpen || tabMenuOpen ||
+    own.transientUi = app.sessionSearchOpen || app.rowMenuOpen || app.messageMenuOpen ||
+                      tabMenuOpen ||
                       app.any_find_open() || composer_strip_surface_up(app);
     return own;
 }

@@ -1,0 +1,35 @@
+# NATIVE ARM, real input: Escape closes the message menu with no pick and
+# the clipboard is untouched; a second right-click on another bubble opens a
+# menu scoped to THAT message (Down, Return = "Copy Turn"), whose bytes are
+# the whole exchange.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_NATIVE_MENU_LOG=1 HANABI_OPEN=t2
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+reset_clipboard_probe
+native_right_click_text "Reconcile this cycle's Stars payouts"
+wait_frames 6
+native_menu_expect open message:t2/m1
+native_key 53
+wait_frames 12
+native_menu_expect closed
+expect_no_ui message_menu_native_eater
+dump_message_menu
+# The negative control: the private clipboard is EMPTY, not merely unchanged.
+expect_clipboard ""
+native_right_click_text "Both look like a rounding artifact"
+wait_frames 6
+native_menu_expect open message:t2/m3
+native_key 125
+native_key 125
+wait_frames 4
+native_key 36
+wait_frames 2
+dump_message_menu
+wait_frames 10
+dump_message_menu
+native_menu_expect closed
+expect_clipboard_contains "### **You**"
+expect_clipboard_contains "Hold, or proceed and I'll flag the two for manual follow-up?"

@@ -35,6 +35,7 @@ static Env isolated() {
     e.config = e.home + "/no-such-config.json";
     e.cache_dir = e.home + "/cache/native_send";
     e.token_file = e.home + "/token.json";
+    e.pasteboard_name = "hanabi-e2e-native_send-4242-1789380000";
     return e;
 }
 
@@ -74,6 +75,22 @@ static void test_rules() {
     { Env e = isolated(); e.config = "";     CHECK(mentions(refusal(e), "HANABI_CONFIG")); }
     { Env e = isolated(); e.cache_dir = "";  CHECK(mentions(refusal(e), "HANABI_CACHE_DIR")); }
     { Env e = isolated(); e.token_file = ""; CHECK(mentions(refusal(e), "HANABI_TOKEN_FILE")); }
+    { Env e = isolated(); e.pasteboard_name = ""; CHECK(mentions(refusal(e), "HANABI_PASTEBOARD_NAME")); }
+    // Only the runner's namespace is accepted: the general board under any of
+    // its spellings, the other system boards, and an arbitrary name are all
+    // refused -- the rule is "ours", not "not that one".
+    for (const char* system : {"Apple CFPasteboard general", "general", "Apple CFPasteboard find",
+                               "Apple CFPasteboard ruler", "Apple CFPasteboard font",
+                               "Apple CFPasteboard drag", "com.apple.pasteboard.general",
+                               "hanabi-e2e", "hanabi-e2e", "my-board"}) {
+        Env e = isolated();
+        e.pasteboard_name = system;
+        CHECK(mentions(refusal(e), "HANABI_PASTEBOARD_NAME"));
+    }
+    { Env e = isolated(); e.pasteboard_name = "hanabi-e2e-x-1-2"; CHECK(!refusal(e).has_value()); }
+    CHECK(hanabi::native_e2e::is_private_pasteboard_name("hanabi-e2e-script-42-1789380000"));
+    CHECK(!hanabi::native_e2e::is_private_pasteboard_name("hanabi-e2e-"));
+    CHECK(!hanabi::native_e2e::is_private_pasteboard_name("Hanabi-E2E-x"));
     { Env e = isolated(); e.token_file = "/Users/someone/Library/Application Support/hanabi/token.json";
       CHECK(mentions(refusal(e), "HANABI_TOKEN_FILE inside the private HOME")); }
     { Env e = isolated(); e.cache_dir = "/private/tmp/other/cache"; CHECK(mentions(refusal(e), "HANABI_CACHE_DIR inside")); }
@@ -115,7 +132,16 @@ static void test_canonicalisation() {
     setenv("HANABI_CONFIG", (root / "link" / "no-such-config.json").c_str(), 1);
     setenv("HANABI_CACHE_DIR", (root / "link" / "cache").c_str(), 1);
     setenv("HANABI_TOKEN_FILE", (root / "link" / "token.json").c_str(), 1);
+    // The process fixture without a private pasteboard name is refused for
+    // that alone; with one, the path rules decide.
+    unsetenv("HANABI_PASTEBOARD_NAME");
+    CHECK(mentions(refusal(hanabi::native_e2e::from_process()), "HANABI_PASTEBOARD_NAME"));
+    setenv("HANABI_PASTEBOARD_NAME", "Apple CFPasteboard general", 1);
+    CHECK(mentions(refusal(hanabi::native_e2e::from_process()), "HANABI_PASTEBOARD_NAME"));
+    const std::string board = "hanabi-e2e-unit-" + std::to_string(getpid());
+    setenv("HANABI_PASTEBOARD_NAME", board.c_str(), 1);
     Env e = hanabi::native_e2e::from_process();
+    CHECK(e.pasteboard_name == board);
     CHECK(e.backend == "mock");                 // trimmed
     CHECK(e.home == fixture.string());          // the symlink resolved
     CHECK(e.home_is_dir);

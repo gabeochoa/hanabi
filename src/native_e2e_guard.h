@@ -45,6 +45,7 @@
 namespace hanabi::native_e2e {
 
 struct Env {
+    std::string pasteboard_name;
     std::string backend;     // HANABI_BACKEND, trimmed
     std::string home;        // HOME, canonical ("" when unset or unresolvable)
     bool home_is_dir = false;
@@ -78,6 +79,12 @@ inline bool inside(std::string_view root, std::string_view path) {
            path[root.size()] == '/';
 }
 
+inline constexpr std::string_view kPrivatePasteboardPrefix = "hanabi-e2e-";
+inline bool is_private_pasteboard_name(std::string_view name) {
+    return name.size() > kPrivatePasteboardPrefix.size() &&
+           name.substr(0, kPrivatePasteboardPrefix.size()) == kPrivatePasteboardPrefix;
+}
+
 inline Env from_process() {
     namespace fs = std::filesystem;
     Env e;
@@ -99,6 +106,7 @@ inline Env from_process() {
         }
         out = c.string();
     };
+    e.pasteboard_name = env_or_empty("HANABI_PASTEBOARD_NAME");
     resolve("HOME", e.home);
     if (!e.home.empty()) e.home_is_dir = fs::is_directory(fs::path(e.home), ec) && !ec;
     resolve("HANABI_CONFIG", e.config);
@@ -138,6 +146,12 @@ inline std::optional<std::string> refusal(const Env& e) {
     if (auto why = must_be_inside_home("HANABI_CONFIG", e.config)) return why;
     if (auto why = must_be_inside_home("HANABI_CACHE_DIR", e.cache_dir)) return why;
     if (auto why = must_be_inside_home("HANABI_TOKEN_FILE", e.token_file)) return why;
+    if (!is_private_pasteboard_name(e.pasteboard_name))
+        return std::string("HANABI_E2E_WINDOWED needs HANABI_PASTEBOARD_NAME in the runner's "
+                           "private namespace (hanabi-e2e-<script>-<pid>-<time>): the general, "
+                           "find, ruler, font and drag boards -- and any alias of them -- are "
+                           "the user's (scripts/run_ui_tests.sh names one per script); got '") +
+               e.pasteboard_name + "'.";
     return std::nullopt;
 }
 

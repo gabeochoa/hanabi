@@ -23,11 +23,20 @@ inline void reset_test_probe() { test_probe() = {}; }
 #endif
 
 inline void set_text(std::string_view text) {
-    afterhours::clipboard::set_text(text);
 #ifdef AFTER_HOURS_ENABLE_E2E_TESTING
     auto& probe = test_probe();
     ++probe.generation;
     probe.text.assign(text);
+#else
+    afterhours::clipboard::set_text(text);
+#endif
+}
+
+inline std::string get_text() {
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    return test_probe().text;
+#else
+    return afterhours::clipboard::get_text();
 #endif
 }
 

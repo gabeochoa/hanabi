@@ -284,7 +284,6 @@ struct HandleExpectClipboardCommand
             actual = probe.text;
         } else {
             actual = std::string(hanabi::test_hooks::recorded_clipboard_text());
-            if (actual.empty()) actual = afterhours::clipboard::get_text();
         }
         if (contains ? actual.find(expected) != std::string::npos
                      : actual == expected) {
@@ -1789,6 +1788,8 @@ struct HandleNativeMenuInjectCommand
             std::string scope;
             if (const ecs::AppComponent* app = app_component()) {
                 if (app->nativeRowMenu.open()) scope = app->nativeRowMenu.scope;
+                if (scope.empty() && app->nativeMessageMenu.open())
+                    scope = app->nativeMessageMenu.scope;
             }
             if (scope.empty())
                 if (auto* strip = afterhours::EntityHelper::get_singleton_cmp<
@@ -3347,6 +3348,32 @@ struct HandleDumpFocusableCommand
     }
 };
 
+struct HandleDumpMessageMenuCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("dump_message_menu")) return;
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr) {
+            cmd.fail("dump_message_menu: no app");
+            return;
+        }
+        std::printf("[E2E] dump_message_menu: open=%d session='%s' message='%s' nativeTried=%d "
+                    "nativeScope='%s' nativeGen=%llu nativeOpenScope='%s' adapterBusy=%d "
+                    "adapterGen=%llu clipboardGen=%llu clipboardLen=%zu\n",
+                    app->messageMenuOpen ? 1 : 0, app->messageMenuSessionId.c_str(),
+                    app->messageMenuMessageId.c_str(), app->messageMenuNativeTried ? 1 : 0,
+                    app->messageMenuNativeScope.c_str(),
+                    static_cast<unsigned long long>(app->nativeMessageMenu.generation),
+                    app->nativeMessageMenu.scope.c_str(), hanabi::native_menu::busy() ? 1 : 0,
+                    static_cast<unsigned long long>(hanabi::native_menu::current_generation()),
+                    static_cast<unsigned long long>(hanabi::clipboard::test_probe().generation),
+                    hanabi::clipboard::test_probe().text.size());
+        cmd.consume();
+    }
+};
+
 struct HandleDumpLastPressCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -3427,6 +3454,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleDumpPopoverFlagsCommand>());
     sm.register_update_system(std::make_unique<HandleDumpFocusableCommand>());
     sm.register_update_system(std::make_unique<HandleDumpTextOwnersCommand>());
+    sm.register_update_system(std::make_unique<HandleDumpMessageMenuCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
