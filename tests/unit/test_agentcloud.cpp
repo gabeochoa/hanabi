@@ -2086,6 +2086,10 @@ static void test_models_reply_parses_the_deployment_menu() {
     CHECK(menu.row_for("codex") == nullptr);
     CHECK(api::agentcloud::parse_models_reply(R"({"type":"models"})").empty());
     CHECK(api::agentcloud::parse_models_reply("garbage").empty());
+}
+
+}
+
 // spec 081's wider token vocabulary on the attach: each key additive, absent
 // stays -1 (never zero-filled), the compaction's estimates under their own
 // names, the child rollup.
@@ -2113,7 +2117,6 @@ static void test_attach_greeting_carries_the_wider_token_accounting() {
     CHECK(old.last_call_input == -1 && old.last_compaction_before == -1 &&
           old.children_input == -1);
     CHECK(old.used_tokens == 5 && old.budget_tokens == 100);
-}
 
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");

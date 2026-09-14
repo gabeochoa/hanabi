@@ -70,6 +70,7 @@ enum class EscapeIntent {
     CloseSlashMenu,
     CloseModelPicker,
     ClosePlanPicker,
+    CloseContextPopover,
     CloseFoldPicker,
     CloseNodePicker,
     DeclineAsk,
@@ -894,6 +895,13 @@ struct AppComponent : public afterhours::BaseComponent {
     // The composer strip's effort picker. One flag: the popover is a list of
     // levels and a click, with nothing in flight behind it.
     bool planPopoverOpen = false;
+    // The context meter's popover (the reference's ContextPopover): how full
+    // the window is, and -- with Appearance's Full context detail on, or the
+    // Details disclosure opened for this showing -- the ledger the attach
+    // reported. `contextDetailsExpanded` is the disclosure's state for ONE
+    // showing; the setting is the durable default.
+    bool contextPopoverOpen = false;
+    bool contextDetailsExpanded = false;
     // The composer strip's tool-fold picker (Fold all / Expand all / Auto).
     bool foldPopoverOpen = false;
     // The composer strip's node picker: the roster it lists, the node a NEW
@@ -1924,7 +1932,7 @@ inline bool overlay_up(const AppComponent& app) {
 }
 
 inline bool composer_strip_surface_up(const AppComponent& app) {
-    return app.slashMenuOpen || app.modelPopoverOpen ||
+    return app.slashMenuOpen || app.modelPopoverOpen || app.contextPopoverOpen ||
            app.planPopoverOpen || app.foldPopoverOpen || app.nodePopoverOpen;
 }
 

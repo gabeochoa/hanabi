@@ -89,6 +89,16 @@ yet (not because a wrapper is missing):
   WITH a line saying so -- never an empty list as an authoritative answer --
   and refuses nothing on the catalog's basis: only the server's typed refusal
   does. The mock's HANABI_MOCK_MODELS is a capture fixture.
+
+- **Per-model effort lists** — the reference draws the efforts of the current
+  model (`models.first{key}.efforts`); the OpenAPI spec exposes no per-model
+  effort catalog, so hanabi lists the flat ladder (`hanabi::effort::all`).
+- **Harness section** — the reference lists harnesses and marks the session's
+  as Locked; no harness catalog is served to clients today.
+- **Compact now** — the reference's context popover carries a "Compact now"
+  button (its socket has a compaction command). hanabi's client has no
+  compaction verb, so the popover draws no such button rather than a control
+  that does nothing; wiring the command is the open item.
 - **Correlation** — the protocol carries no request id: an `options_changed`
   settles the oldest outstanding patch (the reference's rule too). hanabi
   keeps ONE change in flight per session and refuses a second locally until

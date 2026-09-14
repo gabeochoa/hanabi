@@ -1,8 +1,11 @@
-# Appearance · Context · "Full context detail". Off, the caption under the
-# meter says how full the window is. On, it carries the wider accounting the
-# server reported on the attach -- lifetime totals, cache split, last call,
-# last compaction, sub-agent rollup -- each part only when the server said
-# it. The switch is a real setting: it persists, and the caption follows it.
+# Appearance · Context · "Full context detail", in the reference's two states
+# of the context meter's popover. OFF: the popover says how full the window
+# is and offers a "Details" disclosure, closed for each showing; opened, it
+# draws the ledger. ON: the ledger is drawn outright, no disclosure. The
+# ledger is what the attach reported -- lifetime totals, cache split, last
+# call, last compaction, sub-agent rollup -- each row only when the server
+# said it. The switch is a real setting: it persists and the popover
+# follows it. The caption under the meter stays compact either way.
 #
 # t2's fixture carries the whole vocabulary (mock hello.state.tokens).
 # settings: {"window_width":1440,"window_height":900,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
@@ -11,8 +14,35 @@ require_thread t2
 wait_frames 12
 expect_text "258k / 800k tokens"
 expect_no_text "lifetime"
-expect_no_text "sub-agents"
 
+# OFF: fill line + Details, ledger closed.
+click_ui composer_meter
+wait_frames 10
+assert_ui context_popover_title hidden=false
+expect_text "258k of 800k tokens"
+expect_text "32% full"
+assert_ui context_popover_details hidden=false
+expect_no_ui context_conversation
+# Open the disclosure: the ledger, row by row.
+click_ui context_popover_details
+wait_frames 10
+expect_text "Conversation  412k in"
+expect_text "Cache  301k read"
+expect_text "Last call  14k in"
+expect_text "Last compaction  ~188k"
+expect_text "Sub-agents  96k in"
+expect_text "Durable counts survive restarts"
+key ESCAPE
+wait_frames 8
+expect_no_ui context_popover_title
+# Closed again for the next showing.
+click_ui composer_meter
+wait_frames 10
+expect_no_ui context_conversation
+key ESCAPE
+wait_frames 8
+
+# Turn the setting ON in Appearance.
 click_ui sb_settings
 wait_frames 16
 click_ui sb_settings_nav_appearance
@@ -24,18 +54,12 @@ wait_frames 10
 click_ui tab_close
 wait_frames 12
 expect_open t2
-expect_text "lifetime 412k in / 38k out"
-expect_text "cache 301k read / 44k written"
-expect_text "last call 14k in / 620 out"
-expect_text "last compaction ~188k"
-expect_text "sub-agents 96k in / 7.1k out"
-
-# Off again: back to the fill alone.
-click_ui sb_settings
-wait_frames 16
-click_ui settings_context_detail
-wait_frames 10
-click_ui tab_close
-wait_frames 12
+# ON: the ledger outright, no Details row; the caption unchanged.
 expect_text "258k / 800k tokens"
-expect_no_text "lifetime"
+click_ui composer_meter
+wait_frames 10
+expect_no_ui context_popover_details
+expect_text "Conversation  412k in"
+expect_text "Sub-agents  96k in"
+key ESCAPE
+wait_frames 8

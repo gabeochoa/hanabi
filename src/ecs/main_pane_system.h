@@ -1484,6 +1484,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // carrying a caret, which is exactly what composer_holds_keyboard says.
     bool composerHeldKeyboard_ = true;
     bool modelPopoverWasOpen_ = false;
+    bool contextPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
     struct AskRowId {
         const std::string* question;
@@ -6603,6 +6604,179 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // The context meter's popover, the reference's ContextPopover in the two
+    // states Appearance's "Full context detail" gives it. Header "Context"
+    // and the fill line (how full the window is, and whether the count is
+    // stale). OFF: a "Details" disclosure row, closed for each showing;
+    // opened, it draws the ledger. ON: the ledger is drawn outright. The
+    // ledger is what the attach reported (hello.state.tokens, spec 081),
+    // each row only when its number was reported: Conversation (lifetime in
+    // / out), the cache split, the last call, the last compaction, the
+    // sub-agent rollup, and the reference's closing sentence. No "Compact
+    // now": hanabi's client has no compaction verb, so the button would be
+    // a fake control -- it stays open (api-parity.md).
+    void render_context_popover(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app, Entity& anchorEnt,
+                                const api::ContextUsage& usage, int64_t tok,
+                                int64_t budget, bool counted) {
+        if (!app.contextPopoverOpen && !contextPopoverWasOpen_) return;
+        auto popRoot = mk(parent, 3500);
+        RectangleType anchor = anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        anchor.y -= 24.0f;
+        if (!app.contextPopoverOpen) {
+            afterhours::ui::imm::popover(ctx, popRoot, anchor, app.contextPopoverOpen,
+                                         afterhours::ui::overlay::Placement::Above);
+            contextPopoverWasOpen_ = false;
+            return;
+        }
+        contextPopoverWasOpen_ = true;
+
+        const bool detailSetting = Settings::get().get_context_detail();
+        const bool ledgerOpen = detailSetting || app.contextDetailsExpanded;
+        const bool hasConversation = usage.has_lifetime();
+        const bool hasCache = usage.cache_read_durable >= 0 || usage.cache_creation_durable >= 0;
+        const bool hasLastCall = usage.last_call_input >= 0;
+        const bool hasCompaction = usage.last_compaction_before >= 0;
+        const bool hasChildren = usage.children_input >= 0 || usage.children_output >= 0;
+        const bool ledgerBuilt =
+            hasConversation || hasCache || hasLastCall || hasCompaction || hasChildren;
+
+        constexpr float kPopW = 300.0f;
+        constexpr float kInset = 12.0f;
+        constexpr float kHeadH = 22.0f;
+        constexpr float kLineH = 18.0f;
+        constexpr float kRuleH = 9.0f;
+        const float innerW = kPopW - kInset * 2.0f;
+        int lines = 1;  // the fill line
+        if (!detailSetting) lines += 1;  // the Details row
+        int rules = 0;
+        if (ledgerOpen && ledgerBuilt) {
+            if (hasConversation) { lines += 1; rules += 1; }
+            if (hasCache) lines += 1;
+            if (hasLastCall) lines += 1;
+            if (hasCompaction) { lines += 1; rules += 1; }
+            if (hasChildren) { lines += 1; rules += 1; }
+            lines += 1; rules += 1;  // the closing sentence
+        } else if (ledgerOpen && !ledgerBuilt) {
+            lines += 1;
+        }
+        const float popH = kInset + kHeadH + kLineH * static_cast<float>(lines) +
+                           kRuleH * static_cast<float>(rules) + kInset;
+
+        const auto previousSurface = ctx.theme.surface;
+        ctx.theme.surface = theme::panel_bg_2();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, popRoot, anchor, app.contextPopoverOpen,
+            afterhours::ui::overlay::Placement::Above,
+            hanabi::surface::menu(kPopW, popH, 7)
+                .with_padding(Padding{.top = pixels(kInset), .right = pixels(kInset),
+                                      .bottom = pixels(kInset), .left = pixels(kInset)})
+                .with_debug_name("context_popover"));
+        ctx.theme.surface = previousSurface;
+        if (!pop) return;
+        publish_popover_occluder(pop.ent());
+
+        int key = 900;
+        const auto line = [&](const std::string& text, theme::Color color, float h,
+                              float fontSize, const std::string& name, bool emphasis = false) {
+            auto cfg = ComponentConfig{}
+                           .with_label(text)
+                           .with_size(ComponentSize{pixels(innerW), pixels(h)})
+                           .with_transparent_bg()
+                           .with_custom_text_color(color)
+                           .with_font_size(fontSize)
+                           .with_alignment(TextAlignment::Left)
+                           .with_debug_name(name);
+            if (emphasis) cfg.with_font_weight(theme::type::EMPHASIS);
+            return div(ctx, mk(pop.ent(), key++), cfg);
+        };
+        const auto rule = [&](const char* name) {
+            div(ctx, mk(pop.ent(), key++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(innerW), pixels(kRuleH)})
+                    .with_transparent_bg()
+                    .with_on_draw_fg([](RectangleType r) {
+                        afterhours::draw_rectangle(
+                            RectangleType{r.x, std::round(r.y + 4.0f), r.width, 1.0f},
+                            theme::border());
+                    })
+                    .with_debug_name(name));
+        };
+        const auto n = [](int64_t v) { return fmtutil::compact_count(std::max<int64_t>(0, v)); };
+        const auto in_out = [&](int64_t in, int64_t out) {
+            return n(in) + " in \xc2\xb7 " + n(out) + " out";
+        };
+
+        auto head = line("Context", theme::text_primary(), kHeadH, theme::type::SM,
+                         "context_popover_title", /*emphasis=*/true);
+        hanabi::a11y::set_name(head.ent(), "Context", hanabi::a11y::Role::Menu);
+
+        std::string fill = counted ? n(tok) : "~" + n(tok);
+        if (budget > 0) {
+            const int pct = static_cast<int>(std::lround(
+                100.0 * static_cast<double>(tok) / static_cast<double>(budget)));
+            fill += " of " + n(budget) + " tokens \xc2\xb7 " + std::to_string(pct) + "% full";
+        } else {
+            fill += " tokens";
+        }
+        if (usage.stale) fill += " \xc2\xb7 stale";
+        line(fill, theme::text_secondary(), kLineH, theme::type::SM, "context_popover_fill");
+
+        if (!detailSetting) {
+            auto row = button(ctx, mk(pop.ent(), 1),
+                ComponentConfig{}
+                    .with_label(std::string(app.contextDetailsExpanded ? "\xe2\x8c\x84 " : "\xe2\x80\xba ") +
+                                "Details")
+                    .with_size(ComponentSize{pixels(innerW), pixels(kLineH)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_debug_name("context_popover_details"));
+            hanabi::a11y::describe(row.ent(), {.value = "Details",
+                                               .role = hanabi::a11y::Role::Button,
+                                               .expanded = app.contextDetailsExpanded});
+            hanabi::ui::act_on_press(row, [&app] {
+                app.contextDetailsExpanded = !app.contextDetailsExpanded;
+            });
+        }
+
+        if (ledgerOpen && ledgerBuilt) {
+            if (hasConversation) {
+                rule("context_popover_rule_a");
+                line("Conversation  " + in_out(usage.input_durable, usage.output_durable),
+                     theme::text_primary(), kLineH, theme::type::SM, "context_conversation");
+            }
+            if (hasCache)
+                line("Cache  " + n(usage.cache_read_durable) + " read \xc2\xb7 " +
+                         n(usage.cache_creation_durable) + " written",
+                     theme::text_secondary(), kLineH, theme::type::SM, "context_cache");
+            if (hasLastCall)
+                line("Last call  " + in_out(usage.last_call_input, usage.last_call_output),
+                     theme::text_secondary(), kLineH, theme::type::SM, "context_last_call");
+            if (hasCompaction) {
+                rule("context_popover_rule_b");
+                line("Last compaction  ~" + n(usage.last_compaction_before) + " \xe2\x86\x92 ~" +
+                         n(usage.last_compaction_after),
+                     theme::text_secondary(), kLineH, theme::type::SM, "context_compaction");
+            }
+            if (hasChildren) {
+                rule("context_popover_rule_c");
+                line("Sub-agents  " + in_out(usage.children_input, usage.children_output),
+                     theme::text_secondary(), kLineH, theme::type::SM, "context_subagents");
+            }
+            rule("context_popover_rule_d");
+            line("Durable counts survive restarts; older turns compact automatically as the "
+                 "session grows.",
+                 theme::text_faint(), kLineH, theme::type::MICRO, "context_popover_note");
+        } else if (ledgerOpen && !ledgerBuilt) {
+            line("The server reported no ledger for this conversation.", theme::text_faint(),
+                 kLineH, theme::type::MICRO, "context_popover_empty");
+        }
+    }
+
     void render_plan_popover(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, Entity& anchorEnt,
                              const api::Session& session) {
@@ -7726,29 +7900,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // A reading the server has not caught up with says so. Hiding
                 // it would present a stale number as a live one.
                 if (usage.stale) label += " \xc2\xb7 stale";
-                // Appearance · Full context detail: the wider accounting the
-                // server reported on the attach, each part only when it was
-                // reported (-1 = it was not). Off, the caption is the fill.
-                if (Settings::get().get_context_detail()) {
-                    const auto n = [](int64_t v) {
-                        return fmtutil::compact_count(std::max<int64_t>(0, v));
-                    };
-                    if (usage.has_lifetime())
-                        label += " \xc2\xb7 lifetime " + n(usage.input_durable) + " in / " +
-                                 n(usage.output_durable) + " out";
-                    if (usage.cache_read_durable >= 0 || usage.cache_creation_durable >= 0)
-                        label += " \xc2\xb7 cache " + n(usage.cache_read_durable) + " read / " +
-                                 n(usage.cache_creation_durable) + " written";
-                    if (usage.last_call_input >= 0)
-                        label += " \xc2\xb7 last call " + n(usage.last_call_input) + " in / " +
-                                 n(usage.last_call_output) + " out";
-                    if (usage.last_compaction_before >= 0)
-                        label += " \xc2\xb7 last compaction ~" + n(usage.last_compaction_before) +
-                                 " \xe2\x86\x92 ~" + n(usage.last_compaction_after);
-                    if (usage.children_input >= 0 || usage.children_output >= 0)
-                        label += " \xc2\xb7 sub-agents " + n(usage.children_input) + " in / " +
-                                 n(usage.children_output) + " out";
-                }
                 // Puffin's order, left to right: the track first, then the
                 // figure. Measured on the reference: the track is 48x5 at
                 // x=441..489 — 10px after the model label — and the figure
@@ -7759,7 +7910,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     const float frac =
                         std::min(1.0f, static_cast<float>(tok) /
                                            static_cast<float>(budget));
-                    div(ctx, mk(leftMeta.ent(), 13),
+                    // The meter is the popover's anchor (the reference's
+                    // ContextPopover hangs off it): a press opens the context
+                    // popover; the bar keeps its 48x5 paint.
+                    auto meter = button(ctx, mk(leftMeta.ent(), 13),
                         ComponentConfig{}
                             .with_size(ComponentSize{pixels(48), pixels(5)})
                             // 10 from the text that precedes it — Puffin's
@@ -7767,7 +7921,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             // run's box already carries past its last glyph.
                             .with_margin(Margin{.left = pixels(5)})
                             .with_custom_background(theme::panel_bg_2())
+                            .with_custom_hover_bg(theme::panel_bg_2())
                             .with_roundness(0.5f)
+                            .with_cursor(afterhours::ui::CursorType::Pointer)
+                            .with_click_activation(ClickActivationMode::Press)
                             .with_on_draw_fg([frac](RectangleType rr) {
                                 float w = rr.width * frac;
                                 if (w < 2.0f) w = 2.0f;
@@ -7778,6 +7935,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                                 theme::panel_bg_2()));
                             })
                             .with_debug_name(cname("composer_meter")));
+                    hanabi::a11y::set_name(meter.ent(), "Context: " + label);
+                    if (meter) {
+                        app.contextPopoverOpen = !app.contextPopoverOpen;
+                        app.contextDetailsExpanded = false;
+                        app.composerPopoverPane = paneIndex;
+                    }
+                    if (app.escape == EscapeIntent::CloseContextPopover)
+                        app.contextPopoverOpen = false;
+                    if (ownsPopovers)
+                        render_context_popover(ctx, parent, app, meter.ent(), usage, tok,
+                                               budget, counted);
                 }
                 div(ctx, mk(leftMeta.ent(), 12),
                     ComponentConfig{}
