@@ -1,8 +1,6 @@
 #pragma once
 
-#include <cctype>
 #include <chrono>
-#include <cstdio>
 #include <filesystem>
 #include <future>
 #include <string>
@@ -45,38 +43,9 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
         return "";
     }
 
-    static std::string safe_segment(std::string s) {
-        for (char& c : s)
-            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' &&
-                c != '_')
-                c = '_';
-        return s;
-    }
-
     static std::string cache_target(const api::ArtifactRef& ref) {
-        const std::string root = api::disk_cache::cache_dir();
-        if (root.empty()) return "";
-        const std::filesystem::path dir =
-            std::filesystem::path(root) / "artifacts";
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
-        return (dir / (safe_segment(ref.id) + "-" + safe_segment(ref.version) +
-                       extension_for(ref)))
-            .string();
-    }
-
-    static bool write_file(const std::string& target, const std::string& bytes) {
-        const std::string temp = target + ".tmp";
-        FILE* f = std::fopen(temp.c_str(), "wb");
-        if (!f) return false;
-        const bool ok =
-            std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
-        std::fclose(f);
-        if (!ok) {
-            std::remove(temp.c_str());
-            return false;
-        }
-        return std::rename(temp.c_str(), target.c_str()) == 0;
+        return api::disk_cache::artifact_path(ref.id, ref.version,
+                                              extension_for(ref));
     }
 
     static void poll(Slot& slot) {
@@ -84,13 +53,8 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
             slot.future.wait_for(std::chrono::seconds(0)) !=
                 std::future_status::ready)
             return;
-        auto result = slot.future.get();
-        if (result.ok && write_file(slot.target, result.value.bytes)) {
-            slot.localPath = slot.target;
-            if (slot.audio) native_audio_duration(slot.target.c_str());
-        } else {
-            slot.failed = true;
-        }
+        if (slot.future.get().ok) slot.localPath = slot.target;
+        else slot.failed = true;
     }
 
     bool resolve(AppComponent& app, const std::string& sessionId,
@@ -111,8 +75,21 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
             } else if (app.client && app.client->supports_artifacts()) {
                 std::shared_ptr<api::Client> c = app.client;
                 const api::ArtifactRef copy = ref;
-                slot.future = std::async(std::launch::async, [c, sessionId, copy] {
-                    return c->fetch_artifact(sessionId, copy);
+                const std::string target = slot.target;
+                const bool audio = slot.audio;
+                slot.future = std::async(std::launch::async, [c, sessionId, copy,
+                                                              target, audio] {
+                    auto result = c->fetch_artifact(sessionId, copy);
+                    if (result.ok &&
+                        api::disk_cache::store_artifact(target, result.value.bytes)) {
+                        result.value.bytes.clear();
+                        if (audio) native_audio_duration(target.c_str());
+                        return result;
+                    }
+                    if (result.ok)
+                        result = api::Result<api::ArtifactContent>::failure(
+                            "The artifact could not be written to the cache.");
+                    return result;
                 });
             } else {
                 slot.failed = true;
@@ -134,6 +111,19 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
         for (auto& [key, slot] : slots_) {
             poll(slot);
             if (slot.future.valid()) app->artifactFetchPending = true;
+        }
+        bool clipShown = app->audioClipPath.empty();
+        for (std::size_t i = 0; i < app->active_pane_count(); ++i) {
+            const Pane& pane = app->panes[i];
+            if (!pane.openSession) continue;
+            for (const api::Message& m : pane.openSession->messages)
+                if (m.kind == api::EventKind::Artifact &&
+                    m.artifact.local_path == app->audioClipPath)
+                    clipShown = true;
+        }
+        if (!clipShown) {
+            native_audio_stop();
+            app->audioClipPath.clear();
         }
         for (Pane& pane : app->panes) {
             if (!pane.openSession) continue;

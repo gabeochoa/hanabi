@@ -7,6 +7,7 @@
 // Pure logic only — no network, no graphics. The message-queue test drives the
 // AppComponent queue helpers directly (the loader's dispatch decision is a
 // simple predicate over the same helpers, exercised here without the ECS).
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -148,6 +149,48 @@ static void test_disk_cache_total_and_wipe() {
     CHECK(std::filesystem::exists(dir + "/config.json"));
     CHECK(std::filesystem::exists(dir + "/token.json"));
     CHECK(std::filesystem::exists(dir + "/keep.me"));
+
+    std::filesystem::remove_all(dir);
+    unsetenv("HANABI_CACHE_DIR");
+}
+
+static void test_artifact_bytes_are_cache_bytes() {
+    std::printf("test_artifact_bytes_are_cache_bytes\n");
+    std::string dir = "/tmp/hanabi_test_artifacts_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+    CHECK(api::disk_cache::total_bytes() == 0);
+
+    const std::string old = api::disk_cache::artifact_path("art/old", "v1", ".png");
+    const std::string young = api::disk_cache::artifact_path("art-new", "v2", ".wav");
+    CHECK(old.find("/artifacts/") != std::string::npos);
+    CHECK(old.find("art/old") == std::string::npos);
+    CHECK(api::disk_cache::store_artifact(old, std::string(3000, 'a')));
+    std::filesystem::last_write_time(
+        old, std::filesystem::file_time_type::clock::now() - std::chrono::hours(1));
+    CHECK(api::disk_cache::store_artifact(young, std::string(2000, 'b')));
+    CHECK(!api::disk_cache::store_artifact(dir + "/escaped.bin", "x"));
+    CHECK(!std::filesystem::exists(dir + "/escaped.bin"));
+    CHECK(api::disk_cache::total_bytes() == 5000);
+
+    api::Session s;
+    s.summary.id = "sess-art";
+    s.messages.push_back({"m1", api::Role::User, std::string(4000, 't'), 1, ""});
+    api::disk_cache::save_transcript(s);
+    const std::uint64_t withTx = api::disk_cache::total_bytes();
+    CHECK(withTx > 9000);
+
+    const std::uint64_t reclaimed = api::disk_cache::trim_to_cap(withTx - 2500, 1);
+    CHECK(reclaimed >= 3000);
+    CHECK(!std::filesystem::exists(old));
+    CHECK(std::filesystem::exists(young));
+    CHECK(api::disk_cache::load_transcript("sess-art").has_value());
+
+    const auto wiped = api::disk_cache::wipe_all_report();
+    CHECK(wiped.bytes_remaining == 0);
+    CHECK(!std::filesystem::exists(young));
+    CHECK(api::disk_cache::total_bytes() == 0);
 
     std::filesystem::remove_all(dir);
     unsetenv("HANABI_CACHE_DIR");
@@ -2167,6 +2210,7 @@ static void test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind() {
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
+    test_artifact_bytes_are_cache_bytes();
     test_mock_patch_session_options_follows_the_server_rules();
     test_mock_model_menu_is_the_catalog_with_the_default_marked();
     test_mock_compact_queues_then_the_next_turn_takes_it_up();

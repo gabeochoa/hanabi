@@ -90,7 +90,9 @@ struct ArtifactRef {
 
     [[nodiscard]] bool empty() const { return id.empty(); }
     [[nodiscard]] bool is_image() const {
-        return media_type.rfind("image/", 0) == 0;
+        return media_type == "image/png" || media_type == "image/jpeg" ||
+               media_type == "image/gif" || media_type == "image/webp" ||
+               media_type == "image/bmp";
     }
     [[nodiscard]] bool is_audio() const {
         return media_type.rfind("audio/", 0) == 0;
@@ -100,7 +102,6 @@ struct ArtifactRef {
 
 struct ArtifactContent {
     std::string bytes;
-    std::string media_type;
 };
 
 // High-signal attention state of a thread. This is the single notion the UI

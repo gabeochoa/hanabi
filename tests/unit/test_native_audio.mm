@@ -56,6 +56,10 @@ static void test_the_log_hook_records_the_play_instead_of_playing() {
     CHECK(native_audio_is_playing(kClip) == 1);
     CHECK(native_audio_is_playing("tests/fixtures/artifacts/other.wav") == 0);
     native_audio_pause();
+    CHECK(native_audio_is_playing(kClip) == 0);
+    native_audio_play(kClip);
+    CHECK(native_audio_is_playing(kClip) == 1);
+    native_audio_stop();
     unsetenv("HANABI_AUDIO_LOG");
     CHECK(native_audio_is_playing(kClip) == 0);
     std::string lines;
@@ -66,6 +70,7 @@ static void test_the_log_hook_records_the_play_instead_of_playing() {
     }
     CHECK(lines.find(std::string("play ") + kClip + "\n") != std::string::npos);
     CHECK(lines.find("pause ") != std::string::npos);
+    CHECK(lines.find(std::string("stop ") + kClip + "\n") != std::string::npos);
     std::remove(log.c_str());
 }
 

@@ -2237,7 +2237,7 @@ inline bool overlay_up(const AppComponent& app) {
     // Settings is a click, the same as from any other tab -- and keyboard
     // owners behind it are not covering anything the reader cannot see.
     return app.renameOpen || app.showShortcuts || app.showAuth ||
-           app.paletteOpen;
+           app.paletteOpen || !app.viewerImagePath.empty();
 }
 
 inline bool composer_strip_surface_up(const AppComponent& app) {

@@ -13358,7 +13358,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kArtifactClipTimeW = 86.0f;
 
     static float artifact_inner_width(float colW) {
-        return std::max(120.0f, colW - kEventInset - kThinkingInset);
+        return std::max(40.0f, colW - kEventInset - kThinkingInset);
     }
     static float artifact_image_width(float colW) {
         return std::min(kArtifactImageMaxW, artifact_inner_width(colW));

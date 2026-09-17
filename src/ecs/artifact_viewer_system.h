@@ -22,7 +22,10 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* app = find_singleton<AppComponent>();
         if (!app || app->viewerImagePath.empty()) return;
-        if (app->escape == EscapeIntent::CloseArtifactViewer) {
+        if (app->escape == EscapeIntent::CloseArtifactViewer ||
+            app->paletteOpen || app->sessionSearchOpen || app->renameOpen ||
+            app->showShortcuts || app->showAuth || !app->requestOpenTab.empty() ||
+            app->requestNewThread) {
             app->escape = EscapeIntent::None;
             close(*app);
             return;

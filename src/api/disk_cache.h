@@ -133,6 +133,10 @@ struct Draft {
     std::vector<Attachment> attachments;
 };
 
+std::string artifact_path(const std::string& id, const std::string& version,
+                          const std::string& extension);
+bool store_artifact(const std::string& path, const std::string& bytes);
+
 Result<Attachment> retain_attachment(const Attachment& attachment);
 void remove_retained_attachment(const Attachment& attachment);
 

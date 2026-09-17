@@ -32,6 +32,8 @@ std::map<std::string, Analysis>& analyses() {
 }
 
 constexpr int kAnalysisBuckets = 256;
+constexpr AVAudioFrameCount kAnalysisChunkFrames = 1 << 16;
+constexpr double kAnalysisMaxSeconds = 60.0 * 60.0;
 
 bool logging(const char* verb, const char* path) {
     const char* log = std::getenv("HANABI_AUDIO_LOG");
@@ -69,28 +71,32 @@ Analysis analysis_for(const char* path) {
         const double rate = file.processingFormat.sampleRate;
         if (frames <= 0 || rate <= 0.0) return remember();
         a.duration = static_cast<double>(frames) / rate;
+        if (a.duration > kAnalysisMaxSeconds) return remember();
         AVAudioPCMBuffer* buffer = [[AVAudioPCMBuffer alloc]
             initWithPCMFormat:file.processingFormat
-              frameCapacity:static_cast<AVAudioFrameCount>(frames)];
-        if (buffer == nil || ![file readIntoBuffer:buffer error:&error] ||
-            buffer.floatChannelData == nullptr)
-            return remember();
-        const AVAudioFrameCount n = buffer.frameLength;
-        const AVAudioChannelCount channels = buffer.format.channelCount;
+              frameCapacity:kAnalysisChunkFrames];
+        if (buffer == nil) return remember();
         a.peaks.assign(kAnalysisBuckets, 0.0f);
-        for (int b = 0; b < kAnalysisBuckets; ++b) {
-            const AVAudioFrameCount lo =
-                static_cast<AVAudioFrameCount>(static_cast<double>(n) * b / kAnalysisBuckets);
-            const AVAudioFrameCount hi = static_cast<AVAudioFrameCount>(
-                static_cast<double>(n) * (b + 1) / kAnalysisBuckets);
-            float peak = 0.0f;
-            for (AVAudioChannelCount c = 0; c < channels; ++c) {
-                const float* samples = buffer.floatChannelData[c];
-                for (AVAudioFrameCount i = lo; i < hi; ++i)
-                    peak = std::max(peak, std::fabs(samples[i]));
+        AVAudioFramePosition consumed = 0;
+        while (consumed < frames) {
+            if (![file readIntoBuffer:buffer error:&error] || error != nil ||
+                buffer.frameLength == 0 || buffer.floatChannelData == nullptr) {
+                a.peaks.clear();
+                return remember();
             }
-            a.peaks[b] = std::min(1.0f, peak);
+            const AVAudioFrameCount n = buffer.frameLength;
+            const AVAudioChannelCount channels = buffer.format.channelCount;
+            for (AVAudioFrameCount i = 0; i < n; ++i) {
+                const int b = static_cast<int>(
+                    (consumed + i) * kAnalysisBuckets / frames);
+                float& peak = a.peaks[static_cast<std::size_t>(
+                    std::min(b, kAnalysisBuckets - 1))];
+                for (AVAudioChannelCount c = 0; c < channels; ++c)
+                    peak = std::max(peak, std::fabs(buffer.floatChannelData[c][i]));
+            }
+            consumed += n;
         }
+        for (float& p : a.peaks) p = std::min(1.0f, p);
     }
     return remember();
 }
@@ -135,11 +141,14 @@ void native_audio_pause(void) {
 }
 
 void native_audio_stop(void) {
+    if (logging("stop", g_logged_path.c_str())) {
+        g_logged_path.clear();
+        g_logged_playing = false;
+        return;
+    }
     if (g_player != nil) [g_player stop];
     g_player = nil;
     g_player_path.clear();
-    g_logged_path.clear();
-    g_logged_playing = false;
 }
 
 int native_audio_is_playing(const char* path) {

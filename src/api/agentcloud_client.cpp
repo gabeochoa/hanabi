@@ -3030,9 +3030,6 @@ Result<ArtifactContent> AgentcloudClient::fetch_artifact(
             "The artifact read answered " + std::to_string(res->status) + ".");
     ArtifactContent out;
     out.bytes = std::move(res->body);
-    out.media_type = res->get_header_value("Content-Type");
-    if (const auto semi = out.media_type.find(';'); semi != std::string::npos)
-        out.media_type.resize(semi);
     return Result<ArtifactContent>::success(std::move(out));
 }
 

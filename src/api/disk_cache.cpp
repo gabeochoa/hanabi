@@ -783,7 +783,48 @@ bool is_cache_file(const std::string& name) {
     return name.rfind("tx_", 0) == 0 && name.size() > 5 &&
            name.substr(name.size() - 5) == ".json";
 }
+
+constexpr const char* kArtifactDir = "artifacts";
+
+std::vector<fs::path> artifact_files(const std::string& root) {
+    std::vector<fs::path> out;
+    std::error_code ec;
+    const fs::path dir = fs::path(root) / kArtifactDir;
+    if (!fs::exists(dir, ec)) return out;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
+         it.increment(ec))
+        if (it->is_regular_file(ec)) out.push_back(it->path());
+    return out;
+}
 }  // namespace
+
+std::string artifact_path(const std::string& id, const std::string& version,
+                          const std::string& extension) {
+    const std::string root = cache_dir();
+    if (root.empty() || id.empty()) return "";
+    const fs::path dir = fs::path(root) / kArtifactDir;
+    if (!ensure_dir(dir.string())) return "";
+    return (dir / (safe_name(id) + "-" + safe_name(version) + extension)).string();
+}
+
+bool store_artifact(const std::string& path, const std::string& bytes) {
+    if (path.empty()) return false;
+    const fs::path target(path);
+    std::error_code ec;
+    if (fs::weakly_canonical(target.parent_path(), ec).filename() != kArtifactDir)
+        return false;
+    const std::string temp = path + ".tmp";
+    FILE* f = std::fopen(temp.c_str(), "wb");
+    if (!f) return false;
+    const bool ok = std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+    std::fclose(f);
+    if (!ok || std::rename(temp.c_str(), path.c_str()) != 0) {
+        std::remove(temp.c_str());
+        return false;
+    }
+    note_cache_bytes_written(bytes.size());
+    return true;
+}
 
 std::uint64_t total_bytes() {
     const std::string dir = cache_dir();
@@ -794,7 +835,8 @@ std::uint64_t total_bytes() {
     for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end;
          it.increment(ec)) {
         if (!it->is_regular_file(ec)) continue;
-        const bool retained = it->path().parent_path().filename() == "attachments";
+        const auto parent = it->path().parent_path().filename();
+        const bool retained = parent == "attachments" || parent == kArtifactDir;
         if (!retained && !is_cache_file(it->path().filename().string())) continue;
         std::error_code sz;
         auto n = fs::file_size(it->path(), sz);
@@ -823,6 +865,7 @@ WipeResult wipe_all_report() {
         if (is_cache_file(it->path().filename().string()))
             victims.push_back(it->path());
     }
+    for (fs::path& p : artifact_files(dir)) victims.push_back(std::move(p));
     std::size_t removed = 0;
     for (const auto& p : victims) {
         std::error_code rm;
@@ -1203,6 +1246,29 @@ std::uint64_t trim_to_cap(std::uint64_t cap_bytes, std::size_t keep_tail) {
     }
     if (before <= cap_bytes) return 0;  // already under cap
 
+    std::uint64_t total = before;
+    {
+        std::vector<TxEntry> arts;
+        for (fs::path& p : artifact_files(dir)) {
+            TxEntry e;
+            std::error_code sz;
+            auto n = fs::file_size(p, sz);
+            e.size = sz ? 0 : static_cast<std::uint64_t>(n);
+            std::error_code mt;
+            e.mtime = fs::last_write_time(p, mt);
+            e.path = std::move(p);
+            arts.push_back(std::move(e));
+        }
+        std::sort(arts.begin(), arts.end(),
+                  [](const TxEntry& a, const TxEntry& b) { return a.mtime < b.mtime; });
+        for (const auto& e : arts) {
+            if (total <= cap_bytes) break;
+            std::error_code rm;
+            if (fs::remove(e.path, rm) && !rm)
+                total = (total > e.size) ? (total - e.size) : 0;
+        }
+    }
+
     // Gather all transcript files (never sessions.json) with eviction metadata.
     std::error_code ec;
     std::vector<TxEntry> txs;
@@ -1233,7 +1299,6 @@ std::uint64_t trim_to_cap(std::uint64_t cap_bytes, std::size_t keep_tail) {
         return a.mtime < b.mtime;                          // oldest first
     });
 
-    std::uint64_t total = before;
     for (const auto& e : txs) {
         if (total <= cap_bytes) break;
         std::uint64_t reclaimed = 0;

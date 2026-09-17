@@ -1199,7 +1199,6 @@ class MockClient : public Client {
         for (std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
             out.bytes.append(buf, n);
         std::fclose(f);
-        out.media_type = ref.media_type;
         return Result<ArtifactContent>::success(std::move(out));
     }
 

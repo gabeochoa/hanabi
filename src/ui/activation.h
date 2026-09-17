@@ -17,6 +17,7 @@ struct Surfaces {
     bool sessionSearch = false;
     bool contextMenu = false;
     bool rename = false;
+    bool viewer = false;
     bool recordingShortcut = false;
     bool shortcuts = false;
     bool settings = false;
@@ -32,6 +33,7 @@ inline Intent resolve(const Surfaces& s) {
     if (s.sessionSearch) return Intent::SessionSearch;
     if (s.contextMenu) return Intent::ContextMenu;
     if (s.rename) return Intent::None;
+    if (s.viewer) return Intent::None;
     if (s.recordingShortcut) return Intent::None;
     if (s.shortcuts) return Intent::None;
     if (s.auth) return Intent::None;
