@@ -5,6 +5,7 @@
 #include <string_view>
 #include <vector>
 
+#include "../api/element_rows.h"
 #include "../api/types.h"
 
 namespace hanabi::transcript_copy {
@@ -24,6 +25,7 @@ inline bool is_turn_start(const api::Message& m) {
 }
 
 inline bool offers_copy_message(const api::Message& m) {
+    if (m.kind == api::EventKind::Element) return is_worth_showing(m.text);
     if (m.role == api::Role::Tool || m.role == api::Role::System) return false;
     switch (m.kind) {
         case api::EventKind::Text:
@@ -103,6 +105,7 @@ inline std::string body_of(const api::Message& m) {
                 out = "### **Delivered**" + (m.subtitle.empty() ? "" : " (" + m.subtitle + ")") +
                       "\n\n" + m.text + "\n\n";
                 break;
+            case api::EventKind::Element: out = api::elements::export_block(m); break;
             case api::EventKind::ToolCall: out = "*" + tool_line(m) + "*\n\n"; break;
             case api::EventKind::Text:
             default:

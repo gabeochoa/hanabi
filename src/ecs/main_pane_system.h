@@ -35,6 +35,7 @@
 #include "thread_model.h"
 #include "../util/prof.h"
 #include "../util/text_cache.h"
+#include "../api/element_rows.h"
 #include "../util/wrap_count.h"
 #include "transcript_ledger.h"
 #include "transcript_render_cache.h"
@@ -2292,6 +2293,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case model::RowGeom::Spawn:
             case model::RowGeom::Delivery:
             case model::RowGeom::Event:
+            case model::RowGeom::Element:
                 return hanabi::minimap::Mark::Notice;
             case model::RowGeom::Bubble:
                 return m.role == api::Role::User ? hanabi::minimap::Mark::Ask
@@ -4015,6 +4017,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (is_delivery(m)) { c.kind = model::RowGeom::Delivery; return c; }
             if (is_compaction(m)) { c.kind = model::RowGeom::Compaction; return c; }
             if (is_artifact(m)) { c.kind = model::RowGeom::Artifact; return c; }
+            if (is_element(m)) { c.kind = model::RowGeom::Element; return c; }
             if (is_one_line_event(m)) { c.kind = model::RowGeom::Event; return c; }
             if (m.role == api::Role::Tool) { c.kind = model::RowGeom::ToolBlock; return c; }
             const bool live = streamingHere && static_cast<size_t>(i) == liveIdx;
@@ -4072,6 +4075,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case model::RowGeom::Artifact:
                     r.h = artifact_height(m, colW);
+                    r.validLo = colW; r.validHi = colW;
+                    break;
+                case model::RowGeom::Element:
+                    r.h = element_height(m, colW);
                     r.validLo = colW; r.validHi = colW;
                     break;
                 case model::RowGeom::Event: r.h = event_row_height(); break;
@@ -4419,6 +4426,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         break;
                     case model::RowGeom::Artifact:
                         render_artifact_row(ctx, col, i, m, app, colW);
+                        break;
+                    case model::RowGeom::Element:
+                        render_element_row(ctx, col, i, m, colW);
                         break;
                     case model::RowGeom::Event:
                         render_event_row(ctx, col, i, m, colW);
@@ -13312,6 +13322,102 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("delivery_body"));
         render_rich_body(ctx, body.ent(), strip_inline_md(m.text),
                          colW - kEventInset - kThinkingInset);
+    }
+
+    // ---- Element rows -----------------------------------------------------
+    //
+    // A model-emitted element, drawn as its TEXT projection: a head naming
+    // the element (its title, else its registry key), a provenance line when
+    // there is something to say beyond "inline, first revision", then the
+    // projection as literal wrapped lines -- no markdown pass, no link
+    // detection, nothing executed. The projection is model-authored via a
+    // tool and is untrusted text. The `elements_v1` advert changes nothing
+    // here: this client has no element runtime and never claims one.
+    static bool is_element(const api::Message& m) {
+        return m.kind == api::EventKind::Element;
+    }
+    static constexpr float kElementProvenanceH = 16.0f;
+    static constexpr float kElementBodyGap = 2.0f;
+    static float element_text_w(float colW) {
+        return colW - kEventInset - kThinkingInset;
+    }
+    static std::string element_body(const api::Message& m) {
+        return m.text.empty() ? api::elements::heading(m.element) : m.text;
+    }
+    static float element_height(const api::Message& m, float colW) {
+        const std::string prov = api::elements::provenance(m.element);
+        const int lines = ask_wrap_lines(element_body(m), element_text_w(colW));
+        return event_row_height() + (prov.empty() ? 0.0f : kElementProvenanceH) +
+               kElementBodyGap + static_cast<float>(lines) * kLinePitch +
+               kThinkingPadBot;
+    }
+
+    void render_element_row(UIContext<InputAction>& ctx, Entity& parent,
+                            int index, const api::Message& m, float colW) {
+        const std::string head_text = api::elements::heading(m.element);
+        const std::string prov = api::elements::provenance(m.element);
+        const std::string body_text = element_body(m);
+        const float textW = element_text_w(colW);
+
+        auto wrap = div(ctx, mk(parent, 3700 + index * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(colW - kEventInset), children()})
+                .with_margin(Margin{.left = pixels(kEventInset)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("element_block"));
+        wrap.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        wrap.ent().addComponentIfMissing<afterhours::ui::SkipWhenTabbing>();
+        if (wrap.ent().has<afterhours::HasColor>())
+            wrap.ent().get<afterhours::HasColor>().skip_hover_override = true;
+        offer_message_menu(ctx, wrap.ent(), m);
+
+        div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_styled_label(
+                    {{std::string("element   "), theme::accent()},
+                     {fmtutil::ellipsize(head_text, 90), theme::text_secondary()}})
+                .with_size(ComponentSize{pixels(colW - kEventInset),
+                                         pixels(event_row_height())})
+                .with_transparent_bg()
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("element_head"));
+
+        if (!prov.empty()) {
+            div(ctx, mk(wrap.ent(), 2),
+                ComponentConfig{}
+                    .with_label(fmtutil::ellipsize(prov, 110))
+                    .with_size(ComponentSize{pixels(textW), pixels(kElementProvenanceH)})
+                    .with_margin(Margin{.left = pixels(kThinkingInset)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("element_provenance"));
+        }
+
+        auto body = div(ctx, mk(wrap.ent(), 3),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(textW), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(kElementBodyGap),
+                                    .bottom = pixels(kThinkingPadBot),
+                                    .left = pixels(kThinkingInset)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("element_body"));
+        render_ask_wrapped(ctx, body.ent(), 1, body_text,
+                           ask_wrap_lines(body_text, textW), textW, kLinePitch,
+                           theme::text_primary(), "element_line",
+                           /*selectable=*/true);
     }
 
     // The fold's own comment has always said this row is "one quiet row

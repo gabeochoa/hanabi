@@ -40,6 +40,7 @@
 #include "client.h"
 #include "../ui/model_menu.h"
 #include "compaction.h"
+#include "element_rows.h"
 #include "elicitation.h"
 
 namespace api {
@@ -1715,6 +1716,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
+        "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_ACCESS",      "HANABI_MOCK_NO_HALT",
         "HANABI_MOCK_HALT_REFUSE", "HANABI_MOCK_HALT_NO_ECHO",
         "HANABI_MOCK_HALT_OBSERVE_LATCH", "HANABI_MOCK_NO_HALT_ADVERT",
@@ -2998,6 +3000,66 @@ class MockClient : public Client {
             pin.model.serving = "gpt-5.5";
             pin.model.model_pinned = true;
             v.push_back(std::move(pin));
+        }
+
+        // ELEMENT FIXTURE: one thread of model-emitted elements, seeded only
+        // under HANABI_ELEMENTS_DEMO. Rows carry their seq as their id so
+        // api::elements::fold_element -- the same fold the wire parser runs
+        // -- stands each element at its FIRST emit and folds the re-emit
+        // into that row: a pinned table re-emitted at rev 2, an inline note
+        // whose projection holds a run of backticks, an artifact-placed card
+        // with an empty projection.
+        if (const char* ed = std::getenv("HANABI_ELEMENTS_DEMO");
+            ed && *ed && std::string(ed) != "0") {
+            Session s;
+            s.summary = calm("relements", "shard health table",
+                             hrs_ago(1), "active", ThreadState::Unknown,
+                             "element rows fixture");
+            s.messages = {
+                {"1", Role::User, "show me the shard health table", hrs_ago(2), ""},
+                {"2", Role::Assistant, "Here is the current shard health.",
+                 hrs_ago(2), ""},
+                {"4", Role::Assistant,
+                 "Shard C recovered; the table above is updated in place.",
+                 hrs_ago(1), ""},
+                {"7", Role::Assistant, "Nothing else needs you.", hrs_ago(1), ""},
+            };
+            ElementFacts table;
+            table.instance = "shard-health";
+            table.revision = 1;
+            table.placement = "pinned";
+            table.element = "std/Table";
+            table.title = "Shard health";
+            table.projection = "| shard | status | lag |\n| A | ok | 0s |\n| B | ok | 3s |";
+            table.run = 1;
+            elements::fold_element(s.messages, table, 3, hrs_ago(2));
+            table.revision = 2;
+            table.projection =
+                "| shard | status | lag |\n| A | ok | 0s |\n| B | ok | 1s |\n| C | ok | 0s |";
+            elements::fold_element(s.messages, table, 5, hrs_ago(1));
+
+            ElementFacts note;
+            note.instance = "fence-note";
+            note.revision = 1;
+            note.placement = "inline";
+            note.element = "std/Note";
+            note.projection =
+                "Quote the query as ```sql ... ``` in the doc; **these ticks and "
+                "stars are literal** and <b>so is this</b>.";
+            note.run = 1;
+            elements::fold_element(s.messages, note, 6, hrs_ago(1));
+
+            ElementFacts card;
+            card.instance = "run-summary";
+            card.revision = 1;
+            card.placement = "artifact";
+            card.element = "std/Card";
+            card.title = "Run summary";
+            card.artifact_id = "art_9";
+            card.artifact_version_id = "v1";
+            card.run = 1;
+            elements::fold_element(s.messages, card, 8, hrs_ago(1));
+            v.push_back(std::move(s));
         }
 
         // CODE FIXTURE: one reply carrying fenced blocks in several

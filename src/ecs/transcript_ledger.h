@@ -189,6 +189,7 @@ struct RowGeom {
         Compaction,
         System,
         Artifact,
+        Element,
         KindCount
     };
     float before = 0.0f;  // date / new divider above the row
@@ -781,6 +782,7 @@ class TranscriptLedger {
             case RowGeom::Compaction: return 36.0f;
             case RowGeom::System: return 38.0f;
             case RowGeom::Artifact: return 72.0f;
+            case RowGeom::Element: return 72.0f;
             default: return 96.0f;
         }
     }
