@@ -14,11 +14,12 @@
 #   HANABI_STUB_GRANDCHILD=<file>  before sleeping, start a background
 #                             `sleep` (a grandchild of the runner) and write
 #                             its pid to <file>, so a test can prove the
-#                             reaper takes the lineage, not just the pid.
+#                             group signal takes the whole tree.
 #   HANABI_STUB_ORPHAN=<file> before sleeping, double-fork a `sleep` so it is
-#                             reparented to init and write its pid, so a test
-#                             can prove the reaper leaves an UNCONFIRMED
-#                             lineage alone (fail closed).
+#                             reparented to init and write its pid: it stays
+#                             in the session's GROUP (no setsid), so a test
+#                             can prove the group signal reaches what ppid
+#                             alone would have lost.
 # Never a real window, never the app: this file is a test fixture.
 set -u
 record="${HANABI_STUB_RECORD:?HANABI_STUB_RECORD must name the record file}"
@@ -35,8 +36,7 @@ if [ -n "${HANABI_STUB_GRANDCHILD:-}" ]; then
 fi
 if [ -n "${HANABI_STUB_ORPHAN:-}" ]; then
     # A double fork: the middle shell exits at once, so its sleeper is
-    # reparented to init BEFORE the reaper looks -- a process whose parentage
-    # no longer leads to the stub. The reaper must leave it alone.
+    # reparented to init -- invisible to any ppid walk, still in our group.
     ( sleep "${HANABI_STUB_SLEEP:-30}" & printf '%s\n' "$!" > "$HANABI_STUB_ORPHAN" ) &
     wait $! 2>/dev/null
 fi

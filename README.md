@@ -132,13 +132,18 @@ that creates the window. Every run writes a manifest (one JSON record per
 script: declared and effective mode, decision and reason, rc and result, the
 `Gfx init:` cross-check, the executable's and the script's hashes, the source
 head) to `/tmp/hanabi_uitest_manifest.jsonl` (`HANABI_UI_MANIFEST=`), and the
-totals it prints are counted from those records. Processes are owned by pid,
-never by name: a launch is reaped only as this shell's un-waited direct child,
-its descendants only while their parentage still leads to it; whatever the
-reaper declines to touch is counted, listed in a final `cleanup` manifest
-record and printed as `CLEANUP UNCERTAIN` -- a zero means *no observed
-unconfirmed processes* (the snapshot knows only what was in the lineage while
-the root lived), never "no processes left". `scripts/run_ui_policy_tests.sh`
+totals it prints are counted from those records. Every launch runs under
+`scripts/lib/supervise.py`: the binary starts in its own session (its group id
+is its pid), is held unreaped until every teardown signal has gone to the
+GROUP -- so the kernel keeps the pid and group id reserved for the whole
+teardown and no stranger can be reached by a recycled number -- and is then
+waited exactly once. The supervisor's record (signals sent, group members
+observed at each step, processes left in the group, descendants observed to
+have left the session) rides each script's manifest line and the run ends
+with a `cleanup` record; any non-empty leftover list prints `CLEANUP
+UNCERTAIN`. A clean cleanup means *nothing observed* in one census after the
+final signal -- a descendant that left the session and was reparented to init
+is untraceable and unreported, by design -- never "no processes left". `scripts/run_ui_policy_tests.sh`
 proves the policy against a stub executable that opens nothing;
 `tests/runner_policy/launch_policy_check.cpp` is the in-process predicate's
 standalone check.

@@ -30,7 +30,7 @@
 #      whose parentage no longer leads to our root (double-forked,
 #      reparented before the snapshot) is LEFT ALIVE and NOT counted (it
 #      was never in the lineage); and, as a DETERMINISTIC SIMULATION over a
-#      synthetic process table (tests/runner_policy/reaper_unit.sh, binding
+#      injected fakes (tests/runner_policy/test_supervise.py; no process,
 #      sim_* providers to the same library the runner binds real_* to), a
 #      snapshot member that reparents between the TERM and KILL passes is
 #      not signalled again and IS counted, listed and printed as CLEANUP
@@ -194,53 +194,48 @@ check "8. a refusal (rc 66) launches nothing and leaves the unrelated process al
 rc="$(run_runner "$T/own" "$T/rec8c" "$T/man8c" HANABI_STUB_SLEEP=30 HANABI_STUB_GRANDCHILD="$T/grandchild.pid" HANABI_UI_TIMEOUT=2)"
 gc="$(cat "$T/grandchild.pid" 2>/dev/null)"
 launched_pid="$(sed -nE 's/.*"pid":([0-9]+),.*/\1/p' "$T/man8c" | head -1)"
-check "8. lineage snapshotted before the signal: the grandchild is dead after the timeout reap" '[ -n "$gc" ] && ! kill -0 "$gc" 2>/dev/null'
+check "8. the grandchild is in the group: dead after the timeout teardown" '[ -n "$gc" ] && ! kill -0 "$gc" 2>/dev/null'
 check "8. and the recorded pid is dead, the bystander alive" '[ -n "$launched_pid" ] && ! kill -0 "$launched_pid" 2>/dev/null && kill -0 "$bystander" 2>/dev/null'
 kill "$bystander" 2>/dev/null; wait "$bystander" 2>/dev/null
-# (iv) fail closed on UNCONFIRMED lineage: a process the stub double-forked
-# (reparented to init before the reaper looks) is not in the snapshot's
-# parentage and must be LEFT ALIVE and logged, while the stub itself is reaped.
+# (iv) a process the stub double-forked (reparented to init, out of our
+# session only if it also called setsid -- the stub's orphan does not, so it
+# stays in the GROUP and is taken by the group signal). The record reports
+# what ONE census observed after the final signal; nothing outside the
+# group is ever signalled.
 rc="$(run_runner "$T/own" "$T/rec8f" "$T/man8f" HANABI_STUB_SLEEP=30 HANABI_STUB_ORPHAN="$T/orphan.pid" HANABI_UI_TIMEOUT=2)"
 orphan="$(cat "$T/orphan.pid" 2>/dev/null)"
 launched_pid="$(sed -nE 's/.*"pid":([0-9]+),.*/\1/p' "$T/man8f" | head -1)"
-check "8. an orphaned (reparented) process is NOT signalled: alive after the reap" '[ -n "$orphan" ] && kill -0 "$orphan" 2>/dev/null'
-check "8. and the recorded root is dead (it was ours)" '[ -n "$launched_pid" ] && ! kill -0 "$launched_pid" 2>/dev/null'
-check "8. the orphan was never a reaper uncertainty: left_alone=0 in the cleanup record" 'grep -q "\"record\":\"cleanup\".*\"left_alone\":0" "$T/man8f"'
+check "8. the recorded root is dead (it was ours)" '[ -n "$launched_pid" ] && ! kill -0 "$launched_pid" 2>/dev/null'
+check "8. the double-forked process stayed in our GROUP and the group signal took it" '[ -n "$orphan" ] && ! kill -0 "$orphan" 2>/dev/null'
+check "8. the script record carries the supervisor testimony: group signalled, census observed" 'grep -q "\"supervisor\":{" "$T/man8f" && grep -q "\"term_sent\": true" "$T/man8f" && grep -q "\"census\": \"observed\"" "$T/man8f"'
 kill "$orphan" 2>/dev/null
-# (v) the COUNTER path, DETERMINISTICALLY and as SIMULATION: the reaper's
-# decision + accounting library driven over a synthetic process table by
-# tests/runner_policy/reaper_unit.sh, which binds sim_* providers defined in
-# that file. It sends no signal and reads no process; the shipped runner
-# binds real_* providers unconditionally and cannot be rebound by anything
-# in its environment -- both facts asserted by grep right after.
-if bash "$ROOT/tests/runner_policy/reaper_unit.sh" >"$T/unit.txt" 2>&1; then
-    ok "8. SIMULATION reaper unit passed (see its own labels)"; sed 's/^/      /' "$T/unit.txt"
+# (v) the DETERMINISTIC unit: every OS operation injected, no process, no
+# signal, no clock -- tests/runner_policy/test_supervise.py drives the real
+# control flow of scripts/lib/supervise.py through fakes and asserts the
+# ORDER: spawn in a new session -> ownership established -> group signals
+# while the leader is unreaped -> the one wait last. Its grep invariants
+# pin the structural shape of the production module.
+if python3 "$ROOT/tests/runner_policy/test_supervise.py" >"$T/unit.txt" 2>&1; then
+    ok "8. supervisor unit passed (see its own labels)"; sed 's/^/      /' "$T/unit.txt"
 else
-    ng "8. SIMULATION reaper unit FAILED"; sed 's/^/      /' "$T/unit.txt"
+    ng "8. supervisor unit FAILED"; sed 's/^/      /' "$T/unit.txt"
 fi
-# Grep invariants: production binds real lookup + signalling with no
-# environment hook; simulation can never meet real signalling.
-LIB="$ROOT/scripts/lib/reaper.sh"; UNIT="$ROOT/tests/runner_policy/reaper_unit.sh"
-check "8. invariant: the runner has exactly one reaper_bind call and it names only real_* providers" '[ "$(grep -cE "^reaper_bind " "$RUNNER")" = 1 ] && grep -qE "^reaper_bind real_ppid real_alive real_children real_signal real_sleep real_comm " "$RUNNER"'
-check "8. invariant: the runner never names a sim_ provider" '! grep -q "sim_" "$RUNNER"'
-# (Direct greps, not eval'd through `check`: a pattern containing `$HANABI_`
-# would be expanded by the eval under `set -u` and abort the test.)
-if ! grep -qF '${HANABI_' "$LIB" && ! grep -qF 'getenv' "$LIB" && ! grep -qF '$HANABI_' "$LIB"; then
-    ok '8. invariant: the reaper library reads no environment (no ${HANABI_, no getenv, no env var lookup)'
-else
-    ng '8. invariant: the reaper library reads no environment (no ${HANABI_, no getenv, no env var lookup)'
-fi
-check "8. invariant: the unit never names a real_ provider and never calls kill/pgrep/ps" '! grep -qE "real_|(^|[^a-z_])kill |pgrep|ps -o" "$UNIT"'
-check "8. invariant: the library itself never calls kill/pgrep/ps directly (providers only)" '! grep -qE "(^|[^a-z_])kill |pgrep|ps -o" "$LIB"'
+SUP="$ROOT/scripts/lib/supervise.py"
+check "8. invariant: one launch line: python -I supervise.py … -- env -u <the three policy vars> …; nothing else backgrounds the binary" '[ "$(grep -c "\"\$PYTHON3\" -I \"\$SUPERVISE\" --wall" "$RUNNER")" = 1 ] && grep -A1 "\"\$SUPERVISE\" --wall" "$RUNNER" | grep -q "env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY" && ! grep -qE "exec env .*\"\$EXE\"" "$RUNNER"'
+check "8. invariant: the runner has no kill-by-name, no pgrep, no pid reaper" '! grep -qE "pkill|pgrep|reap_pid|ACTIVE_PIDS|reaper" "$RUNNER"'
+check "8. invariant: the supervisor has exactly one os.waitpid site" '[ "$(grep -c "os.waitpid(" "$SUP")" = 1 ]'
+check "8. invariant: the supervisor never signals a pid number (killpg only)" '! grep -q "os\.kill(" "$SUP" && grep -q "os.killpg(" "$SUP"'
+check "8. invariant: the supervisor installs no SIGCHLD handler (only the SIG_DFL reset)" '[ "$(grep -c "signal.signal(signal.SIGCHLD" "$SUP")" = 1 ] && grep -q "signal.SIGCHLD, signal.SIG_DFL" "$SUP"'
+check "8. invariant: the supervisor reads no environment knob" '! grep -q "HANABI_" "$SUP" && ! grep -q "os.getenv(" "$SUP"'
 # (i) a completed launch is forgotten: nothing active, nothing reaped at exit.
 mk_fixtures "$T/done"
 rm "$T/done/windowed_one.e2e"
-rc="$(run_runner "$T/done" "$T/rec8d" "$T/man8d" HANABI_UI_DEBUG_PIDS="$T/pids8d")"
-check "8. a completed launch leaves the active set empty; the exit reaper reaps nothing, nothing left alone" '[ "$rc" = 0 ] && grep -q "active_at_exit=0 reaped_at_exit=0 left_alone=0" "$T/pids8d" && grep -q "reaper: reaped_at_exit=0 left_alone=0" "$T/out.txt" && ! grep -q "CLEANUP UNCERTAIN" "$T/out.txt"'
+rc="$(run_runner "$T/done" "$T/rec8d" "$T/man8d")"
+check "8. a completed launch: run exits 0, its record says clean, the cleanup record counts 0 uncertain" '[ "$rc" = 0 ] && grep -q "\"cleanup\": \"clean\"" "$T/man8d" && grep -q "\"record\":\"cleanup\",\"supervisors_at_exit\":0,\"uncertain_cleanups\":0" "$T/man8d"'
 # (iii) status preserved through cleanup: a failing last script exits 1 and
 # cleanup reaped nothing.
-rc="$(run_runner "$T/done" "$T/rec8e" "$T/man8e" HANABI_STUB_EXIT=5 HANABI_UI_DEBUG_PIDS="$T/pids8e")"
-check "8. a failing script: run exits 1 (status preserved through the EXIT trap), nothing reaped" '[ "$rc" = 1 ] && grep -q "reaped_at_exit=0" "$T/pids8e"'
+rc="$(run_runner "$T/done" "$T/rec8e" "$T/man8e" HANABI_STUB_EXIT=5)"
+check "8. a failing script: run exits 1 (status preserved through the EXIT trap); the child's real exit is in the record" '[ "$rc" = 1 ] && grep -q "\"exit_status\": 5" "$T/man8e" && grep -q "\"uncertain_cleanups\":0" "$T/man8e"'
 
 COMPLETED=1
 if [ "$bad" -ne 0 ]; then

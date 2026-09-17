@@ -163,69 +163,39 @@ json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 SUITE_TMP="$(mktemp -d /tmp/hanabi_uitest_home.XXXXXX)"
 KEEP_HOMES="${HANABI_UI_KEEP_HOMES:-0}"
 
-# ---------------------------------------------------------------------------
-# PROCESS OWNERSHIP: BY PID, NEVER BY NAME.
-#
-# This runner kills only processes it launched -- the pids it recorded at
-# launch and their descendants -- and never anything matched by command
-# line. The previous `pkill -9 -f "^$EXE"` on exit killed every process
-# whose argv began with this worktree's binary path: a concurrent suite from
-# the same checkout, a manual run, a copy held under a debugger; and it
-# fired on every exit, a refusal before any launch included. Path match is
-# not ownership.
-#
-# Each launch is `( exec env … "$EXE" … ) &`: the subshell becomes env,
-# env becomes the binary, and `$!` IS the binary's pid. The decision and
-# accounting live in scripts/lib/reaper.sh; the PROVIDERS -- how a parent
-# pid, liveness, children, a signal and a grace tick are done -- are bound
-# HERE, ONCE, UNCONDITIONALLY, to the real thing. No environment variable
-# and no fixture line can rebind them (scripts/run_ui_policy_tests.sh
-# asserts by grep that this file's one `reaper_bind` names only real_*).
-. "$SCRIPT_DIR/lib/reaper.sh"
-real_ppid() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; }
-real_alive() { kill -0 "$1" 2>/dev/null; }
-real_children() { pgrep -P "$1" 2>/dev/null; }
-real_signal() { kill "-$1" "$2" 2>/dev/null; }
-real_sleep() { sleep 0.1; }
-real_comm() { ps -o comm= -p "$1" 2>/dev/null | sed 's#.*/##; s/^ *//; s/ *$//'; }
-reaper_bind real_ppid real_alive real_children real_signal real_sleep real_comm "$$" "$(basename "$EXE")"
-
-# ACTIVE owned pids only: a pid is added at launch and REMOVED once it has
-# been waited for (normal exit or after a timeout reap), so the exit reaper
-# sees only launches still in flight when the runner dies -- never a
-# finished child's number, which the OS may already have reused.
-ACTIVE_PIDS=()
-forget_pid() {  # forget_pid <pid>: drop it from ACTIVE_PIDS
-    local keep=() p
-    for p in ${ACTIVE_PIDS[@]+"${ACTIVE_PIDS[@]}"}; do
-        [ "$p" = "$1" ] || keep+=("$p")
-    done
-    ACTIVE_PIDS=(${keep[@]+"${keep[@]}"})
-}
-REAPED_AT_EXIT=0
+# PROCESS OWNERSHIP. Every launch runs under scripts/lib/supervise.py: the
+# binary is the supervisor's direct child in a NEW SESSION (its group id is
+# its own pid), the supervisor keeps it unreaped until every teardown signal
+# has gone to the GROUP -- so the kernel holds the pid and the group id for
+# the whole teardown and no stranger can be reached by a recycled number --
+# then performs the one wait. The runner waits on the supervisor, its own
+# direct child, and reads the supervisor's record. The old shell reaper
+# (ps -> kill on pid numbers) is retired: bash reaps background children on
+# SIGCHLD in every mode, so a pid identity read before a kill is never the
+# identity at the kill.
+SUPERVISE="$SCRIPT_DIR/lib/supervise.py"
+[ -f "$SUPERVISE" ] || { echo "error: $SUPERVISE missing" >&2; exit 65; }
+PYTHON3="$(command -v python3 || true)"
+[ -n "$PYTHON3" ] || { echo "error: python3 not found (the supervisor needs it)" >&2; exit 65; }
+SUPERVISOR_PIDS=()   # supervisors still in flight; each is our direct child
+UNCERTAIN_CLEANUPS=0
 cleanup() {
-    # A pure reaper over launches still in flight; never the manifest,
-    # never the exit status (the trap restores it).
+    # The runner's own death: tell each in-flight supervisor to tear down
+    # (it takes TERM -> grace -> KILL -> wait on its group) and join it.
     local p
-    for p in ${ACTIVE_PIDS[@]+"${ACTIVE_PIDS[@]}"}; do
-        if real_alive "$p"; then
-            reap_pid "$p"
-            REAPED_AT_EXIT=$((REAPED_AT_EXIT + 1))
-            wait "$p" 2>/dev/null
-        fi
+    for p in ${SUPERVISOR_PIDS[@]+"${SUPERVISOR_PIDS[@]}"}; do
+        kill -0 "$p" 2>/dev/null || continue
+        kill -TERM "$p" 2>/dev/null   # our direct, un-waited child: the pid is ours
+        wait "$p" 2>/dev/null
     done
-    # The cleanup's own evidence: a per-run record in the manifest and the
-    # summary lines. An unconfirmed live process is never hidden and never
-    # changes a script's verdict -- it is printed on its own line so a green
-    # script tally cannot read as a green cleanup claim.
-    # (The manifest exists only once the run got past its preflight; a
-    # refusal before that reaped nothing and has no manifest to write to.)
     [ -n "${MANIFEST:-}" ] && [ -f "$MANIFEST" ] && \
-        printf '{"run_id":"%s","record":"cleanup","active_at_exit":%s,"reaped_at_exit":%s,"left_alone":%s,"left_alone_pids":[%s]}\n' \
-            "${RUN_ID:-}" "${#ACTIVE_PIDS[@]}" "$REAPED_AT_EXIT" "$REAPER_LEFT_ALONE" "$(reaper_left_alone_json)" >> "$MANIFEST"
-    reaper_report "$REAPED_AT_EXIT"
-    [ -n "${HANABI_UI_DEBUG_PIDS:-}" ] && \
-        printf 'active_at_exit=%s reaped_at_exit=%s left_alone=%s\n' "${#ACTIVE_PIDS[@]}" "$REAPED_AT_EXIT" "$REAPER_LEFT_ALONE" >> "$HANABI_UI_DEBUG_PIDS"
+        printf '{"run_id":"%s","record":"cleanup","supervisors_at_exit":%s,"uncertain_cleanups":%s}\n' \
+            "${RUN_ID:-}" "${#SUPERVISOR_PIDS[@]}" "$UNCERTAIN_CLEANUPS" >> "$MANIFEST"
+    if [ "$UNCERTAIN_CLEANUPS" -eq 0 ]; then
+        echo "  cleanup: uncertain=0 (every supervisor reported its group empty and no escaped session; a process outside the session is invisible to the group, by construction)"
+    else
+        echo "  CLEANUP UNCERTAIN: $UNCERTAIN_CLEANUPS supervisor record(s) report processes left in the group or escaped from the session; see the manifest"
+    fi
     if [ "$KEEP_HOMES" = "1" ]; then
         echo "kept per-test homes under $SUITE_TMP"
     else
@@ -373,10 +343,15 @@ for s in "${SCRIPTS[@]}"; do
     private_pasteboard="hanabi-e2e-${name}-$$-$(date +%s)"
     # `env -u HANABI_E2E_WINDOWED`: the inherited value was refused above and
     # a declared one is in extra_env only when the policy selected it, so
-    # this is belt to those braces -- the process starts from a known state.
-    # `exec` so that $! is the binary itself (env execs it in place), which is
-    # what the timeout and the exit reaper own -- see PROCESS OWNERSHIP above.
-    ( exec env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY \
+    # the process starts from a known state. The supervisor owns the launch
+    # (see PROCESS OWNERSHIP); the runner passes the wall clock and the
+    # grace and reads the record.
+    # The supervisor runs in the RUNNER'S environment (python -I: no PYTHON*
+    # variable, no user site); the fixture's environment is built by `env`
+    # INSIDE the supervised argv, exactly as before, and reaches the app only.
+    record="$ISO_HOME/supervise.json"
+    "$PYTHON3" -I "$SUPERVISE" --wall "$TIMEOUT" --grace 2 --record "$record" --log "$log" -- \
+        env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY \
         HOME="$ISO_HOME" HANABI_CONFIG="$ISO_HOME/no-such-config.json" \
         HANABI_CACHE_DIR="$script_cache" TZ="$PIN_TZ" \
         HANABI_MOCK_NOW="$PIN_NOW" \
@@ -384,21 +359,23 @@ for s in "${SCRIPTS[@]}"; do
         ${extra_env[@]+"${extra_env[@]}"} \
         ${policy_env[@]+"${policy_env[@]}"} \
         HANABI_PASTEBOARD_NAME="$private_pasteboard" \
-        "$EXE" --e2e "$s" ) >"$log" 2>&1 &
-    pid=$!
-    ACTIVE_PIDS+=("$pid")
-    for ((i=0; i<TIMEOUT; i++)); do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 1
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-        reap_pid "$pid"
-        wait "$pid" 2>/dev/null   # join the zombie so the pid is freed
-        rc=124
+        "$EXE" --e2e "$s" &
+    sup=$!
+    SUPERVISOR_PIDS+=("$sup")
+    wait "$sup"; rc=$?
+    keep=(); for p in ${SUPERVISOR_PIDS[@]+"${SUPERVISOR_PIDS[@]}"}; do [ "$p" = "$sup" ] || keep+=("$p"); done
+    SUPERVISOR_PIDS=(${keep[@]+"${keep[@]}"})
+    # The supervisor's testimony, folded into this script's record. Absent
+    # record = the supervisor died before writing: uncertain, never clean.
+    if [ -f "$record" ]; then
+        sup_json="$(tr -d '\n' < "$record")"
+        case "$sup_json" in *'"cleanup": "clean"'*) ;; *) UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1));; esac
     else
-        wait "$pid"; rc=$?
+        sup_json='{"cleanup": "uncertain", "ownership": "no_record"}'
+        UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1))
     fi
-    forget_pid "$pid"   # waited for: no longer ours to reap, whoever holds the number next
+    pid="$(printf '%s' "$sup_json" | sed -n 's/.*"root_pid": \([0-9]*\).*/\1/p')"
+    [ -n "$pid" ] || pid=0
 
     # OBSERVED mode, cross-checked against the effective one: "Gfx init:" is
     # logged only by app_init(), the windowed path; the headless run never
@@ -407,13 +384,14 @@ for s in "${SCRIPTS[@]}"; do
     if grep -q 'Gfx init:' "$log" 2>/dev/null; then gfx=true; else gfx=false; fi
     result=pass
     if [ "$rc" -eq 124 ]; then result=timeout
+    elif [ "$rc" -eq 70 ]; then result=unsupervised   # ownership never established; nothing was signalled
     elif [ "$rc" -ne 0 ]; then result=fail
     fi
     if [ "$effective_mode" = "headless" ] && [ "$gfx" = "true" ]; then
         result=mode_mismatch
     fi
-    printf '{"run_id":"%s","script":"%s","script_sha256":"%s","exe":"%s","exe_sha256":"%s","source_head":"%s","source_dirty_files":%s,"policy":"%s","declared_mode":"%s","effective_mode":"%s","decision":"selected","reason":"","fixture_env_keys":"%s","launched":true,"pid":%s,"rc":%s,"result":"%s","gfx_init_logged":%s,"log":"%s"}\n' \
-        "$RUN_ID" "$(json_str "$name")" "$script_sha" "$(json_str "$EXE")" "$EXE_SHA" "$SRC_HEAD" "$SRC_DIRTY" "$POLICY" "$declared_mode" "$effective_mode" "$fixture_keys" "$pid" "$rc" "$result" "$gfx" "$(json_str "$log")" >> "$MANIFEST"
+    printf '{"run_id":"%s","script":"%s","script_sha256":"%s","exe":"%s","exe_sha256":"%s","source_head":"%s","source_dirty_files":%s,"policy":"%s","declared_mode":"%s","effective_mode":"%s","decision":"selected","reason":"","fixture_env_keys":"%s","launched":true,"pid":%s,"rc":%s,"result":"%s","gfx_init_logged":%s,"log":"%s","supervisor":%s}\n' \
+        "$RUN_ID" "$(json_str "$name")" "$script_sha" "$(json_str "$EXE")" "$EXE_SHA" "$SRC_HEAD" "$SRC_DIRTY" "$POLICY" "$declared_mode" "$effective_mode" "$fixture_keys" "$pid" "$rc" "$result" "$gfx" "$(json_str "$log")" "$sup_json" >> "$MANIFEST"
 
     if [ "$result" = "pass" ]; then
         printf '  %-34s PASS\n' "$name"
@@ -439,21 +417,27 @@ N_PASS="$(count '"result":"pass"')"
 N_FAIL="$(count '"result":"fail"')"
 N_TIMEOUT="$(count '"result":"timeout"')"
 N_MISMATCH="$(count '"result":"mode_mismatch"')"
+N_UNSUPERVISED="$(count '"result":"unsupervised"')"
+N_CLEANUP_RECORDS="$(count '"record":"cleanup"')"
 echo "----------------------------------------"
 echo "  policy $POLICY: $N_RECORDS scripts = $N_SELECTED selected + $N_SKIPPED skipped + $N_REFUSED refused"
-echo "  selected: $N_PASS passed, $N_FAIL failed, $N_TIMEOUT timed out, $N_MISMATCH mode-mismatch"
+echo "  selected: $N_PASS passed, $N_FAIL failed, $N_TIMEOUT timed out, $N_MISMATCH mode-mismatch, $N_UNSUPERVISED unsupervised"
+echo "  cleanup:  $UNCERTAIN_CLEANUPS uncertain supervisor record(s)"
 echo "  manifest: $MANIFEST"
 rc_all=0
 if [ "$N_RECORDS" -ne "${#SCRIPTS[@]}" ] || [ $((N_SELECTED + N_SKIPPED + N_REFUSED)) -ne "$N_RECORDS" ] \
-   || [ $((N_PASS + N_FAIL + N_TIMEOUT + N_MISMATCH)) -ne "$N_SELECTED" ]; then
+   || [ $((N_PASS + N_FAIL + N_TIMEOUT + N_MISMATCH + N_UNSUPERVISED)) -ne "$N_SELECTED" ]; then
     echo "  MANIFEST BROKEN: records do not reconcile with the scripts found" >&2
     rc_all=3
 fi
+# The cleanup record is written by the EXIT trap AFTER this point; a reader
+# of the manifest treats its absence as UNCERTAIN, never as zero.
+: "$N_CLEANUP_RECORDS"
 if [ "$N_REFUSED" -ne 0 ]; then
     echo "  refused fixtures are a configuration error; see the manifest reasons" >&2
     rc_all=2
 fi
-if [ "$N_FAIL" -ne 0 ] || [ "$N_TIMEOUT" -ne 0 ] || [ "$N_MISMATCH" -ne 0 ]; then
+if [ "$N_FAIL" -ne 0 ] || [ "$N_TIMEOUT" -ne 0 ] || [ "$N_MISMATCH" -ne 0 ] || [ "$N_UNSUPERVISED" -ne 0 ]; then
     echo "  failed:$FAILED_NAMES" >&2
     [ -n "$SEED" ] && echo "  reproduce this order with HANABI_UI_SEED=$SEED" >&2
     [ "$rc_all" -eq 0 ] && rc_all=1
