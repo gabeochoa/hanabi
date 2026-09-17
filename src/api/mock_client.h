@@ -1182,6 +1182,27 @@ class MockClient : public Client {
             target.summary.state = ThreadState::Ready;
     }
 
+    bool supports_artifacts() const override { return true; }
+    Result<ArtifactContent> fetch_artifact(const std::string&,
+                                           const ArtifactRef& ref) override {
+        const char* fixture = ref.id == "art-chart"  ? kArtifactDemoImage
+                              : ref.id == "art-clip" ? kArtifactDemoAudio
+                                                     : nullptr;
+        if (!fixture)
+            return Result<ArtifactContent>::failure("no such artifact: " + ref.id);
+        FILE* f = std::fopen(fixture, "rb");
+        if (!f)
+            return Result<ArtifactContent>::failure("fixture missing: " +
+                                                    std::string(fixture));
+        ArtifactContent out;
+        char buf[8192];
+        for (std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
+            out.bytes.append(buf, n);
+        std::fclose(f);
+        out.media_type = ref.media_type;
+        return Result<ArtifactContent>::success(std::move(out));
+    }
+
     bool supports_interrupt() const override { return true; }
     // The mock's stop: the thread's state leaves Running. Enough for the
     // composer to show what Stop does and for a script to assert it.
@@ -1300,6 +1321,41 @@ class MockClient : public Client {
     }
 
     // The t1 fixture's summary: a digest of the four rows above the marker.
+    static constexpr const char* kArtifactDemoImage =
+        "tests/fixtures/artifacts/chart.png";
+    static constexpr const char* kArtifactDemoAudio =
+        "tests/fixtures/artifacts/clip.wav";
+
+    static std::uint64_t file_size_or_zero(const char* path) {
+        FILE* f = std::fopen(path, "rb");
+        if (!f) return 0;
+        std::fseek(f, 0, SEEK_END);
+        const long n = std::ftell(f);
+        std::fclose(f);
+        return n < 0 ? 0 : static_cast<std::uint64_t>(n);
+    }
+
+    static Message artifact_demo_row(const char* id, const char* artifact_id,
+                                     const char* name, const char* mime,
+                                     const char* fixture, bool resolved,
+                                     int64_t created_at) {
+        Message m;
+        m.id = id;
+        m.role = Role::System;
+        m.kind = EventKind::Artifact;
+        m.subtitle = name;
+        m.created_at = created_at;
+        m.artifact.id = artifact_id;
+        m.artifact.version = "v1";
+        m.artifact.file = name;
+        m.artifact.media_type = mime;
+        m.artifact.size_bytes = file_size_or_zero(fixture);
+        if (resolved) m.artifact.local_path = fixture;
+        m.text = std::string(mime) + "  \xc2\xb7  " +
+                 std::to_string(m.artifact.size_bytes / 1024) + " KB";
+        return m;
+    }
+
     static constexpr const char* kCompactDemoSummary =
         "Task: land the multi-tier pricing config once CI is green. The config "
         "diff D948120 adds Tier 1/2/3 price points; the shadow comparison over "
@@ -1641,7 +1697,7 @@ class MockClient : public Client {
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
-        "HANABI_MOCK_ACCESS",      "HANABI_MOCK_NO_HALT",
+        "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ACCESS",      "HANABI_MOCK_NO_HALT",
         "HANABI_MOCK_HALT_REFUSE", "HANABI_MOCK_HALT_NO_ECHO",
         "HANABI_MOCK_HALT_OBSERVE_LATCH", "HANABI_MOCK_NO_HALT_ADVERT",
     };
@@ -2192,6 +2248,16 @@ class MockClient : public Client {
             // pixels; the summary is a faithful digest of the four rows above
             // it, because a fixture that summarizes something else teaches
             // the reader the divider lies.
+            if (const char* demo = std::getenv("HANABI_ARTIFACT_DEMO");
+                demo != nullptr && *demo != 0) {
+                const bool resolved = std::string(demo) != "fetch";
+                s.messages.push_back(artifact_demo_row(
+                    "m6", "art-chart", "price-tiers.png", "image/png",
+                    kArtifactDemoImage, resolved, mins_ago(10)));
+                s.messages.push_back(artifact_demo_row(
+                    "m7", "art-clip", "approval-note.wav", "audio/wav",
+                    kArtifactDemoAudio, resolved, mins_ago(9)));
+            }
             if (std::getenv("HANABI_COMPACT_DEMO") != nullptr) {
                 Message c;
                 c.id = "m5";

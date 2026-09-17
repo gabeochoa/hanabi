@@ -1,0 +1,38 @@
+# An image the agent showed is a row in the transcript, drawn under its name;
+# a click opens it full size over everything, and Escape (or a click on the
+# backdrop) puts it away without touching the draft.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ARTIFACT_DEMO=1 HANABI_OPEN=t1
+
+require_thread t1
+
+expect_text "price-tiers.png"
+expect_text "image/png"
+assert_ui artifact_image hidden=false
+expect_no_ui artifact_viewer_image
+
+click_ui composer_reply_input
+type "a draft the viewer must not eat"
+wait_frames 4
+
+click_ui artifact_image
+wait_frames 6
+assert_ui artifact_viewer_image hidden=false
+assert_ui artifact_viewer_backdrop hidden=false
+expect_text "640 × 400"
+expect_text "Esc closes"
+
+key ESCAPE
+wait_frames 6
+expect_no_ui artifact_viewer_image
+expect_no_text "Esc closes"
+expect_input_text composer_reply_input "a draft the viewer must not eat"
+
+click_ui artifact_image
+wait_frames 6
+assert_ui artifact_viewer_image hidden=false
+click_ui artifact_viewer_backdrop
+wait_frames 6
+expect_no_ui artifact_viewer_image
+expect_input_text composer_reply_input "a draft the viewer must not eat"

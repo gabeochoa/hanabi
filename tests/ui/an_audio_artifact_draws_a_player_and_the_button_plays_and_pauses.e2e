@@ -1,0 +1,27 @@
+# An audio clip the agent showed draws as a player: a play button, the clip's
+# waveform, and its length. Play hands the file to the native player and the
+# button becomes Pause; Pause hands it back.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ARTIFACT_DEMO=1 HANABI_OPEN=t1 HANABI_AUDIO_LOG=/tmp/hanabi_e2e_audio.log
+
+require_thread t1
+
+expect_text "approval-note.wav"
+expect_text "audio/wav"
+assert_ui artifact_clip hidden=false
+assert_ui artifact_clip_wave hidden=false
+assert_ui artifact_clip_time hidden=false
+expect_text "0:00 / 0:02"
+assert_ui artifact_clip_play hidden=false
+expect_no_ui artifact_clip_pause
+
+click_ui artifact_clip_play
+wait_frames 6
+assert_ui artifact_clip_pause hidden=false
+expect_no_ui artifact_clip_play
+
+click_ui artifact_clip_pause
+wait_frames 6
+assert_ui artifact_clip_play hidden=false
+expect_no_ui artifact_clip_pause

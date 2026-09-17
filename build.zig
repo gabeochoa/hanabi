@@ -119,6 +119,7 @@ const tests = [_]TestSpec{
     .{ .name = "test_agentcloud", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_agentcloud.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
     .{ .name = "test_menubar", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_menubar.mm", "src/menubar.mm", "src/settings.cpp", "src/afterhours_files.cpp" }, .frameworks = &.{ "AppKit", "Carbon" } },
     .{ .name = "test_agentcloud_local", .kind = .unit, .arc = true, .srcs = &.{ "tests/e2e/test_agentcloud_local.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
+    .{ .name = "test_native_audio", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_native_audio.mm", "src/native_audio.mm" }, .frameworks = &.{ "AVFoundation", "Foundation" } },
     .{ .name = "test_native_extras", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_native_extras.mm", "src/native_extras.mm" }, .frameworks = &.{ "AppKit", "Carbon", "CoreSpotlight", "CoreText", "MetalKit", "UniformTypeIdentifiers", "UserNotifications" } },
     .{ .name = "test_spotlight_catalog", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_spotlight_catalog.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_div_move", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_div_move.cpp" }, .frameworks = &.{  } },
@@ -129,6 +130,7 @@ const tests = [_]TestSpec{
 // then test_e2e and test_perf. test_real, test_agentcloud_real and
 // test_agentcloud_local are reached by their own steps.
 const run_by_default = [_][]const u8{
+    "test_native_audio",
     "test_native_extras",
     "test_menubar",
     "test_shortcuts",
@@ -227,12 +229,12 @@ const app_objc_sources = [_][]const u8{
     "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_capture_probe.mm", "src/native_extras.mm", "src/pointer_probe.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
 };
 // The ObjC++ files compiled under ARC (native_menu.mm needs __weak).
-const app_arc_sources = [_][]const u8{ "src/native_menu.mm", "src/ws_socket.mm" };
+const app_arc_sources = [_][]const u8{ "src/native_audio.mm", "src/native_menu.mm", "src/ws_socket.mm" };
 
 const frameworks = [_][]const u8{
     "CoreFoundation", "CoreServices", "CoreText",           "Metal",        "MetalKit",
     "Cocoa",          "QuartzCore",   "Carbon",             "CoreSpotlight", "UniformTypeIdentifiers",
-    "UserNotifications",
+    "UserNotifications", "AVFoundation",
 };
 
 const cxx_std = "-std=c++23";

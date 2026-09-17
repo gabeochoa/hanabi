@@ -65,6 +65,7 @@ enum class SmartView {
 // the intent instead of the key.
 enum class EscapeIntent {
     None,
+    CloseArtifactViewer,
     ClosePalette,
     CloseSessionSearch,
     CloseContextMenu,
@@ -672,6 +673,11 @@ struct AppComponent : public afterhours::BaseComponent {
     bool paletteOpen = false;
     std::string paletteQuery;
     int paletteIndex = 0;
+
+    std::string viewerImagePath;
+    std::string viewerImageName;
+    std::string audioClipPath;
+    bool artifactFetchPending = false;
 
     // Search across threads (Cmd+Shift+F). Same shape as the palette, over a
     // different corpus: the sessions' titles and previews plus whatever

@@ -93,6 +93,9 @@ class AgentcloudClient : public Client {
     Result<std::string> attach_node(const std::string& session_id,
                                     const std::string& node_id) override;
 
+    bool supports_artifacts() const override { return ready(); }
+    Result<ArtifactContent> fetch_artifact(const std::string& session_id,
+                                           const ArtifactRef& ref) override;
     bool supports_resolve_ask() const override { return ready(); }
     Result<std::string> resolve_ask(const std::string& session_id,
                                     const PendingAsk& ask, AskAction action,
@@ -230,6 +233,8 @@ bool hello_has_capability(const std::string& hello_json,
 // transcript down with it.
 std::vector<Message> parse_page_frames(const std::string& msg_json);
 void install_paged_transcript(const std::string& page_json, Session& out);
+std::string artifact_size_label(std::uint64_t bytes);
+std::string artifact_row_text(const ArtifactRef& ref);
 
 inline constexpr std::size_t kWireTagMaxBytes = 80;
 inline constexpr const char* kUntypedWireTag = "(untyped)";

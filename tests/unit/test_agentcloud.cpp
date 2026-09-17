@@ -799,6 +799,66 @@ static void test_a_compaction_marker_is_a_divider_not_a_message() {
     CHECK(out2[0].text.empty());
 }
 
+static void test_a_shown_artifact_is_a_row_with_its_file_and_size() {
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":1,"created_at_unix_ms":1700000000000,
+       "event":{"type":"user_input","text":"chart it"}},
+      {"seq":4,"created_at_unix_ms":1700000100000,
+       "event":{"type":"artifact_created",
+                "lineage":{"artifact_id":"art-1","owner":{"kind":"user","fbid":1},"origin_session_id":"s1"},
+                "version":{"version_id":"v1","created_by":{"kind":"user","fbid":1},
+                           "actor":{"kind":"agent","run":3},
+                           "source":{"source_type":"stored_file",
+                                     "payload":{"files":[{"path":"price-tiers.png","mime":"image/png",
+                                                          "bytes_len":4901,"storage_ref":"manifold://x"}]}}},
+                "title":"Price tiers"}},
+      {"seq":5,"created_at_unix_ms":1700000100000,
+       "event":{"type":"artifact_shown","artifact_id":"art-1","version_id":"v1",
+                "audience":"to_model","selection":"latest"}},
+      {"seq":6,"created_at_unix_ms":1700000100000,
+       "event":{"type":"artifact_shown","artifact_id":"art-1","version_id":"v1",
+                "audience":"to_client","selection":"latest"}},
+      {"seq":9,"created_at_unix_ms":1700000200000,
+       "event":{"type":"artifact_version_added",
+                "lineage":{"artifact_id":"art-1","owner":{"kind":"user","fbid":1},"origin_session_id":"s1"},
+                "version":{"version_id":"v2","created_by":{"kind":"user","fbid":1},
+                           "actor":{"kind":"agent","run":4},
+                           "source":{"source_type":"stored_file",
+                                     "payload":{"files":[{"path":"note.wav","mime":"audio/wav",
+                                                          "bytes_len":2097152,"storage_ref":"manifold://y"}]}}}}},
+      {"seq":10,"created_at_unix_ms":1700000200000,
+       "event":{"type":"artifact_shown","artifact_id":"art-1","version_id":"v2",
+                "audience":"to_client","selection":"pinned"}},
+      {"seq":11,"created_at_unix_ms":1700000300000,
+       "event":{"type":"artifact_shown","artifact_id":"art-unknown","version_id":"v9",
+                "audience":"to_client","selection":"latest"}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 4);
+    CHECK(out[1].kind == api::EventKind::Artifact);
+    CHECK(out[1].role == Role::System);
+    CHECK(out[1].subtitle == "Price tiers");
+    CHECK(out[1].artifact.id == "art-1");
+    CHECK(out[1].artifact.version == "v1");
+    CHECK(out[1].artifact.file == "price-tiers.png");
+    CHECK(out[1].artifact.media_type == "image/png");
+    CHECK(out[1].artifact.size_bytes == 4901);
+    CHECK(out[1].artifact.is_image());
+    CHECK(out[1].artifact.local_path.empty());
+    CHECK(out[1].text == "image/png  \xc2\xb7  4 KB");
+    CHECK(out[1].created_at == 1700000100);
+    CHECK(out[2].artifact.version == "v2");
+    CHECK(out[2].artifact.file == "note.wav");
+    CHECK(out[2].artifact.is_audio());
+    CHECK(out[2].text == "audio/wav  \xc2\xb7  2.0 MB");
+    CHECK(out[3].kind == api::EventKind::Artifact);
+    CHECK(out[3].subtitle == "art-unknown");
+    CHECK(out[3].artifact.media_type.empty());
+    CHECK(out[3].text.empty());
+    CHECK(api::agentcloud::artifact_size_label(512) == "512 B");
+    CHECK(api::agentcloud::artifact_size_label(20u * 1024u * 1024u) == "20 MB");
+}
+
 static void test_a_compaction_round_is_reported_while_it_runs() {
     // The ephemeral carries the anchor on every re-stage and the reading only
     // once the summarizer has one; a field the wire left out stays out of the
@@ -2243,6 +2303,7 @@ int main() {
     test_live_text_and_thinking_are_told_apart();
     test_live_tool_call_and_finish();
     test_a_compaction_marker_is_a_divider_not_a_message();
+    test_a_shown_artifact_is_a_row_with_its_file_and_size();
     test_a_compaction_round_is_reported_while_it_runs();
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();

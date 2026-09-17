@@ -83,6 +83,8 @@
 #include "ecs/focus_routing_system.h"
 #include "ecs/text_edit_chords_system.h"
 #include "ecs/rename_modal_system.h"
+#include "ecs/artifact_fetch_system.h"
+#include "ecs/artifact_viewer_system.h"
 #include "ecs/capture_marker_system.h"
 #include "ecs/toast_system.h"
 #include "ecs/layout_system.h"
@@ -431,6 +433,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     // Data + layout must run before UI-creating systems.
     sm.register_update_system(std::make_unique<ecs::TabFlowSystem>());
     sm.register_update_system(std::make_unique<ecs::LoaderSystem>());
+    sm.register_update_system(std::make_unique<ecs::ArtifactFetchSystem>());
     sm.register_update_system(std::make_unique<ecs::LayoutSystem>());
 
     // Ahead of every UI-creating system: a rotation lands the new palette
@@ -472,6 +475,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::PaletteSystem>());
     sm.register_update_system(std::make_unique<ecs::SessionSearchSystem>());
     sm.register_update_system(std::make_unique<ecs::RenameModalSystem>());
+    sm.register_update_system(std::make_unique<ecs::ArtifactViewerSystem>());
     sm.register_update_system(std::make_unique<ecs::ToastSystem>());
 #ifdef AFTER_HOURS_ENABLE_E2E_TESTING
     // Test-only: the flat marker the capture receipt is proven on. Draws

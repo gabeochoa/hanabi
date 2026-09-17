@@ -77,6 +77,30 @@ enum class EventKind {
     // summary (the row's text) stands in for them. Drawn as a divider with the
     // summary behind a disclosure, never as a message, because nobody said it.
     Compaction,
+    Artifact,
+};
+
+struct ArtifactRef {
+    std::string id;
+    std::string version;
+    std::string file;
+    std::string media_type;
+    std::uint64_t size_bytes = 0;
+    std::string local_path;
+
+    [[nodiscard]] bool empty() const { return id.empty(); }
+    [[nodiscard]] bool is_image() const {
+        return media_type.rfind("image/", 0) == 0;
+    }
+    [[nodiscard]] bool is_audio() const {
+        return media_type.rfind("audio/", 0) == 0;
+    }
+    bool operator==(const ArtifactRef&) const = default;
+};
+
+struct ArtifactContent {
+    std::string bytes;
+    std::string media_type;
 };
 
 // High-signal attention state of a thread. This is the single notion the UI
@@ -308,6 +332,7 @@ struct Message {
     EventKind kind = EventKind::Text;
     std::string local_id;
     std::vector<Attachment> attachments;
+    ArtifactRef artifact;
 };
 
 // One worker node the caller could give a thread, as the roster reports it.

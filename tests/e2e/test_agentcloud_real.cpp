@@ -55,6 +55,7 @@ static const char* kind_word(api::EventKind k) {
         case api::EventKind::Plan: return "Plan";
         case api::EventKind::Goal: return "Goal";
         case api::EventKind::Compaction: return "Compaction";
+        case api::EventKind::Artifact: return "Artifact";
     }
     return "?";
 }

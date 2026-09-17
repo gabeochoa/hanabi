@@ -81,6 +81,11 @@ inline std::string body_of(const api::Message& m) {
         switch (m.kind) {
             case api::EventKind::Thinking: return "";
             case api::EventKind::Compaction: out = "*(context compacted)*\n\n"; break;
+            case api::EventKind::Artifact:
+                out = "*(artifact: " + m.subtitle +
+                      (m.text.empty() ? std::string() : " \xe2\x80\x94 " + m.text) +
+                      ")*\n\n";
+                break;
             case api::EventKind::Skill:
                 out = "*(skill: " + (m.text.empty() ? m.subtitle : m.text) + ")*\n\n";
                 break;

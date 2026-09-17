@@ -591,6 +591,17 @@ capture 78_compaction_running_dark "$TABS_DARK" \
 capture_sized 79_compaction_summary_open_narrow_dark "760 x 620" "$COMPACT_NARROW_DARK" \
     HANABI_WIN_W=760 HANABI_WIN_H=620 HANABI_COMPACT_DEMO=open
 
+# --- 80-82: artifacts the agent showed ---------------------------------------
+# t1 with two shown artifacts (HANABI_ARTIFACT_DEMO=1): an image drawn under its
+# row and an audio clip drawn as a player with its waveform and length. 82 is
+# the image opened full size over the window (`open`), which a headless capture
+# has no click to reach.
+ARTIFACT_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t1","theme":"dark"}'
+ARTIFACT_LIGHT='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t1","theme":"light"}'
+capture 80_artifact_rows_dark  "$ARTIFACT_DARK"  HANABI_ARTIFACT_DEMO=1
+capture 81_artifact_rows_light "$ARTIFACT_LIGHT" HANABI_ARTIFACT_DEMO=1
+capture 82_artifact_viewer_open_dark "$ARTIFACT_DARK" HANABI_ARTIFACT_DEMO=open
+
 listing && exit 0
 
 echo

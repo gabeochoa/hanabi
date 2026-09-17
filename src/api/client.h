@@ -859,6 +859,15 @@ class Client {
 
     virtual bool supports_resolve_ask() const { return false; }
 
+    virtual bool supports_artifacts() const { return false; }
+    virtual Result<ArtifactContent> fetch_artifact(const std::string& session_id,
+                                                   const ArtifactRef& ref) {
+        (void)session_id;
+        (void)ref;
+        return Result<ArtifactContent>::failure(
+            "This backend does not serve artifact bytes.");
+    }
+
     // Whether this client can send (kickoff + reply). The composer uses this to
     // decide between an enabled Send and the honest disabled caption. The mock
     // supports send; the http adapter supports it only when a chat path is

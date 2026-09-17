@@ -1,0 +1,16 @@
+# A shown artifact arrives as coordinates, not bytes. The row names the file
+# at once; the image and the player appear only after the bytes have been
+# fetched from the backend into the cache.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ARTIFACT_DEMO=fetch HANABI_OPEN=t1
+
+require_thread t1
+
+expect_text "price-tiers.png"
+expect_text "approval-note.wav"
+wait_frames 30
+assert_ui artifact_image hidden=false
+assert_ui artifact_clip hidden=false
+assert_ui artifact_clip_time hidden=false
+expect_text "0:00 / 0:02"

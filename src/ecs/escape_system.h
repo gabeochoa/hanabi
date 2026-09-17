@@ -40,7 +40,9 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
         app->escape = EscapeIntent::None;
         if (!hanabi::keys::pressed(hanabi::keys::kEscape)) return;
 
-        if (app->paletteOpen)
+        if (!app->viewerImagePath.empty())
+            app->escape = EscapeIntent::CloseArtifactViewer;
+        else if (app->paletteOpen)
             app->escape = EscapeIntent::ClosePalette;
         else if (app->sessionSearchOpen)
             app->escape = EscapeIntent::CloseSessionSearch;

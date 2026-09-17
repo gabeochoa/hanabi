@@ -1,5 +1,6 @@
 #pragma once
 
+#include "native_audio.h"
 #include <chrono>
 #include <cmath>
 #include <future>
@@ -75,6 +76,10 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
                      app.requestSplitToggle || !app.requestSplitOpen.empty();
     s.dragging = s.dragging || app.splitDragging || app.rowDrag.live;
     s.streaming = app.streamActive;
+    s.pending_future = s.pending_future || app.artifactFetchPending;
+    s.animation = s.animation ||
+                  (!app.audioClipPath.empty() &&
+                   native_audio_is_playing(app.audioClipPath.c_str()) != 0);
     s.thinking = app.streamCollecting ||
                  app.streamPhase == ecs::AppComponent::StreamPhase::Thinking;
 

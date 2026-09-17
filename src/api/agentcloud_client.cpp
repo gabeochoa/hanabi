@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <utility>
 #include <string>
+#include <cstdio>
 
 #ifdef HANABI_ENABLE_TLS
 #define CPPHTTPLIB_OPENSSL_SUPPORT
@@ -767,7 +768,6 @@ bool is_silent_wire_event(const std::string& type) {
         "subscription_hook_intent", "subscription_hook_settled",
         "outbound_enqueued", "outbound_settled", "channel_message_received",
         "channel_reply_delivered", "compact_requested", "compact_applied",
-        "artifact_created", "artifact_version_added", "artifact_shown",
         "artifact_hidden", "artifact_metadata_updated", "noop", "block_delta",
         "tool_output", "compaction_started", "usage_delta", "telemetry",
         "reply_handled", "session_halted", "session_resumed",
@@ -1041,6 +1041,74 @@ void parse_pending_asks(const std::string& hello_json, Session& out) {
         elicitation::asks_from_state(obj_at(hello, "state"), out.summary.id);
 }
 
+namespace {
+
+struct ArtifactVersion {
+    std::string file;
+    std::string media_type;
+    std::uint64_t size_bytes = 0;
+};
+
+struct KnownArtifact {
+    std::string title;
+    std::unordered_map<std::string, ArtifactVersion> versions;
+};
+
+ArtifactVersion artifact_version_from_json(const json& version) {
+    ArtifactVersion out;
+    const json& files = obj_at(obj_at(version, "source"), "payload");
+    if (!files.contains("files") || !files.at("files").is_array() ||
+        files.at("files").empty())
+        return out;
+    const json& first = files.at("files").front();
+    if (!first.is_object()) return out;
+    out.file = str_or(first, "path", "");
+    out.media_type = str_or(first, "mime", "");
+    out.size_bytes = static_cast<std::uint64_t>(
+        std::max<int64_t>(0, int_or(first, "bytes_len", 0)));
+    return out;
+}
+
+void note_artifact_version(
+    std::unordered_map<std::string, KnownArtifact>& known, const json& e) {
+    const std::string id = str_or(obj_at(e, "lineage"), "artifact_id", "");
+    const json& version = obj_at(e, "version");
+    const std::string vid = str_or(version, "version_id", "");
+    if (id.empty() || vid.empty()) return;
+    KnownArtifact& k = known[id];
+    if (const std::string title = str_or(e, "title", ""); !title.empty())
+        k.title = title;
+    k.versions[vid] = artifact_version_from_json(version);
+}
+
+}  // namespace
+
+std::string artifact_size_label(std::uint64_t bytes) {
+    char buf[32];
+    if (bytes >= 1024ULL * 1024ULL * 10ULL)
+        std::snprintf(buf, sizeof buf, "%llu MB",
+                      static_cast<unsigned long long>(bytes / (1024ULL * 1024ULL)));
+    else if (bytes >= 1024ULL * 1024ULL)
+        std::snprintf(buf, sizeof buf, "%.1f MB",
+                      static_cast<double>(bytes) / (1024.0 * 1024.0));
+    else if (bytes >= 1024ULL)
+        std::snprintf(buf, sizeof buf, "%llu KB",
+                      static_cast<unsigned long long>(bytes / 1024ULL));
+    else
+        std::snprintf(buf, sizeof buf, "%llu B",
+                      static_cast<unsigned long long>(bytes));
+    return buf;
+}
+
+std::string artifact_row_text(const ArtifactRef& ref) {
+    std::string text = ref.media_type;
+    if (ref.size_bytes > 0) {
+        if (!text.empty()) text += "  \xc2\xb7  ";
+        text += artifact_size_label(ref.size_bytes);
+    }
+    return text;
+}
+
 std::vector<Message> parse_page_frames(const std::string& msg_json) {
     json msg = json::parse(msg_json, nullptr, false);
     if (msg.is_discarded() || !msg.contains("frames") ||
@@ -1058,6 +1126,7 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
     // child_spawned carries the title and keys by child id instead.
     std::unordered_map<std::string, size_t> row_for_child_id;
     std::unordered_map<int64_t, size_t> row_for_outcome_seq;
+    std::unordered_map<std::string, KnownArtifact> known_artifacts;
 
     for (const json& f : msg["frames"]) {
         if (!f.is_object()) continue;
@@ -1219,6 +1288,30 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
         } else if (type == "goal_updated") {
             if (auto goal = goal_from_json(obj_at(e, "goal")))
                 push_event(EventKind::Goal, "", goal_line(*goal));
+        } else if (type == "artifact_created" ||
+                   type == "artifact_version_added") {
+            note_artifact_version(known_artifacts, e);
+        } else if (type == "artifact_shown") {
+            if (str_or(e, "audience", "") != "to_client") continue;
+            ArtifactRef ref;
+            ref.id = str_or(e, "artifact_id", "");
+            ref.version = str_or(e, "version_id", "");
+            if (ref.id.empty()) continue;
+            std::string title;
+            if (auto k = known_artifacts.find(ref.id); k != known_artifacts.end()) {
+                title = k->second.title;
+                if (auto v = k->second.versions.find(ref.version);
+                    v != k->second.versions.end()) {
+                    ref.file = v->second.file;
+                    ref.media_type = v->second.media_type;
+                    ref.size_bytes = v->second.size_bytes;
+                }
+            }
+            if (title.empty()) title = ref.file;
+            if (title.empty()) title = ref.id;
+            Message& m = push_event(EventKind::Artifact, std::move(title),
+                                    artifact_row_text(ref));
+            m.artifact = std::move(ref);
         } else if (type == "compacted") {
             // The marker stays where it stood; the summary is the row's text
             // and the renderer keeps it behind a disclosure. An empty summary
@@ -2905,6 +2998,42 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
             return Result<std::string>::success(settled);
         }
     }
+}
+
+Result<ArtifactContent> AgentcloudClient::fetch_artifact(
+    const std::string& session_id, const ArtifactRef& ref) {
+    if (session_id.empty() || ref.id.empty())
+        return Result<ArtifactContent>::failure("The artifact has no address.");
+    const auto& cfg = auth_.config();
+    std::string auth_error;
+    const auto token = auth_.get(&auth_error);
+    if (token.empty()) return Result<ArtifactContent>::failure(auth_error);
+    httplib::Client client(("http://" + cfg.host).c_str());
+    if (!cfg.proxy_host.empty() && cfg.proxy_port > 0)
+        client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(60, 0);
+    const httplib::Headers headers{{"crypto_auth_tokens", token.value}};
+    std::string path = "/artifacts/" + agentcloud::percent_encode(ref.id) +
+                       "/content?session=" +
+                       agentcloud::percent_encode(session_id);
+    if (!ref.version.empty())
+        path += "&version=" + agentcloud::percent_encode(ref.version);
+    if (!ref.file.empty())
+        path += "&path=" + agentcloud::percent_encode(ref.file);
+    auto res = client.Get(path.c_str(), headers);
+    if (!res)
+        return Result<ArtifactContent>::failure(
+            "The artifact could not be reached.");
+    if (res->status != 200)
+        return Result<ArtifactContent>::failure(
+            "The artifact read answered " + std::to_string(res->status) + ".");
+    ArtifactContent out;
+    out.bytes = std::move(res->body);
+    out.media_type = res->get_header_value("Content-Type");
+    if (const auto semi = out.media_type.find(';'); semi != std::string::npos)
+        out.media_type.resize(semi);
+    return Result<ArtifactContent>::success(std::move(out));
 }
 
 Result<Session> AgentcloudClient::get_session(const std::string& id) {
