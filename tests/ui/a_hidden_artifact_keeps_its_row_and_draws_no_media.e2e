@@ -1,7 +1,7 @@
 # An artifact hidden after it was shown keeps its row in the transcript,
-# marked hidden, and draws neither image nor player; the clip beside it,
-# not hidden, draws as before. Copy Turn still carries the artifact line
-# (transcript_copy unit).
+# marked hidden, and draws no image; the audio row beside it, not hidden,
+# keeps its honest non-playable state. Copy Turn still carries the
+# artifact line (transcript_copy unit).
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_ARTIFACT_DEMO=hidden HANABI_OPEN=t1
 require_thread t1
@@ -10,4 +10,5 @@ expect_text_drawn "hidden" within=60
 expect_no_ui artifact_image
 expect_no_ui artifact_viewer_image
 expect_text "approval-note.wav"
-assert_ui artifact_clip hidden=false
+expect_text_drawn "audio is not played in this build" within=60
+expect_no_ui artifact_clip

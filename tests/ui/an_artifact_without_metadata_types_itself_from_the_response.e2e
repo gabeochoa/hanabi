@@ -9,7 +9,8 @@ expect_text "art-chart"
 expect_text_drawn "price-tiers.png" within=120
 expect_text_drawn "image/png" within=60
 assert_ui artifact_image hidden=false
-expect_text_drawn "approval-note.wav" within=120
-assert_ui artifact_clip hidden=false
+# The audio row types itself too (audio/wav from the response) and then says
+# it is not played here -- an honest unavailable state, not a bare header.
+expect_text_drawn "audio is not played in this build" within=120
+expect_no_ui artifact_clip
 expect_no_text "fetching"
-expect_no_text "unavailable"

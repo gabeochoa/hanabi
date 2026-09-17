@@ -10,7 +10,6 @@
 
 #include "../api/artifact_sniff.h"
 #include "../api/disk_cache.h"
-#include "../native_audio.h"
 #include "components.h"
 #include "ui_imports.h"
 
@@ -61,10 +60,15 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
         return "";
     }
 
+    // Images draw; audio is fetched by no one -- this build does not play it.
     static bool drawable(std::string_view media_type) {
         api::ArtifactRef probe;
         probe.media_type = std::string(media_type);
-        return probe.is_image() || probe.is_audio();
+        return probe.is_image();
+    }
+    static std::string unsupported_reason(std::string_view media_type) {
+        if (media_type.rfind("audio/", 0) == 0) return "audio is not played in this build";
+        return "unsupported type " + std::string(media_type);
     }
 
     static Fetched run_fetch(const std::shared_ptr<api::Client>& c, const std::string& sessionId,
@@ -91,7 +95,7 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
             type = content.media_type;
         if (type.empty()) type = hanabi::artifact_sniff::media_type(content.bytes);
         if (!drawable(type)) {
-            out.error = type.empty() ? "unrecognised content" : "unsupported type " + type;
+            out.error = type.empty() ? "unrecognised content" : unsupported_reason(type);
             return out;
         }
         std::string file = ref.file;
@@ -108,7 +112,6 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
             return out;
         }
         content.bytes.clear();
-        if (type.rfind("audio/", 0) == 0) native_audio_duration(target.c_str());
         out.ok = true;
         out.path = target;
         out.media_type = type;
@@ -148,7 +151,7 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
             return mark(ref, api::ArtifactFetch::Ready);
         }
         if (ref.has_metadata() && !drawable(ref.media_type))
-            return mark(ref, api::ArtifactFetch::Unavailable, "unsupported type " + ref.media_type);
+            return mark(ref, api::ArtifactFetch::Unavailable, unsupported_reason(ref.media_type));
         if (ref.size_bytes > api::disk_cache::kArtifactMaxBytes)
             return mark(ref, api::ArtifactFetch::Unavailable, "larger than 32 MB; open in the web app");
         const std::string key = key_of(ref);
@@ -197,19 +200,6 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
         for (auto& [key, slot] : slots_) {
             poll(slot);
             if (slot.future.valid()) app->artifactFetchPending = true;
-        }
-        bool clipShown = app->audioClipPath.empty();
-        for (std::size_t i = 0; i < app->active_pane_count(); ++i) {
-            const Pane& pane = app->panes[i];
-            if (!pane.openSession) continue;
-            for (const api::Message& m : pane.openSession->messages)
-                if (m.kind == api::EventKind::Artifact && !m.artifact.hidden &&
-                    m.artifact.local_path == app->audioClipPath)
-                    clipShown = true;
-        }
-        if (!clipShown) {
-            native_audio_stop();
-            app->audioClipPath.clear();
         }
         std::vector<std::string> observed;
         for (Pane& pane : app->panes) {

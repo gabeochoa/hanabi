@@ -21,7 +21,6 @@
 #include "../api/compaction.h"
 #include "../api/tool_kinds.h"
 #include "../api/disk_cache.h"
-#include "../native_audio.h"
 #include "../test_hooks.h"
 #include "../util/capture_clock.h"
 #include "../util/diff.h"
@@ -13353,9 +13352,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kArtifactImageMaxH = 420.0f;
     static constexpr float kArtifactImageGapTop = 6.0f;
     static constexpr float kArtifactImageGapBot = 6.0f;
-    static constexpr float kArtifactClipH = 44.0f;
-    static constexpr float kArtifactClipPlayW = 32.0f;
-    static constexpr float kArtifactClipTimeW = 86.0f;
 
     static float artifact_inner_width(float colW) {
         return std::max(40.0f, colW - kEventInset - kThinkingInset);
@@ -13373,31 +13369,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      m.image_path, artifact_image_width(colW),
                      kArtifactImageMaxH) +
                  kArtifactImageGapBot;
-        else if (m.artifact.is_audio() && !m.artifact.local_path.empty())
-            h += kArtifactImageGapTop + kArtifactClipH + kArtifactImageGapBot;
         return h;
     }
-    static std::string clip_clock(double seconds) {
-        const int total = std::max(0, static_cast<int>(seconds + 0.5));
-        char buf[16];
-        std::snprintf(buf, sizeof buf, "%d:%02d", total / 60, total % 60);
-        return buf;
-    }
-    static const std::vector<float>& clip_peaks(const std::string& path,
-                                                int count) {
-        static std::unordered_map<std::string, std::vector<float>> cache;
-        auto it = cache.find(path);
-        if (it != cache.end() && static_cast<int>(it->second.size()) == count)
-            return it->second;
-        std::vector<float> peaks(static_cast<std::size_t>(count), 0.0f);
-        if (native_audio_peaks(path.c_str(), peaks.data(), count) != count)
-            std::fill(peaks.begin(), peaks.end(), 0.0f);
-        const float loudest = *std::max_element(peaks.begin(), peaks.end());
-        if (loudest > 0.0f)
-            for (float& p : peaks) p /= loudest;
-        return cache[path] = std::move(peaks);
-    }
-
     void render_artifact_row(UIContext<InputAction>& ctx, Entity& parent,
                              int index, const api::Message& m,
                              AppComponent& app, float colW) {
@@ -13493,109 +13466,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
             return;
         }
-
-        if (!(m.artifact.is_audio() && !m.artifact.local_path.empty())) return;
-        const std::string clip = m.artifact.local_path;
-        const float innerW = artifact_inner_width(colW);
-        auto card = div(ctx, mk(wrap.ent(), 3),
-            ComponentConfig{}
-                .with_size(ComponentSize{pixels(innerW), pixels(kArtifactClipH)})
-                .with_margin(Margin{.top = pixels(kArtifactImageGapTop),
-                                    .bottom = pixels(kArtifactImageGapBot),
-                                    .left = pixels(kThinkingInset)})
-                .with_flex_direction(FlexDirection::Row)
-                .with_flex_wrap(FlexWrap::NoWrap)
-                .with_align_items(AlignItems::Center)
-                .with_padding(Padding{.left = pixels(6), .right = pixels(10)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_roundness(0.3f)
-                .with_debug_name("artifact_clip"));
-
-        const bool playing = native_audio_is_playing(clip.c_str()) != 0;
-        auto play = div(ctx, mk(card.ent(), 1),
-            ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(kArtifactClipPlayW),
-                                         pixels(kArtifactClipPlayW)})
-                .with_transparent_bg()
-                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
-                .with_cursor(afterhours::ui::CursorType::Pointer)
-                .with_roundness(0.5f)
-                .with_on_draw_fg([playing](RectangleType r) {
-                    const theme::Color c = theme::text_primary();
-                    const float cx = r.x + r.width * 0.5f;
-                    const float cy = r.y + r.height * 0.5f;
-                    const float e = hanabi::viewport::px(5.0f);
-                    if (playing) {
-                        afterhours::draw_rectangle(
-                            RectangleType{cx - e, cy - e, e * 0.7f, 2.0f * e}, c);
-                        afterhours::draw_rectangle(
-                            RectangleType{cx + e * 0.3f, cy - e, e * 0.7f, 2.0f * e}, c);
-                    } else {
-                        afterhours::draw_triangle(
-                            afterhours::vec2{cx - e * 0.8f, cy - e},
-                            afterhours::vec2{cx - e * 0.8f, cy + e},
-                            afterhours::vec2{cx + e, cy}, c);
-                    }
-                })
-                .with_debug_name(playing ? "artifact_clip_pause"
-                                         : "artifact_clip_play"));
-        play.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
-            [](Entity&) {});
-        if (play.ent().get<afterhours::ui::HasClickListener>().down) {
-            if (playing) {
-                native_audio_pause();
-            } else {
-                native_audio_play(clip.c_str());
-                app.audioClipPath = clip;
-            }
-        }
-
-        const double duration = native_audio_duration(clip.c_str());
-        const double position = native_audio_position(clip.c_str());
-        const float waveW = std::max(
-            40.0f, innerW - kArtifactClipPlayW - kArtifactClipTimeW - 28.0f);
-        const int bars = std::max(16, static_cast<int>(waveW / 4.0f));
-        const std::vector<float>& peaks = clip_peaks(clip, bars);
-        const float progress =
-            duration > 0.0 ? static_cast<float>(position / duration) : 0.0f;
-        div(ctx, mk(card.ent(), 2),
-            ComponentConfig{}
-                .with_label(" ")
-                .with_size(ComponentSize{pixels(waveW), pixels(kArtifactClipH - 12.0f)})
-                .with_margin(Margin{.left = pixels(6)})
-                .with_transparent_bg()
-                .with_roundness(0.0f)
-                .with_on_draw_fg([peaks, progress](RectangleType r) {
-                    const std::size_t n = peaks.size();
-                    if (n == 0) return;
-                    const float step = r.width / static_cast<float>(n);
-                    const float barW = std::max(1.0f, step * 0.6f);
-                    const float mid = r.y + r.height * 0.5f;
-                    for (std::size_t i = 0; i < n; ++i) {
-                        const float amp = std::max(0.06f, peaks[i]);
-                        const float h = std::max(2.0f, amp * r.height);
-                        const bool done =
-                            static_cast<float>(i + 1) / static_cast<float>(n) <= progress;
-                        afterhours::draw_rectangle(
-                            RectangleType{r.x + step * static_cast<float>(i),
-                                          mid - h * 0.5f, barW, h},
-                            done ? theme::accent() : theme::text_faint());
-                    }
-                })
-                .with_debug_name("artifact_clip_wave"));
-
-        div(ctx, mk(card.ent(), 3),
-            ComponentConfig{}
-                .with_label(clip_clock(position) + " / " + clip_clock(duration))
-                .with_size(ComponentSize{pixels(kArtifactClipTimeW), pixels(kEventRowH)})
-                .with_margin(Margin{.left = pixels(8)})
-                .with_transparent_bg()
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Right)
-                .with_roundness(0.0f)
-                .with_debug_name("artifact_clip_time"));
     }
     static std::string compaction_key(const api::Message& m, int index) {
         return m.id.empty() ? ("compaction" + std::to_string(index)) : m.id;

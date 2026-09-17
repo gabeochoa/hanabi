@@ -10,7 +10,7 @@ click_ui composer_reply_input
 expect_focused composer_reply_input
 expect_text_drawn "price-tiers.png" within=120
 assert_ui artifact_image hidden=false
-expect_text_drawn "approval-note.wav" within=120
+expect_text_drawn "audio is not played in this build" within=120
 expect_panes t1 t2 1
 expect_focused composer_reply_input
 expect_text "Reconciled 4,812 accounts"
