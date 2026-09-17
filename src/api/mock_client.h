@@ -1183,13 +1183,28 @@ class MockClient : public Client {
     }
 
     bool supports_artifacts() const override { return true; }
+    // HANABI_MOCK_ARTIFACT_FAIL_ONCE=<status>: each artifact's first fetch
+    // answers that status; the next succeeds (a transient failure).
+    static std::atomic<int>& artifact_fetches() {
+        static std::atomic<int> n{0};
+        return n;
+    }
     Result<ArtifactContent> fetch_artifact(const std::string&,
                                            const ArtifactRef& ref) override {
+        ++artifact_fetches();
         const char* fixture = ref.id == "art-chart"  ? kArtifactDemoImage
                               : ref.id == "art-clip" ? kArtifactDemoAudio
                                                      : nullptr;
         if (!fixture)
             return Result<ArtifactContent>::failure("no such artifact: " + ref.id);
+        static std::set<std::string> failedOnce;
+        if (const char* st = std::getenv("HANABI_MOCK_ARTIFACT_FAIL_ONCE");
+            st && *st && failedOnce.insert(ref.id).second) {
+            auto r = Result<ArtifactContent>::failure(
+                "The artifact read answered " + std::string(st) + ".");
+            r.value.http_status = std::atoi(st);
+            return r;
+        }
         FILE* f = std::fopen(fixture, "rb");
         if (!f)
             return Result<ArtifactContent>::failure("fixture missing: " +
@@ -1199,6 +1214,9 @@ class MockClient : public Client {
         for (std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
             out.bytes.append(buf, n);
         std::fclose(f);
+        // The server's headers, whatever the caller knew.
+        out.media_type = ref.id == "art-chart" ? "image/png" : "audio/wav";
+        out.file_name = ref.id == "art-chart" ? "price-tiers.png" : "approval-note.wav";
         return Result<ArtifactContent>::success(std::move(out));
     }
 
@@ -1696,7 +1714,8 @@ class MockClient : public Client {
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
-        "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ACCESS",      "HANABI_MOCK_NO_HALT",
+        "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
+        "HANABI_MOCK_ACCESS",      "HANABI_MOCK_NO_HALT",
         "HANABI_MOCK_HALT_REFUSE", "HANABI_MOCK_HALT_NO_ECHO",
         "HANABI_MOCK_HALT_OBSERVE_LATCH", "HANABI_MOCK_NO_HALT_ADVERT",
     };
@@ -2247,15 +2266,31 @@ class MockClient : public Client {
             // pixels; the summary is a faithful digest of the four rows above
             // it, because a fixture that summarizes something else teaches
             // the reader the divider lies.
+            // HANABI_ARTIFACT_DEMO: 1|open = bytes local; fetch = rows fetch;
+            // typeless = shown, create not in the page; hidden = shown then
+            // hidden.
             if (const char* demo = std::getenv("HANABI_ARTIFACT_DEMO");
                 demo != nullptr && *demo != 0) {
-                const bool resolved = std::string(demo) != "fetch";
-                s.messages.push_back(artifact_demo_row(
+                const std::string mode = demo;
+                const bool resolved = mode != "fetch" && mode != "typeless";
+                Message chart = artifact_demo_row(
                     "m6", "art-chart", "price-tiers.png", "image/png",
-                    kArtifactDemoImage, resolved, mins_ago(10)));
-                s.messages.push_back(artifact_demo_row(
+                    kArtifactDemoImage, resolved, mins_ago(10));
+                Message clip = artifact_demo_row(
                     "m7", "art-clip", "approval-note.wav", "audio/wav",
-                    kArtifactDemoAudio, resolved, mins_ago(9)));
+                    kArtifactDemoAudio, resolved, mins_ago(9));
+                if (mode == "typeless") {
+                    for (Message* m : {&chart, &clip}) {
+                        m->artifact.file.clear();
+                        m->artifact.media_type.clear();
+                        m->artifact.size_bytes = 0;
+                        m->subtitle = m->artifact.id;
+                        m->text.clear();
+                    }
+                }
+                if (mode == "hidden") chart.artifact.hidden = true;
+                s.messages.push_back(std::move(chart));
+                s.messages.push_back(std::move(clip));
             }
             if (std::getenv("HANABI_COMPACT_DEMO") != nullptr) {
                 Message c;

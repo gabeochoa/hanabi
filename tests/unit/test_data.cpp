@@ -34,6 +34,7 @@
 #include "../../src/ui/model_menu.h"
 #include "../../src/ui/transcript_copy.h"
 #include "../../src/launch_policy.h"
+#include "../../src/api/artifact_sniff.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                    \
@@ -162,8 +163,8 @@ static void test_artifact_bytes_are_cache_bytes() {
     api::disk_cache::wipe_all();
     CHECK(api::disk_cache::total_bytes() == 0);
 
-    const std::string old = api::disk_cache::artifact_path("art/old", "v1", ".png");
-    const std::string young = api::disk_cache::artifact_path("art-new", "v2", ".wav");
+    const std::string old = api::disk_cache::artifact_path("art/old", "v1", "chart.png", ".png");
+    const std::string young = api::disk_cache::artifact_path("art-new", "v2", "clip.wav", ".wav");
     CHECK(old.find("/artifacts/") != std::string::npos);
     CHECK(old.find("art/old") == std::string::npos);
     CHECK(api::disk_cache::store_artifact(old, std::string(3000, 'a')));
@@ -172,6 +173,18 @@ static void test_artifact_bytes_are_cache_bytes() {
     CHECK(api::disk_cache::store_artifact(young, std::string(2000, 'b')));
     CHECK(!api::disk_cache::store_artifact(dir + "/escaped.bin", "x"));
     CHECK(!std::filesystem::exists(dir + "/escaped.bin"));
+    CHECK(api::disk_cache::total_bytes() == 5000);
+    // Two files of one version never share a path; a version with no file
+    // name still has one; the cap refuses, and refusing writes nothing.
+    const std::string a = api::disk_cache::artifact_path("art-2", "v1", "a.png", ".png");
+    const std::string b = api::disk_cache::artifact_path("art-2", "v1", "b.png", ".png");
+    const std::string nameless = api::disk_cache::artifact_path("art-2", "v1", "", ".png");
+    CHECK(a != b && a != nameless && b != nameless);
+    CHECK(a.find("art-2-v1-a.png") != std::string::npos);
+    CHECK(nameless.find("art-2-v1.png") != std::string::npos);
+    const std::string big(api::disk_cache::kArtifactMaxBytes + 1, 'z');
+    CHECK(!api::disk_cache::store_artifact(a, big));
+    CHECK(!std::filesystem::exists(a) && !std::filesystem::exists(a + ".tmp"));
     CHECK(api::disk_cache::total_bytes() == 5000);
 
     api::Session s;
@@ -2173,6 +2186,41 @@ static void test_launch_policy_admits_only_the_headless_e2e_entry() {
         CHECK(!b.admitted && b.reason.find(std::string("'") + bad + "'") != std::string::npos);
     }
 }
+// The byte signature names only what the rows can draw; the response's own
+// type is trusted only when it is a real type.
+static void test_artifact_sniff_names_only_drawable_types() {
+    std::printf("test_artifact_sniff_names_only_drawable_types\n");
+    namespace sn = hanabi::artifact_sniff;
+    CHECK(sn::media_type(std::string("\x89PNG\r\n\x1a\n....", 12)) == "image/png");
+    CHECK(sn::media_type("\xFF\xD8\xFF\xE0tail") == "image/jpeg");
+    CHECK(sn::media_type("GIF89a...") == "image/gif");
+    CHECK(sn::media_type("RIFF....WEBPVP8 ") == "image/webp");
+    CHECK(sn::media_type("RIFF....WAVEfmt ") == "audio/wav");
+    CHECK(sn::media_type("ID3\x04....") == "audio/mpeg");
+    CHECK(sn::media_type("....ftypM4A ") == "audio/mp4");
+    CHECK(sn::media_type("%PDF-1.7") == "");
+    CHECK(sn::media_type("") == "");
+    CHECK(sn::usable("image/png") && !sn::usable("application/octet-stream") &&
+          !sn::usable("text/plain") && !sn::usable(""));
+}
+
+// Copy Turn and Export keep the artifact line for a shown row and for a
+// hidden one -- the row stays in history either way.
+static void test_copy_and_export_keep_the_artifact_line_hidden_or_not() {
+    std::printf("test_copy_and_export_keep_the_artifact_line_hidden_or_not\n");
+    namespace tc = hanabi::transcript_copy;
+    api::Message shown = tc_msg("a1", api::Role::System, "image/png  \xc2\xb7  4 KB");
+    shown.kind = api::EventKind::Artifact;
+    shown.subtitle = "price-tiers.png";
+    shown.artifact.id = "art-chart";
+    api::Message hidden = shown;
+    hidden.id = "a2";
+    hidden.artifact.hidden = true;
+    const std::string line = "*(artifact: price-tiers.png \xe2\x80\x94 image/png  \xc2\xb7  4 KB)*\n\n";
+    CHECK(tc::body_of(shown) == line);
+    CHECK(tc::body_of(hidden) == line);
+    CHECK(tc::render_transcript({shown, hidden}, "t") == "# t\n\n" + line + line);
+}
 static void test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind() {
     std::printf("test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind\n");
     namespace tc = hanabi::transcript_copy;
@@ -2225,6 +2273,8 @@ int main() {
     test_export_title_is_the_catalog_title_else_eight_id_characters();
     test_export_payload_is_absent_for_a_detached_target_even_with_cache_and_another_pane_live();
     test_launch_policy_admits_only_the_headless_e2e_entry();
+    test_artifact_sniff_names_only_drawable_types();
+    test_copy_and_export_keep_the_artifact_line_hidden_or_not();
     test_access_follows_every_attach_even_when_the_slot_snapshot_is_older();
     test_mock_create_records_the_launch_tuning_and_send_ignores_it();
     test_legacy_create_refuses_tuning_and_still_creates_untuned();

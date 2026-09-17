@@ -1,0 +1,19 @@
+# A transient failure is not the end: the row says what happened, and once
+# the row has left every pane and come back the fetch runs again and
+# succeeds. Nothing is retried while the row is on screen; nothing is
+# retried for a permanent refusal (unit-tested).
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ARTIFACT_DEMO=fetch HANABI_MOCK_ARTIFACT_FAIL_ONCE=503
+require_thread t2
+click_ui chat_row_id_t1
+expect_open t1
+expect_text_drawn "unavailable: The artifact read answered 503." within=120
+expect_no_ui artifact_image
+click_ui tab_t2
+expect_open t2
+expect_no_text "price-tiers.png"
+click_ui chat_row_id_t1
+expect_open t1
+expect_text_drawn "price-tiers.png" within=120
+assert_ui artifact_image hidden=false
+expect_no_text "unavailable"

@@ -768,7 +768,7 @@ bool is_silent_wire_event(const std::string& type) {
         "subscription_hook_intent", "subscription_hook_settled",
         "outbound_enqueued", "outbound_settled", "channel_message_received",
         "channel_reply_delivered", "compact_requested", "compact_applied",
-        "artifact_hidden", "artifact_metadata_updated", "noop", "block_delta",
+        "artifact_metadata_updated", "noop", "block_delta",
         "tool_output", "compaction_started", "usage_delta", "telemetry",
         "reply_handled", "session_halted", "session_resumed",
         "elicitation_requested", "elicitation_resolved",
@@ -1047,6 +1047,7 @@ struct ArtifactVersion {
     std::string file;
     std::string media_type;
     std::uint64_t size_bytes = 0;
+    int file_count = 0;  // the version's files; `file` is the first
 };
 
 struct KnownArtifact {
@@ -1060,6 +1061,7 @@ ArtifactVersion artifact_version_from_json(const json& version) {
     if (!files.contains("files") || !files.at("files").is_array() ||
         files.at("files").empty())
         return out;
+    out.file_count = static_cast<int>(files.at("files").size());
     const json& first = files.at("files").front();
     if (!first.is_object()) return out;
     out.file = str_or(first, "path", "");
@@ -1305,13 +1307,25 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                     ref.file = v->second.file;
                     ref.media_type = v->second.media_type;
                     ref.size_bytes = v->second.size_bytes;
+                    ref.file_count = v->second.file_count;
                 }
             }
             if (title.empty()) title = ref.file;
             if (title.empty()) title = ref.id;
+            ref.shown_seq = seq;
             Message& m = push_event(EventKind::Artifact, std::move(title),
                                     artifact_row_text(ref));
             m.artifact = std::move(ref);
+        } else if (type == "artifact_hidden") {
+            // Seq-gated: marks the shows of that id that precede it; a hide
+            // older than a show leaves it. In-page only (puffin_gaps.md).
+            if (str_or(e, "audience", "") != "to_client") continue;
+            const std::string hidden = str_or(e, "artifact_id", "");
+            if (hidden.empty()) continue;
+            for (Message& m : out)
+                if (m.kind == EventKind::Artifact && m.artifact.id == hidden &&
+                    m.artifact.shown_seq <= seq)
+                    m.artifact.hidden = true;
         } else if (type == "compacted") {
             // The marker stays where it stood; the summary is the row's text
             // and the renderer keeps it behind a disclosure. An empty summary
@@ -3025,11 +3039,24 @@ Result<ArtifactContent> AgentcloudClient::fetch_artifact(
     if (!res)
         return Result<ArtifactContent>::failure(
             "The artifact could not be reached.");
-    if (res->status != 200)
-        return Result<ArtifactContent>::failure(
+    if (res->status != 200) {
+        auto r = Result<ArtifactContent>::failure(
             "The artifact read answered " + std::to_string(res->status) + ".");
+        r.value.http_status = res->status;
+        return r;
+    }
     ArtifactContent out;
     out.bytes = std::move(res->body);
+    out.media_type = res->get_header_value("Content-Type");
+    if (const auto semi = out.media_type.find(';'); semi != std::string::npos)
+        out.media_type.erase(semi);
+    while (!out.media_type.empty() && out.media_type.back() == ' ') out.media_type.pop_back();
+    const std::string disposition = res->get_header_value("Content-Disposition");
+    if (const auto at = disposition.find("filename=\""); at != std::string::npos) {
+        const auto start = at + 10;
+        const auto end = disposition.find('"', start);
+        if (end != std::string::npos) out.file_name = disposition.substr(start, end - start);
+    }
     return Result<ArtifactContent>::success(std::move(out));
 }
 

@@ -799,16 +799,20 @@ std::vector<fs::path> artifact_files(const std::string& root) {
 }  // namespace
 
 std::string artifact_path(const std::string& id, const std::string& version,
-                          const std::string& extension) {
+                          const std::string& file, const std::string& extension) {
     const std::string root = cache_dir();
     if (root.empty() || id.empty()) return "";
     const fs::path dir = fs::path(root) / kArtifactDir;
     if (!ensure_dir(dir.string())) return "";
-    return (dir / (safe_name(id) + "-" + safe_name(version) + extension)).string();
+    const std::string stem = fs::path(file).stem().string();
+    std::string name = safe_name(id) + "-" + safe_name(version);
+    if (!stem.empty()) name += "-" + safe_name(stem);
+    return (dir / (name + extension)).string();
 }
 
 bool store_artifact(const std::string& path, const std::string& bytes) {
     if (path.empty()) return false;
+    if (bytes.size() > kArtifactMaxBytes) return false;
     const fs::path target(path);
     std::error_code ec;
     if (fs::weakly_canonical(target.parent_path(), ec).filename() != kArtifactDir)

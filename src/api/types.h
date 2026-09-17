@@ -80,15 +80,25 @@ enum class EventKind {
     Artifact,
 };
 
+// The row's byte state; Unavailable carries the reason. A transient failure
+// is retried on re-observation, a permanent one is not.
+enum class ArtifactFetch { Idle, Pending, Ready, Unavailable };
+
 struct ArtifactRef {
     std::string id;
     std::string version;
     std::string file;
     std::string media_type;
     std::uint64_t size_bytes = 0;
+    int file_count = 0;  // files on the version; `file` is the first
+    std::int64_t shown_seq = 0;  // the artifact_shown frame's seq
+    bool hidden = false;         // artifact_hidden after the show; row stays
     std::string local_path;
+    ArtifactFetch fetch = ArtifactFetch::Idle;
+    std::string unavailable_reason;
 
     [[nodiscard]] bool empty() const { return id.empty(); }
+    [[nodiscard]] bool has_metadata() const { return !media_type.empty(); }
     [[nodiscard]] bool is_image() const {
         return media_type == "image/png" || media_type == "image/jpeg" ||
                media_type == "image/gif" || media_type == "image/webp" ||
@@ -102,6 +112,9 @@ struct ArtifactRef {
 
 struct ArtifactContent {
     std::string bytes;
+    std::string media_type;  // response Content-Type, first token
+    std::string file_name;   // response Content-Disposition filename
+    int http_status = 0;     // on failure: the status, 0 for transport
 };
 
 // High-signal attention state of a thread. This is the single notion the UI

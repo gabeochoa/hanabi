@@ -857,6 +857,58 @@ static void test_a_shown_artifact_is_a_row_with_its_file_and_size() {
     CHECK(out[3].text.empty());
     CHECK(api::agentcloud::artifact_size_label(512) == "512 B");
     CHECK(api::agentcloud::artifact_size_label(20u * 1024u * 1024u) == "20 MB");
+    CHECK(out[1].artifact.shown_seq == 6);
+    CHECK(out[1].artifact.file_count == 1);
+    CHECK(!out[1].artifact.hidden && !out[2].artifact.hidden && !out[3].artifact.hidden);
+}
+
+// artifact_hidden: the row stays, marked hidden, seq-gated. (a) a hide after
+// the show marks it; (b) a hide OLDER than the show (a backward page) does
+// not; (c) a later show is a new, shown row; (d) a version added after a hide
+// changes nothing; (e) two shows of one id before the hide are both marked;
+// audience to_model never reaches the rows.
+static void test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored() {
+    std::printf("test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored\n");
+    const std::string reply = R"({"type":"page","frames":[
+      {"seq":2,"created_at_unix_ms":1700000000000,
+       "event":{"type":"artifact_created",
+                "lineage":{"artifact_id":"art-1","owner":{"kind":"user","fbid":1},"origin_session_id":"s1"},
+                "version":{"version_id":"v1","created_by":{"kind":"user","fbid":1},
+                           "source":{"source_type":"stored_file",
+                                     "payload":{"files":[{"path":"a.png","mime":"image/png","bytes_len":10},
+                                                         {"path":"b.png","mime":"image/png","bytes_len":11}]}}},
+                "title":"Two files"}},
+      {"seq":3,"created_at_unix_ms":1700000000000,
+       "event":{"type":"artifact_shown","artifact_id":"art-1","version_id":"v1","audience":"to_client"}},
+      {"seq":4,"created_at_unix_ms":1700000000000,
+       "event":{"type":"artifact_shown","artifact_id":"art-1","version_id":"v1","audience":"to_client"}},
+      {"seq":1,"created_at_unix_ms":1700000000000,
+       "event":{"type":"artifact_hidden","artifact_id":"art-1","audience":"to_client"}},
+      {"seq":5,"created_at_unix_ms":1700000000000,
+       "event":{"type":"artifact_hidden","artifact_id":"art-1","audience":"to_model"}},
+      {"seq":6,"created_at_unix_ms":1700000000000,
+       "event":{"type":"artifact_hidden","artifact_id":"art-1","audience":"to_client"}},
+      {"seq":7,"created_at_unix_ms":1700000000000,
+       "event":{"type":"artifact_version_added",
+                "lineage":{"artifact_id":"art-1","owner":{"kind":"user","fbid":1},"origin_session_id":"s1"},
+                "version":{"version_id":"v2","created_by":{"kind":"user","fbid":1},
+                           "source":{"source_type":"stored_file",
+                                     "payload":{"files":[{"path":"c.png","mime":"image/png","bytes_len":12}]}}}}},
+      {"seq":8,"created_at_unix_ms":1700000000000,
+       "event":{"type":"artifact_shown","artifact_id":"art-1","version_id":"v2","audience":"to_client"}}
+    ]})";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 3);
+    for (const auto& m : out) CHECK(m.kind == api::EventKind::Artifact);
+    // (b) the seq-1 hide preceded both shows: ignored. (a)+(e) the seq-6 hide
+    // marks both earlier shows. (c) the seq-8 show is a fresh, shown row on v2.
+    CHECK(out[0].artifact.shown_seq == 3 && out[0].artifact.hidden);
+    CHECK(out[1].artifact.shown_seq == 4 && out[1].artifact.hidden);
+    CHECK(out[2].artifact.shown_seq == 8 && !out[2].artifact.hidden);
+    CHECK(out[2].artifact.version == "v2" && out[2].artifact.file == "c.png");
+    // Multifile: the first file, and the count, on the v1 rows.
+    CHECK(out[0].artifact.file == "a.png" && out[0].artifact.file_count == 2);
+    CHECK(out[2].artifact.file_count == 1);
 }
 
 static void test_a_compaction_round_is_reported_while_it_runs() {
@@ -2304,6 +2356,7 @@ int main() {
     test_live_tool_call_and_finish();
     test_a_compaction_marker_is_a_divider_not_a_message();
     test_a_shown_artifact_is_a_row_with_its_file_and_size();
+    test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored();
     test_a_compaction_round_is_reported_while_it_runs();
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();

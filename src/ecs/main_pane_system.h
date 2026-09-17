@@ -13365,6 +13365,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
     static float artifact_height(const api::Message& m, float colW) {
         float h = event_row_height();
+        if (m.artifact.hidden) return h;
         if (m.artifact.is_image() && !m.image_path.empty() &&
             hanabi::inline_image::available(m.image_path))
             h += kArtifactImageGapTop +
@@ -13410,12 +13411,39 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("artifact_block"));
 
+        // State rides in the faint span; row height never changes. A row
+        // typed from the response shows what the response said.
+        std::string detail = m.text;
+        if (detail.empty() && !m.artifact.media_type.empty()) detail = m.artifact.media_type;
+        const std::string& name = (m.subtitle == m.artifact.id && !m.artifact.file.empty())
+                                      ? m.artifact.file
+                                      : m.subtitle;
+        const auto append = [&](const std::string& part) {
+            if (part.empty()) return;
+            if (!detail.empty()) detail += "  \xc2\xb7  ";
+            detail += part;
+        };
+        if (m.artifact.file_count > 1)
+            append(std::to_string(m.artifact.file_count) + " files, first shown");
+        if (m.artifact.hidden) append("hidden");
+        else switch (m.artifact.fetch) {
+            case api::ArtifactFetch::Idle:
+            case api::ArtifactFetch::Pending: append("fetching\xe2\x80\xa6"); break;
+            case api::ArtifactFetch::Unavailable:
+                append("unavailable: " + m.artifact.unavailable_reason);
+                break;
+            case api::ArtifactFetch::Ready:
+                if (m.artifact.is_image() && !m.image_path.empty() &&
+                    !hanabi::inline_image::available(m.image_path))
+                    append("unavailable: the image could not be decoded");
+                break;
+        }
         div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
                 .with_styled_label(
                     {{std::string("artifact   "), theme::link()},
-                     {fmtutil::ellipsize(m.subtitle, 60), theme::text_primary()},
-                     {m.text.empty() ? std::string() : "   " + m.text,
+                     {fmtutil::ellipsize(name, 60), theme::text_primary()},
+                     {detail.empty() ? std::string() : "   " + detail,
                       theme::text_faint()}})
                 .with_size(ComponentSize{pixels(colW - kEventInset),
                                          pixels(kEventRowH)})
@@ -13427,6 +13455,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("artifact_head"));
 
+        if (m.artifact.hidden) return;
         if (m.artifact.is_image() && !m.image_path.empty() &&
             hanabi::inline_image::available(m.image_path)) {
             const std::string ip = m.image_path;
@@ -13457,8 +13486,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const bool openNow = kOpenDemo && !openDemoSeeded;
             if (openNow) openDemoSeeded = true;
             if (img.ent().get<afterhours::ui::HasClickListener>().down || openNow) {
+                if (app.viewerImagePath.empty())
+                    app.viewerFocusBefore = static_cast<long long>(ctx.focus_id);
                 app.viewerImagePath = ip;
-                app.viewerImageName = m.subtitle;
+                app.viewerImageName = name;
             }
             return;
         }

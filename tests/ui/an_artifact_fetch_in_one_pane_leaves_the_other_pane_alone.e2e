@@ -1,0 +1,16 @@
+# Two panes: t1 (artifacts) left, t2 right and focused. The left pane's
+# fetch completes and its rows draw; the right pane's thread, transcript and
+# focus are untouched, and the row menu / export paths still see t2 as t2.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t1","t2"],"split_focused_pane":1,"theme":"dark"}
+# env: HANABI_ARTIFACT_DEMO=fetch HANABI_OPEN=t1 HANABI_SPLIT=t2
+require_thread t1
+require_thread t2
+expect_panes t1 t2 1
+click_ui composer_reply_input
+expect_focused composer_reply_input
+expect_text_drawn "price-tiers.png" within=120
+assert_ui artifact_image hidden=false
+expect_text_drawn "approval-note.wav" within=120
+expect_panes t1 t2 1
+expect_focused composer_reply_input
+expect_text "Reconciled 4,812 accounts"
