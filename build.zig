@@ -29,6 +29,7 @@ const TestSpec = struct {
     arc: bool,
     srcs: []const []const u8,
     frameworks: []const []const u8,
+    defines: []const []const u8 = &.{},
 };
 
 // One executable per row; generated from the makefile's rules so nothing was
@@ -119,7 +120,7 @@ const tests = [_]TestSpec{
     .{ .name = "test_agentcloud", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_agentcloud.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
     .{ .name = "test_menubar", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_menubar.mm", "src/menubar.mm", "src/settings.cpp", "src/afterhours_files.cpp" }, .frameworks = &.{ "AppKit", "Carbon" } },
     .{ .name = "test_agentcloud_local", .kind = .unit, .arc = true, .srcs = &.{ "tests/e2e/test_agentcloud_local.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
-    .{ .name = "test_native_audio", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_native_audio.mm", "src/native_audio.mm" }, .frameworks = &.{ "AVFoundation", "Foundation" } },
+    .{ .name = "test_native_audio", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_native_audio.mm", "src/native_audio.mm" }, .frameworks = &.{ "AVFoundation", "Foundation" }, .defines = &.{"-DHANABI_AUDIO_TEST_SEAM"} },
     .{ .name = "test_native_extras", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_native_extras.mm", "src/native_extras.mm" }, .frameworks = &.{ "AppKit", "Carbon", "CoreSpotlight", "CoreText", "MetalKit", "UniformTypeIdentifiers", "UserNotifications" } },
     .{ .name = "test_spotlight_catalog", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_spotlight_catalog.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_div_move", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_div_move.cpp" }, .frameworks = &.{  } },
@@ -692,6 +693,7 @@ fn makeTest(b: *std.Build, spec: TestSpec, opts: TestOpts) std.Build.LazyPath {
         },
     }
     if (spec.arc) f.append(b.allocator, "-fobjc-arc") catch @panic("oom");
+    f.appendSlice(b.allocator, spec.defines) catch @panic("oom");
     var objects = std.ArrayList(std.Build.LazyPath).empty;
     for (spec.srcs) |src| objects.append(b.allocator, compileObject(b, src, f.items, includes, opts.branding_dir, .by_extension)) catch @panic("oom");
     for (spec.frameworks) |fw| link.appendSlice(b.allocator, &.{ "-framework", fw }) catch @panic("oom");

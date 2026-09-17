@@ -371,6 +371,10 @@ for s in "${SCRIPTS[@]}"; do
     # `# env:` line can point a run at the user's general pasteboard. The
     # test binary refuses to start without it (native_extras.mm).
     private_pasteboard="hanabi-e2e-${name}-$$-$(date +%s)"
+    # Same rule for sound: the binary logs audio verbs to a private per-script
+    # file instead of playing; set after the fixture's env so no `# env:` line
+    # can point it elsewhere.
+    audio_log="$ISO_HOME/audio.log"
     # `env -u HANABI_E2E_WINDOWED`: the inherited value was refused above and
     # a declared one is in extra_env only when the policy selected it, so
     # this is belt to those braces -- the process starts from a known state.
@@ -383,7 +387,7 @@ for s in "${SCRIPTS[@]}"; do
         HANABI_TOKEN_FILE="$ISO_HOME/token.json" HANABI_BACKEND=mock \
         ${extra_env[@]+"${extra_env[@]}"} \
         ${policy_env[@]+"${policy_env[@]}"} \
-        HANABI_PASTEBOARD_NAME="$private_pasteboard" \
+        HANABI_PASTEBOARD_NAME="$private_pasteboard" HANABI_AUDIO_LOG="$audio_log" \
         "$EXE" --e2e "$s" ) >"$log" 2>&1 &
     pid=$!
     ACTIVE_PIDS+=("$pid")

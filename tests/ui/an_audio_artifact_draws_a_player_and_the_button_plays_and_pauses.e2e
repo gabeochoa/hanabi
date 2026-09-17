@@ -3,7 +3,7 @@
 # button becomes Pause; Pause hands it back.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
-# env: HANABI_ARTIFACT_DEMO=1 HANABI_OPEN=t1 HANABI_AUDIO_LOG=/tmp/hanabi_e2e_audio.log
+# env: HANABI_ARTIFACT_DEMO=1 HANABI_OPEN=t1
 
 require_thread t1
 
@@ -20,8 +20,12 @@ click_ui artifact_clip_play
 wait_frames 6
 assert_ui artifact_clip_pause hidden=false
 expect_no_ui artifact_clip_play
+# Routing, not just the glyph: the native boundary received play for this
+# clip's cache file (the runner's private log; no speaker).
+expect_audio_log play clip.wav
 
 click_ui artifact_clip_pause
 wait_frames 6
 assert_ui artifact_clip_play hidden=false
 expect_no_ui artifact_clip_pause
+expect_audio_log pause clip.wav

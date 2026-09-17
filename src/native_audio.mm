@@ -35,15 +35,30 @@ constexpr int kAnalysisBuckets = 256;
 constexpr AVAudioFrameCount kAnalysisChunkFrames = 1 << 16;
 constexpr double kAnalysisMaxSeconds = 60.0 * 60.0;
 
+// Test seam: the e2e harness and the audio unit log the verbs instead of
+// playing. Not compiled into the release app.
+#if defined(AFTER_HOURS_ENABLE_E2E_TESTING) || defined(HANABI_AUDIO_TEST_SEAM)
 bool logging(const char* verb, const char* path) {
     const char* log = std::getenv("HANABI_AUDIO_LOG");
-    if (log == nullptr || *log == 0) return false;
+    if (log == nullptr || *log == 0) {
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+        // The test binary never reaches the speaker: the runner names a
+        // private log per script, and a run without one is refused.
+        std::fprintf(stderr, "[e2e] refusing to play audio: HANABI_AUDIO_LOG is not set\n");
+        std::abort();
+#else
+        return false;
+#endif
+    }
     if (FILE* f = std::fopen(log, "a")) {
         std::fprintf(f, "%s %s\n", verb, path ? path : "");
         std::fclose(f);
     }
     return true;
 }
+#else
+bool logging(const char*, const char*) { return false; }
+#endif
 
 NSURL* url_for(const char* path) {
     return [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];

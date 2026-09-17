@@ -58,6 +58,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <format>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <chrono>
@@ -3764,6 +3765,64 @@ struct HandleExpectStarredCommand
     }
 };
 
+// expect_audio_log <verb> <path substring> [within=F]: the native audio
+// boundary received <verb> for a file whose path contains the substring
+// (the runner's private HANABI_AUDIO_LOG; no speaker). A within= consumer.
+// expect_audio_log_count <verb> <n>: exactly n such lines so far.
+struct HandleExpectAudioLogCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    static std::vector<std::string> lines() {
+        std::vector<std::string> out;
+        const char* log = std::getenv("HANABI_AUDIO_LOG");
+        if (log == nullptr || *log == 0) return out;
+        std::ifstream in(log);
+        for (std::string line; std::getline(in, line);) out.push_back(line);
+        return out;
+    }
+    void for_each_with(afterhours::Entity& e,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("expect_audio_log_count")) {
+            if (!cmd.has_args(2)) {
+                cmd.fail("expect_audio_log_count requires <verb> <n>");
+                return;
+            }
+            int n = 0;
+            for (const std::string& l : lines())
+                if (l.rfind(cmd.arg(0) + " ", 0) == 0 || l == cmd.arg(0)) ++n;
+            if (n == cmd.arg_as<int>(1)) {
+                cmd.consume();
+                return;
+            }
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("expect_audio_log_count: {} '{}' lines, expected {}", n, cmd.arg(0),
+                                 cmd.arg(1)));
+            return;
+        }
+        if (!cmd.is("expect_audio_log")) return;
+        if (!cmd.has_args(2)) {
+            within::fail_terminal(cmd, "expect_audio_log requires <verb> <path substring> [within=F]");
+            return;
+        }
+        const std::string want = cmd.arg(0) + " ";
+        for (const std::string& l : lines())
+            if (l.rfind(want, 0) == 0 && l.find(cmd.arg(1)) != std::string::npos) {
+                cmd.consume();
+                return;
+            }
+        if (within::budget_open(e.id, cmd)) {
+            cmd.retry();
+            return;
+        }
+        within::fail_terminal(cmd, std::format("expect_audio_log: no '{}' line for '{}' in the audio log",
+                                               cmd.arg(0), cmd.arg(1)));
+    }
+};
+
 // expect_cached <session id> [min=N] [within=F]: the in-memory
 // transcript cache holds a copy of the thread with at least N messages
 // (default 1: populated history, not an empty entry) -- what a KEPT
@@ -4129,6 +4188,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCachedCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectAudioLogCommand>());
     sm.register_update_system(std::make_unique<HandleDetachThreadCommand>());
     sm.register_update_system(std::make_unique<HandleExpectTextDrawnCommand>());
     sm.register_update_system(std::make_unique<HandleSeedReplyDraftCommand>());
