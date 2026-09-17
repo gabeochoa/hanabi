@@ -433,6 +433,199 @@ static void test_an_unknown_event_draws_a_row_naming_its_tag() {
     CHECK(out[1].text == "still here");
 }
 
+// --- element rows -----------------------------------------------------------
+// `element_emitted` used to be in neither list and drew an "unknown event"
+// row. It is now the Element row: one per instance, at the instance's first
+// seq, carrying its highest revision, drawn as the text projection. The
+// reader's validation is the wire contract's; a rejected frame is the degraded
+// Unsupported row at that seq, never a silent drop. ADDED, NOT RUN here.
+
+static std::string element_frame(int seq, const char* instance, int revision,
+                                 const char* projection,
+                                 const char* extra = "") {
+    return "{\"seq\":" + std::to_string(seq) +
+           ",\"created_at_unix_ms\":" + std::to_string(1700000000000LL + seq * 1000LL) +
+           ",\"event\":{\"type\":\"element_emitted\",\"element\":{"
+           "\"instance\":\"" + std::string(instance) + "\","
+           "\"revision\":" + std::to_string(revision) + ","
+           "\"placement\":\"pinned\",\"element\":\"std/Table\","
+           "\"tree\":{\"kind\":\"table\",\"children\":[]},"
+           "\"projection\":\"" + std::string(projection) + "\","
+           "\"title\":\"Shard health\",\"run\":1" + std::string(extra) + "}}}";
+}
+
+static void test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event() {
+    const std::string reply = "{\"type\":\"page\",\"frames\":[" +
+        std::string(R"({"seq":1,"event":{"type":"user_input","text":"show the table"}},)") +
+        element_frame(2, "shard-health", 1, "A ok\\nB ok") + "," +
+        R"({"seq":3,"event":{"type":"block","block":{"kind":"text","text":"there"}}})" +
+        "]}";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 3);
+    CHECK(out[1].kind == api::EventKind::Element);
+    CHECK(out[1].role == Role::System);
+    CHECK(out[1].id == "element:shard-health");
+    CHECK(out[1].subtitle == "Shard health");
+    CHECK(out[1].text == "A ok\nB ok");
+    CHECK(out[1].element.instance == "shard-health");
+    CHECK(out[1].element.revision == 1);
+    CHECK(out[1].element.placement == "pinned");
+    CHECK(out[1].element.element == "std/Table");
+    CHECK(out[1].element.run == 1);
+    CHECK(out[1].element.anchor_seq == 2);
+    CHECK(out[1].created_at == 1700000002);
+    CHECK(out[2].text == "there");
+    // The tree rode the wire and was never kept anywhere.
+    CHECK(out[1].text.find("children") == std::string::npos);
+}
+
+static void test_a_page_folds_every_revision_of_an_instance_into_one_row() {
+    // E2/E3 through the real page parser: three revisions across the page,
+    // text rows between them. One row, where rev 1 stood, saying rev 3.
+    const std::string reply = "{\"type\":\"page\",\"frames\":[" +
+        std::string(R"({"seq":10,"event":{"type":"user_input","text":"show"}},)") +
+        element_frame(11, "shard-health", 1, "rev one") + "," +
+        R"({"seq":12,"event":{"type":"block","block":{"kind":"text","text":"first"}}},)" +
+        element_frame(13, "shard-health", 2, "rev two") + "," +
+        R"({"seq":14,"event":{"type":"block","block":{"kind":"text","text":"second"}}},)" +
+        element_frame(15, "shard-health", 3, "rev three") +
+        "]}";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 4);
+    CHECK(out[0].text == "show");
+    CHECK(out[1].id == "element:shard-health");
+    CHECK(out[1].text == "rev three");
+    CHECK(out[1].element.revision == 3);
+    CHECK(out[1].element.anchor_seq == 11);
+    CHECK(out[1].created_at == 1700000015);
+    CHECK(out[2].text == "first");
+    CHECK(out[3].text == "second");
+    // The same page fed twice (a reconnect re-feed) is the same rows.
+    const auto again = parse_page_frames(reply);
+    CHECK(again.size() == out.size());
+    CHECK(again[1].text == out[1].text && again[1].element == out[1].element);
+}
+
+static void test_a_malformed_element_frame_is_the_degraded_row_at_its_seq() {
+    // E6: revision 0, a missing projection, an instance over 120 bytes, a
+    // non-object payload -- each draws the Unsupported row naming the tag
+    // at ITS seq; the valid frame beside them still folds.
+    const std::string long_instance(121, 'i');
+    const std::string reply = "{\"type\":\"page\",\"frames\":[" +
+        element_frame(1, "zero-rev", 0, "x") + "," +
+        R"({"seq":2,"event":{"type":"element_emitted","element":{"instance":"no-proj","revision":1,"placement":"inline","element":"std/Note","run":0}}},)" +
+        element_frame(3, long_instance.c_str(), 1, "x") + "," +
+        R"({"seq":4,"event":{"type":"element_emitted","element":"not an object"}},)" +
+        R"({"seq":5,"event":{"type":"element_emitted"}},)" +
+        element_frame(6, "fine", 1, "ok") +
+        "]}";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 6);
+    for (std::size_t i = 0; i < 5; ++i) {
+        CHECK(out[i].kind == api::EventKind::Unsupported);
+        CHECK(out[i].subtitle == "element_emitted");
+        CHECK(out[i].id == std::to_string(i + 1));
+    }
+    CHECK(out[5].kind == api::EventKind::Element);
+    CHECK(out[5].text == "ok");
+    // A projection past the event bound is malformed, not sparse.
+    const std::string huge(16 * 1024 + 1, 'p');
+    const auto big = parse_page_frames("{\"type\":\"page\",\"frames\":[" +
+                                       element_frame(7, "big", 1, huge.c_str()) + "]}");
+    CHECK(big.size() == 1 && big[0].kind == api::EventKind::Unsupported);
+    // Sparse but valid: no title, empty projection -> the element key is
+    // both heading and text. `run` is required: a payload without it is
+    // malformed, not sparse.
+    const auto sparse = parse_page_frames(R"({"type":"page","frames":[
+      {"seq":8,"event":{"type":"element_emitted","element":{"instance":"bare","revision":1,"placement":"inline","element":"std/Note","projection":"","run":0}}},
+      {"seq":9,"event":{"type":"element_emitted","element":{"instance":"runless","revision":1,"placement":"inline","element":"std/Note","projection":"x"}}}
+    ]})");
+    CHECK(sparse.size() == 2 && sparse[0].kind == api::EventKind::Element);
+    CHECK(sparse[0].subtitle == "std/Note" && sparse[0].text == "std/Note");
+    CHECK(sparse[0].element.run == 0);
+    CHECK(sparse[1].kind == api::EventKind::Unsupported && sparse[1].id == "9");
+    // The reader alone, on the payload string.
+    api::ElementFacts facts;
+    CHECK(api::agentcloud::element_facts_from_json(
+        R"({"instance":"a","revision":2,"placement":"artifact","element":"std/Card","projection":"p","run":3,"artifact":{"artifact_id":"art_9","version_id":"v2"}})",
+        &facts));
+    CHECK(facts.run == 3);
+    CHECK(facts.artifact_id == "art_9" && facts.artifact_version_id == "v2");
+    CHECK(!api::agentcloud::element_facts_from_json(R"({"instance":"a","revision":-1,"placement":"inline","element":"e","projection":"p"})", &facts));
+    CHECK(!api::agentcloud::element_facts_from_json(R"({"instance":"a","revision":1,"placement":"inline","element":"e","projection":"p","run":"one"})", &facts));
+    CHECK(!api::agentcloud::element_facts_from_json("not json", &facts));
+}
+
+static void test_the_attach_seed_folds_into_the_page_and_moves_a_windowed_anchor() {
+    // E5 + E3 through the attach path as hanabi runs it: the page is parsed
+    // first (a WINDOW that starts after the table's first emit), then
+    // hello.state.elements is folded through the same fold. The table's
+    // seed carries the true anchor -> the row moves ahead of the window;
+    // the card's seed is a row the window never had; a malformed seed and
+    // one without an anchor are skipped and counted.
+    api::Session session;
+    session.messages = parse_page_frames("{\"type\":\"page\",\"frames\":[" +
+        std::string(R"({"seq":40,"event":{"type":"user_input","text":"later question"}},)") +
+        element_frame(45, "shard-health", 3, "rev three") + "," +
+        R"({"seq":50,"event":{"type":"block","block":{"kind":"text","text":"answer"}}})" +
+        "]}");
+    CHECK(session.messages.size() == 3);
+    CHECK(session.messages[1].id == "element:shard-health");
+    const std::string hello = R"({"type":"hello","capabilities":["elements_v1"],"state":{"elements":[
+      {"anchor_seq":15,"instance":"shard-health","revision":3,"placement":"pinned","element":"std/Table","projection":"rev three","title":"Shard health","run":1},
+      {"anchor_seq":30,"instance":"run-summary","revision":1,"placement":"artifact","element":"std/Card","projection":"","title":"Run summary","run":1,"artifact":{"artifact_id":"art_9","version_id":"v1"}},
+      {"anchor_seq":31,"instance":"broken","revision":0,"placement":"inline","element":"std/Note","projection":"x","run":1},
+      {"instance":"unanchored","revision":1,"placement":"inline","element":"std/Note","projection":"x","run":1},
+      {"anchor_seq":32,"instance":"runless","revision":1,"placement":"inline","element":"std/Note","projection":"x"},
+      {"anchor_seq":33,"instance":"run-zero","revision":1,"placement":"inline","element":"std/Note","projection":"first run","run":0}
+    ]}})";
+    const auto outcome = api::agentcloud::parse_element_state(hello, session);
+    CHECK(outcome.folded == 3);
+    CHECK(outcome.skipped == 3);
+    CHECK(session.elements_advertised);
+    CHECK(session.messages.size() == 5);
+    CHECK(session.messages[0].id == "element:shard-health");
+    CHECK(session.messages[0].element.anchor_seq == 15);
+    CHECK(session.messages[0].text == "rev three");
+    CHECK(session.messages[0].element.revision == 3);
+    CHECK(session.messages[1].id == "element:run-summary");
+    CHECK(session.messages[1].element.anchor_seq == 30);
+    CHECK(session.messages[1].text == "Run summary");
+    CHECK(session.messages[1].element.artifact_id == "art_9");
+    // `run` absent is a malformed seed (skipped); `run` 0 is a real first run.
+    CHECK(session.messages[2].id == "element:run-zero");
+    CHECK(session.messages[2].element.run == 0);
+    CHECK(session.messages[3].text == "later question");
+    CHECK(session.messages[4].text == "answer");
+    // Seed then the same page again: nothing doubles.
+    const auto again = api::agentcloud::parse_element_state(hello, session);
+    CHECK(again.folded == 3 && session.messages.size() == 5);
+}
+
+static void test_the_elements_capability_is_recorded_and_changes_nothing() {
+    // E10: without the advert the rows are the same rows.
+    api::Session with;
+    api::Session without;
+    const char* elements = R"("elements":[{"anchor_seq":5,"instance":"i","revision":1,"placement":"inline","element":"std/Note","projection":"note","run":1}])";
+    api::agentcloud::parse_element_state(
+        std::string(R"({"type":"hello","capabilities":["elements_v1","halt_v1"],"state":{)") + elements + "}}", with);
+    api::agentcloud::parse_element_state(
+        std::string(R"({"type":"hello","capabilities":["halt_v1"],"state":{)") + elements + "}}", without);
+    CHECK(with.elements_advertised);
+    CHECK(!without.elements_advertised);
+    CHECK(with.messages.size() == 1 && without.messages.size() == 1);
+    CHECK(with.messages[0].text == without.messages[0].text);
+    CHECK(with.messages[0].element == without.messages[0].element);
+    // A greeting with no elements bag: nothing folded, nothing skipped, and
+    // an unreadable greeting is the same as none.
+    api::Session bare;
+    const auto none = api::agentcloud::parse_element_state(R"({"type":"hello","state":{}})", bare);
+    CHECK(none.folded == 0 && none.skipped == 0 && bare.messages.empty());
+    CHECK(!bare.elements_advertised);
+    const auto junk = api::agentcloud::parse_element_state("{{not json", bare);
+    CHECK(junk.folded == 0 && junk.skipped == 0);
+}
+
 static void test_progress_and_harness_config_events_fold_as_nothing() {
     const std::string reply = R"({"type":"page","frames":[
       {"seq":1,"event":{"type":"task_progress","task":"7","done":2,"total":5}},
@@ -2472,6 +2665,11 @@ int main() {
     test_the_serving_model_is_read_off_the_attach();
     test_a_fallback_frame_names_the_model_now_answering();
     test_the_node_roster_and_the_create_node_clause();
+    test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event();
+    test_a_page_folds_every_revision_of_an_instance_into_one_row();
+    test_a_malformed_element_frame_is_the_degraded_row_at_its_seq();
+    test_the_attach_seed_folds_into_the_page_and_moves_a_windowed_anchor();
+    test_the_elements_capability_is_recorded_and_changes_nothing();
     if (g_failures == 0) std::printf("OK\n");
     else std::printf("%d FAILURES\n", g_failures);
     return g_failures == 0 ? 0 : 1;

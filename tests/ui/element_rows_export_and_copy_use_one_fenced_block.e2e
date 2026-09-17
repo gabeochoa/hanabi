@@ -1,0 +1,58 @@
+# Copy Turn and Export to Clipboard render an element row through ONE body
+# arm: a heading naming the element (with its provenance in brackets when
+# there is any), then the projection inside a text fence that is LONGER than
+# any run of backticks inside the projection -- the CommonMark rule -- so a
+# projection that itself holds ``` still closes. Copy Message on the row
+# copies the projection alone, byte for byte, markdown characters included.
+#
+# The mock's HANABI_ELEMENTS_DEMO thread: a pinned table at rev 2, an inline
+# note whose projection carries a ```-run (its fence must be four ticks), and
+# an artifact-placed card with an empty projection (its body is its heading).
+# ADDED, NOT RUN in the source lane.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ELEMENTS_DEMO=1 HANABI_OPEN=relements
+
+require_thread relements
+expect_text_drawn "| C | ok | 0s |" within=60
+
+# Export to Clipboard from the thread's row: the whole conversation as
+# loaded, every row through body_of, no trailing trim -- exact bytes.
+reset_clipboard_probe
+right_click_ui chat_row_id_relements
+wait_frames 8
+expect_text "Export to Clipboard"
+click_ui row_menu_export_clipboard
+wait_frames 8
+expect_clipboard_escaped "# shard health table\n\n### **You**\n\nshow me the shard health table\n\n### **Agentcloud**\n\nHere is the current shard health.\n\n### **Element: Shard health** (pinned · std/Table · rev 2)\n\n```text\n| shard | status | lag |\n| A | ok | 0s |\n| B | ok | 1s |\n| C | ok | 0s |\n```\n\n### **Agentcloud**\n\nShard C recovered; the table above is updated in place.\n\n### **Element: std/Note**\n\n````text\nQuote the query as ```sql ... ``` in the doc; **these ticks and stars are literal** and <b>so is this</b>.\n````\n\n### **Agentcloud**\n\nNothing else needs you.\n\n### **Element: Run summary** (artifact art_9 · std/Card)\n\n```text\nRun summary\n```\n\n"
+
+# Copy Turn from the table's provenance line -- the menu is offered on the
+# whole element block, head, provenance and body alike: the same rows, the
+# same bytes per row, trimmed of the trailing blank line as every Copy Turn
+# is.
+reset_clipboard_probe
+right_click_text "rev 2"
+wait_frames 6
+expect_text "Copy Turn"
+click_text "Copy Turn"
+wait_frames 6
+expect_clipboard_escaped "### **You**\n\nshow me the shard health table\n\n### **Agentcloud**\n\nHere is the current shard health.\n\n### **Element: Shard health** (pinned · std/Table · rev 2)\n\n```text\n| shard | status | lag |\n| A | ok | 0s |\n| B | ok | 1s |\n| C | ok | 0s |\n```\n\n### **Agentcloud**\n\nShard C recovered; the table above is updated in place.\n\n### **Element: std/Note**\n\n````text\nQuote the query as ```sql ... ``` in the doc; **these ticks and stars are literal** and <b>so is this</b>.\n````\n\n### **Agentcloud**\n\nNothing else needs you.\n\n### **Element: Run summary** (artifact art_9 · std/Card)\n\n```text\nRun summary\n```\n"
+
+# Copy Message on the note copies its projection alone: the ticks, the
+# stars and the tag are bytes, not formatting, and nothing is added.
+reset_clipboard_probe
+right_click_text "std/Note"
+wait_frames 6
+expect_text "Copy Message"
+click_text "Copy Message"
+wait_frames 6
+expect_clipboard "Quote the query as ```sql ... ``` in the doc; **these ticks and stars are literal** and <b>so is this</b>."
+
+# Copy Message from a body line of the table copies the whole rev-2
+# projection, not rev 1 and not the one line.
+reset_clipboard_probe
+right_click_text "| A | ok | 0s |"
+wait_frames 6
+click_text "Copy Message"
+wait_frames 6
+expect_clipboard_escaped "| shard | status | lag |\n| A | ok | 0s |\n| B | ok | 1s |\n| C | ok | 0s |"

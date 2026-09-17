@@ -2255,6 +2255,141 @@ static void test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind() {
     CHECK(tc::turn_around(ms, "d1").first == 0);
 }
 
+// An Element row (a model-emitted element drawn as its text projection) in
+// Copy Turn, Copy Message and Export: ONE body_of arm serves all three, and
+// its fence is longer than any backtick run in the projection so a
+// projection holding ``` still closes. The mock's HANABI_ELEMENTS_DEMO
+// fixture is built through the same fold the wire parser runs, so what the
+// headless scripts photograph is what a real page folds. ADDED, NOT RUN.
+static void test_element_rows_export_through_one_fenced_body_arm() {
+    std::printf("test_element_rows_export_through_one_fenced_body_arm\n");
+    namespace tc = hanabi::transcript_copy;
+    namespace el = api::elements;
+    std::vector<api::Message> ms;
+    ms.push_back(tc_msg("1", api::Role::User, "show me the shard health table"));
+    api::ElementFacts table;
+    table.instance = "shard-health";
+    table.revision = 2;
+    table.placement = "pinned";
+    table.element = "std/Table";
+    table.title = "Shard health";
+    table.projection = "shard  status\nA      ok\n```not a fence```";
+    el::fold_element(ms, table, 3, 0);
+    api::ElementFacts note;
+    note.instance = "fence-note";
+    note.revision = 1;
+    note.placement = "inline";
+    note.element = "std/Note";
+    note.projection = "**literal stars** and [not a link](http://example.invalid)";
+    el::fold_element(ms, note, 4, 0);
+    ms.push_back(tc_msg("5", api::Role::Assistant, "Done."));
+
+    // Copy Message on an element row copies the projection, literally.
+    CHECK(tc::offers_copy_message(ms[1]));
+    CHECK(tc::copy_message_payload(ms, "element:shard-health") == table.projection);
+    CHECK(tc::copy_message_payload(ms, "element:fence-note") == note.projection);
+    api::Message empty_projection;
+    empty_projection.kind = api::EventKind::Element;
+    CHECK(!tc::offers_copy_message(empty_projection));
+
+    const std::string want =
+        "### **You**\n\nshow me the shard health table\n\n"
+        "### **Element: Shard health** (pinned \xc2\xb7 std/Table \xc2\xb7 rev 2)\n\n"
+        "````text\n"
+        "shard  status\nA      ok\n```not a fence```\n"
+        "````\n\n"
+        "### **Element: std/Note**\n\n"
+        "```text\n"
+        "**literal stars** and [not a link](http://example.invalid)\n"
+        "```\n\n"
+        "### **Agentcloud**\n\nDone.\n";
+    const std::string turn = tc::copy_turn_payload(ms, "element:fence-note");
+    if (turn != want) std::printf("turn:\n%s\n--- want:\n%s\n", turn.c_str(), want.c_str());
+    CHECK(turn == want);
+    // The export is the same arm: title heading, then every row untrimmed.
+    CHECK(tc::render_transcript(ms, "shard health table") ==
+          "# shard health table\n\n" + want + "\n");
+    // A turn never starts at an element row; it belongs to the turn above.
+    CHECK(tc::turn_around(ms, "element:shard-health").first == 0);
+
+    // The mock fixture is the same fold: one row per instance, rev 2 text,
+    // standing where rev 1 was emitted (seq 3, between "2" and "4").
+    setenv("HANABI_ELEMENTS_DEMO", "1", 1);
+    api::MockClient mock;
+    const auto fixture = mock.get_session("relements");
+    unsetenv("HANABI_ELEMENTS_DEMO");
+    CHECK(fixture.ok);
+    if (fixture.ok) {
+        const auto& rows = fixture.value.messages;
+        CHECK(rows.size() == 7);
+        std::size_t elements = 0;
+        for (const auto& m : rows)
+            if (m.kind == api::EventKind::Element) ++elements;
+        CHECK(elements == 3);
+        CHECK(rows[1].id == "2");
+        CHECK(rows[2].id == "element:shard-health");
+        CHECK(rows[2].element.revision == 2);
+        CHECK(rows[2].element.anchor_seq == 3);
+        CHECK(rows[2].text.find("| C | ok | 0s |") != std::string::npos);
+        CHECK(rows[3].id == "4");
+        CHECK(rows[4].id == "element:fence-note");
+        CHECK(rows[6].id == "element:run-summary");
+        CHECK(rows[6].text == "Run summary");
+        CHECK(el::provenance(rows[6].element) == "artifact art_9 \xc2\xb7 std/Card");
+        CHECK(el::fence_enclosing(rows[4].text) == "````");
+    }
+}
+
+// Element facts survive the transcript cache: a thread restored from disk
+// draws its element rows with heading and provenance and folds a later
+// refetch against the revision it saved, not against zero.
+static void test_disk_cache_round_trips_an_element_row() {
+    std::printf("test_disk_cache_round_trips_an_element_row\n");
+    std::string dir = "/tmp/hanabi_test_element_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    api::Session s;
+    s.summary.id = "el";
+    api::ElementFacts card;
+    card.instance = "run-summary";
+    card.revision = 4;
+    card.placement = "artifact";
+    card.element = "std/Card";
+    card.title = "Run summary";
+    card.projection = "12 passed";
+    card.run = 2;
+    card.artifact_id = "art_9";
+    card.artifact_version_id = "v4";
+    api::elements::fold_element(s.messages, card, 31, 1700000000);
+    api::Message spoken;
+    spoken.id = "32";
+    spoken.role = api::Role::Assistant;
+    spoken.text = "still here";
+    s.messages.push_back(spoken);
+    api::disk_cache::save_transcript(s);
+
+    auto back = api::disk_cache::load_transcript("el");
+    CHECK(back.has_value());
+    if (back) {
+        CHECK(back->messages.size() == 2);
+        const api::Message& row = back->messages[0];
+        CHECK(row.id == "element:run-summary");
+        CHECK(row.kind == api::EventKind::Element);
+        CHECK(row.text == "12 passed");
+        CHECK(row.subtitle == "Run summary");
+        api::ElementFacts want = card;
+        want.anchor_seq = 31;
+        CHECK(row.element == want);
+        CHECK(back->messages[1].text == "still here");
+        // A row cached without element facts (a file from before this
+        // field) reads as no facts, so the next refetch's copy wins.
+        CHECK(!back->messages[1].element.present());
+    }
+    api::disk_cache::wipe_all();
+}
+
 int main() {
     std::printf("=== test_data ===\n");
     test_disk_cache_total_and_wipe();
@@ -2281,6 +2416,8 @@ int main() {
     test_attachment_draft_retains_its_bytes();
     test_disk_cache_round_trips_the_brakes();
     test_disk_cache_round_trips_an_unknown_event_row();
+    test_disk_cache_round_trips_an_element_row();
+    test_element_rows_export_through_one_fenced_body_arm();
     test_an_old_cache_file_still_loads();
     test_paused_survives_restart_and_the_next_refresh();
     test_an_attach_freeze_reaches_the_catalog_row();

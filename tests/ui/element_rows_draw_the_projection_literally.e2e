@@ -1,0 +1,70 @@
+# A model-emitted element is a row that says what it is and shows its text
+# projection, literally.
+#
+# `element_emitted` was in neither the silent list nor the rendered arms, so
+# every element a session emitted drew as an "unknown event" row naming the
+# tag and nothing else. The Element row draws the projection the server
+# already rendered to text: a head naming the element (its title, else its
+# registry key), a provenance line when there is more to say than "inline,
+# first revision", and the projection as plain wrapped lines -- no markdown
+# pass, no link detection, nothing executed. One row per element INSTANCE
+# for the whole thread: the fixture's table was emitted twice (rev 1, then
+# rev 2 with a third shard) and stands ONCE, where rev 1 stood, saying rev 2.
+#
+# The mock's HANABI_ELEMENTS_DEMO thread is built through the same fold the
+# wire parser runs (api::elements::fold_element), so what is photographed
+# here is what a real page folds to. ADDED, NOT RUN in the source lane.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ELEMENTS_DEMO=1 HANABI_OPEN=relements
+
+require_thread relements
+expect_text "show me the shard health table"
+
+# E1/E2: the pinned table -- heading is its title, the provenance line says
+# where it is placed, which element it is, and that this is the second
+# revision; the body is the rev-2 projection (shard C is present) and the
+# rev-1 body is nowhere (one row, not two).
+expect_text "element"
+expect_text "Shard health"
+expect_text "pinned · std/Table · rev 2"
+expect_text_drawn "| C | ok | 0s |" within=60
+expect_text "| A | ok | 0s |"
+expect_text "| B | ok | 1s |"
+expect_no_text "| B | ok | 3s |"
+# The pipes are drawn as pipes: no markdown table pass runs over an element.
+expect_text "| shard | status | lag |"
+
+# E8: no title -> the registry key is the heading; inline at rev 1 -> no
+# provenance line at all for this row.
+expect_text "std/Note"
+expect_no_text "inline"
+
+# E9: the projection is drawn as the bytes the model wrote. Markdown
+# emphasis, a fenced-code marker and an HTML tag are all visible characters,
+# not formatting. Single words, so no wrap width can split an assertion.
+expect_text "```sql"
+expect_text "**these"
+expect_text "literal**"
+expect_text "<b>so"
+expect_text "this</b>."
+
+# E7: artifact placement names the handle; an empty projection falls back
+# to the heading as the body. No dock, no artifact view, no opener.
+expect_text "Run summary"
+expect_text "artifact art_9 · std/Card"
+expect_no_text "Open artifact"
+expect_no_text "Open element"
+
+# E10: the `elements_v1` advert is recorded, never drawn -- there is no
+# "live" affordance to find, with or without it (the mock never advertises).
+expect_no_text "elements_v1"
+expect_no_text "live element"
+
+# Nothing this fixture emits draws as an unknown event naming the wire tag.
+expect_no_text "element_emitted"
+
+# The unrelated rows are all still here, in order.
+expect_text "Here is the current shard health."
+expect_text "Shard C recovered; the table above is updated in place."
+expect_text "Nothing else needs you."
