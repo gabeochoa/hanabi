@@ -236,7 +236,7 @@ const app_arc_sources = [_][]const u8{ "src/native_menu.mm", "src/ws_socket.mm" 
 const frameworks = [_][]const u8{
     "CoreFoundation", "CoreServices", "CoreText",           "Metal",        "MetalKit",
     "Cocoa",          "QuartzCore",   "Carbon",             "CoreSpotlight", "UniformTypeIdentifiers",
-    "UserNotifications", "AVFoundation",
+    "UserNotifications",
 };
 
 const cxx_std = "-std=c++23";
