@@ -100,6 +100,7 @@ struct ElementFacts {
 
     [[nodiscard]] bool present() const { return !instance.empty(); }
     bool operator==(const ElementFacts&) const = default;
+};
 
 // The row's byte state; Unavailable carries the reason. A transient failure
 // is retried on re-observation, a permanent one is not.
