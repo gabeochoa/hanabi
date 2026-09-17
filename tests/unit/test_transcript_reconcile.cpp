@@ -119,6 +119,56 @@ static void test_the_cursor_is_the_newest_durable_seq() {
     CHECK(ecs::model::newest_seq({}) == 0);
 }
 
+// The production path a live hide takes: the refetch window re-delivers the
+// artifact row with `hidden` set and the same text/subtitle. The row must be
+// refreshed (it draws differently), and the bytes the fetch system adopted
+// -- unknown to a fresh parse -- must survive the replacement. A new version
+// is new bytes: nothing carried.
+static void test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes() {
+    auto mine = three();
+    Message art = row("13", api::Role::System, "image/png  \xc2\xb7  4 KB");
+    art.kind = api::EventKind::Artifact;
+    art.subtitle = "price-tiers.png";
+    art.artifact.id = "art-1";
+    art.artifact.version = "v1";
+    art.artifact.file = "price-tiers.png";
+    art.artifact.media_type = "image/png";
+    art.artifact.local_path = "/cache/artifacts/art-1-v1-price-tiers.png";
+    art.artifact.fetch = api::ArtifactFetch::Ready;
+    art.image_path = art.artifact.local_path;
+    mine.push_back(art);
+
+    // Same row, now hidden (text and subtitle unchanged).
+    Message fresh_hidden = art;
+    fresh_hidden.artifact.hidden = true;
+    fresh_hidden.artifact.local_path.clear();
+    fresh_hidden.artifact.fetch = api::ArtifactFetch::Idle;
+    fresh_hidden.image_path.clear();
+    ReconcileOutcome out = ecs::model::reconcile_transcript(mine, {fresh_hidden});
+    CHECK(out.kind == Kind::Updated);
+    CHECK(mine[3].artifact.hidden);
+    CHECK(mine[3].artifact.local_path == "/cache/artifacts/art-1-v1-price-tiers.png");
+    CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Ready);
+    CHECK(mine[3].image_path == mine[3].artifact.local_path);
+
+    // The same window again: nothing changes, nothing is reset.
+    out = ecs::model::reconcile_transcript(mine, {fresh_hidden});
+    CHECK(out.kind == Kind::Unchanged);
+    CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Ready);
+
+    // A re-show on a NEW version replaces the row and carries no bytes.
+    Message fresh_v2 = art;
+    fresh_v2.artifact.version = "v2";
+    fresh_v2.artifact.local_path.clear();
+    fresh_v2.artifact.fetch = api::ArtifactFetch::Idle;
+    fresh_v2.image_path.clear();
+    out = ecs::model::reconcile_transcript(mine, {fresh_v2});
+    CHECK(out.kind == Kind::Updated);
+    CHECK(mine[3].artifact.version == "v2" && !mine[3].artifact.hidden);
+    CHECK(mine[3].artifact.local_path.empty() && mine[3].image_path.empty());
+    CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Idle);
+}
+
 int main() {
     std::printf("=== test_transcript_reconcile ===\n");
     test_a_tail_is_appended_and_nothing_moves();
@@ -127,6 +177,7 @@ int main() {
     test_no_common_row_resets();
     test_a_local_row_keeps_its_sync_mark();
     test_the_cursor_is_the_newest_durable_seq();
+    test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes();
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

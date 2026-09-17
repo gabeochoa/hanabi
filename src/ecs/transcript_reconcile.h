@@ -34,7 +34,23 @@ inline bool same_row(const api::Message& a, const api::Message& b) {
            a.subtitle == b.subtitle && a.tool_status == b.tool_status &&
            a.tool_result == b.tool_result && a.tool_node == b.tool_node &&
            a.tool_duration_ms == b.tool_duration_ms &&
-           a.attachments.size() == b.attachments.size();
+           a.attachments.size() == b.attachments.size() &&
+           a.artifact.hidden == b.artifact.hidden &&
+           a.artifact.version == b.artifact.version &&
+           a.artifact.file_count == b.artifact.file_count;
+}
+
+// What a fresh parse cannot know about an artifact row: the bytes the fetch
+// system already adopted for it. Carried across a replacement so a refetch
+// never resets a drawn row, unless the version changed (new bytes).
+inline void carry_artifact_state(const api::Message& from, api::Message& to) {
+    if (to.kind != api::EventKind::Artifact || from.artifact.version != to.artifact.version) return;
+    to.artifact.local_path = from.artifact.local_path;
+    to.artifact.fetch = from.artifact.fetch;
+    to.artifact.unavailable_reason = from.artifact.unavailable_reason;
+    if (to.artifact.media_type.empty()) to.artifact.media_type = from.artifact.media_type;
+    if (to.artifact.file.empty()) to.artifact.file = from.artifact.file;
+    to.image_path = from.image_path;
 }
 
 // The newest durable seq the transcript holds, or 0 when its ids are not
@@ -103,9 +119,11 @@ inline ReconcileOutcome reconcile_transcript(
         // same row does not know it was ever local.
         const api::SyncState sync = mine.sync;
         const std::string local_id = mine.local_id;
+        const api::Message before = mine;
         mine = std::move(f);
         mine.sync = sync;
         mine.local_id = local_id;
+        carry_artifact_state(before, mine);
         updatedLo = std::min(updatedLo, hit->second);
         updatedHi = std::max(updatedHi, hit->second + 1);
     }

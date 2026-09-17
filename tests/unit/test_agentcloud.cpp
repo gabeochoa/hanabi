@@ -5,6 +5,9 @@
 // percent_encode earns a test because it fails SILENTLY: the verifier is
 // `SERVICE_IDENTITY:<name>`, and an unescaped colon comes back as an HTTP 400
 // with an opaque body, which reads like an auth problem rather than a typo.
+#include <atomic>
+#include <ctime>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -13,9 +16,12 @@
 #include <string>
 #include <vector>
 
+#include <httplib.h>
+
 #include "../../src/api/agentcloud_auth.h"
 #include "../../src/api/agentcloud_client.h"
 #include "../../src/api/attachments.h"
+#include "../../src/api/disk_cache.h"
 #include "../../src/ui/harness_names.h"
 #include "../../src/ecs/thread_model.h"
 #include "../../vendor/nlohmann/json.hpp"
@@ -860,6 +866,83 @@ static void test_a_shown_artifact_is_a_row_with_its_file_and_size() {
     CHECK(out[1].artifact.shown_seq == 6);
     CHECK(out[1].artifact.file_count == 1);
     CHECK(!out[1].artifact.hidden && !out[2].artifact.hidden && !out[3].artifact.hidden);
+}
+
+// The real fetch against a local server: the 32 MB cap binds the TRANSFER.
+// (a) a declared Content-Length above the cap is refused before any body
+// (the server's provider is never asked); (b) an undeclared (chunked) body
+// is cut the moment it passes the cap, not read whole; (c) a small answer
+// arrives with its type and name from the headers.
+static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
+    std::printf("test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives\n");
+    httplib::Server svr;
+    std::atomic<int> declared_chunks{0};
+    std::atomic<std::uint64_t> chunked_sent{0};
+    const std::uint64_t cap = api::disk_cache::kArtifactMaxBytes;
+    svr.Get("/artifacts/big-declared/content", [&](const httplib::Request&, httplib::Response& res) {
+        res.set_content_provider(
+            cap + 1024, "image/png",
+            [&](std::size_t, std::size_t, httplib::DataSink& sink) {
+                ++declared_chunks;
+                const std::string chunk(65536, 'x');
+                sink.write(chunk.data(), chunk.size());
+                return true;
+            });
+    });
+    svr.Get("/artifacts/big-chunked/content", [&](const httplib::Request&, httplib::Response& res) {
+        res.set_chunked_content_provider("application/octet-stream",
+                                         [&](std::size_t, httplib::DataSink& sink) {
+                                             const std::string chunk(1 << 20, 'y');
+                                             if (chunked_sent >= cap + (4u << 20)) {
+                                                 sink.done();
+                                                 return true;
+                                             }
+                                             if (!sink.write(chunk.data(), chunk.size())) return false;
+                                             chunked_sent += chunk.size();
+                                             return true;
+                                         });
+    });
+    svr.Get("/artifacts/small/content", [&](const httplib::Request& req, httplib::Response& res) {
+        CHECK(req.has_header("crypto_auth_tokens"));
+        CHECK(req.get_param_value("session") == "s1");
+        res.set_header("Content-Disposition", "attachment; filename=\"chart.png\"");
+        res.set_content(std::string("\x89PNG\r\n\x1a\n", 8) + "rest", "image/png; charset=binary");
+    });
+    const int port = svr.bind_to_any_port("127.0.0.1");
+    CHECK(port > 0);
+    std::thread th([&] { svr.listen_after_bind(); });
+    svr.wait_until_ready();
+
+    api::agentcloud::AuthConfig cfg;
+    cfg.proxy_host.clear();
+    cfg.proxy_port = 0;
+    cfg.host = "127.0.0.1:" + std::to_string(port);
+    api::agentcloud::Token tok;
+    tok.value = "t";
+    tok.expires_at = static_cast<int64_t>(std::time(nullptr)) + 3600;
+    api::AgentcloudClient client(cfg, tok);
+
+    api::ArtifactRef ref;
+    ref.id = "big-declared";
+    auto r = client.fetch_artifact("s1", ref);
+    CHECK(!r.ok && r.value.http_status == 413);
+    CHECK(r.error.find("32 MB") != std::string::npos);
+    CHECK(declared_chunks.load() <= 1);
+
+    ref.id = "big-chunked";
+    r = client.fetch_artifact("s1", ref);
+    CHECK(!r.ok && r.value.http_status == 413);
+    CHECK(chunked_sent.load() < cap + (4u << 20));
+
+    ref.id = "small";
+    r = client.fetch_artifact("s1", ref);
+    CHECK(r.ok);
+    CHECK(r.value.media_type == "image/png");
+    CHECK(r.value.file_name == "chart.png");
+    CHECK(r.value.bytes.size() == 12);
+
+    svr.stop();
+    th.join();
 }
 
 // artifact_hidden: the row stays, marked hidden, seq-gated. (a) a hide after
@@ -2356,6 +2439,7 @@ int main() {
     test_live_tool_call_and_finish();
     test_a_compaction_marker_is_a_divider_not_a_message();
     test_a_shown_artifact_is_a_row_with_its_file_and_size();
+    test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives();
     test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored();
     test_a_compaction_round_is_reported_while_it_runs();
     test_retract_and_tool_use_show_nothing();

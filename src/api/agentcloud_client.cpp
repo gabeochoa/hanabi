@@ -1,4 +1,5 @@
 #include "agentcloud_client.h"
+#include "disk_cache.h"
 #include "attachments.h"
 #include "tool_kinds.h"
 
@@ -3035,7 +3036,40 @@ Result<ArtifactContent> AgentcloudClient::fetch_artifact(
         path += "&version=" + agentcloud::percent_encode(ref.version);
     if (!ref.file.empty())
         path += "&path=" + agentcloud::percent_encode(ref.file);
-    auto res = client.Get(path.c_str(), headers);
+    // The cap is a safety bound, so it binds the TRANSFER: a declared
+    // Content-Length above it is refused before any body; an undeclared or
+    // chunked body is cut the moment it passes the cap. No whole-body
+    // allocation precedes the check.
+    constexpr std::uint64_t cap = disk_cache::kArtifactMaxBytes;
+    std::string body;
+    bool tooLarge = false;
+    auto res = client.Get(
+        path.c_str(), headers,
+        [&](const httplib::Response& r) {
+            if (r.has_header("Content-Length")) {
+                const std::uint64_t declared =
+                    std::strtoull(r.get_header_value("Content-Length").c_str(), nullptr, 10);
+                if (declared > cap) {
+                    tooLarge = true;
+                    return false;
+                }
+                body.reserve(static_cast<std::size_t>(declared));
+            }
+            return true;
+        },
+        [&](const char* data, std::size_t n) {
+            if (body.size() + n > cap) {
+                tooLarge = true;
+                return false;
+            }
+            body.append(data, n);
+            return true;
+        });
+    if (tooLarge) {
+        auto r = Result<ArtifactContent>::failure("larger than 32 MB; open in the web app");
+        r.value.http_status = 413;
+        return r;
+    }
     if (!res)
         return Result<ArtifactContent>::failure(
             "The artifact could not be reached.");
@@ -3046,7 +3080,7 @@ Result<ArtifactContent> AgentcloudClient::fetch_artifact(
         return r;
     }
     ArtifactContent out;
-    out.bytes = std::move(res->body);
+    out.bytes = std::move(body);
     out.media_type = res->get_header_value("Content-Type");
     if (const auto semi = out.media_type.find(';'); semi != std::string::npos)
         out.media_type.erase(semi);
