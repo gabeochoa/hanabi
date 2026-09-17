@@ -6,10 +6,11 @@ require_thread t2
 # and four 9 px hairlines inside 4 px of padding. The Halt group (Halt, Halt
 # with 2 Sub-agents) appears because t2 is ATTACHED in this fixture and the
 # mock serves halt_v1; Copy Deeplink beside Copy Weblink; Export to Clipboard
-# in its own group. 4 + 15*36 + 5*9 + 4 = 566.
+# in its own group; Archive and Archive and Close Tab in theirs.
+# 4 + 17*36 + 6*9 + 4 = 647.
 expect_no_text "TAB ACTIONS"
 expect_no_ui tab_menu_title
-assert_ui tab_menu w=184 h=566
+assert_ui tab_menu w=184 h=647
 assert_ui tab_menu_eater w=1100 h=760
 assert_ui tab_menu_close w=176 h=36
 assert_ui tab_menu_close_others w=176 h=36
@@ -30,6 +31,9 @@ assert_ui tab_menu_halt w=176 h=36
 assert_ui tab_menu_halt_subtree w=176 h=36
 assert_ui tab_menu_divider_halt w=176 h=9
 assert_ui tab_menu_pin w=176 h=36
+assert_ui tab_menu_archive w=176 h=36
+assert_ui tab_menu_archive_close w=176 h=36
+assert_ui tab_menu_divider_archive w=176 h=9
 assert_ui tab_menu_split w=176 h=36
 # Not on the reference's tab menu: gone from hanabi's.
 expect_no_ui tab_menu_close_all

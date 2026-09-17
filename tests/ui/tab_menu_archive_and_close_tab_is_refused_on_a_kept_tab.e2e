@@ -1,0 +1,23 @@
+# A kept (pinned) tab cannot be archive-closed: the row is present and
+# dimmed, a press does nothing -- tab kept, thread not archived, no toast.
+# Plain Archive on the same menu still works, without closing.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","pinned_tabs":["t9"],"theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_tab t9 pinned
+right_click_ui tab_t9
+wait_frames 8
+expect_a11y "Archive and Close Tab" says="Archive and Close Tab, menuitem, dimmed"
+click_ui tab_menu_archive_close
+wait_frames 8
+assert_ui tab_menu hidden=false
+expect_tab t9 pinned
+expect_no_text "Session archived"
+key ESCAPE
+wait_frames 6
+right_click_ui tab_t9
+wait_frames 8
+click_ui tab_menu_archive
+expect_text_drawn "Session archived" within=60
+expect_tab t9 pinned
+expect_open t2

@@ -34,14 +34,14 @@ The entries are grouped by functional area. Each group has a count of gaps and s
 
 ## By The Numbers
 
-**Total gaps: 83** across 13 functional areas.
+**Total gaps: 84** across 13 functional areas.
 
 | Area | Count | Priority |
 |------|-------|----------|
 | Sidebar & Navigation | 9 | 4 table-stakes + 5 polish |
 | Transcript & Rendering | 17 | 6 table-stakes + 10 polish + 1 niche |
 | Composer & Sending | 11 | 3 table-stakes + 8 polish |
-| Tabs & Windows | 7 | 5 important + 2 polish |
+| Tabs & Windows | 8 | 5 important + 3 polish |
 | Search & Find | 5 | 3 table-stakes + 2 polish |
 | Session Lifecycle | 7 | 6 table-stakes + 1 polish |
 | Drafts & Undo | 2 | 1 important + 1 polish |
@@ -362,7 +362,7 @@ collapse/expand.
 
 **Where in puffin:** `SessionArtifacts.swift`, `ArtifactVersions.swift`, `ArtifactContent.swift` (0.7.4 review cut)
 
-**Hanabi today:** An artifact row draws the version it was shown with; no versions read, no switcher, no follow-latest (a new version is a new row when re-shown). Audio artifacts are not played: the row says "audio is not played in this build" (the reference plays no audio either -- its audio artifact falls to a binary card and its audio attachment to a non-playable capsule; an in-app player hanabi once carried was an enhancement beyond the reference and is held out of the build, its source kept in history). Reads above 32 MB are REFUSED with the reason "larger than 32 MB; open in the web app" (no truncated prefix, no button: hanabi has no artifact web URL and invents none). `artifact_hidden` is honored within a parsed page with a seq gate (a hide older than a show is ignored; the row stays, marked hidden); a hide whose show is in another page is not applied. Metadata (name, size) before the fetch comes only from create/version events in the loaded page, as in the reference; the fetch itself needs neither (type from the response, then the byte signature).
+**Hanabi today:** An artifact row draws the version it was shown with; no versions read, no switcher, no follow-latest (a new version is a new row when re-shown). Reads above 32 MB are REFUSED with the reason "larger than 32 MB; open in the web app" (no truncated prefix, no button: hanabi has no artifact web URL and invents none). `artifact_hidden` is honored with a seq gate (a hide older than a show is ignored; the row stays, marked hidden) for every row the parse or the refetch window re-delivers; only a hide for a row older than the refetch window is unreached. Metadata (name, size) before the fetch comes only from create/version events in the loaded page, as in the reference; the fetch itself needs neither (type from the response, then the byte signature). Audio artifacts are not played: the row says "audio is not played in this build" (the reference plays no audio either -- its audio artifact falls to a binary card and its audio attachment to a non-playable capsule; an in-app player hanabi once carried was an enhancement beyond the reference and is held out of the build, its source kept in history). Reads above 32 MB are REFUSED with the reason "larger than 32 MB; open in the web app" (no truncated prefix, no button: hanabi has no artifact web URL and invents none). `artifact_hidden` is honored within a parsed page with a seq gate (a hide older than a show is ignored; the row stays, marked hidden); a hide whose show is in another page is not applied. Metadata (name, size) before the fetch comes only from create/version events in the loaded page, as in the reference; the fetch itself needs neither (type from the response, then the byte signature).
 
 **Importance:** Polish. Multi-version artifacts and very large files are the affected cases.
 
@@ -504,7 +504,7 @@ collapse/expand.
 
 ---
 
-## TABS & WINDOWS (7 gaps)
+## TABS & WINDOWS (8 gaps)
 
 ### 1. Tab drag-and-drop to reorder
 **What it does:** Drag a tab by its title to the left/right to reorder it. Other tabs shift. New order persists in UserDefaults.
@@ -584,6 +584,17 @@ collapse/expand.
 **Importance:** Important. A reader with several tabs open expects Export (and any future attached-only action) on all of them, not only the two panes.
 
 **Size:** Large. The hard part is what "live" means for a tab no pane draws — stream subscription, refetch cadence and memory for every open tab.
+
+### 8. Archive and Close Tab: refusal flash, Retry on an unlanded archive, undo scope, pick after the tab closed
+**What it does:** The reference's tab menu carries Archive/Unarchive and, beneath, "Archive and Close Tab" (absent once archived; disabled while the tab is kept). Decided at click time from the live model: tab gone → archive only; kept → refused with the tab's pin flashing; else close first, then archive in the background. If the archive does not land it toasts "held on this Mac" with Retry. Single-thread archives have no undo toast (only multi-target ones do).
+
+**Where in puffin:** `SessionMenuItems.swift`, `TabStrip.swift`, `ArchivedSessions.swift` (0.7.4 review cut)
+
+**Hanabi today (2026-09-17):** both rows in the tab menu through the one archive writer (the sidebar drain), the combined act closing first and archiving with a directed, idempotent request. Deltas: a kept tab's refusal is silent (no flash); the archive is local-first with no landed/unlanded receipt, so there is no Retry toast; the single-archive undo toast shows (pre-existing wording delta) and undo restores the archive state only, never the tab; a pick after the tab was closed under a standing menu is dropped (the menu closes with its tab), where the reference archives anyway; plain Close Tab still closes a kept tab (pre-existing).
+
+**Importance:** Polish. The refusal flash and Retry are the visible ones.
+
+**Size:** Small for the flash; medium for unlanded-write tracking (needs the archive sync path to report).
 
 ## SEARCH & FIND (5 gaps)
 
@@ -1124,14 +1135,14 @@ Ranked by user impact + ease:
 
 ## Count Summary
 
-- **Total gaps: 83**
+- **Total gaps: 84**
 - **Table stakes (must-have): 26**
 - **Important (should-have): 37**
-- **Polish (nice-to-have): 19**
+- **Polish (nice-to-have): 20**
 - **Niche (optional): 1**
 
 Effort distribution:
-- **Small (30–80 lines): 26 gaps** — quick wins, 1–2 hours each
+- **Small (30–80 lines): 27 gaps** — quick wins, 1–2 hours each
 - **Medium (80–200 lines): 42 gaps** — 4–8 hours each
 - **Large (200+ lines): 15 gaps** — 1–3 days each
 

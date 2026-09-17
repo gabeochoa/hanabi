@@ -1,0 +1,33 @@
+# Archive and Close Tab, from an unpinned conversation tab's menu: the tab
+# is gone at once, the thread is archived (toast, and it leaves the list),
+# the neighbouring tab takes over with its draft intact, and the other pane
+# of a split is untouched. Only the TAB menu offers it; the sidebar row menu
+# never does.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9","t6"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_open t2
+click_ui composer_reply_input
+type "t2 draft survives the archive"
+wait_frames 4
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_text "CONVERSATION"
+expect_no_ui row_menu_archive_close
+key ESCAPE
+wait_frames 6
+right_click_ui tab_t9
+wait_frames 8
+expect_text "Archive and Close Tab"
+expect_a11y "Archive and Close Tab" says="Archive and Close Tab, menuitem"
+expect_text "Archive"
+click_ui tab_menu_archive_close
+expect_tab t9 absent within=60
+expect_open t2
+expect_text_drawn "Session archived" within=60
+expect_no_text "kicker-tick"
+expect_input_text composer_reply_input "t2 draft survives the archive"
+assert_ui tab_t6 hidden=false
+click_text Archived
+wait_frames 8
+expect_text "kicker-tick"

@@ -1,0 +1,23 @@
+# On an already-archived thread's tab the menu reads Unarchive and carries no
+# Archive and Close Tab (Close Tab covers it); Unarchive restores the thread
+# to its list without closing the tab. A surface tab (Settings) gets neither
+# row.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r4","t2"],"active_tab":"r4","theme":"dark","archived":{"r4":true}}
+require_thread r4
+wait_frames 12
+right_click_ui tab_r4
+wait_frames 8
+expect_text "Unarchive"
+expect_no_ui tab_menu_archive_close
+assert_ui tab_menu_close hidden=false
+click_ui tab_menu_archive
+expect_text_drawn "Session unarchived" within=60
+expect_tab r4 kept
+expect_open r4
+click_ui sb_settings
+wait_frames 20
+right_click_ui tab_active
+wait_frames 10
+expect_no_ui tab_menu_archive
+expect_no_ui tab_menu_archive_close
+expect_text "Keep Tab Open"

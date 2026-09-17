@@ -568,6 +568,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // menu and applied by the sidebar — the same one-writer arrangement the
     // star toggle uses, so the sessions vector still has exactly one mutator.
     std::string requestToggleArchive;
+    // Directed form: archive (true) or unarchive (false) `requestSetArchiveId`
+    // without flipping -- the combined Archive and Close Tab must never
+    // unarchive a thread archived since the menu was built.
+    std::string requestSetArchiveId;
+    bool requestSetArchiveTo = false;
     // Request to silence (or un-silence) a thread on this machine. Same
     // one-writer arrangement as the star: the sidebar owns the sessions vector.
     std::string requestToggleMute;

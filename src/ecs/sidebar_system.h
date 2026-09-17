@@ -123,19 +123,28 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // for the same reason: the Archived count and every view's membership
         // must agree on the very next render. The overlay is what moves, not
         // the backend's own state, so a later list fetch cannot undo it.
-        if (!app->requestToggleArchive.empty()) {
+        // One writer for both spellings: toggle (row/tab Archive) and directed
+        // (Archive and Close Tab). A directed request that matches the
+        // current state writes nothing and raises no toast.
+        const auto archive_id = !app->requestToggleArchive.empty() ? app->requestToggleArchive
+                                                                  : app->requestSetArchiveId;
+        if (!archive_id.empty()) {
+            const bool directed = app->requestToggleArchive.empty();
             for (auto& s : app->sessions) {
-                if (s.id == app->requestToggleArchive) {
-                    const bool nowArchived = !model::is_archived(s);
+                if (s.id != archive_id) continue;
+                const bool was = model::is_archived(s);
+                const bool nowArchived = directed ? app->requestSetArchiveTo : !was;
+                if (nowArchived != was) {
                     app->apply_archived(s.id, nowArchived);
                     Settings::get().set_archived(s.id, nowArchived);
                     app->raise_toast(nowArchived ? "Session archived"
                                                  : "Session unarchived",
                                      s.id, AppComponent::ToastUndo::Archive);
-                    break;
                 }
+                break;
             }
             app->requestToggleArchive.clear();
+            app->requestSetArchiveId.clear();
         }
 
         // Apply a pending mute toggle, in the same single-writer spot and for

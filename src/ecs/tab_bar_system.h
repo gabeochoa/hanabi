@@ -885,7 +885,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
     // against the reference, and deliberately not faked here: "Move Tab to
     // New Window" (no second window), the four split directions (one split
     // here), "Copy Deeplink" (one link scheme), and the shared block's
-    // Mute / Snooze / Archive / Export / Halt items. "Pin tab" is a KEPT TAB
+    // Mute / Snooze items. "Pin tab" is a KEPT TAB
     // (survives close-others and close-to-right); the reference's Pin on this
     // menu is the thread's pin, written together with the tab's -- also open.
     //
@@ -904,7 +904,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         enum Act {
             CloseTab, CloseOthers, CloseRight, Divider, Rename, CopyTitle,
             CopyWeblink, CopyDeeplink, CopyId, OpenWeb, ExportClipboard, Halt, HaltSubtree,
-            Resume, Pin, Split
+            Resume, Pin, Archive, ArchiveClose, Split
         };
         std::vector<hanabi::surface::MenuItem> items;
         std::vector<Act> actions;
@@ -988,6 +988,17 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             add(tab.pinned ? "Unpin" : "Pin", "tab_menu_pin", Pin, false, false,
                 tab.pinned ? "unpin" : "pin");
             divider("tab_menu_divider_pin");
+            // Archive / Unarchive through the row menu's drain; Archive and
+            // Close Tab beneath it, only while not archived, disabled for a
+            // kept (pinned) tab -- the tab's flag, as the reference reads it.
+            const api::SessionSummary* summary = app.find_summary(keepId);
+            const bool archivedNow = summary != nullptr && model::is_archived(*summary);
+            add(archivedNow ? "Unarchive" : "Archive", "tab_menu_archive", Archive, false, false,
+                archivedNow ? "unarchive" : "archive");
+            if (!archivedNow)
+                add("Archive and Close Tab", "tab_menu_archive_close", ArchiveClose, tab.pinned,
+                    false, "archive_close");
+            divider("tab_menu_divider_archive");
             add("Open in split", "tab_menu_split", Split);
         }
 
@@ -1102,6 +1113,23 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                             keepId))
                         hanabi::clipboard::set_text(*payload);
                     break;
+                case Archive:
+                    app.requestToggleArchive = keepId;
+                    break;
+                case ArchiveClose: {
+                    // Decided now, from the live tab: kept -> refused, nothing
+                    // archived or closed; else close first, then the directed
+                    // archive the same tick (idempotent if archived meanwhile).
+                    if (tabEntity.get<Tab>().pinned) break;
+                    for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
+                        if (strip.tabOrder[i] != tabEntity.id) continue;
+                        close_tab(strip, app, tabEntity.id, i, tabEntity.has<ActiveTab>());
+                        break;
+                    }
+                    app.requestSetArchiveId = keepId;
+                    app.requestSetArchiveTo = true;
+                    break;
+                }
                 case Split:
                     app.requestSplitOpen = keepId;
                     app.view = SmartView::Chat;

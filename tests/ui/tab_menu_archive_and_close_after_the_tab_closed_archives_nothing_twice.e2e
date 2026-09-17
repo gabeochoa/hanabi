@@ -1,0 +1,20 @@
+# The menu's target is the tab entity it opened on. If that tab is closed
+# under a standing menu (the detach_thread seam; the pointer cannot), the
+# menu closes with it and the pick is dropped: nothing crashes, nothing is
+# archived, the other tab stands. (Reference: archives anyway -- a recorded
+# delta, puffin_gaps.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+right_click_ui tab_t9
+wait_frames 8
+expect_text "Archive and Close Tab"
+detach_thread t9
+expect_tab t9 absent within=60
+expect_no_ui tab_menu
+expect_no_ui tab_menu_archive_close
+expect_no_text "Session archived"
+expect_open t2
+click_text Archived
+wait_frames 8
+expect_no_text "kicker-tick"
