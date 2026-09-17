@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string>
 
+#include "../native_menu.h"
 #include "../ui/inline_image.h"
 #include "../ui/secondary_surface.h"
 #include "components.h"
@@ -13,38 +14,70 @@ namespace ecs {
 struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kMargin = 48.0f;
     static constexpr float kCaptionH = 24.0f;
+    static constexpr int kBackdropId = 8300;
 
-    static void close(AppComponent& app) {
+    // The menu's restore rule (native_menu::focus_to_restore): back to the
+    // element focused at open, if it still exists and nothing else claimed
+    // focus meanwhile.
+    static void close(AppComponent& app, UIContext<InputAction>& ctx) {
         app.viewerImagePath.clear();
         app.viewerImageName.clear();
+        const long long before = app.viewerFocusBefore;
+        const long long backdropEntity = app.viewerBackdropEntity;
+        app.viewerFocusBefore = -1;
+        app.viewerBackdropEntity = -1;
+        const bool exists =
+            before >= 0 &&
+            afterhours::ui::UICollectionHolder::getEntityForID(
+                static_cast<afterhours::EntityID>(before))
+                .valid();
+        const long long to = hanabi::native_menu::focus_to_restore(
+            before, backdropEntity, static_cast<long long>(ctx.focus_id),
+            static_cast<long long>(ctx.ROOT), exists);
+        if (to >= 0) ctx.set_focus(static_cast<afterhours::EntityID>(to));
+    }
+
+    // The viewer follows its row: a row hidden or gone from every pane
+    // closes it, as a clip stops when its row is gone.
+    static bool still_shown(const AppComponent& app, const std::string& path) {
+        for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
+            const Pane& pane = app.panes[i];
+            if (!pane.openSession) continue;
+            for (const api::Message& m : pane.openSession->messages)
+                if (m.kind == api::EventKind::Artifact && !m.artifact.hidden &&
+                    m.image_path == path)
+                    return true;
+        }
+        return false;
     }
 
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* app = find_singleton<AppComponent>();
         if (!app || app->viewerImagePath.empty()) return;
+        Entity& uiRoot = ui_imm::getUIRootEntity();
         if (app->escape == EscapeIntent::CloseArtifactViewer ||
             app->paletteOpen || app->sessionSearchOpen || app->renameOpen ||
             app->showShortcuts || app->showAuth || !app->requestOpenTab.empty() ||
             app->requestNewThread) {
             app->escape = EscapeIntent::None;
-            close(*app);
+            close(*app, ctx);
             return;
         }
         const std::string path = app->viewerImagePath;
-        if (!hanabi::inline_image::available(path)) {
-            close(*app);
+        if (!hanabi::inline_image::available(path) || !still_shown(*app, path)) {
+            close(*app, ctx);
             return;
         }
 
-        Entity& uiRoot = ui_imm::getUIRootEntity();
         const float sw = hanabi::viewport::width();
         const float sh = hanabi::viewport::height();
 
-        auto backdrop = button(ctx, mk(uiRoot, 8300),
+        auto backdrop = button(ctx, mk(uiRoot, kBackdropId),
                                hanabi::surface::scrim(sw, sh, 12)
                                    .with_debug_name("artifact_viewer_backdrop"));
+        app->viewerBackdropEntity = static_cast<long long>(backdrop.ent().id);
         if (backdrop) {
-            close(*app);
+            close(*app, ctx);
             return;
         }
 

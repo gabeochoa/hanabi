@@ -34,12 +34,12 @@ The entries are grouped by functional area. Each group has a count of gaps and s
 
 ## By The Numbers
 
-**Total gaps: 82** across 13 functional areas.
+**Total gaps: 83** across 13 functional areas.
 
 | Area | Count | Priority |
 |------|-------|----------|
 | Sidebar & Navigation | 9 | 4 table-stakes + 5 polish |
-| Transcript & Rendering | 16 | 6 table-stakes + 9 polish + 1 niche |
+| Transcript & Rendering | 17 | 6 table-stakes + 10 polish + 1 niche |
 | Composer & Sending | 11 | 3 table-stakes + 8 polish |
 | Tabs & Windows | 7 | 5 important + 2 polish |
 | Search & Find | 5 | 3 table-stakes + 2 polish |
@@ -177,7 +177,7 @@ collapse/expand.
 
 ---
 
-## TRANSCRIPT & RENDERING (16 gaps)
+## TRANSCRIPT & RENDERING (17 gaps)
 
 ### 1. Timestamp rows (dates, not just times)
 **What it does:** When a message is >4 hours older than the previous, a thin grey date divider appears above it (e.g., "Monday, August 19"). Time still shows per-row below the divider.
@@ -340,7 +340,7 @@ collapse/expand.
 
 **Where in puffin:** `TranscriptExport.swift` `body(of:)` (:74-160)
 
-**Hanabi today:** `api::Message` (`src/api/types.h`) models none of artifact / elicitation / context / fork-boundary / audio, so `hanabi::transcript_copy::body_of` has no arm for them and such rows fall through the generic act/text arms. This is a pre-existing Copy Turn delta that Export to Clipboard (2026-09-14) inherits by design (it reuses `body_of`); neither feature is "at parity" for these kinds and neither claims to be. Closing it is a model change first (new `api::Message` kinds parsed from the wire), then one mapper arm each.
+**Hanabi today:** artifact rows are modeled and mapped (`EventKind::Artifact`, 2026-09-17: `*(artifact: <name> — <type · size>)*`). `api::Message` still models none of elicitation / context / fork-boundary / audio-attachment lines, so `hanabi::transcript_copy::body_of` has no arm for them and such rows fall through the generic act/text arms. This is a pre-existing Copy Turn delta that Export to Clipboard (2026-09-14) inherits by design (it reuses `body_of`); neither feature is "at parity" for these kinds and neither claims to be. Closing it is a model change first (new `api::Message` kinds parsed from the wire), then one mapper arm each.
 
 **Importance:** Polish. Threads that carry these rows export with a generic line where the reference writes a specific one; nothing is dropped silently except the row's specific wording.
 
@@ -356,6 +356,17 @@ collapse/expand.
 **Importance:** Niche. Only an unnamed thread with a status subject reads differently (id characters instead of the subject).
 
 **Size:** Small once the fields exist on the wire model; the mapper is two lines.
+
+### 17. Artifact rows: version switcher, follow-latest selection, truncated large reads, cross-page hide ordering
+**What it does:** The reference's artifact tray keeps one record per artifact: a version switcher backed by `GET /artifacts/{id}/versions` (cursor-paged, `is_latest`/`is_first`/`content_state`), a `selection` of `explicit_version` (pinned) versus follow-latest so a row moves to a new version unless pinned, reads capped at 32 MB and drawn as a truncated prefix with a banner and an Open-in-Web exit, an `artifact_hidden` gate keyed on the last seq that moved the artifact's visibility so a backward page's older show cannot resurrect a hidden row, and a Retry toast when an archive/write did not land.
+
+**Where in puffin:** `SessionArtifacts.swift`, `ArtifactVersions.swift`, `ArtifactContent.swift` (0.7.4 review cut)
+
+**Hanabi today:** An artifact row draws the version it was shown with; no versions read, no switcher, no follow-latest (a new version is a new row when re-shown). Reads above 32 MB are REFUSED with the reason "larger than 32 MB; open in the web app" (no truncated prefix, no button: hanabi has no artifact web URL and invents none). `artifact_hidden` is honored within a parsed page with a seq gate (a hide older than a show is ignored; the row stays, marked hidden); a hide whose show is in another page is not applied. Metadata (name, size) before the fetch comes only from create/version events in the loaded page, as in the reference; the fetch itself needs neither (type from the response, then the byte signature).
+
+**Importance:** Polish. Multi-version artifacts and very large files are the affected cases.
+
+**Size:** Medium for the versions read and switcher; small for follow-latest; the truncated-read banner needs a text artifact renderer first.
 
 ## COMPOSER & SENDING (11 gaps)
 
@@ -1113,15 +1124,15 @@ Ranked by user impact + ease:
 
 ## Count Summary
 
-- **Total gaps: 82**
+- **Total gaps: 83**
 - **Table stakes (must-have): 26**
 - **Important (should-have): 37**
-- **Polish (nice-to-have): 18**
+- **Polish (nice-to-have): 19**
 - **Niche (optional): 1**
 
 Effort distribution:
 - **Small (30–80 lines): 26 gaps** — quick wins, 1–2 hours each
-- **Medium (80–200 lines): 41 gaps** — 4–8 hours each
+- **Medium (80–200 lines): 42 gaps** — 4–8 hours each
 - **Large (200+ lines): 15 gaps** — 1–3 days each
 
 Blocked on backend/vendor:

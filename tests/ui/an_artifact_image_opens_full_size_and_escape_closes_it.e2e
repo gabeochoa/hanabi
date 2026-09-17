@@ -28,6 +28,8 @@ wait_frames 6
 expect_no_ui artifact_viewer_image
 expect_no_text "Esc closes"
 expect_input_text composer_reply_input "a draft the viewer must not eat"
+# Focus returns to where it was before the viewer took the keyboard.
+expect_focused composer_reply_input
 
 click_ui artifact_image
 wait_frames 6
@@ -36,3 +38,4 @@ click_ui artifact_viewer_backdrop
 wait_frames 6
 expect_no_ui artifact_viewer_image
 expect_input_text composer_reply_input "a draft the viewer must not eat"
+expect_focused composer_reply_input
