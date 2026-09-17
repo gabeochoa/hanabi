@@ -2343,6 +2343,121 @@ static void test_element_rows_export_through_one_fenced_body_arm() {
 // Element facts survive the transcript cache: a thread restored from disk
 // draws its element rows with heading and provenance and folds a later
 // refetch against the revision it saved, not against zero.
+// A restart keeps what the transcript SAID: the run terminal (outcome and
+// note) and an artifact's stable identity -- id, version, file, type, size,
+// file count, hidden mark, shown seq. It never keeps what one launch DID
+// with the bytes: local_path, fetch state, the adopted image_path. So a
+// hidden artifact reloads hidden on the first frame, a terminal keeps its
+// divider, and no picture draws from a previous launch's path before the
+// fetch system has looked.
+static void test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identity() {
+    std::printf("test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identity\n");
+    std::string dir = "/tmp/hanabi_test_terminal_" + std::to_string(::getpid());
+    setenv("HANABI_CACHE_DIR", dir.c_str(), 1);
+    api::disk_cache::set_namespace("");
+    api::disk_cache::wipe_all();
+
+    api::Session s;
+    s.summary.id = "term";
+    api::Message answer;
+    answer.id = "10";
+    answer.role = api::Role::Assistant;
+    answer.text = "done what I could";
+    answer.run_outcome = "failed";
+    answer.run_note = "2 of 3 declared calls did not run";
+    api::Message bare;
+    bare.id = "run_finished:20";
+    bare.role = api::Role::System;
+    bare.kind = api::EventKind::RunOutcome;
+    bare.run_outcome = "completed";
+    bare.run_note = "1 of 1 declared call did not run";
+    api::Message hidden;
+    hidden.id = "30";
+    hidden.role = api::Role::System;
+    hidden.kind = api::EventKind::Artifact;
+    hidden.subtitle = "price-tiers.png";
+    hidden.artifact.id = "art-1";
+    hidden.artifact.version = "v1";
+    hidden.artifact.file = "price-tiers.png";
+    hidden.artifact.media_type = "image/png";
+    hidden.artifact.size_bytes = 4901;
+    hidden.artifact.file_count = 2;
+    hidden.artifact.hidden = true;
+    hidden.artifact.shown_seq = 6;
+    hidden.artifact.local_path = "/old/launch/art-1-v1-price-tiers.png";
+    hidden.artifact.fetch = api::ArtifactFetch::Ready;
+    hidden.artifact.unavailable_reason = "stale";
+    hidden.image_path = "/old/launch/art-1-v1-price-tiers.png";
+    api::Message shown = hidden;
+    shown.id = "31";
+    shown.artifact.version = "v2";
+    shown.artifact.file = "chart.png";
+    shown.artifact.file_count = 1;
+    shown.artifact.hidden = false;
+    shown.artifact.shown_seq = 9;
+    shown.image_path = "/old/launch/art-1-v2-chart.png";
+    api::Message picture;  // an ORDINARY image message keeps its image_path
+    picture.id = "40";
+    picture.role = api::Role::User;
+    picture.text = "look";
+    picture.image_path = "/attachments/photo.png";
+    s.messages = {answer, bare, hidden, shown, picture};
+    api::disk_cache::save_transcript(s);
+
+    auto back = api::disk_cache::load_transcript("term");
+    CHECK(back.has_value());
+    if (!back) return;
+    CHECK(back->messages.size() == 5);
+    const auto& m = back->messages;
+    CHECK(m[0].run_outcome == "failed" && m[0].run_note == "2 of 3 declared calls did not run");
+    CHECK(m[1].kind == api::EventKind::RunOutcome && m[1].id == "run_finished:20");
+    CHECK(m[1].run_outcome == "completed" && m[1].run_note == "1 of 1 declared call did not run");
+    CHECK(m[1].text.empty());
+    // Hidden artifact: identity intact, hidden intact, adoption gone.
+    CHECK(m[2].kind == api::EventKind::Artifact && m[2].artifact.id == "art-1");
+    CHECK(m[2].artifact.version == "v1" && m[2].artifact.file == "price-tiers.png");
+    CHECK(m[2].artifact.media_type == "image/png" && m[2].artifact.size_bytes == 4901);
+    CHECK(m[2].artifact.file_count == 2 && m[2].artifact.hidden && m[2].artifact.shown_seq == 6);
+    CHECK(m[2].artifact.local_path.empty() && m[2].artifact.unavailable_reason.empty());
+    CHECK(m[2].artifact.fetch == api::ArtifactFetch::Idle);
+    CHECK(m[2].image_path.empty());
+    // Shown artifact: ref intact, image_path cleared so resolve() re-adopts
+    // from the cache file keyed (id, version, file).
+    CHECK(!m[3].artifact.hidden && m[3].artifact.version == "v2" && m[3].artifact.file == "chart.png");
+    CHECK(m[3].image_path.empty() && m[3].artifact.local_path.empty());
+    CHECK(m[3].artifact.fetch == api::ArtifactFetch::Idle);
+    // Ordinary image message: unchanged behaviour.
+    CHECK(m[4].image_path == "/attachments/photo.png");
+
+    // A cache written BEFORE these fields existed (the e57faf4 shape: no
+    // artifact, no run_*) loads with defaults, not garbage.
+    const std::string legacy = R"({"version":1,
+      "summary":{"id":"old","title":"old thread","state":0},
+      "messages":[
+        {"id":"1","local_id":"","role":0,"kind":0,"text":"hi","created_at":1700000000,"subtitle":"","image_path":"","attachments":[],"tool_status":""},
+        {"id":"2","local_id":"","role":2,"kind":13,"text":"image/png","created_at":1700000001,"subtitle":"legacy.png","image_path":"/old/legacy.png","attachments":[],"tool_status":""}
+      ],
+      "sub_agents":[],"has_more_older":false})";
+    {
+        std::ofstream f(dir + "/tx_old.json");
+        f << legacy;
+    }
+    auto old = api::disk_cache::load_transcript("old");
+    CHECK(old.has_value());
+    if (old) {
+        CHECK(old->messages.size() == 2);
+        CHECK(old->messages[0].run_outcome.empty() && old->messages[0].run_note.empty());
+        CHECK(old->messages[0].artifact.empty() && !old->messages[0].artifact.hidden);
+        CHECK(old->messages[1].kind == api::EventKind::Artifact);
+        CHECK(old->messages[1].artifact.empty() && old->messages[1].image_path.empty());
+        CHECK(old->messages[1].subtitle == "legacy.png");
+    }
+
+    api::disk_cache::wipe_all();
+    std::filesystem::remove_all(dir);
+    unsetenv("HANABI_CACHE_DIR");
+}
+
 static void test_disk_cache_round_trips_an_element_row() {
     std::printf("test_disk_cache_round_trips_an_element_row\n");
     std::string dir = "/tmp/hanabi_test_element_" + std::to_string(::getpid());
@@ -2417,6 +2532,7 @@ int main() {
     test_disk_cache_round_trips_the_brakes();
     test_disk_cache_round_trips_an_unknown_event_row();
     test_disk_cache_round_trips_an_element_row();
+    test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identity();
     test_element_rows_export_through_one_fenced_body_arm();
     test_an_old_cache_file_still_loads();
     test_paused_survives_restart_and_the_next_refresh();
