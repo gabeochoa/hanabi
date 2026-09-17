@@ -26,8 +26,12 @@ escaped_session (null: no portable session keyword, so never observed), census
 ("observed": the lists are what ONE ps snapshot after the final signal
 showed -- a descendant that called setsid itself and was reparented to init
 is untraceable by ppid and stays unreported, by design; "failed: <reason>"
-with the lists null when ps could not be read), cleanup ("none observed" |
-uncertain), and on the error arms action / reap_timed_out.
+with the lists null when ps could not be read), observer ("ok" | "failed:
+ps" once any single-pid read failed -- the read is then taken as "alive",
+which only ever sends a group signal or waits longer), bounds {wall, grace,
+ps_timeout} (total runtime <= wall + grace + 2 x ps_timeout + a tick),
+cleanup ("none observed" | uncertain; uncertain whenever the observer or
+the census failed), and on the error arms action / reap_timed_out.
 
 The CLI binds the real operating system, unconditionally. `Ops` exists so the
 unit tests can drive the same control flow with fakes; no environment
@@ -98,21 +102,23 @@ class Ops:
     # from CPython's `_active` list and free its pid (I1). system() waits
     # only for the child it forked.
     @staticmethod
-    def _ps(args):  # -> (rc, text); only BSD/procps-common spellings
+    def _ps(args, timeout):  # -> (rc, text); only BSD/procps-common spellings
         # subprocess.run waits for the pid IT created and nothing else, so
-        # the managed child stays ours to reap; no shell, no file.
+        # the managed child stays ours to reap; no shell, no file. A hung ps
+        # (the runner's known hazard) is cut at `timeout`.
         try:
             done = subprocess.run(["ps"] + args.split(), stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, check=False, timeout=10)
+                                  stderr=subprocess.DEVNULL, check=False,
+                                  timeout=max(0.05, timeout))
         except (OSError, subprocess.SubprocessError):
             return 1, ""
         return done.returncode, done.stdout.decode("utf-8", "replace")
 
-    def census(self):
+    def census(self, timeout):
         """-> [(pid, ppid, pgid, stat)] or None when ps failed or printed a
         line this parser cannot read: an honest "unknown", never an empty
         list that would read as clean."""
-        rc, out = self._ps("-ax -o pid=,ppid=,pgid=,stat=")
+        rc, out = self._ps("-ax -o pid=,ppid=,pgid=,stat=", timeout)
         if rc != 0:
             return None
         rows = []
@@ -128,10 +134,15 @@ class Ops:
                 return None
         return rows
 
-    def is_zombie(self, pid):
-        # `ps -p` describes OUR unreaped child: the pid is reserved while it
-        # is a zombie, so this can name no stranger.
-        return self._ps("-o stat= -p " + str(int(pid)))[1].strip().startswith("Z")
+    def is_zombie(self, pid, timeout):
+        """True / False / None (ps failed or said nothing about a pid we hold).
+        `ps -p` describes OUR unreaped child: the pid is reserved while it is
+        a zombie, so this can name no stranger."""
+        rc, out = self._ps("-o stat= -p " + str(int(pid)), timeout)
+        out = out.strip()
+        if rc != 0 or not out:
+            return None
+        return out.startswith("Z")
 
     def monotonic(self):
         return time.monotonic()
@@ -207,7 +218,10 @@ class Interrupted:
     flag = False
 
 
-def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
+PS_TIMEOUT = 10.0
+
+
+def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_timeout=PS_TIMEOUT):
     interrupted = interrupted or Interrupted()
     rec = {
         "root_pid": None, "pgid": None, "ownership": "unestablished",
@@ -216,7 +230,8 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
         "interrupted": False, "term_sent": False, "kill_sent": False,
         "members_at_term": [], "members_at_kill": [], "left_in_group": [],
         "escaped_group": [], "escaped_session": None, "session": "unknown",
-        "census": "observed", "cleanup": "uncertain",
+        "census": "observed", "observer": "ok", "cleanup": "uncertain",
+        "bounds": {"wall": wall, "grace": grace, "ps_timeout": ps_timeout},
         "portability": "syntax-checked against 3.9; runtime unverified until an "
                        "authorized Mac synthetic-unit run",
     }
@@ -261,13 +276,28 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
     # Only the wall clock (or our own interruption) starts a teardown on a
     # live leader.
     deadline = ops.monotonic() + wall
+
+    # The observer, tri-state: True (exited), False (alive), None (ps failed
+    # -- recorded once; callers treat it as "assume alive", which only ever
+    # sends a GROUP signal or waits longer). Each call is cut at the smaller
+    # of ps_timeout and the time left to `until`, so one hung ps cannot push
+    # a loop past its bound by more than one call.
+    def observe(until):
+        z = ops.is_zombie(pid, max(0.05, min(ps_timeout, until - ops.monotonic())))
+        if z is None and rec["observer"] == "ok":
+            rec["observer"] = "failed: ps"
+        return z
+
     root_exited = False
     pipe_open = True
     while True:
         if interrupted.flag:
             rec["interrupted"] = True
             break
-        if ops.is_zombie(pid):
+        if ops.monotonic() >= deadline:
+            rec["wall_hit"] = True
+            break
+        if observe(deadline) is True:
             root_exited = True
             break
         remaining = deadline - ops.monotonic()
@@ -278,11 +308,10 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
             if ops.tree_closed(read_fd, min(tick, remaining)):
                 pipe_open = False
                 rec["tree_closed"] = True
-                if not ops.is_zombie(pid):
-                    rec["pipe_closed_early"] = True
-                else:
+                if observe(deadline) is True:
                     root_exited = True
                     break
+                rec["pipe_closed_early"] = True
         else:
             ops.sleep(min(tick, remaining))
     ops.close(read_fd)
@@ -292,10 +321,11 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
     # census that fails is UNKNOWN: signals still go to the group (that needs
     # no census), the report says the census failed, and nothing is clean.
     census_failed = False
+    teardown_end = ops.monotonic() + grace + 2 * ps_timeout
 
     def look():
         nonlocal census_failed
-        snap = ops.census()
+        snap = ops.census(max(0.05, min(ps_timeout, teardown_end - ops.monotonic())))
         if snap is None:
             census_failed = True
             return None
@@ -310,12 +340,14 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
         end = ops.monotonic() + grace
         while ops.monotonic() < end:
             snapshot = look()
-            if snapshot is not None and not members(snapshot, pgid, pid) and ops.is_zombie(pid):
+            if snapshot is not None and not members(snapshot, pgid, pid) and observe(end) is True:
+                break
+            if ops.monotonic() >= end:
                 break
             ops.sleep(tick)
         snapshot = look()
         survivors = members(snapshot, pgid, pid) if snapshot is not None else []
-        if survivors or snapshot is None or not ops.is_zombie(pid):
+        if survivors or snapshot is None or observe(teardown_end) is not True:
             rec["members_at_kill"] = survivors if snapshot is not None else None
             ops.killpg(pgid, signal.SIGKILL)
             rec["kill_sent"] = True
@@ -336,7 +368,7 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
         rec["escaped_session"] = None  # no portable session keyword: not observed
         rec["session"] = "unknown"
         rec["cleanup"] = ("none observed" if not rec["left_in_group"] and not rec["escaped_group"]
-                          else "uncertain")
+                          and rec["observer"] == "ok" else "uncertain")
 
     # The one reap, after every signal, NEVER blocking: a ps `Z` reading is
     # weaker than waitability, and the bound must be the supervisor's own.

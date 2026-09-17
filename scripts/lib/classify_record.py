@@ -7,7 +7,8 @@ the supervisor's exit code. One line on stdout:
 absent / malformed / no `ownership` -> unsupervised no_record uncertain;
 ownership != established or reap_timed_out -> unsupervised; wall_hit ->
 timeout; interrupted -> aborted; term_signal -> fail (signal named);
-exit_status 0 -> pass, else fail. Cleanup certain only for "none observed".
+exit_status 0 -> pass, else fail. Cleanup certain only for "none observed"
+with the observer "ok".
 """
 
 import json
@@ -20,7 +21,8 @@ def classify(rec):
     if rec.get("ownership") != "established" or rec.get("reap_timed_out"):
         why = str(rec.get("ownership")) + ("+reap_timed_out" if rec.get("reap_timed_out") else "")
         return "unsupervised", why, "uncertain"
-    cleanup = "certain" if rec.get("cleanup") == "none observed" else "uncertain"
+    cleanup = ("certain" if rec.get("cleanup") == "none observed" and rec.get("observer", "ok") == "ok"
+               else "uncertain")
     if rec.get("wall_hit"):
         return "timeout", "wall", cleanup
     if rec.get("interrupted"):

@@ -37,7 +37,7 @@ class World:
     def __init__(self, pid=500, pgid=None, sigchld=signal.SIG_DFL, reset_works=True,
                  root_dies_at=None, root_dies_on=("TERM", "KILL"), members=(), member_dies_on=("TERM", "KILL"),
                  stuck_members=(), escaped=(), strangers=(), tree_closes_at=None,
-                 reapable=True, exit_code=0, census_fails=False):
+                 reapable=True, exit_code=0, census_fails=False, observer_fails_at=None):
         self.pid = pid
         self.pgid = pid if pgid is None else pgid
         self.sigchld = sigchld
@@ -53,6 +53,8 @@ class World:
         self.reapable = reapable
         self.exit_code = exit_code
         self.census_fails = census_fails
+        self.observer_fails_at = observer_fails_at  # clock time from which ps -p fails
+        self.timeouts = []  # every per-call timeout the supervisor asked for
         self.term_signal = None
         self.calls = []
         self.clock = 0.0
@@ -103,8 +105,9 @@ class World:
             return (None, self.term_signal)
         return (self.exit_code, None)
 
-    def census(self):
+    def census(self, timeout):
         self.calls.append("census")
+        self.timeouts.append(timeout)
         self._tick_root()
         if self.census_fails:
             return None
@@ -114,9 +117,13 @@ class World:
         rows += [(p, pp, pg, "S") for p, pp, pg in self.strangers]
         return rows
 
-    def is_zombie(self, pid):
+    def is_zombie(self, pid, timeout):
         self.calls.append("is_zombie")
+        self.timeouts.append(timeout)
         self._tick_root()
+        if self.observer_fails_at is not None and self.clock >= self.observer_fails_at:
+            self.clock += timeout  # a hung ps costs its whole timeout
+            return None
         return self.root_dead
 
     def monotonic(self):
@@ -375,6 +382,27 @@ def t15():
     check(len(waits(w)) == 1, "T15 one wait after KILL")
 
 
+# T16: the observer (ps -p) hangs/fails from some point on: recorded once as
+# "failed: ps", treated as "alive" (group signals only, never a pid), every
+# per-call timeout clamped to the remaining bound, the loop still ends by the
+# wall, and cleanup is UNCERTAIN even with nothing in the group.
+def t16():
+    w = World(observer_fails_at=0.3, root_dies_on=("TERM", "KILL"))
+    rec, st = run(w, wall=2.0, grace=1.0)
+    check(rec["observer"] == "failed: ps", "T16 observer failure recorded")
+    check(rec["wall_hit"] and st == 124, "T16 the wait still ended by the wall")
+    check(all(c[1] == ROOT for c in signals(w)) and signals(w), "T16 signals went only to the group")
+    check(rec["cleanup"] == "uncertain", "T16 cleanup UNCERTAIN once the observer failed")
+    check(all(0.05 <= t <= 10.0 for t in w.timeouts), "T16 every ps timeout within [0.05, ps_timeout]")
+    check(w.clock <= 2.0 + 1.0 + 2 * 10.0 + 1.0, "T16 total runtime within wall + grace + 2*ps_timeout + a tick")
+    check(rec["bounds"] == {"wall": 2.0, "grace": 1.0, "ps_timeout": 10.0}, "T16 bounds stated in the record")
+    # A healthy observer: certain, and every timeout clamped to what was left.
+    w2 = World(root_dies_at=0.5)
+    rec2, _ = run(w2, wall=3.0, grace=1.0)
+    check(rec2["observer"] == "ok" and rec2["cleanup"] == "none observed", "T16b healthy observer -> none observed")
+    check(all(t <= 10.0 for t in w2.timeouts), "T16b timeouts never exceed ps_timeout")
+
+
 # Portability: the module must parse as Python 3.9 (the Mac's /usr/bin/python3)
 # and use only the ps spellings BSD ps and procps share.
 def portability():
@@ -461,7 +489,7 @@ def invariants():
 
 
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, helpers, portability, invariants):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, helpers, portability, invariants):
         t()
     if failures:
         print("%d failure(s)" % failures)
