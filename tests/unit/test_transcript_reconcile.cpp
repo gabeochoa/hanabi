@@ -169,6 +169,30 @@ static void test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes(
     CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Idle);
 }
 
+// (f) A refetch that adds the run's terminal to an existing last message --
+// same text, only run_outcome/run_note new -- must land, not be dropped as
+// "same row".
+static void test_a_run_terminal_arriving_on_an_existing_row_lands() {
+    auto mine = three();
+    Message fresh = mine[2];
+    fresh.run_outcome = "failed";
+    fresh.run_note = "2 of 3 declared calls did not run";
+    const ReconcileOutcome out = ecs::model::reconcile_transcript(mine, {fresh});
+    CHECK(out.kind == Kind::Updated);
+    CHECK(mine[2].run_outcome == "failed");
+    CHECK(mine[2].run_note == "2 of 3 declared calls did not run");
+    // And a bare RunOutcome row appended by the fresh page is appended here.
+    Message bare;
+    bare.id = "run_finished:40";
+    bare.role = api::Role::System;
+    bare.kind = api::EventKind::RunOutcome;
+    bare.run_outcome = "completed";
+    bare.run_note = "1 of 1 declared call did not run";
+    const ReconcileOutcome out2 = ecs::model::reconcile_transcript(mine, {fresh, bare});
+    CHECK(out2.kind == Kind::Appended);
+    CHECK(mine.size() == 4 && mine[3].id == "run_finished:40");
+}
+
 int main() {
     std::printf("=== test_transcript_reconcile ===\n");
     test_a_tail_is_appended_and_nothing_moves();
@@ -178,6 +202,7 @@ int main() {
     test_a_local_row_keeps_its_sync_mark();
     test_the_cursor_is_the_newest_durable_seq();
     test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes();
+    test_a_run_terminal_arriving_on_an_existing_row_lands();
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

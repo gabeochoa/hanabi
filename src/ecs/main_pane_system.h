@@ -28,6 +28,7 @@
 #include "../util/ellipsize.h"
 #include "../util/textscan.h"
 #include "../ui/harness_names.h"
+#include "../ui/thinking_tags.h"
 #include "keyboard_focus.h"
 #include "digest_layout.h"
 #include "home_buckets.h"
@@ -1209,6 +1210,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // __bold__ -> bold. Display-only (api::Message untouched). Conservative:
     // only removes matched paired delimiters, leaves lone `*`/`_`/`` ` `` alone
     // (e.g. "a * b" or a path with underscores is untouched).
+    // The text a row is DRAWN from: secrets redacted and, for an assistant
+    // prose row, the model's <thinking> protocol tags unwrapped (display only;
+    // m.text, the raw view, Copy and Export keep them).
+    static std::string display_source(const api::Message& m) {
+        std::string t = redact_secrets(m.text);
+        if (m.role == api::Role::Assistant && m.kind == api::EventKind::Text &&
+            m.subtitle != "thinking")
+            t = hanabi::thinking_tags::unwrap(t);
+        return t;
+    }
+    // An assistant row whose prose unwraps to nothing draws no bubble (the row
+    // stays in the ledger, minimap and export).
+    static bool draws_no_bubble(const api::Message& m) {
+        return m.role == api::Role::Assistant && m.kind == api::EventKind::Text &&
+               m.subtitle != "thinking" && m.attachments.empty() &&
+               !hanabi::thinking_tags::is_blank(m.text) &&
+               hanabi::thinking_tags::is_blank(hanabi::thinking_tags::unwrap(m.text));
+    }
+
     static std::string strip_inline_md(const std::string& in) {
         // Inline markers (**bold**/`code`/_italic_) are NO LONGER stripped here:
         // the rich (assistant) path renders them as colored spans (md_to_spans)
@@ -3122,6 +3142,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (outcome.empty()) return false;
         return outcome != "completed" || isLast;
     }
+    static bool draws_outcome(const api::Message& m, bool isLast) {
+        return !m.run_note.empty() || draws_outcome(m.run_outcome, isLast);
+    }
+    // "failed · 2 of 3 declared calls did not run"
+    static std::string outcome_label(const api::Message& m) {
+        return m.run_note.empty() ? m.run_outcome : m.run_outcome + " \xc2\xb7 " + m.run_note;
+    }
 
     static bool outcome_is_failure(const std::string& outcome) {
         return outcome == "failed" || outcome == "error";
@@ -3132,9 +3159,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // painted in on_draw_fg never reaches the visible-text registry, so a
     // divider drawn wholesale is invisible to every assertion about it.
     static void run_outcome_divider(UIContext<InputAction>& ctx, Entity& parent,
-                                    int id, const std::string& outcome,
-                                    float rowW) {
-        const theme::Color ink = outcome_is_failure(outcome)
+                                    int id, const api::Message& m, float rowW) {
+        const std::string outcome = outcome_label(m);
+        const theme::Color ink = outcome_is_failure(m.run_outcome)
                                      ? theme::status_blocked()
                                      : theme::text_faint();
         float lw = 30.0f;
@@ -3343,7 +3370,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static std::vector<std::string> paintable_lines(const api::Message& m,
                                                     bool rich) {
         std::vector<std::string> out;
-        const std::string body = strip_inline_md(redact_secrets(m.text));
+        const std::string body = strip_inline_md(display_source(m));
         if (!rich) {
             // The user path renders one plain label, markers stripped.
             out.push_back(strip_inline_markers(body));
@@ -4014,6 +4041,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 c.hidden = i != lo;
                 return c;
             }
+            if (m.kind == api::EventKind::RunOutcome) {
+                c.kind = model::RowGeom::RunOutcome;
+                return c;
+            }
             if (is_delivery(m)) { c.kind = model::RowGeom::Delivery; return c; }
             if (is_compaction(m)) { c.kind = model::RowGeom::Compaction; return c; }
             if (is_artifact(m)) { c.kind = model::RowGeom::Artifact; return c; }
@@ -4050,7 +4081,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             c.showAuthor = (i == 0) ||
                            (msgs[i - 1].role != api::Role::Assistant &&
                             msgs[i - 1].role != api::Role::Tool);
-            if (draws_outcome(m.run_outcome, i == n - 1))
+            if (draws_outcome(m, i == n - 1))
                 c.after = kRunOutcomeH + kRunOutcomeGapTop;
             return c;
         };
@@ -4082,6 +4113,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     r.validLo = colW; r.validHi = colW;
                     break;
                 case model::RowGeom::Event: r.h = event_row_height(); break;
+                case model::RowGeom::RunOutcome:
+                    r.h = kRunOutcomeH + kRunOutcomeGapTop;
+                    break;
                 case model::RowGeom::Thinking:
                     r.h = thinking_height(app, m, i, colW);
                     r.validLo = colW; r.validHi = colW;
@@ -4433,6 +4467,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     case model::RowGeom::Event:
                         render_event_row(ctx, col, i, m, colW);
                         break;
+                    case model::RowGeom::RunOutcome:
+                        run_outcome_divider(ctx, col, i, m, colW);
+                        break;
                     case model::RowGeom::Thinking:
                         render_thinking_block(ctx, col, i, m, app, colW);
                         break;
@@ -4443,7 +4480,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                       app.streamPhase, visTop, visBot, top,
                                       g.showAuthor);
                         if (g.after > 0.0f)
-                            run_outcome_divider(ctx, col, i, m.run_outcome, colW);
+                            run_outcome_divider(ctx, col, i, m, colW);
                         break;
                 }
                 y += g.total();
@@ -10251,7 +10288,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                            : "cache.natural_hit");
                 }
                 if (audit && render_cache().natural() != naturalWas) {
-                    std::string body = strip_inline_md(redact_secrets(m.text));
+                    std::string body = strip_inline_md(display_source(m));
                     if (!rich) body = strip_inline_markers(body);
                     const int lines = count_lines(body, textW);
                     const float h = rich ? rich_body_h(body, textW)
@@ -10280,7 +10317,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // color them as spans (gap upstream a1b9a4b); the flat (user) path strips them since
         // it renders one plain label. Both go through normalize_md_lines
         // (bullets / rules) via strip_inline_md.
-        r.body = strip_inline_md(redact_secrets(m.text));
+        r.body = strip_inline_md(display_source(m));
         if (!rich) r.body = strip_inline_markers(r.body);
         if (isLive) {
             if (r.body.empty() ||
@@ -10407,6 +10444,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         int index, bool showAuthor = true) {
         hanabi::prof::Scope _p("measure.bubble_h");
         if (m.role == api::Role::System) return 22.0f + 16.0f;
+        if (!isLive && draws_no_bubble(m)) return 0.0f;
         const bool isUser = (m.role == api::Role::User);
         if (isUser) {
             const UserBox box = user_box(m, paneWidth, isLive, index,
@@ -11855,6 +11893,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             render_tool_block(ctx, parent, index, m, paneWidth);
             return;
         }
+        if (!isLive && draws_no_bubble(m)) return;
 
         const bool isUser = (m.role == api::Role::User);
 

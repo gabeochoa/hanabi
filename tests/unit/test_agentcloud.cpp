@@ -646,31 +646,34 @@ static bool has_control_bytes(const std::string& s) {
 }
 
 // tool_run_requested is the run's declared worklist, rowless; the run's
-// terminal says what did not run. T1-T5.
+// terminal -- the outcome divider beneath the run's last drawn-and-exported
+// message -- says what did not run. T1-T5, and the carrier rules (a)-(e).
 static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_terminal() {
     std::printf("test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_terminal\n");
-    // T1: declared 3, dispatched 1 (one declared position + one ordinary call
-    // that is NOT a declared position), run failed.
+    namespace tc = hanabi::transcript_copy;
+    // T1 / (a): declared 3, dispatched 1 (one declared position + one free
+    // call), the run ends on an assistant text -> the terminal rides it.
     const std::string t1 = R"({"type":"page","frames":[
       {"seq":10,"event":{"type":"run_started","run":10}},
       {"seq":11,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b","input":"x"},{"tool":"c","timeout_ms":5},{"input":"no tool"}]}},
       {"seq":12,"event":{"type":"tool_intent","tool":"a","input":"{}","call_id":"tool_run:10:0"}},
       {"seq":13,"event":{"type":"tool_intent","tool":"z","input":"{}","call_id":"call_free"}},
-      {"seq":14,"event":{"type":"run_finished","run":10,"outcome":{"outcome":"failed"}}}
+      {"seq":14,"event":{"type":"block","block":{"kind":"text","text":"Done what I could."}}},
+      {"seq":15,"event":{"type":"run_finished","run":10,"outcome":{"outcome":"failed"}}}
     ]})";
     auto out = parse_page_frames(t1);
     CHECK(out.size() == 3);
-    CHECK(out[0].kind == api::EventKind::ToolCall && out[1].kind == api::EventKind::ToolCall);
-    CHECK(out[2].kind == api::EventKind::Notice);
-    CHECK(out[2].id == "run_finished:10");
-    CHECK(out[2].subtitle == "run failed");
-    CHECK(out[2].text == "2 of 3 declared calls did not run");
-    CHECK(hanabi::transcript_copy::body_of(out[2]) ==
-          "> **notice** \xe2\x80\x94 2 of 3 declared calls did not run\n\n");
-    // No Unsupported row for the declaration, and no row for run_started.
     for (const auto& m : out) CHECK(m.kind != api::EventKind::Unsupported);
+    CHECK(out[2].role == Role::Assistant && out[2].text == "Done what I could.");
+    CHECK(out[2].run_outcome == "failed");
+    CHECK(out[2].run_note == "2 of 3 declared calls did not run");
+    CHECK(out[0].run_outcome.empty() && out[1].run_outcome.empty());
+    CHECK(tc::body_of(out[2]) ==
+          "### **Agentcloud**\n\nDone what I could.\n\n---\n\n"
+          "*(turn failed \xc2\xb7 2 of 3 declared calls did not run)*\n\n");
 
-    // T2: declared 1, dispatched 0, outcome absent -> completed, singular.
+    // T2 / (d): declared 1, dispatched 0, zero-message run, outcome absent ->
+    // a bare RunOutcome row, completed, singular.
     const std::string t2 = R"({"type":"page","frames":[
       {"seq":20,"event":{"type":"run_started","run":20}},
       {"seq":21,"event":{"type":"tool_run_requested","calls":[{"tool":"only"}]}},
@@ -678,9 +681,14 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
     ]})";
     out = parse_page_frames(t2);
     CHECK(out.size() == 1);
-    CHECK(out[0].subtitle == "run completed" && out[0].text == "1 of 1 declared call did not run");
+    CHECK(out[0].kind == api::EventKind::RunOutcome && out[0].id == "run_finished:20");
+    CHECK(out[0].text.empty() && out[0].run_outcome == "completed");
+    CHECK(out[0].run_note == "1 of 1 declared call did not run");
+    CHECK(tc::body_of(out[0]) == "---\n\n*(turn completed \xc2\xb7 1 of 1 declared call did not run)*\n\n");
 
-    // T3: declared 3, dispatched 3 -> nothing (the run ends silently).
+    // T3: declared 3, dispatched 3, completed -> the run's last row carries
+    // "completed" with no note (drawn only when last, as before) and no bare
+    // row is added.
     const std::string t3 = R"({"type":"page","frames":[
       {"seq":30,"event":{"type":"run_started","run":30}},
       {"seq":31,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b"},{"tool":"c"}]}},
@@ -691,31 +699,40 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
     ]})";
     out = parse_page_frames(t3);
     CHECK(out.size() == 3);
-    for (const auto& m : out) CHECK(m.kind == api::EventKind::ToolCall);
+    CHECK(out[2].run_outcome == "completed" && out[2].run_note.empty());
+    CHECK(tc::body_of(out[2]).find("*(turn completed)*") != std::string::npos);
+    // A zero-message completed run with nothing to say adds no row at all.
+    const std::string quiet = R"({"type":"page","frames":[
+      {"seq":36,"event":{"type":"run_started","run":36}},
+      {"seq":37,"event":{"type":"run_finished","run":36}}
+    ]})";
+    CHECK(parse_page_frames(quiet).empty());
 
-    // T4: the declaration re-fed (reconnect/page overlap) is a no-op: first
-    // wins, one terminal row, the count not inflated; a second run's
-    // declaration does not mix into the first.
+    // T4 / (e): the declaration re-fed and a second declaration for the same
+    // run are ignored; a later EMPTY run with a note gets its own bare row and
+    // never lands on the first run's last visible message.
     const std::string t4 = R"({"type":"page","frames":[
       {"seq":40,"event":{"type":"run_started","run":40}},
       {"seq":41,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b"}]}},
       {"seq":41,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b"}]}},
       {"seq":42,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b"},{"tool":"c"},{"tool":"d"}]}},
       {"seq":43,"event":{"type":"tool_intent","tool":"a","input":"{}","call_id":"tool_run:40:0"}},
-      {"seq":44,"event":{"type":"run_finished","run":40}},
+      {"seq":44,"event":{"type":"block","block":{"kind":"text","text":"first run's answer"}}},
+      {"seq":45,"event":{"type":"run_finished","run":40}},
       {"seq":50,"event":{"type":"run_started","run":50}},
       {"seq":51,"event":{"type":"tool_run_requested","calls":[{"tool":"q"}]}},
-      {"seq":52,"event":{"type":"tool_intent","tool":"q","input":"{}","call_id":"tool_run:50:0"}},
-      {"seq":53,"event":{"type":"run_finished","run":50}}
+      {"seq":52,"event":{"type":"run_finished","run":50,"outcome":{"outcome":"failed"}}}
     ]})";
     out = parse_page_frames(t4);
     CHECK(out.size() == 3);
-    CHECK(out[1].id == "run_finished:40" && out[1].text == "1 of 2 declared calls did not run");
-    CHECK(out[2].kind == api::EventKind::ToolCall);  // run 50: all dispatched, no terminal
+    CHECK(out[1].text == "first run's answer");
+    CHECK(out[1].run_outcome == "completed" && out[1].run_note == "1 of 2 declared calls did not run");
+    CHECK(out[2].kind == api::EventKind::RunOutcome && out[2].id == "run_finished:50");
+    CHECK(out[2].run_outcome == "failed" && out[2].run_note == "1 of 1 declared call did not run");
 
     // T5: a declaration before any run_started (a backward page) has no run
-    // and is dropped; the terminal reads as an ordinary run. And an empty
-    // calls list declares nothing.
+    // and is dropped; an empty calls list declares nothing; the failed
+    // zero-message run still gets its bare divider (non-completed outcome).
     const std::string t5 = R"({"type":"page","frames":[
       {"seq":61,"event":{"type":"tool_run_requested","calls":[{"tool":"a"}]}},
       {"seq":60,"event":{"type":"run_started","run":60}},
@@ -723,9 +740,34 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
       {"seq":63,"event":{"type":"run_finished","run":60,"outcome":{"outcome":"failed"}}}
     ]})";
     out = parse_page_frames(t5);
-    CHECK(out.empty());
+    CHECK(out.size() == 1);
+    CHECK(out[0].kind == api::EventKind::RunOutcome && out[0].run_outcome == "failed" &&
+          out[0].run_note.empty());
 
-    // The note helper, on its own.
+    // (b) the run's LAST row is reasoning, preceded by text -> the terminal
+    // rides the text, never the reasoning. (c) a run whose ONLY rows are
+    // reasoning -> a bare row.
+    const std::string bc = R"({"type":"page","frames":[
+      {"seq":70,"event":{"type":"run_started","run":70}},
+      {"seq":71,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b"}]}},
+      {"seq":72,"event":{"type":"block","block":{"kind":"text","text":"the answer"}}},
+      {"seq":73,"event":{"type":"block","block":{"kind":"thinking","text":"afterthought"}}},
+      {"seq":74,"event":{"type":"run_finished","run":70}},
+      {"seq":80,"event":{"type":"run_started","run":80}},
+      {"seq":81,"event":{"type":"tool_run_requested","calls":[{"tool":"a"}]}},
+      {"seq":82,"event":{"type":"block","block":{"kind":"thinking","text":"only reasoning"}}},
+      {"seq":83,"event":{"type":"run_finished","run":80}}
+    ]})";
+    out = parse_page_frames(bc);
+    CHECK(out.size() == 4);
+    CHECK(out[0].text == "the answer" && out[0].run_note == "2 of 2 declared calls did not run");
+    CHECK(out[1].kind == api::EventKind::Thinking && out[1].run_outcome.empty());
+    CHECK(out[2].kind == api::EventKind::Thinking && out[2].run_outcome.empty());
+    CHECK(out[3].kind == api::EventKind::RunOutcome && out[3].id == "run_finished:80");
+    CHECK(out[3].run_note == "1 of 1 declared call did not run");
+    CHECK(tc::body_of(out[1]).empty());
+    CHECK(tc::body_of(out[3]) == "---\n\n*(turn completed \xc2\xb7 1 of 1 declared call did not run)*\n\n");
+
     using api::agentcloud::undispatched_declared_calls_note;
     CHECK(undispatched_declared_calls_note(3, 1) == "2 of 3 declared calls did not run");
     CHECK(undispatched_declared_calls_note(1, 0) == "1 of 1 declared call did not run");
@@ -734,14 +776,15 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
     CHECK(undispatched_declared_calls_note(2, 5).empty());
 }
 
-// T6: a delivered input carries its origin in the row's label slot; the
-// body is what the server sent (it already opens "[goal driver] …").
+// T6: a delivered input is not the human: a Delivery row whose label slot
+// carries the origin from source.kind (+ the source's `task` for the two task
+// kinds). The body is the server's text.
 static void test_a_delivered_input_is_labelled_by_its_source_kind() {
     std::printf("test_a_delivered_input_is_labelled_by_its_source_kind\n");
     const std::string reply = R"({"type":"page","frames":[
       {"seq":1,"event":{"type":"user_input","text":"[goal driver] check the goal","origin":"delivery","source":{"kind":"goal_drive","revision":3}}},
-      {"seq":2,"event":{"type":"user_input","text":"a task","origin":"delivery","source":{"kind":"task","task_id":"12"}}},
-      {"seq":3,"event":{"type":"user_input","text":"a check","origin":"delivery","source":{"kind":"task_check","task_id":"12"}}},
+      {"seq":2,"event":{"type":"user_input","text":"a task","origin":"delivery","source":{"kind":"task","task":12}}},
+      {"seq":3,"event":{"type":"user_input","text":"a check","origin":"delivery","source":{"kind":"task_check","task":"12"}}},
       {"seq":4,"event":{"type":"user_input","text":"hook says","origin":"delivery","source":{"kind":"hook"}}},
       {"seq":5,"event":{"type":"user_input","text":"a sub","origin":"delivery","source":{"kind":"delivery"}}},
       {"seq":6,"event":{"type":"user_input","text":"cancelled","origin":"delivery","source":{"kind":"task_cancel_notice"}}},
@@ -769,44 +812,22 @@ static void test_a_delivered_input_is_labelled_by_its_source_kind() {
     CHECK(api::agentcloud::delivery_label_for("", "").empty());
 }
 
-// T7 + T8: exactly one leading <thinking> wrapper on an ASSISTANT TEXT block
-// is protocol and goes; everything else is literal; thinking BLOCKS and user
-// rows are untouched.
-static void test_a_leading_thinking_wrapper_is_stripped_and_nothing_else_is() {
-    std::printf("test_a_leading_thinking_wrapper_is_stripped_and_nothing_else_is\n");
-    using api::agentcloud::strip_leading_thinking_wrapper;
-    CHECK(strip_leading_thinking_wrapper("<thinking>plan</thinking>\nAnswer") == "Answer");
-    CHECK(strip_leading_thinking_wrapper("  \n<thinking>plan</thinking>  \n\n  Answer\n") == "Answer\n");
-    CHECK(strip_leading_thinking_wrapper("<thinking></thinking>").empty());
-    CHECK(strip_leading_thinking_wrapper("<thinking></thinking>   ").empty());
-    CHECK(strip_leading_thinking_wrapper("Answer <thinking>x</thinking>") == "Answer <thinking>x</thinking>");
-    CHECK(strip_leading_thinking_wrapper("<thinking>never closed") == "<thinking>never closed");
-    CHECK(strip_leading_thinking_wrapper("<thinking>a<thinking>b</thinking>c</thinking>") == "c</thinking>");
-    CHECK(strip_leading_thinking_wrapper("`<thinking>` tag") == "`<thinking>` tag");
-    CHECK(strip_leading_thinking_wrapper("<Thinking>x</Thinking>y") == "<Thinking>x</Thinking>y");
-    CHECK(strip_leading_thinking_wrapper("").empty());
-
+// T7/T8: the parser stores assistant text VERBATIM -- tags and all; the
+// unwrapping is display-only (test_data: thinking_tags).
+static void test_the_parser_keeps_thinking_tags_in_the_stored_text() {
+    std::printf("test_the_parser_keeps_thinking_tags_in_the_stored_text\n");
     const std::string reply = R"({"type":"page","frames":[
-      {"seq":1,"event":{"type":"user_input","text":"hi"}},
       {"seq":2,"event":{"type":"block","block":{"kind":"text","text":"<thinking></thinking>"}}},
-      {"seq":3,"event":{"type":"block","block":{"kind":"text","text":"<thinking>plan</thinking>
-Answer"}}},
-      {"seq":4,"event":{"type":"block","block":{"kind":"text","text":"Answer <thinking>x</thinking>"}}},
-      {"seq":5,"event":{"type":"block","block":{"kind":"text","text":"<thinking>never closed"}}},
-      {"seq":6,"event":{"type":"user_input","text":"the `<thinking>` tag, quoted"}},
-      {"seq":7,"event":{"type":"block","block":{"kind":"thinking","text":"<thinking>real block</thinking>"}}},
-      {"seq":8,"event":{"type":"block","block":{"kind":"text","text":"   
-  "}}}
+      {"seq":3,"event":{"type":"block","block":{"kind":"text","text":"<thinking>plan</thinking>\nAnswer"}}},
+      {"seq":7,"event":{"type":"block","block":{"kind":"thinking","text":"<thinking>real block</thinking>"}}}
     ]})";
     const auto out = parse_page_frames(reply);
-    CHECK(out.size() == 6);
-    CHECK(out[0].role == Role::User && out[0].text == "hi");
-    CHECK(out[1].role == Role::Assistant && out[1].text == "Answer");
-    CHECK(out[2].text == "Answer <thinking>x</thinking>");
-    CHECK(out[3].text == "<thinking>never closed");
-    CHECK(out[4].role == Role::User && out[4].text == "the `<thinking>` tag, quoted");
-    CHECK(out[5].kind == api::EventKind::Thinking && out[5].text == "<thinking>real block</thinking>");
-    CHECK(hanabi::transcript_copy::body_of(out[1]) == "### **Agentcloud**\n\nAnswer\n\n");
+    CHECK(out.size() == 3);
+    CHECK(out[0].text == "<thinking></thinking>");
+    CHECK(out[1].text == "<thinking>plan</thinking>\nAnswer");
+    CHECK(hanabi::transcript_copy::body_of(out[1]) ==
+          "### **Agentcloud**\n\n<thinking>plan</thinking>\nAnswer\n\n");
+    CHECK(out[2].kind == api::EventKind::Thinking && out[2].text == "<thinking>real block</thinking>");
 }
 
 static void test_an_unknown_tag_reaches_the_row_bounded_and_clean() {
@@ -2801,7 +2822,7 @@ int main() {
     test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored();
     test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_terminal();
     test_a_delivered_input_is_labelled_by_its_source_kind();
-    test_a_leading_thinking_wrapper_is_stripped_and_nothing_else_is();
+    test_the_parser_keeps_thinking_tags_in_the_stored_text();
     test_a_compaction_round_is_reported_while_it_runs();
     test_retract_and_tool_use_show_nothing();
     test_unknown_live_frames_are_ignored_not_fatal();

@@ -83,6 +83,7 @@ inline std::string body_of(const api::Message& m) {
         switch (m.kind) {
             case api::EventKind::Thinking: return "";
             case api::EventKind::Compaction: out = "*(context compacted)*\n\n"; break;
+            case api::EventKind::RunOutcome: break;  // the turn line alone, below
             case api::EventKind::Artifact:
                 out = "*(artifact: " + m.subtitle +
                       (m.text.empty() ? std::string() : " \xe2\x80\x94 " + m.text) +
@@ -121,7 +122,9 @@ inline std::string body_of(const api::Message& m) {
                 break;
         }
     }
-    if (!m.run_outcome.empty()) out += "---\n\n*(turn " + m.run_outcome + ")*\n\n";
+    if (!m.run_outcome.empty())
+        out += "---\n\n*(turn " + m.run_outcome +
+               (m.run_note.empty() ? std::string() : " \xc2\xb7 " + m.run_note) + ")*\n\n";
     return out;
 }
 

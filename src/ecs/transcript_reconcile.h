@@ -39,7 +39,8 @@ inline bool same_row(const api::Message& a, const api::Message& b) {
            a.attachments.size() == b.attachments.size() &&
            a.artifact.hidden == b.artifact.hidden &&
            a.artifact.version == b.artifact.version &&
-           a.artifact.file_count == b.artifact.file_count;
+           a.artifact.file_count == b.artifact.file_count &&
+           a.run_outcome == b.run_outcome && a.run_note == b.run_note;
 }
 
 // What a fresh parse cannot know about an artifact row: the bytes the fetch

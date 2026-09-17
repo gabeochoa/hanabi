@@ -81,6 +81,9 @@ enum class EventKind {
     // fixed here so two branches cannot land on one number.
     Artifact = 13,
     Element = 14,
+    // A run's terminal with no message to hang it on: drawn as the outcome
+    // divider alone. Only emitted when it carries a note.
+    RunOutcome = 15,
 };
 
 struct ElementFacts {
@@ -357,6 +360,7 @@ struct Message {
     // the divider prints the word the server said, so an outcome this build
     // predates still reads instead of rendering as "unknown".
     std::string run_outcome;
+    std::string run_note;  // "N of M declared calls did not run", or empty
 
     // What this row IS (see EventKind). LAST, and defaulted, because the mock
     // builds Messages by aggregate initialization — a member inserted above
@@ -367,6 +371,26 @@ struct Message {
     ArtifactRef artifact;
     ElementFacts element;
 };
+
+// May a run's terminal (the outcome divider) hang beneath this message? Only a
+// message the transcript draws AND Copy/Export emit: not reasoning, not a
+// degraded unknown-event row, not a blank body.
+inline bool carries_run_terminal(const Message& m) {
+    if (m.kind == EventKind::Thinking || m.kind == EventKind::Unsupported ||
+        m.kind == EventKind::RunOutcome)
+        return false;
+    if (m.role == Role::Assistant && m.subtitle == "thinking") return false;
+    if (m.role == Role::Tool) return true;
+    switch (m.kind) {
+        case EventKind::Text:
+        case EventKind::Delivery: {
+            for (const char c : m.text)
+                if (c != '\n' && c != '\r') return true;
+            return !m.attachments.empty();
+        }
+        default: return true;  // event rows (tool call, spawn, node, …) draw a row
+    }
+}
 
 // One worker node the caller could give a thread, as the roster reports it.
 struct NodeInfo {

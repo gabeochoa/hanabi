@@ -241,7 +241,6 @@ inline constexpr const char* kUntypedWireTag = "(untyped)";
 std::string sanitized_wire_tag(const std::string& raw);
 // Pure pieces of parse_page_frames, exposed for their units.
 std::string delivery_label_for(const std::string& source_kind, const std::string& task_id);
-std::string strip_leading_thinking_wrapper(const std::string& text);
 std::string undispatched_declared_calls_note(int declared, int dispatched);
 
 // The `tokens` bag on an attach greeting -> ContextUsage.

@@ -1191,22 +1191,6 @@ std::string delivery_label_for(const std::string& kind, const std::string& task_
     return "";
 }
 
-// Exactly one LEADING <thinking>…</thinking> on an assistant text block is
-// protocol, not prose: removed with the whitespace after it. Anything else --
-// not leading, unclosed, inside code -- is literal.
-std::string strip_leading_thinking_wrapper(const std::string& text) {
-    static constexpr std::string_view kOpen = "<thinking>";
-    static constexpr std::string_view kClose = "</thinking>";
-    std::size_t i = 0;
-    while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) ++i;
-    if (text.compare(i, kOpen.size(), kOpen) != 0) return text;
-    const std::size_t close = text.find(kClose, i + kOpen.size());
-    if (close == std::string::npos) return text;
-    std::size_t rest = close + kClose.size();
-    while (rest < text.size() && std::isspace(static_cast<unsigned char>(text[rest]))) ++rest;
-    return text.substr(rest);
-}
-
 std::string undispatched_declared_calls_note(int declared, int dispatched) {
     const int left = declared - dispatched;
     if (declared <= 0 || left <= 0) return "";
@@ -1237,6 +1221,7 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
     int64_t last_run_started = 0;
     std::unordered_map<int64_t, int> declared_calls;
     std::unordered_map<int64_t, int> dispatched_calls;
+    std::unordered_map<int64_t, size_t> first_row_of_run;  // out.size() at run_started
 
     for (const json& f : msg["frames"]) {
         if (!f.is_object()) continue;
@@ -1274,9 +1259,14 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             if (text.empty() && files.empty()) continue;
             if (str_or(e, "origin", "") == "delivery") {
                 const json& source = obj_at(e, "source");
+                std::string task;
+                if (source.contains("task")) {
+                    const json& t = source.at("task");
+                    if (t.is_number_integer()) task = std::to_string(t.get<int64_t>());
+                    else if (t.is_string()) task = t.get<std::string>();
+                }
                 push_event(EventKind::Delivery,
-                           delivery_label_for(str_or(source, "kind", ""),
-                                              str_or(source, "task_id", "")),
+                           delivery_label_for(str_or(source, "kind", ""), task),
                            std::move(text));
                 continue;
             }
@@ -1298,11 +1288,8 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             // arrives as tool_intent with the same call_id. Rendering both
             // would double every tool row, so this side is dropped.
             if (kind == "text") {
-                std::string text = strip_leading_thinking_wrapper(str_or(b, "text", ""));
-                bool blank = true;
-                for (const unsigned char c : text)
-                    if (!std::isspace(c)) { blank = false; break; }
-                if (!blank) push(Role::Assistant, std::move(text));
+                std::string text = str_or(b, "text", "");
+                if (!text.empty()) push(Role::Assistant, std::move(text));
             } else if (kind == "thinking") {
                 // Reasoning is real content, but it is not the answer. Mark it
                 // so the renderer can fold or dim it rather than presenting it
@@ -1455,6 +1442,7 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                     m.artifact.hidden = true;
         } else if (type == "run_started") {
             last_run_started = seq;
+            first_row_of_run[seq] = out.size();
         } else if (type == "tool_run_requested") {
             // Rowless: the run's recovery worklist. First declaration per run
             // wins; a declaration before any run_started has no run.
@@ -1467,20 +1455,36 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                 if (n > 0) declared_calls[last_run_started] = n;
             }
         } else if (type == "run_finished") {
-            // One terminal row, only when something declared did not run;
-            // otherwise the run ends silently, as before.
+            // The run's terminal rides the run's last message (the divider
+            // beneath it); a run with no message gets a bare RunOutcome row,
+            // but only when there is a note to carry.
             const int64_t run = int_or(e, "run", 0);
             const auto d = declared_calls.find(run);
             const int declared = d == declared_calls.end() ? 0 : d->second;
             const auto k = dispatched_calls.find(run);
             const int dispatched = k == dispatched_calls.end() ? 0 : k->second;
             const std::string note = undispatched_declared_calls_note(declared, dispatched);
-            if (!note.empty()) {
-                std::string outcome = str_or(obj_at(e, "outcome"), "outcome", "");
-                if (outcome.empty()) outcome = "completed";
-                Message& m = push_event(EventKind::Notice, "run " + outcome, note);
+            std::string outcome = str_or(obj_at(e, "outcome"), "outcome", "");
+            if (outcome.empty()) outcome = "completed";
+            // Walk back over THIS run's rows only to the last one that both
+            // draws and exports; never into a prior run.
+            Message* carrier = nullptr;
+            if (const auto first = first_row_of_run.find(run); first != first_row_of_run.end())
+                for (size_t i = out.size(); i > first->second; --i)
+                    if (carries_run_terminal(out[i - 1])) {
+                        carrier = &out[i - 1];
+                        break;
+                    }
+            if (carrier != nullptr) {
+                carrier->run_outcome = outcome;
+                carrier->run_note = note;
+            } else if (!note.empty() || outcome != "completed") {
+                Message& m = push_event(EventKind::RunOutcome, "", "");
                 m.id = "run_finished:" + std::to_string(run);
+                m.run_outcome = outcome;
+                m.run_note = note;
             }
+            first_row_of_run.erase(run);
         } else if (type == "compacted") {
             // The marker stays where it stood; the summary is the row's text
             // and the renderer keeps it behind a disclosure. An empty summary
