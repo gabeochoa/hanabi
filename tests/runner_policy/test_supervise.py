@@ -95,8 +95,8 @@ class World:
                 self.root_dead = True
                 self.term_signal = sig
 
-    def waitpid(self, pid, block):
-        self.calls.append(("waitpid", pid, block))
+    def waitpid(self, pid):
+        self.calls.append(("waitpid", pid))
         if not self.reapable:
             return None
         if self.term_signal is not None:
@@ -161,7 +161,7 @@ def t1():
     check(st == 3 and rec["exit_status"] == 3, "T1 exit status is the child's, via the one wait")
     check(rec["root_exited"] and not rec["wall_hit"], "T1 the root's exit ended the wait, wall not hit")
     check(signals(w) == [], "T1 no signal sent on a clean exit")
-    check(waits(w) == [("waitpid", ROOT, True)], "T1 exactly one wait, blocking (leader observed a zombie)")
+    check(waits(w) == [("waitpid", ROOT)], "T1 exactly one wait, non-blocking, succeeded")
     check(rec["cleanup"] == "none observed" and rec["census"] == "observed", "T1 cleanup none observed, census marked observed")
     check(index_of(w, lambda c: c == ("close", 11)) < index_of(w, lambda c: c == "census"),
           "T1 our copy of the write end closes before any census")
@@ -187,7 +187,7 @@ def t3():
     check([c[2] for c in signals(w)] == [signal.SIGTERM, signal.SIGKILL], "T3 TERM then KILL, both to the group")
     check(all(c[1] == ROOT for c in signals(w)), "T3 every signal names the group id (== root pid), never a member pid")
     check(rec["kill_sent"] and rec["left_in_group"] == [], "T3 KILL sent; nothing left in the group")
-    check(waits(w) == [("waitpid", ROOT, True)], "T3 one blocking wait after KILL")
+    check(waits(w) == [("waitpid", ROOT)], "T3 one wait after KILL")
     check(rec["cleanup"] == "none observed", "T3 cleanup none observed")
 
 
@@ -265,27 +265,23 @@ def t9():
     check(rec["pgid"] == 1 and rec["root_pid"] == ROOT, "T9 observed pgid and root pid recorded")
 
 
-# T10: the leader observed exited but not reapable (the wait would block):
-# bounded non-blocking waits, then reap_timed_out, exit 78, UNCERTAIN.
+# T10: the leader observed exited (Z) but not yet reapable: bounded
+# non-blocking waits, then reap_timed_out, exit 78, UNCERTAIN. No path may
+# block: the fake has no blocking wait at all.
 def t10():
     w = World(root_dies_at=0.5, reapable=False)
     rec, st = run(w, grace=1.0)
     check(signals(w) == [], "T10 nothing to signal")
-    check(all(c[2] is True for c in waits(w)) and len(waits(w)) == 1 or
-          (all(not c[2] for c in waits(w)) and len(waits(w)) >= 2),
-          "T10 either the one blocking wait (Z observed) or bounded non-blocking waits -- never both")
-    # With Z observed the code takes the blocking arm; the fake returns None
-    # to model a wait that could not reap: recorded, not hidden.
+    check(len(waits(w)) >= 2, "T10 bounded repeated non-blocking waits (Z is weaker than waitability)")
     check(rec.get("reap_timed_out") and st == 78 and rec["cleanup"] == "uncertain",
           "T10 leader not reapable -> reap_timed_out, 78, UNCERTAIN")
     # After a KILL the root may sit in uninterruptible I/O (never Z): the
-    # wait must stay NON-blocking and bounded -- a blocking wait would hang.
+    # same bounded loop, never a hang.
     w3 = World(root_dies_on=(), member_dies_on=(), members=(), reapable=False)
     rec3, st3 = run(w3, wall=1.0, grace=1.0)
     check(rec3["kill_sent"], "T10c KILL was sent to the group")
-    check(all(not c[2] for c in waits(w3)) and len(waits(w3)) >= 2,
-          "T10c root never Z after KILL -> only bounded non-blocking waits, no blocking wait")
-    check(rec3.get("reap_timed_out") and st3 == 78, "T10c recorded reap_timed_out, 78")
+    check(len(waits(w3)) >= 2 and rec3.get("reap_timed_out") and st3 == 78,
+          "T10c root never Z after KILL -> bounded non-blocking waits, reap_timed_out, 78")
 
 
 # T11: Popen raised after fork (exec failure): CPython already waited that
@@ -332,7 +328,7 @@ def t12():
         # this) must not poll the managed child.
         FakePopen()
         check(calls == ["construct", "construct"], "T12 another Popen does not poll the managed child")
-        got = ops.waitpid(4242, True)
+        got = ops.waitpid(4242)
         check(got == (7, None), "T12 the one waitpid yields the exit code from the wait status")
         check(ops._proc.returncode == 7, "T12 returncode reconciled right after the wait")
         check(calls == ["construct", "construct"], "T12 still no method called on the managed object")
@@ -433,7 +429,8 @@ def helpers():
 # structural, so its shape is asserted, not trusted.
 def invariants():
     src = open(os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "lib", "supervise.py")).read()
-    check(src.count("os.waitpid(") == 1, "invariant: exactly one os.waitpid site")
+    check(src.count("os.waitpid(") == 1 and "os.waitpid(pid, os.WNOHANG)" in src,
+          "invariant: exactly one os.waitpid site, and it is WNOHANG (never a blocking reap)")
     check("os.kill(" not in src, "invariant: no os.kill on a pid number")
     check("with subprocess.Popen" not in src, "invariant: the managed Popen is never a context manager")
     for bad in ("_proc.poll(", "_proc.wait(", "_proc.communicate(", "_proc.kill(", "_proc.terminate(",

@@ -175,6 +175,7 @@ KEEP_HOMES="${HANABI_UI_KEEP_HOMES:-0}"
 # identity at the kill.
 SUPERVISE="$SCRIPT_DIR/lib/supervise.py"
 [ -f "$SUPERVISE" ] || { echo "error: $SUPERVISE missing" >&2; exit 65; }
+[ -f "$SCRIPT_DIR/lib/classify_record.py" ] || { echo "error: $SCRIPT_DIR/lib/classify_record.py missing" >&2; exit 65; }
 # The runtime the supervisor was qualified against: Apple's /usr/bin/python3
 # on Darwin (a PATH python3 from a package manager cannot substitute); PATH
 # python3 elsewhere.
@@ -368,33 +369,29 @@ for s in "${SCRIPTS[@]}"; do
     wait "$sup"; rc=$?
     keep=(); for p in ${SUPERVISOR_PIDS[@]+"${SUPERVISOR_PIDS[@]}"}; do [ "$p" = "$sup" ] || keep+=("$p"); done
     SUPERVISOR_PIDS=(${keep[@]+"${keep[@]}"})
-    # The supervisor's testimony, folded into this script's record. Absent
-    # record = the supervisor died before writing: uncertain, never clean.
-    if [ -f "$record" ]; then
-        sup_json="$(tr -d '\n' < "$record")"
-        case "$sup_json" in *'"cleanup": "none observed"'*) ;; *) UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1));; esac
-    else
-        sup_json='{"cleanup": "uncertain", "ownership": "no_record"}'
-        UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1))
-    fi
-    pid="$(printf '%s' "$sup_json" | sed -n 's/.*"root_pid": \([0-9]*\).*/\1/p')"
-    [ -n "$pid" ] || pid=0
+    # The script's outcome comes from the supervisor's VALIDATED record, never
+    # from its rc (recorded beside it). Absent / malformed / no `ownership`
+    # -> unsupervised, uncertain. ownership != established or reap_timed_out
+    # -> unsupervised, uncertain. wall_hit -> timeout. interrupted -> aborted.
+    # Else the child's exit_status (0 pass, else fail) or its term_signal
+    # (fail, signal named). Cleanup uncertain unless "none observed".
+    verdict="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" "$record")"
+    result="${verdict%% *}"; rest="${verdict#* }"
+    why="${rest%% *}"; rest="${rest#* }"
+    cleanup_state="${rest%% *}"; rest="${rest#* }"
+    pid="${rest%% *}"; sup_json="${rest#* }"
+    [ "$cleanup_state" = "certain" ] || UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1))
 
     # OBSERVED mode, cross-checked against the effective one: "Gfx init:" is
     # logged only by app_init(), the windowed path; the headless run never
     # logs it. A headless launch whose log carries it opened a window it was
     # not selected to open -- a policy failure, not a pass, whatever rc says.
     if grep -q 'Gfx init:' "$log" 2>/dev/null; then gfx=true; else gfx=false; fi
-    result=pass
-    if [ "$rc" -eq 124 ]; then result=timeout
-    elif [ "$rc" -eq 70 ] || [ "$rc" -eq 78 ]; then result=unsupervised   # ownership / spawn / reap not established; the record says which
-    elif [ "$rc" -ne 0 ]; then result=fail
-    fi
     if [ "$effective_mode" = "headless" ] && [ "$gfx" = "true" ]; then
         result=mode_mismatch
     fi
-    printf '{"run_id":"%s","script":"%s","script_sha256":"%s","exe":"%s","exe_sha256":"%s","source_head":"%s","source_dirty_files":%s,"policy":"%s","declared_mode":"%s","effective_mode":"%s","decision":"selected","reason":"","fixture_env_keys":"%s","launched":true,"pid":%s,"rc":%s,"result":"%s","gfx_init_logged":%s,"log":"%s","supervisor":%s}\n' \
-        "$RUN_ID" "$(json_str "$name")" "$script_sha" "$(json_str "$EXE")" "$EXE_SHA" "$SRC_HEAD" "$SRC_DIRTY" "$POLICY" "$declared_mode" "$effective_mode" "$fixture_keys" "$pid" "$rc" "$result" "$gfx" "$(json_str "$log")" "$sup_json" >> "$MANIFEST"
+    printf '{"run_id":"%s","script":"%s","script_sha256":"%s","exe":"%s","exe_sha256":"%s","source_head":"%s","source_dirty_files":%s,"policy":"%s","declared_mode":"%s","effective_mode":"%s","decision":"selected","reason":"","fixture_env_keys":"%s","launched":true,"pid":%s,"rc":%s,"result":"%s","reason":"%s","gfx_init_logged":%s,"log":"%s","supervisor":%s}\n' \
+        "$RUN_ID" "$(json_str "$name")" "$script_sha" "$(json_str "$EXE")" "$EXE_SHA" "$SRC_HEAD" "$SRC_DIRTY" "$POLICY" "$declared_mode" "$effective_mode" "$fixture_keys" "$pid" "$rc" "$result" "$(json_str "$why")" "$gfx" "$(json_str "$log")" "$sup_json" >> "$MANIFEST"
 
     if [ "$result" = "pass" ]; then
         printf '  %-34s PASS\n' "$name"
@@ -421,15 +418,16 @@ N_FAIL="$(count '"result":"fail"')"
 N_TIMEOUT="$(count '"result":"timeout"')"
 N_MISMATCH="$(count '"result":"mode_mismatch"')"
 N_UNSUPERVISED="$(count '"result":"unsupervised"')"
+N_ABORTED="$(count '"result":"aborted"')"
 N_CLEANUP_RECORDS="$(count '"record":"cleanup"')"
 echo "----------------------------------------"
 echo "  policy $POLICY: $N_RECORDS scripts = $N_SELECTED selected + $N_SKIPPED skipped + $N_REFUSED refused"
-echo "  selected: $N_PASS passed, $N_FAIL failed, $N_TIMEOUT timed out, $N_MISMATCH mode-mismatch, $N_UNSUPERVISED unsupervised"
+echo "  selected: $N_PASS passed, $N_FAIL failed, $N_TIMEOUT timed out, $N_MISMATCH mode-mismatch, $N_UNSUPERVISED unsupervised, $N_ABORTED aborted"
 echo "  cleanup:  $UNCERTAIN_CLEANUPS uncertain supervisor record(s)"
 echo "  manifest: $MANIFEST"
 rc_all=0
 if [ "$N_RECORDS" -ne "${#SCRIPTS[@]}" ] || [ $((N_SELECTED + N_SKIPPED + N_REFUSED)) -ne "$N_RECORDS" ] \
-   || [ $((N_PASS + N_FAIL + N_TIMEOUT + N_MISMATCH + N_UNSUPERVISED)) -ne "$N_SELECTED" ]; then
+   || [ $((N_PASS + N_FAIL + N_TIMEOUT + N_MISMATCH + N_UNSUPERVISED + N_ABORTED)) -ne "$N_SELECTED" ]; then
     echo "  MANIFEST BROKEN: records do not reconcile with the scripts found" >&2
     rc_all=3
 fi
@@ -440,7 +438,7 @@ if [ "$N_REFUSED" -ne 0 ]; then
     echo "  refused fixtures are a configuration error; see the manifest reasons" >&2
     rc_all=2
 fi
-if [ "$N_FAIL" -ne 0 ] || [ "$N_TIMEOUT" -ne 0 ] || [ "$N_MISMATCH" -ne 0 ] || [ "$N_UNSUPERVISED" -ne 0 ]; then
+if [ "$N_FAIL" -ne 0 ] || [ "$N_TIMEOUT" -ne 0 ] || [ "$N_MISMATCH" -ne 0 ] || [ "$N_UNSUPERVISED" -ne 0 ] || [ "$N_ABORTED" -ne 0 ]; then
     echo "  failed:$FAILED_NAMES" >&2
     [ -n "$SEED" ] && echo "  reproduce this order with HANABI_UI_SEED=$SEED" >&2
     [ "$rc_all" -eq 0 ] && rc_all=1

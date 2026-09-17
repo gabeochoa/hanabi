@@ -79,11 +79,11 @@ class Ops:
     def killpg(self, pgid, sig):
         os.killpg(pgid, sig)
 
-    def waitpid(self, pid, block):
-        """The ONE reap site. Returns None when `block` is False and the child
-        is not yet reapable; else (exit_status, term_signal) from the wait
-        status, never from the Popen object."""
-        got, status = os.waitpid(pid, 0 if block else os.WNOHANG)
+    def waitpid(self, pid):
+        """The ONE reap site, never blocking: None when the child is not yet
+        reapable, else (exit_status, term_signal) from the wait status, never
+        from the Popen object."""
+        got, status = os.waitpid(pid, os.WNOHANG)
         if got == 0:
             return None
         code = os.waitstatus_to_exitcode(status)
@@ -338,21 +338,17 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
         rec["cleanup"] = ("none observed" if not rec["left_in_group"] and not rec["escaped_group"]
                           else "uncertain")
 
-    # The one reap, after every signal; a leader still not reapable within
-    # the grace is recorded, not waited for.
-    # Blocking ONLY when the leader is already observed a zombie (the wait
-    # returns at once). After a KILL the root can still sit in uninterruptible
-    # I/O, and a blocking wait on it would hang the runner.
+    # The one reap, after every signal, NEVER blocking: a ps `Z` reading is
+    # weaker than waitability, and the bound must be the supervisor's own.
+    # A leader still not reapable within the grace is recorded, not waited
+    # for.
     reaped = None
-    if ops.is_zombie(pid):
-        reaped = ops.waitpid(pid, True)
-    else:
-        end = ops.monotonic() + grace
-        while True:
-            reaped = ops.waitpid(pid, False)
-            if reaped is not None or ops.monotonic() >= end:
-                break
-            ops.sleep(tick)
+    end = ops.monotonic() + grace
+    while True:
+        reaped = ops.waitpid(pid)
+        if reaped is not None or ops.monotonic() >= end:
+            break
+        ops.sleep(tick)
     if reaped is None:
         rec["reap_timed_out"] = True
         rec["cleanup"] = "uncertain"

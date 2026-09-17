@@ -221,8 +221,29 @@ else
     ng "8. supervisor unit FAILED"; sed 's/^/      /' "$T/unit.txt"
 fi
 SUP="$ROOT/scripts/lib/supervise.py"
+# The classifier, driven with planted records: the outcome comes from the
+# record, never from the supervisor's rc.
+CLS="$ROOT/scripts/lib/classify_record.py"
+printf '%s' '{"ownership":"established","exit_status":0,"reap_timed_out":true,"cleanup":"none observed"}' > "$T/rec_rt.json"
+check "8. classifier: a passed fixture whose reap timed out is UNSUPERVISED and uncertain, not a pass" '[ "$(python3 -I "$CLS" "$T/rec_rt.json" | cut -d" " -f1,3)" = "unsupervised uncertain" ]'
+printf '%s' '{not json' > "$T/rec_bad.json"
+check "8. classifier: a malformed record is UNSUPERVISED and uncertain" '[ "$(python3 -I "$CLS" "$T/rec_bad.json" | cut -d" " -f1,2,3)" = "unsupervised no_record uncertain" ]'
+check "8. classifier: an absent record is UNSUPERVISED and uncertain" '[ "$(python3 -I "$CLS" "$T/does-not-exist.json" | cut -d" " -f1,3)" = "unsupervised uncertain" ]'
+printf '%s' '{"ownership":"unestablished","exit_status":null}' > "$T/rec_un.json"
+check "8. classifier: ownership unestablished is UNSUPERVISED" '[ "$(python3 -I "$CLS" "$T/rec_un.json" | cut -d" " -f1)" = unsupervised ]'
+printf '%s' '{"ownership":"established","wall_hit":true,"exit_status":null,"term_signal":15,"cleanup":"none observed"}' > "$T/rec_wall.json"
+check "8. classifier: wall hit is TIMEOUT even though the child died of a signal" '[ "$(python3 -I "$CLS" "$T/rec_wall.json" | cut -d" " -f1,3)" = "timeout certain" ]'
+printf '%s' '{"ownership":"established","interrupted":true,"exit_status":null,"term_signal":15,"cleanup":"none observed"}' > "$T/rec_int.json"
+check "8. classifier: supervisor interrupted is ABORTED" '[ "$(python3 -I "$CLS" "$T/rec_int.json" | cut -d" " -f1)" = aborted ]'
+printf '%s' '{"ownership":"established","exit_status":null,"term_signal":11,"cleanup":"none observed"}' > "$T/rec_sig.json"
+check "8. classifier: a child killed by a signal is FAIL with the signal named" '[ "$(python3 -I "$CLS" "$T/rec_sig.json" | cut -d" " -f1,2,3)" = "fail signal 11" ]'
+printf '%s' '{"ownership":"established","exit_status":5,"cleanup":"uncertain","left_in_group":[7]}' > "$T/rec_f.json"
+check "8. classifier: exit 5 is FAIL, and a non-empty leftover is uncertain" '[ "$(python3 -I "$CLS" "$T/rec_f.json" | cut -d" " -f1,4)" = "fail 0" ] && [ "$(python3 -I "$CLS" "$T/rec_f.json" | cut -d" " -f3)" = uncertain ]'
+printf '%s' '{"ownership":"established","exit_status":0,"cleanup":"none observed","root_pid":4242}' > "$T/rec_ok.json"
+check "8. classifier: exit 0 with nothing observed is PASS, certain, root pid carried" '[ "$(python3 -I "$CLS" "$T/rec_ok.json" | cut -d" " -f1,3,4)" = "pass certain 4242" ]'
 check "8. invariant: one launch line: python -I supervise.py … -- env -u <the three policy vars> …; nothing else backgrounds the binary" '[ "$(grep -c "\"\$PYTHON3\" -I \"\$SUPERVISE\" --wall" "$RUNNER")" = 1 ] && grep -A1 "\"\$SUPERVISE\" --wall" "$RUNNER" | grep -q "env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY" && ! grep -qE "exec env .*\"\$EXE\"" "$RUNNER"'
 check "8. invariant: the runner has no kill-by-name, no pgrep, no pid reaper" '! grep -qE "pkill|pgrep|reap_pid|ACTIVE_PIDS|reaper" "$RUNNER"'
+check "8. invariant: the runner derives result from the record (classify_record.py), not from an rc ladder" 'grep -q "classify_record.py" "$RUNNER" && ! grep -qE "rc.* -eq 124.*result=timeout|result=timeout$" "$RUNNER"'
 check "8. invariant: the supervisor has exactly one os.waitpid site" '[ "$(grep -c "os.waitpid(" "$SUP")" = 1 ]'
 check "8. invariant: the supervisor never signals a pid number (killpg only)" '! grep -q "os\.kill(" "$SUP" && grep -q "os.killpg(" "$SUP"'
 check "8. invariant: the supervisor installs no SIGCHLD handler (only the SIG_DFL reset)" '[ "$(grep -c "signal.signal(signal.SIGCHLD" "$SUP")" = 1 ] && grep -q "signal.SIGCHLD, signal.SIG_DFL" "$SUP"'
