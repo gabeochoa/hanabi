@@ -569,8 +569,9 @@ struct AppComponent : public afterhours::BaseComponent {
     // star toggle uses, so the sessions vector still has exactly one mutator.
     std::string requestToggleArchive;
     // Directed form: archive (true) or unarchive (false) `requestSetArchiveId`
-    // without flipping -- the combined Archive and Close Tab must never
-    // unarchive a thread archived since the menu was built.
+    // without flipping, and without the toggle's undo toast -- the combined
+    // Archive and Close Tab must never unarchive a thread archived since the
+    // menu was built, and a landed combined act shows nothing.
     std::string requestSetArchiveId;
     bool requestSetArchiveTo = false;
     // Request to silence (or un-silence) a thread on this machine. Same
@@ -2216,6 +2217,7 @@ struct TabStripComponent : public afterhours::BaseComponent {
     bool menuOpen = false;
     afterhours::EntityID menuTabId =
         std::numeric_limits<afterhours::EntityID>::max();
+    std::string menuSessionId;  // captured at open; outlives the tab entity
     float menuX = 0.0f;         // cursor x at right-click (menu top-left)
     float menuY = 0.0f;         // cursor y at right-click
     // The native arm's state for this menu (see AppComponent::nativeRowMenu).
@@ -2224,6 +2226,7 @@ struct TabStripComponent : public afterhours::BaseComponent {
     void close_menu() {
         menuOpen = false;
         menuTabId = std::numeric_limits<afterhours::EntityID>::max();
+        menuSessionId.clear();
         if (nativeMenu.open()) {
             if (std::getenv("HANABI_NATIVE_MENU_LOG"))
                 std::fprintf(stderr, "[native-menu] tab close_menu while native %s tracks: cancelling\n",

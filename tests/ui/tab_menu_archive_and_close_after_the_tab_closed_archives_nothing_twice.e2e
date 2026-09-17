@@ -1,8 +1,11 @@
-# The menu's target is the tab entity it opened on. If that tab is closed
-# under a standing menu (the detach_thread seam; the pointer cannot), the
-# menu closes with it and the pick is dropped: nothing crashes, nothing is
-# archived, the other tab stands. (Reference: archives anyway -- a recorded
-# delta, puffin_gaps.)
+# The drawn menu does not survive its tab: when the tab is closed under a
+# standing menu (the detach_thread seam; no pointer can reach past the
+# menu's own eater), the menu closes with it and no pick happens -- so
+# nothing is archived, nothing crashes, the other tab stands. That is what
+# the reference does when there is no click; with a click after the tab
+# went it archives (archive-only), which hanabi's NATIVE arm does too
+# (route_orphan_pick, by the session id captured at open) and no headless
+# script can reach.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
 require_thread t2
 wait_frames 12

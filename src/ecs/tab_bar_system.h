@@ -357,6 +357,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     strip.menuNativeTried = false;
                     strip.menuOpen = true;
                     strip.menuTabId = strip.tabOrder[i];
+                    if (auto o = EntityHelper::getEntityForID(strip.tabOrder[i]);
+                        o.valid() && o->has<Tab>())
+                        strip.menuSessionId = o->get<Tab>().sessionId;
                     strip.menuX = ctx.mouse.pos.x;
                     strip.menuY = ctx.mouse.pos.y;
                     // A right-press must not also start a drag.
@@ -867,11 +870,40 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // Resolve the target tab (it may have been closed since opening).
             auto menuOpt = EntityHelper::getEntityForID(strip.menuTabId);
             if (!menuOpt.valid() || !menuOpt->has<Tab>()) {
-                strip.close_menu();
+                route_orphan_pick(ctx, uiRoot, strip, app);
             } else {
                 render_tab_menu(ctx, uiRoot, strip, app, menuOpt.asE());
             }
         }
+    }
+
+    // The menu's tab is gone (closed under a standing menu). The drawn menu
+    // closes with it -- no pointer can pick past its own eater. The NATIVE
+    // menu keeps tracking, so its pick is read once more and routed by the
+    // session id captured at open: Archive and Close Tab archives (nothing to
+    // close), plain Archive toggles; anything else no longer has a tab to act
+    // on and is dropped.
+    void route_orphan_pick(UIContext<InputAction>& ctx, Entity& uiRoot,
+                           TabStripComponent& strip, AppComponent& app) {
+        if (strip.nativeMenu.open() && !strip.menuSessionId.empty()) {
+            const std::string scope = "tab:" + strip.menuSessionId;
+            const auto result = hanabi::surface::native_menu_frame(
+                ctx, uiRoot, 966, "tab_menu", strip.nativeMenu, scope);
+            if (result.activated == hanabi::surface::kNoMenuRow && !result.dismissed &&
+                !result.cancelled)
+                return;  // still tracking
+            if (result.activated != hanabi::surface::kNoMenuRow) {
+                const std::string action = strip.nativeMenu.action_of(result.activated);
+                if (action == "archive_close") {
+                    app.requestSetArchiveId = strip.menuSessionId;
+                    app.requestSetArchiveTo = true;
+                } else if (action == "archive" || action == "unarchive") {
+                    app.requestToggleArchive = strip.menuSessionId;
+                }
+            }
+        }
+        strip.close_menu();
+        app.menuCursor = {};
     }
 
     // Renders the tab context menu and handles its item clicks + click-away
