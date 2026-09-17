@@ -7,7 +7,8 @@ pid and its group id for the whole time -- signals only the GROUP, never a pid
 number, then performs exactly one wait and reports the child's real exit and
 the cleanup's facts as SEPARATE things in a JSON record.
 
-    supervise.py --wall <s> --grace <s> --record <path> [--log <path>] -- <cmd...>
+    supervise.py --wall <s> --grace <s> --record <path> [--log <path>]
+                 [--token <str>] -- <cmd...>
 
 Exit status: the child's (0-255) when it exited; 124 when the wall clock hit;
 130 when the supervisor itself was told to stop; 128+SIGNUM when the child
@@ -15,7 +16,8 @@ died of a signal; 78 (EX_CONFIG) when ownership could not be established or
 the leader could not be reaped -- in both cases NOTHING is signalled that is
 not provably ours, nothing blocks, and the record says what was left.
 
-Record fields: root_pid, pgid, ownership (established | unestablished |
+Record fields: token (the runner's invocation token, echoed; the record
+is written atomically so a partial file never carries one), root_pid, pgid, ownership (established | unestablished |
 sigchld_not_default | spawn_failed), exit_status, term_signal, wall_hit, tree_closed,
 pipe_closed_early (the inherited pipe hit EOF while the leader lived: a
 hint that woke the loop, never a decision), root_exited, interrupted,
@@ -221,9 +223,11 @@ class Interrupted:
 PS_TIMEOUT = 10.0
 
 
-def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_timeout=PS_TIMEOUT):
+def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_timeout=PS_TIMEOUT,
+              token=""):
     interrupted = interrupted or Interrupted()
     rec = {
+        "token": token,  # binds this record to the invocation that asked for it
         "root_pid": None, "pgid": None, "ownership": "unestablished",
         "exit_status": None, "term_signal": None, "wall_hit": False,
         "tree_closed": False, "pipe_closed_early": False, "root_exited": False,
@@ -396,12 +400,22 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_time
     return rec, 128 + (sig or 0)
 
 
+def write_record(path, rec):
+    """Atomic: a partial file can never carry a valid token."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(rec, f, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
 def main(argv):
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--wall", type=float, required=True)
     ap.add_argument("--grace", type=float, required=True)
     ap.add_argument("--record", required=True)
     ap.add_argument("--log", default=None)
+    ap.add_argument("--token", default="")
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     a = ap.parse_args(argv)
     cmd = a.cmd[1:] if a.cmd and a.cmd[0] == "--" else a.cmd
@@ -420,10 +434,10 @@ def main(argv):
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
     signal.signal(signal.SIGHUP, on_term)
-    rec, status = supervise(cmd, a.wall, a.grace, log_fd, ops, interrupted=interrupted)
-    with open(a.record, "w") as f:
-        json.dump(rec, f, sort_keys=True)
-        f.write("\n")
+    rec, status = supervise(cmd, a.wall, a.grace, log_fd, ops, interrupted=interrupted,
+                            token=a.token)
+    rec["token"] = a.token
+    write_record(a.record, rec)
     return status
 
 

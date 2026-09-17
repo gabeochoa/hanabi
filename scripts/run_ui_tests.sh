@@ -353,8 +353,13 @@ for s in "${SCRIPTS[@]}"; do
     # The supervisor runs in the RUNNER'S environment (python -I: no PYTHON*
     # variable, no user site); the fixture's environment is built by `env`
     # INSIDE the supervised argv, exactly as before, and reaches the app only.
+    # The record is bound to THIS invocation by a token the supervisor echoes
+    # first; the runner clears the path before launch and the supervisor
+    # writes atomically, so a stale, partial or foreign record fails closed.
     record="$ISO_HOME/supervise.json"
-    "$PYTHON3" -I "$SUPERVISE" --wall "$TIMEOUT" --grace 2 --record "$record" --log "$log" -- \
+    rm -f "$record" "$record.tmp"
+    token="$RUN_ID:$name:$RANDOM$RANDOM:$(date +%s)"
+    "$PYTHON3" -I "$SUPERVISE" --wall "$TIMEOUT" --grace 2 --record "$record" --log "$log" --token "$token" -- \
         env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY \
         HOME="$ISO_HOME" HANABI_CONFIG="$ISO_HOME/no-such-config.json" \
         HANABI_CACHE_DIR="$script_cache" TZ="$PIN_TZ" \
@@ -375,7 +380,7 @@ for s in "${SCRIPTS[@]}"; do
     # -> unsupervised, uncertain. wall_hit -> timeout. interrupted -> aborted.
     # Else the child's exit_status (0 pass, else fail) or its term_signal
     # (fail, signal named). Cleanup uncertain unless "none observed".
-    verdict="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" "$record")"
+    verdict="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" "$record" "$token")"
     result="${verdict%% *}"; rest="${verdict#* }"
     why="${rest%% *}"; rest="${rest#* }"
     cleanup_state="${rest%% *}"; rest="${rest#* }"

@@ -4,7 +4,10 @@ the supervisor's exit code. One line on stdout:
 
     <result> <reason> <certain|uncertain> <root_pid> <record json>
 
+usage: classify_record.py <record path> [<expected token>]
+
 absent / malformed / no `ownership` -> unsupervised no_record uncertain;
+token expected and absent or different -> unsupervised token_mismatch;
 ownership != established or reap_timed_out -> unsupervised; wall_hit ->
 timeout; interrupted -> aborted; term_signal -> fail (signal named);
 exit_status 0 -> pass, else fail. Cleanup certain only for "none observed"
@@ -15,9 +18,11 @@ import json
 import sys
 
 
-def classify(rec):
+def classify(rec, token=None):
     if not isinstance(rec, dict) or "ownership" not in rec:
         return "unsupervised", "no_record", "uncertain"
+    if token is not None and rec.get("token") != token:
+        return "unsupervised", "token_mismatch", "uncertain"
     if rec.get("ownership") != "established" or rec.get("reap_timed_out"):
         why = str(rec.get("ownership")) + ("+reap_timed_out" if rec.get("reap_timed_out") else "")
         return "unsupervised", why, "uncertain"
@@ -35,6 +40,7 @@ def classify(rec):
 
 
 def main(argv):
+    token = argv[2] if len(argv) > 2 else None
     try:
         with open(argv[1]) as f:
             rec = json.load(f)
@@ -43,7 +49,7 @@ def main(argv):
         result, why, cleanup = "unsupervised", "no_record", "uncertain"
         print(result, why, cleanup, 0, json.dumps(rec, sort_keys=True))
         return 0
-    result, why, cleanup = classify(rec)
+    result, why, cleanup = classify(rec, token)
     if not isinstance(rec, dict):
         rec = {"cleanup": "uncertain", "ownership": "no_record"}
     print(result, why, cleanup, int(rec.get("root_pid") or 0), json.dumps(rec, sort_keys=True))

@@ -241,9 +241,33 @@ printf '%s' '{"ownership":"established","exit_status":5,"cleanup":"uncertain","l
 check "8. classifier: exit 5 is FAIL, and a non-empty leftover is uncertain" '[ "$(python3 -I "$CLS" "$T/rec_f.json" | cut -d" " -f1,4)" = "fail 0" ] && [ "$(python3 -I "$CLS" "$T/rec_f.json" | cut -d" " -f3)" = uncertain ]'
 printf '%s' '{"ownership":"established","exit_status":0,"cleanup":"none observed","root_pid":4242}' > "$T/rec_ok.json"
 check "8. classifier: exit 0 with nothing observed is PASS, certain, root pid carried" '[ "$(python3 -I "$CLS" "$T/rec_ok.json" | cut -d" " -f1,3,4)" = "pass certain 4242" ]'
+# Stale-record arms through the CLI: a PASS record carrying another
+# invocation's token, and a truncated one, both fail closed.
+printf '%s' '{"token":"old-run:x:1:1","ownership":"established","exit_status":0,"cleanup":"none observed","observer":"ok"}' > "$T/rec_stale.json"
+check "8. classifier: a PASS record with a foreign token is UNSUPERVISED token_mismatch, uncertain" '[ "$(python3 -I "$CLS" "$T/rec_stale.json" "this-run:x:2:2" | cut -d" " -f1,2,3)" = "unsupervised token_mismatch uncertain" ]'
+printf '%s' '{"token":"this-run:x:2:2","ownership":"established","exit_st' > "$T/rec_trunc.json"
+check "8. classifier: a truncated record is UNSUPERVISED no_record" '[ "$(python3 -I "$CLS" "$T/rec_trunc.json" "this-run:x:2:2" | cut -d" " -f1,2)" = "unsupervised no_record" ]'
+# The isolated classifier unit (dicts only; no shell, no process).
+if python3 "$ROOT/tests/runner_policy/test_classify_record.py" >"$T/cls_unit.txt" 2>&1; then
+    ok "8. classify_record unit passed (see its own labels)"; sed 's/^/      /' "$T/cls_unit.txt"
+else
+    ng "8. classify_record unit FAILED"; sed 's/^/      /' "$T/cls_unit.txt"
+fi
+# Runner-level stale record: a PASS record from "another invocation" is
+# pre-planted at the per-script path inside the fixture dir's would-be home
+# -- the runner clears the path before launch and passes a fresh token, so
+# the manifest's supervisor record carries THIS run's token, never the
+# planted one.
+mk_fixtures "$T/stale"
+rm "$T/stale/windowed_one.e2e"
+rc="$(run_runner "$T/stale" "$T/rec8s" "$T/man8s" HANABI_STUB_EXIT=3)"
+check "8. every script record's supervisor token is this run's (RUN_ID prefix), none foreign" '[ "$(grep -c "\"token\": \"" "$T/man8s")" -ge 1 ] && ! grep -q "\"token\": \"old-run" "$T/man8s" && [ "$(grep -o "\"token\": \"[^:]*" "$T/man8s" | sort -u | wc -l | tr -d " ")" = 1 ]'
+check "8. the failing child (exit 3) classifies as FAIL from the record, reason exit 3" 'grep -q "\"result\":\"fail\",\"reason\":\"exit 3\"" "$T/man8s"'
 check "8. invariant: one launch line: python -I supervise.py … -- env -u <the three policy vars> …; nothing else backgrounds the binary" '[ "$(grep -c "\"\$PYTHON3\" -I \"\$SUPERVISE\" --wall" "$RUNNER")" = 1 ] && grep -A1 "\"\$SUPERVISE\" --wall" "$RUNNER" | grep -q "env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY" && ! grep -qE "exec env .*\"\$EXE\"" "$RUNNER"'
 check "8. invariant: the runner has no kill-by-name, no pgrep, no pid reaper" '! grep -qE "pkill|pgrep|reap_pid|ACTIVE_PIDS|reaper" "$RUNNER"'
 check "8. invariant: the runner derives result from the record (classify_record.py), not from an rc ladder" 'grep -q "classify_record.py" "$RUNNER" && ! grep -qE "rc.* -eq 124.*result=timeout|result=timeout$" "$RUNNER"'
+check "8. invariant: the runner clears the record path before launch, mints a token and passes it to both supervisor and classifier" 'grep -q "rm -f \"\$record\" \"\$record.tmp\"" "$RUNNER" && grep -q "\-\-token \"\$token\"" "$RUNNER" && grep -q "classify_record.py\" \"\$record\" \"\$token\"" "$RUNNER"'
+check "8. invariant: the supervisor writes its record atomically (tmp + os.replace) with the token first" 'grep -q "os.replace(tmp, path)" "$SUP" && grep -q "\"token\": token" "$SUP"'
 check "8. invariant: the supervisor has exactly one os.waitpid site" '[ "$(grep -c "os.waitpid(" "$SUP")" = 1 ]'
 check "8. invariant: the supervisor never signals a pid number (killpg only)" '! grep -q "os\.kill(" "$SUP" && grep -q "os.killpg(" "$SUP"'
 check "8. invariant: the supervisor installs no SIGCHLD handler (only the SIG_DFL reset)" '[ "$(grep -c "signal.signal(signal.SIGCHLD" "$SUP")" = 1 ] && grep -q "signal.SIGCHLD, signal.SIG_DFL" "$SUP"'
