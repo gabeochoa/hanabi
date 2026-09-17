@@ -5,6 +5,7 @@
 #include "tool_kinds.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <functional>
 #include <condition_variable>
@@ -17,6 +18,8 @@
 #include <unordered_map>
 #include <utility>
 #include <string>
+#include <cstdlib>
+#include <string_view>
 #include <cstdio>
 
 #ifdef HANABI_ENABLE_TLS
@@ -757,8 +760,8 @@ bool is_silent_wire_event(const std::string& type) {
         "session_created", "options_changed", "session_renamed",
         "reply_target_configured", "fork_boundary", "epoch_change_started",
         "epoch_change_completed", "run_resumed", "input_applied",
-        "queued_input_dropped", "queued_input_edited", "run_started",
-        "run_finished", "model_call_started", "model_call_settled",
+        "queued_input_dropped", "queued_input_edited",
+        "model_call_started", "model_call_settled",
         "model_call_superseded", "model_call_fallback",
         "tool_approval_requested", "tool_approval_resolved", "task_detached",
         "task_retagged", "task_cancel_requested", "context_contributed",
@@ -1176,6 +1179,41 @@ std::string artifact_row_text(const ArtifactRef& ref) {
     return text;
 }
 
+// A delivered input's origin label, from `source.kind` -- the reference's
+// InputSourceKind table. Unknown or absent -> "" (bare Delivered).
+std::string delivery_label_for(const std::string& kind, const std::string& task_id) {
+    if (kind == "goal_drive") return "goal driver";
+    if (kind == "task") return task_id.empty() ? "task" : "task " + task_id;
+    if (kind == "task_check") return task_id.empty() ? "task check" : "task check " + task_id;
+    if (kind == "hook") return "hook output";
+    if (kind == "delivery") return "subscription";
+    if (kind == "task_cancel_notice") return "task cancelled";
+    return "";
+}
+
+// Exactly one LEADING <thinking>…</thinking> on an assistant text block is
+// protocol, not prose: removed with the whitespace after it. Anything else --
+// not leading, unclosed, inside code -- is literal.
+std::string strip_leading_thinking_wrapper(const std::string& text) {
+    static constexpr std::string_view kOpen = "<thinking>";
+    static constexpr std::string_view kClose = "</thinking>";
+    std::size_t i = 0;
+    while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) ++i;
+    if (text.compare(i, kOpen.size(), kOpen) != 0) return text;
+    const std::size_t close = text.find(kClose, i + kOpen.size());
+    if (close == std::string::npos) return text;
+    std::size_t rest = close + kClose.size();
+    while (rest < text.size() && std::isspace(static_cast<unsigned char>(text[rest]))) ++rest;
+    return text.substr(rest);
+}
+
+std::string undispatched_declared_calls_note(int declared, int dispatched) {
+    const int left = declared - dispatched;
+    if (declared <= 0 || left <= 0) return "";
+    return std::to_string(left) + " of " + std::to_string(declared) + " declared call" +
+           (declared == 1 ? "" : "s") + " did not run";
+}
+
 std::vector<Message> parse_page_frames(const std::string& msg_json) {
     json msg = json::parse(msg_json, nullptr, false);
     if (msg.is_discarded() || !msg.contains("frames") ||
@@ -1194,6 +1232,11 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
     std::unordered_map<std::string, size_t> row_for_child_id;
     std::unordered_map<int64_t, size_t> row_for_outcome_seq;
     std::unordered_map<std::string, KnownArtifact> known_artifacts;
+    // Declared tool calls per run (keyed by the run_started seq), and how
+    // many of them dispatched: the run terminal says what did not run.
+    int64_t last_run_started = 0;
+    std::unordered_map<int64_t, int> declared_calls;
+    std::unordered_map<int64_t, int> dispatched_calls;
 
     for (const json& f : msg["frames"]) {
         if (!f.is_object()) continue;
@@ -1229,6 +1272,14 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                                     ? e.at("files")
                                     : json::array();
             if (text.empty() && files.empty()) continue;
+            if (str_or(e, "origin", "") == "delivery") {
+                const json& source = obj_at(e, "source");
+                push_event(EventKind::Delivery,
+                           delivery_label_for(str_or(source, "kind", ""),
+                                              str_or(source, "task_id", "")),
+                           std::move(text));
+                continue;
+            }
             Message& user = push(Role::User, std::move(text));
             for (const json& file : files) {
                 if (!file.is_object()) continue;
@@ -1247,8 +1298,11 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             // arrives as tool_intent with the same call_id. Rendering both
             // would double every tool row, so this side is dropped.
             if (kind == "text") {
-                std::string text = str_or(b, "text", "");
-                if (!text.empty()) push(Role::Assistant, std::move(text));
+                std::string text = strip_leading_thinking_wrapper(str_or(b, "text", ""));
+                bool blank = true;
+                for (const unsigned char c : text)
+                    if (!std::isspace(c)) { blank = false; break; }
+                if (!blank) push(Role::Assistant, std::move(text));
             } else if (kind == "thinking") {
                 // Reasoning is real content, but it is not the answer. Mark it
                 // so the renderer can fold or dim it rather than presenting it
@@ -1267,6 +1321,14 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             m.kind = EventKind::ToolCall;
             m.subtitle = str_or(e, "tool", "");
             row_for_intent_seq[seq] = out.size() - 1;
+            // A declared position dispatches as call_id "tool_run:<run>:<i>".
+            if (const std::string call = str_or(e, "call_id", ""); call.rfind("tool_run:", 0) == 0) {
+                const std::size_t colon = call.find(':', 9);
+                if (colon != std::string::npos) {
+                    const int64_t run = std::strtoll(call.substr(9, colon - 9).c_str(), nullptr, 10);
+                    if (run > 0) ++dispatched_calls[run];
+                }
+            }
         } else if (type == "tool_node_selected") {
             // Which host the call actually ran on, and it arrives as its own
             // frame after the intent -- so like tool_result it is folded back
@@ -1391,6 +1453,34 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                 if (m.kind == EventKind::Artifact && m.artifact.id == hidden &&
                     m.artifact.shown_seq <= seq)
                     m.artifact.hidden = true;
+        } else if (type == "run_started") {
+            last_run_started = seq;
+        } else if (type == "tool_run_requested") {
+            // Rowless: the run's recovery worklist. First declaration per run
+            // wins; a declaration before any run_started has no run.
+            if (last_run_started != 0 && last_run_started < seq &&
+                declared_calls.find(last_run_started) == declared_calls.end()) {
+                int n = 0;
+                if (e.contains("calls") && e.at("calls").is_array())
+                    for (const json& c : e.at("calls"))
+                        if (c.is_object() && !str_or(c, "tool", "").empty()) ++n;
+                if (n > 0) declared_calls[last_run_started] = n;
+            }
+        } else if (type == "run_finished") {
+            // One terminal row, only when something declared did not run;
+            // otherwise the run ends silently, as before.
+            const int64_t run = int_or(e, "run", 0);
+            const auto d = declared_calls.find(run);
+            const int declared = d == declared_calls.end() ? 0 : d->second;
+            const auto k = dispatched_calls.find(run);
+            const int dispatched = k == dispatched_calls.end() ? 0 : k->second;
+            const std::string note = undispatched_declared_calls_note(declared, dispatched);
+            if (!note.empty()) {
+                std::string outcome = str_or(obj_at(e, "outcome"), "outcome", "");
+                if (outcome.empty()) outcome = "completed";
+                Message& m = push_event(EventKind::Notice, "run " + outcome, note);
+                m.id = "run_finished:" + std::to_string(run);
+            }
         } else if (type == "compacted") {
             // The marker stays where it stood; the summary is the row's text
             // and the renderer keeps it behind a disclosure. An empty summary
