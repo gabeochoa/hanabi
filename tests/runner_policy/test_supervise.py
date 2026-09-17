@@ -162,7 +162,7 @@ def t1():
     check(rec["root_exited"] and not rec["wall_hit"], "T1 the root's exit ended the wait, wall not hit")
     check(signals(w) == [], "T1 no signal sent on a clean exit")
     check(waits(w) == [("waitpid", ROOT, True)], "T1 exactly one wait, blocking (leader observed a zombie)")
-    check(rec["cleanup"] == "clean" and rec["census"] == "observed", "T1 cleanup clean, census marked observed")
+    check(rec["cleanup"] == "none observed" and rec["census"] == "observed", "T1 cleanup none observed, census marked observed")
     check(index_of(w, lambda c: c == ("close", 11)) < index_of(w, lambda c: c == "census"),
           "T1 our copy of the write end closes before any census")
 
@@ -188,7 +188,7 @@ def t3():
     check(all(c[1] == ROOT for c in signals(w)), "T3 every signal names the group id (== root pid), never a member pid")
     check(rec["kill_sent"] and rec["left_in_group"] == [], "T3 KILL sent; nothing left in the group")
     check(waits(w) == [("waitpid", ROOT, True)], "T3 one blocking wait after KILL")
-    check(rec["cleanup"] == "clean", "T3 cleanup clean")
+    check(rec["cleanup"] == "none observed", "T3 cleanup none observed")
 
 
 # T4: a member survives even KILL (uninterruptible) -> left_in_group, UNCERTAIN.
@@ -218,7 +218,8 @@ def t6():
     rec, st = run(w)
     check(rec["left_in_group"] == [] and rec["escaped_group"] == [], "T6 stranger neither in-group nor escaped")
     check(signals(w) == [], "T6 stranger untouched")
-    check(rec["cleanup"] == "clean", "T6 clean: nothing OBSERVED")
+    check(rec["cleanup"] == "none observed" and rec["escaped_session"] is None,
+          "T6 none observed; escaped_session not claimed (no portable session read)")
 
 
 # T7: the supervisor itself is told to stop mid-run -> the same teardown path,
@@ -277,6 +278,14 @@ def t10():
     # to model a wait that could not reap: recorded, not hidden.
     check(rec.get("reap_timed_out") and st == 78 and rec["cleanup"] == "uncertain",
           "T10 leader not reapable -> reap_timed_out, 78, UNCERTAIN")
+    # After a KILL the root may sit in uninterruptible I/O (never Z): the
+    # wait must stay NON-blocking and bounded -- a blocking wait would hang.
+    w3 = World(root_dies_on=(), member_dies_on=(), members=(), reapable=False)
+    rec3, st3 = run(w3, wall=1.0, grace=1.0)
+    check(rec3["kill_sent"], "T10c KILL was sent to the group")
+    check(all(not c[2] for c in waits(w3)) and len(waits(w3)) >= 2,
+          "T10c root never Z after KILL -> only bounded non-blocking waits, no blocking wait")
+    check(rec3.get("reap_timed_out") and st3 == 78, "T10c recorded reap_timed_out, 78")
 
 
 # T11: Popen raised after fork (exec failure): CPython already waited that
@@ -436,6 +445,9 @@ def invariants():
     check("start_new_session=True" in src, "invariant: the child starts its own session")
     check("os.getenv(" not in src and "os.environ" not in src and "HANABI_" not in src,
           "invariant: the supervisor reads no environment at all")
+    check("os.system(" not in src and "shell=True" not in src and "/tmp/" not in src,
+          "invariant: no shell, no predictable temp path")
+    check(src.count("subprocess.run(") == 1 and '["ps"]' in src, "invariant: census is one subprocess.run of ps, no shell")
     start = src.index("subprocess.Popen(") + len("subprocess.Popen")
     depth, i = 0, start
     while True:

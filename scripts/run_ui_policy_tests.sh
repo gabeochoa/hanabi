@@ -227,11 +227,13 @@ check "8. invariant: the supervisor has exactly one os.waitpid site" '[ "$(grep 
 check "8. invariant: the supervisor never signals a pid number (killpg only)" '! grep -q "os\.kill(" "$SUP" && grep -q "os.killpg(" "$SUP"'
 check "8. invariant: the supervisor installs no SIGCHLD handler (only the SIG_DFL reset)" '[ "$(grep -c "signal.signal(signal.SIGCHLD" "$SUP")" = 1 ] && grep -q "signal.SIGCHLD, signal.SIG_DFL" "$SUP"'
 check "8. invariant: the supervisor reads no environment knob" '! grep -q "HANABI_" "$SUP" && ! grep -q "os.getenv(" "$SUP"'
+check "8. invariant: the supervisor runs no shell (no os.system, no shell=True)" '! grep -q "os.system(" "$SUP" && ! grep -q "shell=True" "$SUP"'
+check "8. invariant: on Darwin the runner pins /usr/bin/python3" 'grep -q "PYTHON3=/usr/bin/python3" "$RUNNER"'
 # (i) a completed launch is forgotten: nothing active, nothing reaped at exit.
 mk_fixtures "$T/done"
 rm "$T/done/windowed_one.e2e"
 rc="$(run_runner "$T/done" "$T/rec8d" "$T/man8d")"
-check "8. a completed launch: run exits 0, its record says clean, the cleanup record counts 0 uncertain" '[ "$rc" = 0 ] && grep -q "\"cleanup\": \"clean\"" "$T/man8d" && grep -q "\"record\":\"cleanup\",\"supervisors_at_exit\":0,\"uncertain_cleanups\":0" "$T/man8d"'
+check "8. a completed launch: run exits 0, its record says none observed, the cleanup record counts 0 uncertain" '[ "$rc" = 0 ] && grep -q "\"cleanup\": \"none observed\"" "$T/man8d" && grep -q "\"record\":\"cleanup\",\"supervisors_at_exit\":0,\"uncertain_cleanups\":0" "$T/man8d"'
 # (iii) status preserved through cleanup: a failing last script exits 1 and
 # cleanup reaped nothing.
 rc="$(run_runner "$T/done" "$T/rec8e" "$T/man8e" HANABI_STUB_EXIT=5)"

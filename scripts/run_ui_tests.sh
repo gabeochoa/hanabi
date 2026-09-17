@@ -175,8 +175,11 @@ KEEP_HOMES="${HANABI_UI_KEEP_HOMES:-0}"
 # identity at the kill.
 SUPERVISE="$SCRIPT_DIR/lib/supervise.py"
 [ -f "$SUPERVISE" ] || { echo "error: $SUPERVISE missing" >&2; exit 65; }
-PYTHON3="$(command -v python3 || true)"
-[ -n "$PYTHON3" ] || { echo "error: python3 not found (the supervisor needs it)" >&2; exit 65; }
+# The runtime the supervisor was qualified against: Apple's /usr/bin/python3
+# on Darwin (a PATH python3 from a package manager cannot substitute); PATH
+# python3 elsewhere.
+if [ "$(uname -s)" = "Darwin" ]; then PYTHON3=/usr/bin/python3; else PYTHON3="$(command -v python3 || true)"; fi
+[ -n "$PYTHON3" ] && [ -x "$PYTHON3" ] || { echo "error: python3 not found (the supervisor needs it)" >&2; exit 65; }
 SUPERVISOR_PIDS=()   # supervisors still in flight; each is our direct child
 UNCERTAIN_CLEANUPS=0
 cleanup() {
@@ -192,7 +195,7 @@ cleanup() {
         printf '{"run_id":"%s","record":"cleanup","supervisors_at_exit":%s,"uncertain_cleanups":%s}\n' \
             "${RUN_ID:-}" "${#SUPERVISOR_PIDS[@]}" "$UNCERTAIN_CLEANUPS" >> "$MANIFEST"
     if [ "$UNCERTAIN_CLEANUPS" -eq 0 ]; then
-        echo "  cleanup: uncertain=0 (every supervisor reported its group empty and no escaped session; a process outside the session is invisible to the group, by construction)"
+        echo "  cleanup: uncertain=0 (every supervisor observed its group empty and no escaped process OBSERVED; a process outside the session is invisible to the group, by construction)"
     else
         echo "  CLEANUP UNCERTAIN: $UNCERTAIN_CLEANUPS supervisor record(s) report processes left in the group or escaped from the session; see the manifest"
     fi
@@ -369,7 +372,7 @@ for s in "${SCRIPTS[@]}"; do
     # record = the supervisor died before writing: uncertain, never clean.
     if [ -f "$record" ]; then
         sup_json="$(tr -d '\n' < "$record")"
-        case "$sup_json" in *'"cleanup": "clean"'*) ;; *) UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1));; esac
+        case "$sup_json" in *'"cleanup": "none observed"'*) ;; *) UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1));; esac
     else
         sup_json='{"cleanup": "uncertain", "ownership": "no_record"}'
         UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1))
@@ -384,7 +387,7 @@ for s in "${SCRIPTS[@]}"; do
     if grep -q 'Gfx init:' "$log" 2>/dev/null; then gfx=true; else gfx=false; fi
     result=pass
     if [ "$rc" -eq 124 ]; then result=timeout
-    elif [ "$rc" -eq 70 ]; then result=unsupervised   # ownership never established; nothing was signalled
+    elif [ "$rc" -eq 70 ] || [ "$rc" -eq 78 ]; then result=unsupervised   # ownership / spawn / reap not established; the record says which
     elif [ "$rc" -ne 0 ]; then result=fail
     fi
     if [ "$effective_mode" = "headless" ] && [ "$gfx" = "true" ]; then

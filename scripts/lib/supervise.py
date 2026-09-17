@@ -22,11 +22,11 @@ hint that woke the loop, never a decision), root_exited, interrupted,
 term_sent, kill_sent, members_at_term, members_at_kill,
 left_in_group, escaped_group (chained to the root by ppid, in another
 group; the session cannot be told portably, so session is "unknown"),
-escaped_session (always [] until a portable session keyword exists), census
+escaped_session (null: no portable session keyword, so never observed), census
 ("observed": the lists are what ONE ps snapshot after the final signal
 showed -- a descendant that called setsid itself and was reparented to init
 is untraceable by ppid and stays unreported, by design; "failed: <reason>"
-with the lists null when ps could not be read), cleanup (clean |
+with the lists null when ps could not be read), cleanup ("none observed" |
 uncertain), and on the error arms action / reap_timed_out.
 
 The CLI binds the real operating system, unconditionally. `Ops` exists so the
@@ -57,7 +57,6 @@ class Ops:
     """The operating system, as this module uses it."""
 
     _proc = None  # the managed child's Popen, held for the supervisor's life
-    _ps_n = 0
 
     def spawn(self, cmd, log_fd, tree_fd):  # -> pid, or None when exec failed
         # The object is never polled, waited, communicated with or read for
@@ -100,24 +99,14 @@ class Ops:
     # only for the child it forked.
     @staticmethod
     def _ps(args):  # -> (rc, text); only BSD/procps-common spellings
-        # Through libc system(3), never subprocess (see spawn): system()
-        # waits for the child IT forked, so no zombie is left and our single
-        # waitpid stays the only one aimed at the managed child. The output
-        # path is ours alone (pid + counter) and carries no user input.
-        Ops._ps_n += 1
-        path = "/tmp/hanabi-sup-ps.%d.%d" % (os.getpid(), Ops._ps_n)
+        # subprocess.run waits for the pid IT created and nothing else, so
+        # the managed child stays ours to reap; no shell, no file.
         try:
-            rc = os.system("ps " + args + " > " + path + " 2>/dev/null")
-            try:
-                with open(path) as f:
-                    return rc, f.read()
-            except OSError:
-                return 1, ""
-        finally:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+            done = subprocess.run(["ps"] + args.split(), stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, check=False, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return 1, ""
+        return done.returncode, done.stdout.decode("utf-8", "replace")
 
     def census(self):
         """-> [(pid, ppid, pgid, stat)] or None when ps failed or printed a
@@ -226,7 +215,7 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
         "tree_closed": False, "pipe_closed_early": False, "root_exited": False,
         "interrupted": False, "term_sent": False, "kill_sent": False,
         "members_at_term": [], "members_at_kill": [], "left_in_group": [],
-        "escaped_group": [], "escaped_session": [], "session": "unknown",
+        "escaped_group": [], "escaped_session": None, "session": "unknown",
         "census": "observed", "cleanup": "uncertain",
         "portability": "syntax-checked against 3.9; runtime unverified until an "
                        "authorized Mac synthetic-unit run",
@@ -344,17 +333,18 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None):
         # portable session keyword the two cannot be told apart, so every
         # such process is reported under escaped_group with session unknown.
         rec["escaped_group"] = escaped(snapshot, pid, pgid)
-        rec["escaped_session"] = []
+        rec["escaped_session"] = None  # no portable session keyword: not observed
         rec["session"] = "unknown"
-        rec["cleanup"] = ("clean" if not rec["left_in_group"] and not rec["escaped_group"]
+        rec["cleanup"] = ("none observed" if not rec["left_in_group"] and not rec["escaped_group"]
                           else "uncertain")
 
-    # The one reap, after every signal. Blocking only when the leader is
-    # provably reapable (KILL went to its group, or it is observed a zombie);
-    # otherwise a bounded non-blocking loop, and a leader still not reapable
-    # is recorded, not waited for.
+    # The one reap, after every signal; a leader still not reapable within
+    # the grace is recorded, not waited for.
+    # Blocking ONLY when the leader is already observed a zombie (the wait
+    # returns at once). After a KILL the root can still sit in uninterruptible
+    # I/O, and a blocking wait on it would hang the runner.
     reaped = None
-    if rec["kill_sent"] or ops.is_zombie(pid):
+    if ops.is_zombie(pid):
         reaped = ops.waitpid(pid, True)
     else:
         end = ops.monotonic() + grace
