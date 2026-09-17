@@ -10,12 +10,14 @@
 // transcript has always known how to take a tail (Append) and a changed row
 // (Update) without moving the reader. This is the rule that says which it is.
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "../api/element_rows.h"
 #include "../api/types.h"
 
 namespace ecs::model {
@@ -107,10 +109,41 @@ inline ReconcileOutcome reconcile_transcript(
     std::size_t updatedLo = existing.size();
     std::size_t updatedHi = 0;
     const std::size_t tailStart = existing.size();
+    // An element row is folded, not replaced or appended: the server's copy
+    // may be a window's view (a later anchor, an older revision) and the fold
+    // keeps the lowest anchor and the highest revision, standing the row at
+    // its anchor. A row that moved or landed anywhere but the tail shifted
+    // indices the ledger holds, and only a reset re-reads them all.
+    bool reshaped = false;
+    const auto reindex = [&] {
+        at.clear();
+        for (std::size_t i = 0; i < existing.size(); ++i)
+            if (!existing[i].id.empty()) at.emplace(existing[i].id, i);
+    };
     for (api::Message& f : fresh) {
         auto hit = f.id.empty() ? at.end() : at.find(f.id);
         if (hit == at.end()) {
+            if (api::elements::is_element_row(f)) {
+                const api::elements::FoldOutcome folded =
+                    api::elements::fold_element_row(existing, f);
+                if (folded.index + 1 != existing.size()) reshaped = true;
+                reindex();
+                continue;
+            }
             existing.push_back(std::move(f));
+            continue;
+        }
+        if (api::elements::is_element_row(f) &&
+            api::elements::is_element_row(existing[hit->second])) {
+            const api::elements::FoldOutcome folded =
+                api::elements::fold_element_row(existing, f);
+            if (!folded.changed()) continue;
+            if (folded.moved()) {
+                reshaped = true;
+                reindex();
+            }
+            updatedLo = std::min(updatedLo, folded.index);
+            updatedHi = std::max(updatedHi, folded.index + 1);
             continue;
         }
         api::Message& mine = existing[hit->second];
@@ -126,6 +159,11 @@ inline ReconcileOutcome reconcile_transcript(
         carry_artifact_state(before, mine);
         updatedLo = std::min(updatedLo, hit->second);
         updatedHi = std::max(updatedHi, hit->second + 1);
+    }
+    if (reshaped) {
+        out.kind = ReconcileOutcome::Kind::Reset;
+        out.count = existing.size();
+        return out;
     }
     if (existing.size() > tailStart) {
         out.kind = ReconcileOutcome::Kind::Appended;

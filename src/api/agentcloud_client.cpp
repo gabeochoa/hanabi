@@ -1,6 +1,7 @@
 #include "agentcloud_client.h"
 #include "disk_cache.h"
 #include "attachments.h"
+#include "element_rows.h"
 #include "tool_kinds.h"
 
 #include <algorithm>
@@ -870,6 +871,56 @@ void apply_plan_goal_state(const json& state, Session& out) {
                                       : std::nullopt;
 }
 
+bool unsigned_or_absent(const json& j, const char* key, std::uint64_t* out) {
+    if (!j.contains(key) || j.at(key).is_null()) return true;
+    const json& v = j.at(key);
+    if (!v.is_number_unsigned()) return false;
+    *out = v.get<std::uint64_t>();
+    return true;
+}
+
+bool element_facts_from_value(const json& value, ElementFacts* out) {
+    if (!value.is_object()) return false;
+    ElementFacts f;
+    f.instance = str_or(value, "instance", "");
+    if (!value.contains("revision") || !value.at("revision").is_number_unsigned())
+        return false;
+    f.revision = value.at("revision").get<std::uint64_t>();
+    f.placement = str_or(value, "placement", "");
+    if (!value.contains("element") || !value.at("element").is_string()) return false;
+    f.element = value.at("element").get<std::string>();
+    if (!value.contains("projection") || !value.at("projection").is_string())
+        return false;
+    f.projection = value.at("projection").get<std::string>();
+    f.title = str_or(value, "title", "");
+    if (!value.contains("run") || !value.at("run").is_number_unsigned()) return false;
+    f.run = value.at("run").get<std::uint64_t>();
+    const json& handle = obj_at(value, "artifact");
+    f.artifact_id = str_or(handle, "artifact_id", "");
+    f.artifact_version_id = str_or(handle, "version_id", "");
+    if (!elements::facts_are_readable(f)) return false;
+    *out = std::move(f);
+    return true;
+}
+
+ElementSeedOutcome fold_element_seed(const json& state, Session& out) {
+    ElementSeedOutcome outcome;
+    if (!state.contains("elements") || !state.at("elements").is_array())
+        return outcome;
+    for (const json& entry : state.at("elements")) {
+        ElementFacts facts;
+        std::uint64_t anchor = 0;
+        if (!element_facts_from_value(entry, &facts) ||
+            !unsigned_or_absent(entry, "anchor_seq", &anchor) || anchor == 0) {
+            ++outcome.skipped;
+            continue;
+        }
+        elements::fold_element(out.messages, facts, anchor, 0);
+        ++outcome.folded;
+    }
+    return outcome;
+}
+
 
 std::string llm_model_of(const json& options) {
     return str_or(obj_at(options, "llm"), "model", "");
@@ -1040,6 +1091,19 @@ void parse_pending_asks(const std::string& hello_json, Session& out) {
     }
     out.pending_asks =
         elicitation::asks_from_state(obj_at(hello, "state"), out.summary.id);
+}
+
+bool element_facts_from_json(const std::string& element_json, ElementFacts* out) {
+    const json value = json::parse(element_json, nullptr, false);
+    if (value.is_discarded()) return false;
+    return element_facts_from_value(value, out);
+}
+
+ElementSeedOutcome parse_element_state(const std::string& hello_json, Session& out) {
+    out.elements_advertised = hello_has_capability(hello_json, "elements_v1");
+    const json hello = json::parse(hello_json, nullptr, false);
+    if (hello.is_discarded()) return {};
+    return fold_element_seed(obj_at(hello, "state"), out);
 }
 
 namespace {
@@ -1333,6 +1397,17 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             // still draws the divider -- the fact that earlier messages were
             // folded is the information, the text is the detail.
             push_event(EventKind::Compaction, "", str_or(e, "summary", ""));
+        } else if (type == "element_emitted") {
+            // One row per instance: a re-emit lands on the row the first
+            // emit made (api::elements::fold_element), never as a new row.
+            // A payload the reader rejects is the degraded Unsupported row
+            // at this seq, the same row an unknown tag draws.
+            ElementFacts facts;
+            if (element_facts_from_value(obj_at(e, "element"), &facts))
+                elements::fold_element(out, facts, static_cast<std::uint64_t>(seq),
+                                       created);
+            else
+                push_event(EventKind::Unsupported, sanitized_wire_tag(type), "");
         } else if (!is_silent_wire_event(type)) {
             push_event(EventKind::Unsupported, sanitized_wire_tag(type), "");
         }
@@ -2068,6 +2143,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
 
     const json combined = {{"type", "page"}, {"frames", all}};
     agentcloud::install_paged_transcript(combined.dump(), *out);
+    agentcloud::parse_element_state(hello.dump(), *out);
     // Only claim there is more when the server said so and we stopped asking.
     out->has_more_older = !done;
     return hello.dump();

@@ -249,6 +249,35 @@ OutgoingMessage outgoing_from_json(const json& value) {
     return message;
 }
 
+json element_to_json(const ElementFacts& f) {
+    if (!f.present()) return json::object();
+    return json{{"instance", f.instance},
+                {"revision", f.revision},
+                {"placement", f.placement},
+                {"element", f.element},
+                {"projection", f.projection},
+                {"title", f.title},
+                {"run", f.run},
+                {"artifact_id", f.artifact_id},
+                {"artifact_version_id", f.artifact_version_id},
+                {"anchor_seq", f.anchor_seq}};
+}
+
+ElementFacts element_from_json(const json& j) {
+    ElementFacts f;
+    f.instance = j.value("instance", "");
+    f.revision = j.value("revision", (uint64_t)0);
+    f.placement = j.value("placement", "");
+    f.element = j.value("element", "");
+    f.projection = j.value("projection", "");
+    f.title = j.value("title", "");
+    f.run = j.value("run", (uint64_t)0);
+    f.artifact_id = j.value("artifact_id", "");
+    f.artifact_version_id = j.value("artifact_version_id", "");
+    f.anchor_seq = j.value("anchor_seq", (uint64_t)0);
+    return f;
+}
+
 json to_json(const Message& m) {
     // `kind` rides alongside `role`, not instead of it: a cached row that
     // loses its kind comes back as somebody speaking, which is exactly the
@@ -274,7 +303,8 @@ json to_json(const Message& m) {
                 // restored from cache answered "no matches" to every state:
                 // query, and answered it as a VALID query, so no hint said
                 // why. docs/SEARCH.md S4.
-                {"tool_status", m.tool_status}};
+                {"tool_status", m.tool_status},
+                {"element", element_to_json(m.element)}};
 }
 
 Message message_from_json(const json& j) {
@@ -299,6 +329,8 @@ Message message_from_json(const json& j) {
     m.tool_status = j.value("tool_status", "");
     m.kind = static_cast<EventKind>(
         j.value("kind", static_cast<int>(EventKind::Text)));
+    if (j.contains("element") && j.at("element").is_object())
+        m.element = element_from_json(j.at("element"));
     return m;
 }
 

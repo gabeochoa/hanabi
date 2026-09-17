@@ -136,6 +136,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // next refetch, not at the next open.
         mine.access = fresh.access;
         mine.can_halt = fresh.can_halt;
+        mine.elements_advertised = fresh.elements_advertised;
         mine.halted_by = std::move(fresh.halted_by);
         mine.halted_reason = std::move(fresh.halted_reason);
         switch (out.kind) {

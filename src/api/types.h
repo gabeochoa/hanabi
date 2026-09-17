@@ -77,8 +77,26 @@ enum class EventKind {
     // summary (the row's text) stands in for them. Drawn as a divider with the
     // summary behind a disclosure, never as a message, because nobody said it.
     Compaction,
-    Artifact,
+    // Persisted as an integer in the transcript cache: append only, values
+    // fixed here so two branches cannot land on one number.
+    Artifact = 13,
+    Element = 14,
 };
+
+struct ElementFacts {
+    std::string instance;
+    std::uint64_t revision = 0;
+    std::string placement;
+    std::string element;
+    std::string projection;
+    std::string title;
+    std::uint64_t run = 0;
+    std::string artifact_id;
+    std::string artifact_version_id;
+    std::uint64_t anchor_seq = 0;
+
+    [[nodiscard]] bool present() const { return !instance.empty(); }
+    bool operator==(const ElementFacts&) const = default;
 
 // The row's byte state; Unavailable carries the reason. A transient failure
 // is retried on re-observation, a permanent one is not.
@@ -347,6 +365,7 @@ struct Message {
     std::string local_id;
     std::vector<Attachment> attachments;
     ArtifactRef artifact;
+    ElementFacts element;
 };
 
 // One worker node the caller could give a thread, as the roster reports it.
@@ -813,6 +832,9 @@ struct Session {
     // token only for the owner, so it is capability AND permission for the
     // halt pair; a menu offers Halt or Resume only when it is set.
     bool can_halt = false;
+    // Whether THIS attach's Hello advertised `elements_v1`. Recorded only:
+    // element rows draw as their text projection with or without it.
+    bool elements_advertised = false;
     // The compaction owed, from the attach (see PendingCompaction).
     std::optional<PendingCompaction> pending_compaction;
     // Every idempotency key a `compact` on this session already carried ->

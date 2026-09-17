@@ -256,6 +256,12 @@ ContextUsage parse_context_usage(const std::string& hello_json);
 void parse_session_brakes(const std::string& hello_json, Session& out);
 void parse_plan_goal_state(const std::string& hello_json, Session& out);
 void parse_pending_asks(const std::string& hello_json, Session& out);
+struct ElementSeedOutcome {
+    std::size_t folded = 0;
+    std::size_t skipped = 0;
+};
+ElementSeedOutcome parse_element_state(const std::string& hello_json, Session& out);
+bool element_facts_from_json(const std::string& element_json, ElementFacts* out);
 // hello.state.{options,option_defaults,model_fallback} -> Session::model.
 void parse_serving_model(const std::string& hello_json, Session& out);
 // hello.state.pending_compaction -> Session::pending_compaction (absent/null
