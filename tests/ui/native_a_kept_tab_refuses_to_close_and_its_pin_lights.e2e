@@ -35,4 +35,9 @@ native_key 13 w cmd shift
 wait_frames 12
 expect_tab t6 absent
 expect_open t2
+expect_tab t2 kept
+assert_ui tab_active hidden=false
 expect_tab_keep_flash t6 resting
+wait_frames 12
+expect_tab t2 kept
+expect_open t2

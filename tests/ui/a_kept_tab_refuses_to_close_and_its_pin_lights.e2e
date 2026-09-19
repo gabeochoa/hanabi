@@ -70,3 +70,4 @@ key CMD+SHIFT+W
 wait_frames 12
 expect_tab t6 absent
 expect_tab_keep_flash t6 resting
+expect_no_ui tab_active
