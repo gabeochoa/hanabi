@@ -49,6 +49,9 @@ STUB="$ROOT/tests/runner_policy/stub_exe.sh"
 chmod +x "$STUB" 2>/dev/null
 
 T="$(mktemp -d /tmp/hanabi_policy_tests.XXXXXX)"
+EVIDENCE="${HANABI_POLICY_EVIDENCE:-$(mktemp -d /tmp/hanabi_policy_evidence.XXXXXX)}"
+PY3=python3
+[ "$(uname)" = Darwin ] && PY3=/usr/bin/python3
 # A run that does not reach its final marker is an ABORTED run, and says so
 # loudly: a partial list of ok lines is not a receipt. `set -u` aborts on an
 # unbound expansion, an unexpected error in a `check` argument aborts the
@@ -56,6 +59,8 @@ T="$(mktemp -d /tmp/hanabi_policy_tests.XXXXXX)"
 COMPLETED=0
 on_exit() {
     local st=$?
+    mkdir -p "$EVIDENCE/raw" && cp -Rp "$T"/. "$EVIDENCE/raw/" 2>/dev/null
+    echo "evidence: $EVIDENCE"
     rm -rf "$T"
     if [ "$COMPLETED" != 1 ]; then
         echo "SUITE ABORTED: the policy tests did not reach their final marker (exit $st)" >&2
@@ -92,8 +97,10 @@ run_runner() {  # run_runner <fixture dir> <record> <manifest> [VAR=val ...]
     ( env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY -u HANABI_UI_SEED \
         HANABI_UI_EXE="$STUB" HANABI_UI_TESTS="$dir" HANABI_UI_MANIFEST="$man" \
         HANABI_STUB_RECORD="$rec" HANABI_UI_TIMEOUT=5 "$@" \
-        bash "$RUNNER" ) >"$T/out.txt" 2>&1
-    echo $?
+        bash "$RUNNER" ) >"$T/out.$(basename "$rec").txt" 2>&1
+    local rc=$?
+    cp "$T/out.$(basename "$rec").txt" "$T/out.txt"
+    echo "$rc"
 }
 records() { [ -f "$1" ] && grep -c . "$1" || echo 0; }
 
@@ -177,45 +184,67 @@ check "7. a failing script is result fail with its rc, run exits 1" '[ "$rc" = 1
 mk_fixtures "$T/own"
 rm "$T/own/windowed_one.e2e"
 # An unrelated process whose command line BEGINS with the stub's path: the
-# old pkill -f "^$EXE" would have killed it. `exec -a` sets argv[0].
-( exec -a "$STUB" sleep 30 ) &
+# old pkill -f "^$EXE" would have killed it. `exec -a` sets argv[0]. It is
+# never signalled by this suite: it runs out its own lifetime and `wait`
+# collects it; a liveness check past that lifetime is reported uncertain.
+BYSTANDER_LIFETIME=30
+( exec -a "$STUB" sleep "$BYSTANDER_LIFETIME" ) &
 bystander=$!
+bystander_t0=$(date +%s)
+bystander_alive() {
+    if [ $(( $(date +%s) - bystander_t0 )) -ge $(( BYSTANDER_LIFETIME - 3 )) ]; then
+        echo "bystander $bystander: lifetime elapsed before the check; liveness not asserted" >> "$T/leftover.txt"
+        return 1
+    fi
+    kill -0 "$bystander" 2>/dev/null
+}
 sleep 0.2
-kill -0 "$bystander" 2>/dev/null || ng "8. setup: bystander did not start"
+bystander_alive || ng "8. setup: bystander did not start"
 rc="$(run_runner "$T/own" "$T/rec8" "$T/man8" HANABI_STUB_SLEEP=30 HANABI_UI_TIMEOUT=2)"
 check "8. a hung script is reaped at the timeout: result timeout, rc 124, run exits 1" '[ "$rc" = 1 ] && grep -q "\"rc\":124,\"result\":\"timeout\"" "$T/man8"'
 launched_pid="$(sed -nE 's/.*"pid":([0-9]+),.*/\1/p' "$T/man8" | head -1)"
 check "8. the recorded pid is gone after the run" '[ -n "$launched_pid" ] && ! kill -0 "$launched_pid" 2>/dev/null'
-check "8. the unrelated same-path process is STILL alive (no kill by name)" 'kill -0 "$bystander" 2>/dev/null'
+check "8. the unrelated same-path process is STILL alive (no kill by name)" 'bystander_alive'
 rc="$(run_runner "$T/own" "$T/rec8b" "$T/man8b" HANABI_E2E_WINDOWED=1)"
-check "8. a refusal (rc 66) launches nothing and leaves the unrelated process alive" '[ "$rc" = 66 ] && kill -0 "$bystander" 2>/dev/null'
+check "8. a refusal (rc 66) launches nothing and leaves the unrelated process alive" '[ "$rc" = 66 ] && bystander_alive'
 # (ii) lineage: the hung stub has a grandchild; the reap takes BOTH, and the
 # bystander (not in the lineage) is untouched.
 rc="$(run_runner "$T/own" "$T/rec8c" "$T/man8c" HANABI_STUB_SLEEP=30 HANABI_STUB_GRANDCHILD="$T/grandchild.pid" HANABI_UI_TIMEOUT=2)"
 gc="$(cat "$T/grandchild.pid" 2>/dev/null)"
 launched_pid="$(sed -nE 's/.*"pid":([0-9]+),.*/\1/p' "$T/man8c" | head -1)"
-check "8. the grandchild is in the group: dead after the timeout teardown" '[ -n "$gc" ] && ! kill -0 "$gc" 2>/dev/null'
-check "8. and the recorded pid is dead, the bystander alive" '[ -n "$launched_pid" ] && ! kill -0 "$launched_pid" 2>/dev/null && kill -0 "$bystander" 2>/dev/null'
-kill "$bystander" 2>/dev/null; wait "$bystander" 2>/dev/null
+if [ -n "$gc" ] && ! kill -0 "$gc" 2>/dev/null; then
+    ok "8. the grandchild is in the group: dead after the timeout teardown"
+else
+    ng "8. the grandchild is in the group: dead after the timeout teardown -- UNCERTAIN leftover pid ${gc:-<none>} recorded, not signalled"
+    echo "grandchild ${gc:-<none>}: still observed after the timeout teardown; uncertain leftover, not signalled" >> "$T/leftover.txt"
+fi
+check "8. and the recorded pid is dead, the bystander alive" '[ -n "$launched_pid" ] && ! kill -0 "$launched_pid" 2>/dev/null && bystander_alive'
+wait "$bystander" 2>/dev/null
+echo "bystander $bystander: collected by wait after its own lifetime, never signalled" >> "$T/leftover.txt"
 # (iv) a process the stub double-forked (reparented to init, out of our
 # session only if it also called setsid -- the stub's orphan does not, so it
 # stays in the GROUP and is taken by the group signal). The record reports
 # what ONE census observed after the final signal; nothing outside the
-# group is ever signalled.
+# group is ever signalled -- by the supervisor or by this suite: a pid still
+# observed afterwards is recorded as an uncertain leftover, not killed.
 rc="$(run_runner "$T/own" "$T/rec8f" "$T/man8f" HANABI_STUB_SLEEP=30 HANABI_STUB_ORPHAN="$T/orphan.pid" HANABI_UI_TIMEOUT=2)"
 orphan="$(cat "$T/orphan.pid" 2>/dev/null)"
 launched_pid="$(sed -nE 's/.*"pid":([0-9]+),.*/\1/p' "$T/man8f" | head -1)"
 check "8. the recorded root is dead (it was ours)" '[ -n "$launched_pid" ] && ! kill -0 "$launched_pid" 2>/dev/null'
-check "8. the double-forked process stayed in our GROUP and the group signal took it" '[ -n "$orphan" ] && ! kill -0 "$orphan" 2>/dev/null'
+if [ -n "$orphan" ] && ! kill -0 "$orphan" 2>/dev/null; then
+    ok "8. the double-forked process stayed in our GROUP and the group signal took it"
+else
+    ng "8. the double-forked process stayed in our GROUP and the group signal took it -- UNCERTAIN leftover pid ${orphan:-<none>} recorded, not signalled"
+    echo "orphan ${orphan:-<none>}: still observed after the group teardown; uncertain leftover, not signalled" >> "$T/leftover.txt"
+fi
 check "8. the script record carries the supervisor testimony: group signalled, census observed" 'grep -q "\"supervisor\":{" "$T/man8f" && grep -q "\"term_sent\": true" "$T/man8f" && grep -q "\"census\": \"observed\"" "$T/man8f"'
-kill "$orphan" 2>/dev/null
 # (v) the DETERMINISTIC unit: every OS operation injected, no process, no
 # signal, no clock -- tests/runner_policy/test_supervise.py drives the real
 # control flow of scripts/lib/supervise.py through fakes and asserts the
 # ORDER: spawn in a new session -> ownership established -> group signals
 # while the leader is unreaped -> the one wait last. Its grep invariants
 # pin the structural shape of the production module.
-if python3 "$ROOT/tests/runner_policy/test_supervise.py" >"$T/unit.txt" 2>&1; then
+if "$PY3" "$ROOT/tests/runner_policy/test_supervise.py" >"$T/unit.txt" 2>&1; then
     ok "8. supervisor unit passed (see its own labels)"; sed 's/^/      /' "$T/unit.txt"
 else
     ng "8. supervisor unit FAILED"; sed 's/^/      /' "$T/unit.txt"
@@ -224,31 +253,31 @@ SUP="$ROOT/scripts/lib/supervise.py"
 # The classifier, driven with planted records: the outcome comes from the
 # record, never from the supervisor's rc.
 CLS="$ROOT/scripts/lib/classify_record.py"
-printf '%s' '{"ownership":"established","exit_status":0,"reap_timed_out":true,"cleanup":"none observed"}' > "$T/rec_rt.json"
-check "8. classifier: a passed fixture whose reap timed out is UNSUPERVISED and uncertain, not a pass" '[ "$(python3 -I "$CLS" "$T/rec_rt.json" | cut -d" " -f1,3)" = "unsupervised uncertain" ]'
+printf '%s' '{"token":"planted:x:1:1","ownership":"established","exit_status":0,"reap_timed_out":true,"cleanup":"none observed"}' > "$T/rec_rt.json"
+check "8. classifier: a passed fixture whose reap timed out is UNSUPERVISED and uncertain, not a pass" '[ "$("$PY3" -I "$CLS" "$T/rec_rt.json" planted:x:1:1 | cut -d" " -f1,3)" = "unsupervised uncertain" ]'
 printf '%s' '{not json' > "$T/rec_bad.json"
-check "8. classifier: a malformed record is UNSUPERVISED and uncertain" '[ "$(python3 -I "$CLS" "$T/rec_bad.json" | cut -d" " -f1,2,3)" = "unsupervised no_record uncertain" ]'
-check "8. classifier: an absent record is UNSUPERVISED and uncertain" '[ "$(python3 -I "$CLS" "$T/does-not-exist.json" | cut -d" " -f1,3)" = "unsupervised uncertain" ]'
-printf '%s' '{"ownership":"unestablished","exit_status":null}' > "$T/rec_un.json"
-check "8. classifier: ownership unestablished is UNSUPERVISED" '[ "$(python3 -I "$CLS" "$T/rec_un.json" | cut -d" " -f1)" = unsupervised ]'
-printf '%s' '{"ownership":"established","wall_hit":true,"exit_status":null,"term_signal":15,"cleanup":"none observed"}' > "$T/rec_wall.json"
-check "8. classifier: wall hit is TIMEOUT even though the child died of a signal" '[ "$(python3 -I "$CLS" "$T/rec_wall.json" | cut -d" " -f1,3)" = "timeout certain" ]'
-printf '%s' '{"ownership":"established","interrupted":true,"exit_status":null,"term_signal":15,"cleanup":"none observed"}' > "$T/rec_int.json"
-check "8. classifier: supervisor interrupted is ABORTED" '[ "$(python3 -I "$CLS" "$T/rec_int.json" | cut -d" " -f1)" = aborted ]'
-printf '%s' '{"ownership":"established","exit_status":null,"term_signal":11,"cleanup":"none observed"}' > "$T/rec_sig.json"
-check "8. classifier: a child killed by a signal is FAIL with the signal named" '[ "$(python3 -I "$CLS" "$T/rec_sig.json" | cut -d" " -f1,2,3)" = "fail signal 11" ]'
-printf '%s' '{"ownership":"established","exit_status":5,"cleanup":"uncertain","left_in_group":[7]}' > "$T/rec_f.json"
-check "8. classifier: exit 5 is FAIL, and a non-empty leftover is uncertain" '[ "$(python3 -I "$CLS" "$T/rec_f.json" | cut -d" " -f1,4)" = "fail 0" ] && [ "$(python3 -I "$CLS" "$T/rec_f.json" | cut -d" " -f3)" = uncertain ]'
-printf '%s' '{"ownership":"established","exit_status":0,"cleanup":"none observed","root_pid":4242}' > "$T/rec_ok.json"
-check "8. classifier: exit 0 with nothing observed is PASS, certain, root pid carried" '[ "$(python3 -I "$CLS" "$T/rec_ok.json" | cut -d" " -f1,3,4)" = "pass certain 4242" ]'
+check "8. classifier: a malformed record is UNSUPERVISED and uncertain" '[ "$("$PY3" -I "$CLS" "$T/rec_bad.json" planted:x:1:1 | cut -d" " -f1,2,3)" = "unsupervised no_record uncertain" ]'
+check "8. classifier: an absent record is UNSUPERVISED and uncertain" '[ "$("$PY3" -I "$CLS" "$T/does-not-exist.json" planted:x:1:1 | cut -d" " -f1,3)" = "unsupervised uncertain" ]'
+printf '%s' '{"token":"planted:x:1:1","ownership":"unestablished","exit_status":null}' > "$T/rec_un.json"
+check "8. classifier: ownership unestablished is UNSUPERVISED" '[ "$("$PY3" -I "$CLS" "$T/rec_un.json" planted:x:1:1 | cut -d" " -f1)" = unsupervised ]'
+printf '%s' '{"token":"planted:x:1:1","ownership":"established","wall_hit":true,"exit_status":null,"term_signal":15,"cleanup":"none observed"}' > "$T/rec_wall.json"
+check "8. classifier: wall hit is TIMEOUT even though the child died of a signal" '[ "$("$PY3" -I "$CLS" "$T/rec_wall.json" planted:x:1:1 | cut -d" " -f1,3)" = "timeout certain" ]'
+printf '%s' '{"token":"planted:x:1:1","ownership":"established","interrupted":true,"exit_status":null,"term_signal":15,"cleanup":"none observed"}' > "$T/rec_int.json"
+check "8. classifier: supervisor interrupted is ABORTED" '[ "$("$PY3" -I "$CLS" "$T/rec_int.json" planted:x:1:1 | cut -d" " -f1)" = aborted ]'
+printf '%s' '{"token":"planted:x:1:1","ownership":"established","exit_status":null,"term_signal":11,"cleanup":"none observed"}' > "$T/rec_sig.json"
+check "8. classifier: a child killed by a signal is FAIL with the signal named" '[ "$("$PY3" -I "$CLS" "$T/rec_sig.json" planted:x:1:1 | cut -d" " -f1,2,3)" = "fail signal 11" ]'
+printf '%s' '{"token":"planted:x:1:1","ownership":"established","exit_status":5,"cleanup":"uncertain","left_in_group":[7]}' > "$T/rec_f.json"
+check "8. classifier: exit 5 is FAIL, and a non-empty leftover is uncertain" '[ "$("$PY3" -I "$CLS" "$T/rec_f.json" planted:x:1:1 | cut -d" " -f1,4)" = "fail 0" ] && [ "$("$PY3" -I "$CLS" "$T/rec_f.json" planted:x:1:1 | cut -d" " -f3)" = uncertain ]'
+printf '%s' '{"token":"planted:x:1:1","ownership":"established","exit_status":0,"cleanup":"none observed","root_pid":4242}' > "$T/rec_ok.json"
+check "8. classifier: exit 0 with nothing observed is PASS, certain, root pid carried" '[ "$("$PY3" -I "$CLS" "$T/rec_ok.json" planted:x:1:1 | cut -d" " -f1,3,4)" = "pass certain 4242" ]'
 # Stale-record arms through the CLI: a PASS record carrying another
 # invocation's token, and a truncated one, both fail closed.
 printf '%s' '{"token":"old-run:x:1:1","ownership":"established","exit_status":0,"cleanup":"none observed","observer":"ok"}' > "$T/rec_stale.json"
-check "8. classifier: a PASS record with a foreign token is UNSUPERVISED token_mismatch, uncertain" '[ "$(python3 -I "$CLS" "$T/rec_stale.json" "this-run:x:2:2" | cut -d" " -f1,2,3)" = "unsupervised token_mismatch uncertain" ]'
+check "8. classifier: a PASS record with a foreign token is UNSUPERVISED token_mismatch, uncertain" '[ "$("$PY3" -I "$CLS" "$T/rec_stale.json" "this-run:x:2:2" | cut -d" " -f1,2,3)" = "unsupervised token_mismatch uncertain" ]'
 printf '%s' '{"token":"this-run:x:2:2","ownership":"established","exit_st' > "$T/rec_trunc.json"
-check "8. classifier: a truncated record is UNSUPERVISED no_record" '[ "$(python3 -I "$CLS" "$T/rec_trunc.json" "this-run:x:2:2" | cut -d" " -f1,2)" = "unsupervised no_record" ]'
+check "8. classifier: a truncated record is UNSUPERVISED no_record" '[ "$("$PY3" -I "$CLS" "$T/rec_trunc.json" "this-run:x:2:2" | cut -d" " -f1,2)" = "unsupervised no_record" ]'
 # The isolated classifier unit (dicts only; no shell, no process).
-if python3 "$ROOT/tests/runner_policy/test_classify_record.py" >"$T/cls_unit.txt" 2>&1; then
+if "$PY3" "$ROOT/tests/runner_policy/test_classify_record.py" >"$T/cls_unit.txt" 2>&1; then
     ok "8. classify_record unit passed (see its own labels)"; sed 's/^/      /' "$T/cls_unit.txt"
 else
     ng "8. classify_record unit FAILED"; sed 's/^/      /' "$T/cls_unit.txt"
