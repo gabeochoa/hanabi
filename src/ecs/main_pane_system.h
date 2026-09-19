@@ -4398,7 +4398,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 sv.scroll_offset.y = derived;
                 sv.scroll_target.y += correction;
             }
-            scrollY = pinBottom ? totalH : derived;
+            scrollY = pinBottom ? ledgerOriginY + led.pinned_bottom_top(viewH) : derived;
         }
         if (hanabi::mprobe::on())
             for (std::size_t r = win.first; r < win.last; ++r)
