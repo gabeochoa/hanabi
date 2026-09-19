@@ -509,7 +509,10 @@ inline void close_bulk(TabStripComponent& strip, AppComponent& app,
 
     for (afterhours::EntityID id : victims) {
         auto opt = afterhours::EntityHelper::getEntityForID(id);
-        if (opt.valid() && opt->has<Tab>()) app.note_tab_closed(opt->get<Tab>().sessionId);
+        if (opt.valid() && opt->has<Tab>()) {
+            app.note_tab_closed(opt->get<Tab>().sessionId);
+            hanabi::tab_keep_flash::store().forget(opt->get<Tab>().sessionId);
+        }
         if (opt.valid()) opt.asE().cleanup = true;
         strip.tabOrder.erase(std::remove(strip.tabOrder.begin(), strip.tabOrder.end(), id),
                              strip.tabOrder.end());
@@ -621,6 +624,7 @@ inline bool set_thread_pinned(AppComponent& app, TabStripComponent* strip,
 inline void close_all(TabStripComponent& strip, AppComponent& app) {
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+        if (opt.valid() && opt->has<Tab>()) hanabi::tab_keep_flash::store().forget(opt->get<Tab>().sessionId);
         if (opt.valid()) opt.asE().cleanup = true;
     }
     strip.tabOrder.clear();

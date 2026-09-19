@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "../../src/menubar.h"
+#include "../../src/shortcuts.h"
 
 static int failures = 0;
 #define CHECK(value)                                                        \
@@ -14,7 +15,31 @@ static int failures = 0;
         }                                                                   \
     } while (0)
 
+static int g_hostKey = 0;
+extern "C" int hanabi_native_tab_host_is_key(void) { return g_hostKey; }
+
+static void test_command_enabled_table() {
+    const int keptTab = static_cast<int>(hanabi::shortcuts::Command::CloseKeptTab);
+    const int closeTab = static_cast<int>(hanabi::shortcuts::Command::CloseTab);
+    CHECK(menubar_command_enabled(closeTab));
+    CHECK(menubar_command_enabled(keptTab));
+    menubar_set_command_enabled(keptTab, false);
+    CHECK(!menubar_command_enabled(keptTab));
+    CHECK(menubar_command_enabled(closeTab));
+    menubar_set_command_enabled(keptTab, true);
+    CHECK(menubar_command_enabled(keptTab));
+    menubar_set_command_enabled(-1, false);
+    menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::Count), false);
+    CHECK(!menubar_command_enabled(-1));
+    CHECK(!menubar_command_enabled(static_cast<int>(hanabi::shortcuts::Command::Count)));
+    g_hostKey = 0;
+    CHECK(hanabi_native_tab_host_is_key() == 0);
+    g_hostKey = 1;
+    CHECK(hanabi_native_tab_host_is_key() == 1);
+}
+
 int main() {
+    test_command_enabled_table();
     struct Expected {
         const char* selector;
         unsigned short keyCode;

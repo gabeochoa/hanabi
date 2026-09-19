@@ -4,6 +4,9 @@
 
 namespace uc = hanabi::ui_clock;
 
+static bool g_osReduceMotion = false;
+extern "C" bool macos_reduce_motion(void) { return g_osReduceMotion; }
+
 static int failures = 0;
 #define CHECK(cond)                                                    \
     do {                                                               \
@@ -53,6 +56,21 @@ int main() {
     uc::reduce_motion_override() = false;
     CHECK(!uc::reduce_motion());
     uc::reduce_motion_override().reset();
+#if defined(__APPLE__)
+    g_osReduceMotion = true;
+    CHECK(uc::reduce_motion());
+    uc::reduce_motion_override() = false;
+    CHECK(!uc::reduce_motion());
+    uc::reduce_motion_override().reset();
+    g_osReduceMotion = false;
+    CHECK(!uc::reduce_motion());
+    uc::reduce_motion_override() = true;
+    CHECK(uc::reduce_motion());
+    uc::reduce_motion_override().reset();
+#else
+    CHECK(!uc::reduce_motion());
+    (void)g_osReduceMotion;
+#endif
     reset();
     if (failures == 0) {
         std::printf("OK\n");

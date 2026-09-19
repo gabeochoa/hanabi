@@ -593,12 +593,10 @@ struct Driver {
         // "churn_cycles=100" for a run that closed no tabs at all.
         auto* strip = ecs::find_singleton<ecs::TabStripComponent>();
         if (strip == nullptr || strip->tabOrder.empty()) return false;
-        const size_t index = strip->tabOrder.size() - 1;
-        const afterhours::EntityID tabId = strip->tabOrder[index];
-        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
-        const bool wasActive = opt.valid() && opt->has<ecs::ActiveTab>();
-        ecs::model::close_tab(*strip, app, tabId, index, wasActive);
-        return true;
+        auto opt = afterhours::EntityHelper::getEntityForID(strip->tabOrder.back());
+        if (!opt.valid() || !opt->has<ecs::Tab>()) return false;
+        return ecs::model::request_close(*strip, app, opt->get<ecs::Tab>().sessionId,
+                                         ecs::model::CloseIntent::Forced) == ecs::model::CloseOutcome::Closed;
     }
 
     // How many tabs are actually open right now. Not a count the driver kept:

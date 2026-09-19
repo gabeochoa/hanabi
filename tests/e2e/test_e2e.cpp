@@ -29,11 +29,18 @@
 #include "../../src/ecs/components.h"
 #include "../../src/ecs/load_older_model.h"
 #include "../../src/ecs/tab_model.h"
+#include "../../src/ecs/tab_keep_flash.h"
+#include "../../src/ecs/ui_clock.h"
 #include "../../src/ecs/thread_model.h"
 #include "../../src/ecs/transcript_cache.h"
 #include "../../src/ui/find_operators.h"
 #include "../../src/util/notify_events.h"
 // clang-format on
+
+#if defined(__APPLE__)
+extern "C" bool macos_reduce_motion(void) { return false; }
+#endif
+
 
 // afterhours UI layout engine (headless: no graphics backend linked — the
 // `none` backend's draw_* are no-ops, and autolayout is pure geometry). Used
@@ -486,29 +493,22 @@ static void test_tab_close_fallback() {
 
     // Close the active (last) tab -> fall back to the neighbor
     // (min(idx,size-1)).
-    auto activeId = ecs::model::active_tab_entity()->id;
-    // find its index
-    size_t idx = 0;
-    for (size_t i = 0; i < strip.tabOrder.size(); ++i)
-        if (strip.tabOrder[i] == activeId) idx = i;
-    ecs::model::close_tab(strip, app, activeId, idx, /*wasActive=*/true);
+    CHECK(ecs::model::request_close(strip, app, "t5", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Closed);
     CHECK(strip.tabOrder.size() == 2);
     CHECK(app.pane().selectedId == "t4");  // fell back to previous tab
 
     // Close a non-active tab (t1 at index 0) while t4 active -> t4 stays.
-    auto firstId = strip.tabOrder[0];
-    bool firstWasActive = false;
-    {
-        auto o = afterhours::EntityHelper::getEntityForID(firstId);
-        firstWasActive = o.valid() && o->has<ecs::ActiveTab>();
-    }
-    ecs::model::close_tab(strip, app, firstId, 0, firstWasActive);
+    CHECK(ecs::model::request_close(strip, app, "t1", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Closed);
     CHECK(strip.tabOrder.size() == 1);
     CHECK(app.pane().selectedId == "t4");
 
     // Close the last remaining tab -> back to Home digest, no open transcript.
-    auto lastId = strip.tabOrder[0];
-    ecs::model::close_tab(strip, app, lastId, 0, /*wasActive=*/true);
+    CHECK(ecs::model::request_close(strip, app, "t4", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Closed);
+    CHECK(ecs::model::request_close(strip, app, "t4", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Absent);
     CHECK(strip.tabOrder.empty());
     CHECK(app.pane().selectedId.empty());
     CHECK(app.view == ecs::SmartView::Home);
@@ -534,7 +534,8 @@ static void test_tab_close_reconciles_both_panes() {
 
     auto closed = afterhours::EntityHelper::getEntityForID(strip.tabOrder[0]);
     CHECK(closed.valid());
-    ecs::model::close_tab(strip, app, strip.tabOrder[0], 0, false);
+    CHECK(ecs::model::request_close(strip, app, "t1", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Closed);
     CHECK(strip.tabOrder.size() == 2);
     CHECK(app.panes[0].selectedId == "t5");
     CHECK(app.panes[1].selectedId == "t4");
@@ -544,12 +545,14 @@ static void test_tab_close_reconciles_both_panes() {
 
     auto* active = ecs::model::active_tab_entity();
     CHECK(active != nullptr);
-    ecs::model::close_tab(strip, app, active->id, 1, true);
+    CHECK(ecs::model::request_close(strip, app, active->get<ecs::Tab>().sessionId,
+                                    ecs::model::CloseIntent::Aimed) == ecs::model::CloseOutcome::Closed);
     CHECK(strip.tabOrder.size() == 1);
     CHECK(app.panes[0].selectedId == "t4");
     CHECK(app.panes[1].selectedId == "t4");
 
-    ecs::model::close_tab(strip, app, strip.tabOrder[0], 0, true);
+    CHECK(ecs::model::request_close(strip, app, "t4", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Closed);
     CHECK(strip.tabOrder.empty());
     CHECK(app.panes[0].selectedId.empty());
     CHECK(app.panes[1].selectedId.empty());
@@ -620,7 +623,8 @@ static void test_tab_switch_and_close_fallback_supersede_inflight_loads() {
     pane.loadOlderPendingId = "t4";
     pane.loadOlderFuture = t4Older.get_future();
 
-    ecs::model::close_tab(strip, app, t4->id, 1, true);
+    CHECK(ecs::model::request_close(strip, app, "t4", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Closed);
     CHECK(pane.selectedId == "t1");
     CHECK(pane.requestOpenId == "t1");
     CHECK(!pane.transcriptPending);
@@ -1088,6 +1092,76 @@ static void test_tab_close_others() {
     CHECK(strip.tabOrder == snapshot);
     ecs::model::close_others(strip, app, "does-not-exist");
     CHECK(strip.tabOrder == snapshot);
+}
+
+static void test_an_aimed_close_of_a_pinned_tab_is_refused_and_lights_the_pin() {
+    std::printf("test_an_aimed_close_of_a_pinned_tab_is_refused_and_lights_the_pin\n");
+    auto& app = setup_app_with_sessions();
+    auto& strip = the_strip();
+    hanabi::ui_clock::headless_run() = true;
+    hanabi::ui_clock::test_offset_seconds() = 100.0;
+    hanabi::ui_clock::reduce_motion_override() = false;
+    hanabi::tab_keep_flash::store().forget("t4");
+    hanabi::tab_keep_flash::store().forget("t1");
+
+    ecs::model::open_session_in_tab(strip, app, "t1");
+    ecs::model::open_session_in_tab(strip, app, "t4", true, true);
+    CHECK(strip.tabOrder.size() == 2);
+    CHECK(app.pane().selectedId == "t4");
+    CHECK(!hanabi::tab_keep_flash::store().is_lit("t4"));
+
+    CHECK(ecs::model::request_close(strip, app, "t4", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Refused);
+    CHECK(strip.tabOrder.size() == 2);
+    CHECK(app.pane().selectedId == "t4");
+    CHECK(hanabi::tab_keep_flash::store().is_lit("t4"));
+    CHECK(!hanabi::tab_keep_flash::store().is_lit("t1"));
+    CHECK(app.requestSetArchiveId.empty());
+
+    hanabi::ui_clock::test_offset_seconds() = 100.2;
+    CHECK(ecs::model::request_close(strip, app, "t4", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Refused);
+    CHECK(hanabi::tab_keep_flash::store().is_lit("t4"));
+    hanabi::ui_clock::test_offset_seconds() = 100.43;
+    CHECK(hanabi::tab_keep_flash::store().mark("t4", hanabi::ui_clock::now_seconds(), false).lit);
+    hanabi::ui_clock::test_offset_seconds() = 100.45;
+    CHECK(!hanabi::tab_keep_flash::store().mark("t4", hanabi::ui_clock::now_seconds(), false).lit);
+
+    CHECK(ecs::model::request_close(strip, app, "t1", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Closed);
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(app.pane().selectedId == "t4");
+
+    CHECK(ecs::model::request_close(strip, app, "t4", ecs::model::CloseIntent::Forced) ==
+          ecs::model::CloseOutcome::Closed);
+    CHECK(strip.tabOrder.empty());
+    CHECK(!hanabi::tab_keep_flash::store().is_lit("t4"));
+    CHECK(app.view == ecs::SmartView::Home);
+
+    hanabi::ui_clock::test_offset_seconds() = 200.0;
+    ecs::model::open_session_in_tab(strip, app, "t1");
+    ecs::model::open_session_in_tab(strip, app, "t4", true, true);
+    ecs::model::open_session_in_tab(strip, app, "t5");
+    CHECK(ecs::model::request_close(strip, app, "t4", ecs::model::CloseIntent::Aimed) ==
+          ecs::model::CloseOutcome::Refused);
+    CHECK(hanabi::tab_keep_flash::store().is_lit("t4"));
+    for (auto tabId : strip.tabOrder) {
+        auto o = afterhours::EntityHelper::getEntityForID(tabId);
+        if (o.valid() && o->has<ecs::Tab>() && o->get<ecs::Tab>().sessionId == "t4")
+            ecs::model::set_tab_pinned(o->get<ecs::Tab>(), false);
+    }
+    ecs::model::close_others(strip, app, "t5");
+    CHECK(strip.tabOrder.size() == 1);
+    CHECK(!hanabi::tab_keep_flash::store().is_lit("t4"));
+    CHECK(!hanabi::tab_keep_flash::store().fading("t4"));
+    ecs::model::open_session_in_tab(strip, app, "t4", true, true);
+    CHECK(!hanabi::tab_keep_flash::store().mark("t4", hanabi::ui_clock::now_seconds(), false).lit);
+    ecs::model::close_all(strip, app);
+    CHECK(strip.tabOrder.empty());
+
+    hanabi::ui_clock::reduce_motion_override().reset();
+    hanabi::ui_clock::test_offset_seconds() = 0.0;
+    hanabi::ui_clock::headless_run() = false;
 }
 
 static void test_pinning_keeps_and_restores_tabs() {
@@ -1914,6 +1988,7 @@ int main() {
     test_tab_close_all_reconciles_both_panes();
     test_child_session_enters_bounded_hot_set_and_stays_muted();
     test_session_overlays_reach_both_panes();
+    test_an_aimed_close_of_a_pinned_tab_is_refused_and_lights_the_pin();
     test_pinning_keeps_and_restores_tabs();
     test_thread_links();
     test_backend_agnostic_defaults();
