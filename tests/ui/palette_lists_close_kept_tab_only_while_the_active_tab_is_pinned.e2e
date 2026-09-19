@@ -1,0 +1,39 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t6","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=palette
+require_thread t6
+wait_frames 12
+expect_text "Command palette"
+expect_text "Show or hide the sidebar"
+expect_text "Keyboard shortcuts"
+expect_no_text "Close Kept Tab"
+key ESCAPE
+wait_frames 8
+expect_no_text "Command palette"
+right_click_ui tab_active
+wait_frames 10
+expect_text "Pin"
+click_ui tab_menu_pin
+wait_frames 16
+expect_tab t6 pinned
+expect_open t6
+key CMD+K
+wait_frames 10
+expect_text "Command palette"
+expect_text "Close Kept Tab"
+click_ui palette_input
+wait_frames 4
+type "close kept"
+wait_frames 8
+expect_text "Close Kept Tab"
+expect_no_text "Show or hide the sidebar"
+key ENTER
+wait_frames 16
+expect_no_text "Command palette"
+expect_tab t6 absent
+expect_open t2
+expect_tab t2 kept
+assert_ui folder_head_Pinned hidden=false
+key CMD+K
+wait_frames 10
+expect_text "Command palette"
+expect_no_text "Close Kept Tab"

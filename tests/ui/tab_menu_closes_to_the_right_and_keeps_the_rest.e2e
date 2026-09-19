@@ -77,7 +77,20 @@ wait_frames 16
 expect_open t7
 expect_no_ui tab_t2
 
-# Close Tab on the last remaining tab returns to Home with nothing open.
+right_click_ui tab_active
+wait_frames 10
+click_ui tab_menu_close
+wait_frames 16
+expect_no_ui tab_menu
+expect_open t7
+expect_tab t7 pinned
+expect_tab_keep_flash t7 lit
+right_click_ui tab_active
+wait_frames 10
+expect_text "Unpin"
+click_ui tab_menu_pin
+wait_frames 16
+expect_tab t7 kept
 right_click_ui tab_active
 wait_frames 10
 click_ui tab_menu_close

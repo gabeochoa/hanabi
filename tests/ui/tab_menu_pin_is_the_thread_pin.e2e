@@ -50,8 +50,6 @@ wait_frames 16
 expect_open t6
 expect_no_ui folder_head_Pinned
 
-# Pin again, then close the tab: the THREAD stays pinned; the neighbour (t2)
-# takes the selection.
 right_click_ui tab_active
 wait_frames 10
 click_ui tab_menu_pin
@@ -61,6 +59,12 @@ right_click_ui tab_active
 wait_frames 10
 click_ui tab_menu_close
 wait_frames 16
-expect_no_ui tab_t6
+expect_no_ui tab_menu
+expect_open t6
+expect_tab t6 pinned
+expect_tab_keep_flash t6 lit
+key CMD+SHIFT+W
+wait_frames 16
+expect_tab t6 absent
 expect_open t2
 assert_ui folder_head_Pinned hidden=false

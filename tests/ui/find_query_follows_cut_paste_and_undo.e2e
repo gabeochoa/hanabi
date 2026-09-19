@@ -1,0 +1,42 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 20
+reset_clipboard_probe
+key CTRL+F
+wait_frames 16
+expect_input_text find_input ""
+click_ui find_input
+wait_frames 8
+expect_focused find_input
+type "ledger"
+wait_frames 16
+expect_input_text find_input "ledger"
+expect_text "1 of 3"
+key CMD+A
+wait_frames 4
+expect_selected_text find_input "ledger"
+key CMD+X
+wait_frames 10
+expect_input_text find_input ""
+expect_clipboard ledger
+expect_no_text "1 of 3"
+key CMD+Z
+wait_frames 10
+expect_input_text find_input "ledger"
+expect_text "1 of 3"
+set_clipboard zzqqx
+key CMD+A
+wait_frames 4
+key CMD+V
+wait_frames 10
+expect_input_text find_input "zzqqx"
+expect_text "no matches"
+expect_no_text "1 of 3"
+key CMD+Z
+wait_frames 10
+expect_input_text find_input "ledger"
+expect_text "1 of 3"
+key CMD+SHIFT+Z
+wait_frames 10
+expect_input_text find_input "zzqqx"
+expect_text "no matches"

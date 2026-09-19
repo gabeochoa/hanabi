@@ -69,10 +69,23 @@ assert_ui tab_menu hidden=false
 key ESCAPE
 wait_frames 8
 assert_ui tab_active hidden=false
-# Close Tab still closes a kept surface tab; the neighbour (t6) takes over.
 right_click_ui tab_active
 wait_frames 10
 expect_text "Stop Keeping Open"
+click_ui tab_menu_close
+wait_frames 16
+expect_no_ui tab_menu
+assert_ui tab_active hidden=false
+expect_tab_keep_flash hanabi:surface/settings lit
+right_click_ui tab_active
+wait_frames 10
+expect_text "Stop Keeping Open"
+click_ui tab_menu_keep
+wait_frames 10
+expect_no_ui tab_menu
+right_click_ui tab_active
+wait_frames 10
+expect_text "Keep Tab Open"
 click_ui tab_menu_close
 wait_frames 16
 expect_no_ui tab_menu

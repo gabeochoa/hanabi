@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "../keys.h"
+#include "../palette_rows.h"
 #include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
 #include "command_system.h"
@@ -249,7 +250,7 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
         unsigned long long considered = 0;
 
         for (const auto& item : hanabi::shortcuts::kDefinitions) {
-            if (!item.in_palette || !fmtutil::contains_lower(item.title, q))
+            if (!hanabi::palette_rows::lists(item) || !fmtutil::contains_lower(item.title, q))
                 continue;
             out.push_back({std::string(item.title),
                            hanabi::shortcuts::display(

@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "../../src/menubar.h"
+#include "../../src/palette_rows.h"
 #include "../../src/shortcuts.h"
 
 static int failures = 0;
@@ -36,6 +37,13 @@ static void test_command_enabled_table() {
     CHECK(hanabi_native_tab_host_is_key() == 0);
     g_hostKey = 1;
     CHECK(hanabi_native_tab_host_is_key() == 1);
+    const auto& kept = hanabi::shortcuts::definition(hanabi::shortcuts::Command::CloseKeptTab);
+    const auto& open = hanabi::shortcuts::definition(hanabi::shortcuts::Command::OpenShortcuts);
+    CHECK(kept.in_palette && open.in_palette);
+    menubar_set_command_enabled(keptTab, false);
+    CHECK(!hanabi::palette_rows::lists(kept) && hanabi::palette_rows::lists(open));
+    menubar_set_command_enabled(keptTab, true);
+    CHECK(hanabi::palette_rows::lists(kept));
 }
 
 int main() {

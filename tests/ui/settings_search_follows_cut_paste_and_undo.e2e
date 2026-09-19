@@ -1,0 +1,38 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+click_ui sb_settings
+wait_frames 8
+reset_clipboard_probe
+expect_focused settings_search
+type "zzzqq"
+wait_frames 8
+expect_input_text settings_search "zzzqq"
+expect_text "No settings match"
+key CMD+A
+wait_frames 4
+expect_selected_text settings_search "zzzqq"
+key CMD+X
+wait_frames 8
+expect_input_text settings_search ""
+expect_clipboard zzzqq
+expect_no_text "No settings match"
+set_clipboard them
+key CMD+V
+wait_frames 8
+expect_input_text settings_search "them"
+expect_text "Rotate theme"
+assert_ui settings_result_0 hidden=false
+key CMD+A
+wait_frames 4
+set_clipboard dnd
+key CMD+V
+wait_frames 8
+expect_input_text settings_search "dnd"
+expect_text "Quiet hours"
+key CMD+Z
+wait_frames 8
+expect_input_text settings_search "them"
+expect_text "Rotate theme"
+key CMD+Z
+wait_frames 8
+expect_input_text settings_search ""
+expect_no_text "No settings match"
