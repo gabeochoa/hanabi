@@ -4457,3 +4457,59 @@ What was wanted: a windowed script that drives the real window with the same ver
 What happened: under `native_mode on` the app refuses the injected verbs (`click_ui`, `key`, `type`, …) loudly at run time (`HandleInjectedInputWhileNativeCommand`), and a native verb before `native_mode on` — or `native_mode on` without `HANABI_E2E_WINDOWED=1` — fails just as loudly. The theme-toggle fixture was authored with `click_ui` under native mode and was found only by a Mac run. (The clock siblings' first failure was a different thing: `expect_text` reading a native NSMenu's title, which the drawn-text registry cannot see — an observer mismatch, not a mode-guard refusal.)
 
 Why it is friction and not a library gap: the app's guards already fail loudly and correctly; what was missing is a lexical preflight so an author without a Mac learns the mistake before the run. The checker lives in the native-control bank under `scripts/native_controls/` (version 72ff7a77, 11 tests); it reads a script, tracks `native_mode on/off` and the `# env:` header, and flags injected verbs after `native_mode on`, native verbs before it, and `native_mode on` without the windowed env. App tooling; no library change is asked for. Candidate wiring: `scripts/run_ui_tests.sh` runs it before launching a windowed script.
+
+## Kept tabs, the edit verbs and the palette row, verified on C22 to C24 (2026-09-19)
+
+Candidate b017c890. Three things went wrong on the way and none of them was
+the library's; the reference (delivered 0.7.5 source) was never launched, so
+nothing here is a visual comparison against it.
+
+**The pin drew in the wrong place instead of larger.** The kept-tab refusal
+inflates the pin by 1.6 about its centre. The first cut handed the glyph an
+inflated rect; `glyph::pin` drew a fixed 6x10 mark one point in from the
+rect's left edge, so the lit mark moved three points left and grew nothing.
+Measured before, on the C18 capture: normal lit 12x20 device pixels shifted
+six to the left; Reduce Motion (scale 1) in place. The glyph now takes a
+scale and lays its five segments out about the resting mark's centre.
+Measured after, on the C22 capture: normal lit 20x32 at the same centre,
+Reduce Motion 12x20. Hanabi geometry, not Afterhours.
+
+**Unpin re-pinned.** The tab menu's Pin item read `tab.pinned` for its label
+and queued a toggle of the session's star for its action. A tab pinned by the
+settings header has a pinned tab and an unstarred thread, so "Unpin" toggled
+the star to true and re-pinned. The menu now carries the value its label
+promises (`!tab.pinned`) as a directed request, the shape the archive request
+already had; the strict `expect_tab ... unpinned` verb caught what `kept`
+(which accepts pinned) could not. App defect. Verified on C24 in the same focused bank as the palette capture below.
+
+**A seeded pin is not a starred thread.** The native palette script asserted
+the sidebar's Pinned folder after force-closing a header-pinned tab and failed
+only there: `pinned_tabs` seeds the tab, `starred` seeds the thread the folder
+reads. The script now seeds both and witnesses the folder before and after the
+close, a proof that the forced close preserves a pre-existing star, not a
+proof of the native Pin action.
+
+**What the C24 palette capture shows.** Three owned-main-window images: the
+palette over an unpinned tab without "Close Kept Tab"; over the pinned tab,
+filtered, with it; after Enter, t6 closed, t2 selected, the Pinned folder
+still up. No visibly collapsed or overlapping rows; the overflow diagnostics
+in the log remain observed, not a proven visual defect. Evidence: capture bank
+sha256 7ea9e7980e0ec60f54bf6597b53e169756db34b03b2ed5df329de4a77264433f.
+
+**Edit verbs.** The runtime chain is the binding fix e4fa44c plus the
+public-result compile fix a169823, verified on C22 b89f8888: the focused edit
+fixtures, including the native composer sibling, passed, and all six
+Edit-menu operations driven programmatically through accessibility passed
+with before/after result images (typed text to pasted words). Programmatic
+accessibility is not a mouse pick; the open-menu mouse path is still
+unproven. Gap #565 records the binding-owned workaround.
+
+The full C24 UI suite on b017c890 passed: 444 launched records, all rc 0, 413
+headless and 31 native, one executable; fifteen records carry an EOF-unobserved
+(tree_closed=false) qualifier and are retained as such, not as a blanket clean
+lifecycle. Bank sha256
+c3e345df06fad8ac0a3fbf5245500f6892a8705033634bbb721c4b1f41f7763d. The first native attempt selected
+zero scripts from a stale runner directory and its bank is kept; the corrected
+run is the 31. The native accessibility Edit proof and the pin paint
+measurement remain C22 evidence; the palette capture is C24; the three were
+never captured together on C24.
