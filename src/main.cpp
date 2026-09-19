@@ -28,6 +28,7 @@
 #include "api/attachments.h"
 #include "menubar.h"
 #include "native_extras.h"
+#include "ui/appearance_sink.h"
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
@@ -655,6 +656,8 @@ static void app_frame_body() {
     // attempt install once (menubar_install is itself idempotent regardless).
     static bool menubarInstalled = false;
     if (!menubarInstalled) {
+        hanabi::appearance::install_sink(
+            [](hanabi::appearance::Scheme s) { macos_set_app_appearance(s == hanabi::appearance::Scheme::Dark); });
         menubar_install();
         if (const char* v = std::getenv("HANABI_NATIVE_MENU_DIAGNOSTIC");
             v && *v && std::string(v) != "0") {

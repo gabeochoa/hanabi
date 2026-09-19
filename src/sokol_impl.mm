@@ -387,3 +387,10 @@ extern "C" bool macos_is_dark_mode(void) {
                [style caseInsensitiveCompare:@"Dark"] == NSOrderedSame;
     }
 }
+
+extern "C" void macos_set_app_appearance(bool dark) {
+    if (NSApp == nil) return;
+    @autoreleasepool {
+        NSApp.appearance = [NSAppearance appearanceNamed:dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+    }
+}

@@ -231,6 +231,8 @@ void native_open_url(const char* url);
 // to the real OS setting instead of always falling back to Dark (gap #16).
 bool macos_is_dark_mode(void);
 
+void macos_set_app_appearance(bool dark);
+
 typedef struct NativeFontFace {
     char family[32];
     char label[64];

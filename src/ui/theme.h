@@ -14,6 +14,7 @@
 #include "../util/atlas_guard.h"
 #include "../util/prof.h"
 #include "../util/text_cache.h"
+#include "appearance_sink.h"
 #include "font_system.h"
 #include <afterhours/src/drawing_helpers.h>
 
@@ -421,6 +422,8 @@ inline void set_mode(Mode m) {
     g_mode = m;
     t = (m == Mode::Light) ? kLight : kDark;
     apply_custom();
+    hanabi::appearance::publish(m == Mode::Light ? hanabi::appearance::Scheme::Light
+                                                 : hanabi::appearance::Scheme::Dark);
 }
 
 inline void set_accent_choice(const std::string& key) {
