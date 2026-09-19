@@ -898,10 +898,10 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 } else if (action == "mute" || action == "unmute") {
                     app.requestToggleMute = strip.menuSessionId;
                 } else if (const auto pick = hanabi::snooze_menu::parse(action)) {
-                    AppComponent::SnoozeRequest req;
-                    req.sessionId = strip.menuSessionId;
+                    hanabi::inbox_sync::SnoozeRequest req;
+                    req.session_id = strip.menuSessionId;
                     req.until = pick->until;
-                    app.requestSnooze = req;
+                    app.inbox.request = req;
                 }
             }
         }
@@ -1022,7 +1022,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 items.push_back(hanabi::snooze_menu::to_menu_item<hanabi::surface::MenuItem, hanabi::surface::MenuLeaf>(hanabi::snooze_menu::item(
                     snoozed ? std::optional<std::int64_t>(snoozed->snoozed_until) : std::nullopt,
                     capture_clock::inbox_now(), "tab_menu_snooze",
-                    !app.snooze_available() || app.snoozes.pending(keepId))));
+                    !app.snooze_available() || app.snooze_busy(keepId))));
                 actions.push_back(Snooze);
             }
             divider("tab_menu_divider_pin");
@@ -1150,10 +1150,10 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Snooze:
                     if (const auto pick = hanabi::snooze_menu::parse(pickedAction)) {
-                        AppComponent::SnoozeRequest req;
-                        req.sessionId = keepId;
+                        hanabi::inbox_sync::SnoozeRequest req;
+                        req.session_id = keepId;
                         req.until = pick->until;
-                        app.requestSnooze = req;
+                        app.inbox.request = req;
                     }
                     break;
                 case Archive:

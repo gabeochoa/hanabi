@@ -881,7 +881,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             items.push_back(hanabi::snooze_menu::to_menu_item<hanabi::surface::MenuItem, hanabi::surface::MenuLeaf>(hanabi::snooze_menu::item(
                 snoozed ? std::optional<std::int64_t>(snoozed->snoozed_until) : std::nullopt,
                 capture_clock::inbox_now(), "row_menu_snooze",
-                !app.snooze_available() || app.snoozes.pending(target->id))));
+                !app.snooze_available() || app.snooze_busy(target->id))));
             actions.push_back(Action::Snooze);
         }
         divider("row_menu_divider_mute");
@@ -1026,10 +1026,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::Snooze:
                     if (const auto pick = hanabi::snooze_menu::parse(pickedAction)) {
-                        AppComponent::SnoozeRequest req;
-                        req.sessionId = targetId;
+                        hanabi::inbox_sync::SnoozeRequest req;
+                        req.session_id = targetId;
                         req.until = pick->until;
-                        app.requestSnooze = req;
+                        app.inbox.request = req;
                     }
                     break;
                 case Action::ResetOrder:

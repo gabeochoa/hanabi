@@ -985,6 +985,7 @@ static void app_frame_body() {
                     cfg.token = tok.access_token;
                     cfg.backend = "http";
                     app.client = api::make_client(cfg);
+                    app.on_client_replaced();
                     app.backend_label =
                         app.client ? app.client->backend_label() : "none";
                     app.showAuth = false;

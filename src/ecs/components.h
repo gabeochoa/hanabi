@@ -30,7 +30,7 @@
 #include "ask_card.h"
 #include "composer_escape.h"
 #include "focus_routing.h"
-#include "inbox_sync_store.h"
+#include "inbox_sync_driver.h"
 #include "transcript_cache.h"
 #include "transcript_ledger.h"
 
@@ -571,27 +571,13 @@ struct AppComponent : public afterhours::BaseComponent {
     // one-writer arrangement as the star: the sidebar owns the sessions vector.
     std::string requestToggleMute;
 
-    struct SnoozeRequest {
-        std::string sessionId;
-        std::optional<std::int64_t> until;
-    };
-    std::optional<SnoozeRequest> requestSnooze;
-    hanabi::inbox_sync::Store snoozes;
-    std::uint64_t snoozeClientGeneration = 1;
-    bool inboxReadPending = false;
-    hanabi::inbox_sync::Store::ReadTicket inboxReadTicket;
-    std::future<api::Result<api::InboxStateRead>> inboxReadFuture;
-    struct SnoozeWrite {
-        hanabi::inbox_sync::Intent intent;
-        std::future<api::Result<api::InboxStateWrite>> future;
-    };
-    std::vector<SnoozeWrite> snoozeWrites;
+    hanabi::inbox_sync::Driver inbox;
 
-    [[nodiscard]] bool snooze_available() const {
-        return client && client->supports_inbox_state() && snoozes.synced();
-    }
+    void on_client_replaced() { inbox.on_client_replaced(); }
+    [[nodiscard]] bool snooze_available() const { return inbox.available(client.get()); }
+    [[nodiscard]] bool snooze_busy(const std::string& id) const { return inbox.busy(id); }
     [[nodiscard]] std::optional<hanabi::inbox_sync::Entry> snooze_of(const std::string& id) const {
-        return snoozes.get(id);
+        return inbox.store.get(id);
     }
 
     // ==== Sidebar manual row order (drag-to-reorder) ======================

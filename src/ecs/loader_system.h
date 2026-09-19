@@ -153,44 +153,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     }
 
     static void drive_inbox_state(AppComponent& app) {
-        if (app.inboxReadPending && app.inboxReadFuture.valid() &&
-            app.inboxReadFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            app.inboxReadPending = false;
-            app.snoozes.read_landed(app.inboxReadTicket, app.inboxReadFuture.get());
-        }
-        if (app.requestSnooze) {
-            const AppComponent::SnoozeRequest req = *app.requestSnooze;
-            app.requestSnooze.reset();
-            if (!app.client || !app.client->supports_inbox_state() || !app.snoozes.synced()) {
-                app.raise_toast("Snooze is unsynced: " +
-                                    (app.snoozes.last_error().empty() ? std::string("not connected to the web app")
-                                                                      : app.snoozes.last_error()),
-                                "", AppComponent::ToastUndo::None);
-            } else if (app.snoozes.pending(req.sessionId)) {
-                app.raise_toast("Still saving the last snooze for this thread", "",
-                                AppComponent::ToastUndo::None);
-            } else if (auto intent = app.snoozes.begin_write(req.sessionId, req.until,
-                                                              capture_clock::inbox_now())) {
-                std::shared_ptr<api::Client> c = app.client;
-                const std::string id = req.sessionId;
-                const std::optional<std::int64_t> until = req.until;
-                AppComponent::SnoozeWrite w;
-                w.intent = *intent;
-                w.future = std::async(std::launch::async, [c, id, until] { return c->write_snooze(id, until); });
-                app.snoozeWrites.push_back(std::move(w));
-            }
-        }
-        for (auto it = app.snoozeWrites.begin(); it != app.snoozeWrites.end();) {
-            if (!it->future.valid() ||
-                it->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-                ++it;
-                continue;
-            }
-            const auto change = app.snoozes.write_landed(it->intent, it->future.get());
-            if (change.outcome == hanabi::inbox_sync::Outcome::RolledBack)
-                app.raise_toast(change.reason, "", AppComponent::ToastUndo::None);
-            it = app.snoozeWrites.erase(it);
-        }
+        app.inbox.drain(app.client, capture_clock::inbox_now(), [&app](const std::string& text) {
+            app.raise_toast(text, "", AppComponent::ToastUndo::None);
+        });
     }
 
     static void request_ask_refresh(AppComponent& app, const std::string& id) {
@@ -768,13 +733,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (app.requestListRefresh && !app.listPending) {
             app.requestListRefresh = false;
             app.listPending = true;
-            if (app.client && app.client->supports_inbox_state() && !app.inboxReadPending) {
-                app.inboxReadPending = true;
-                app.inboxReadTicket = app.snoozes.begin_read();
-                std::shared_ptr<api::Client> c = app.client;
-                app.inboxReadFuture = std::async(std::launch::async,
-                                                 [c] { return c->read_inbox_state(); });
-            }
+            app.inbox.launch_read(app.client);
             // STALE-WHILE-REVALIDATE: if we don't have a list yet, paint the
             // last-known list from disk IMMEDIATELY so a slow-network launch
             // shows the sidebar + Home instantly instead of a "Loading…" wall.
