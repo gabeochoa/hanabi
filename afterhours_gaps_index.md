@@ -854,7 +854,7 @@ correction narrows them rather than closing them.
 | 562 | E2E parses SUPER but never holds it | MISSING | HIGH | XS | live |
 | 563 | `CMD+` means Ctrl rather than Command in scripts | FOOTGUN | HIGH | XS | dup→#256 |
 | 564 | Synthetic input is intentionally absent from shipping builds | NOT A GAP | — | — | security boundary |
-| 565 | Text editing has no imperative native-responder command surface | MISSING | HIGH | M | live |
+| 565 | Text editing has no imperative native-responder command surface | MISSING | HIGH | M | live · app-owned verbs over public state ops (2c934d3, no Mac run yet); key replay withdrawn |
 | 566 | Native Edit capabilities depend on magic enum names | FOOTGUN | HIGH | S | dup→#255 |
 | 567 | Headless UI assertions cannot observe AppKit menus | PLATFORM | MED | — | dup→#308 |
 | 568 | Modifier release state has no Super slot | MISSING | HIGH | XS | live |
@@ -892,6 +892,7 @@ correction narrows them rather than closing them.
 | 600 | `imm::popover` drops the caller's debug name: the panel is always "popover_panel" | SHARP EDGE | MED | XS | live |
 | 601 | The UI plugin has no notion of an external tracker owning the pointer: while a native menu (NSMenu) tracks, hot/active are last frame's and a press underneath still registers | MISSING | HIGH | M | live · app-side adapter (`surface::native_menu_frame`) |
 | 602 | `core/system.h` in-class explicit specializations of `HasAllComponents<>` / `CallWithComponents<>` / `CallWithChildComponents<>` do not compile under GCC (clang extension; conforming `if constexpr` arm exists only under `_WIN32`) | PORTABILITY | MED | XS | live · no workaround admitted (Mac build against the pin) |
+| 603 | `find_component_center` returns the centre of a clipped or scrolled-out target; a by-name native click cannot be trusted until the target is revealed (C16 palette capture) | TESTING / MISSING | HIGH | S | live · workaround measured on the owned window (reveal via app navigation, then click) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

@@ -12665,9 +12665,11 @@ CLASS: NOT A GAP / SECURITY BOUNDARY
 
 **Correctness failure.** A native Edit menu cannot safely call `undo`, `paste`, or `select all` against the focused afterhours field. Mutating only the state appears to work for part of a frame and then restores the old bound string.
 
-**Workaround.** Hanabi first uses standard AppKit selectors through the responder chain. Its bridge is installed after the content view, so a real native text responder wins; only the unhandled afterhours case replays the corresponding local key event into the window, letting the widget update its state and bound string together.
+**Workaround (corrected 2026-09-19).** The first workaround replayed the menu item's chord as a synthetic key event into the window. That cannot restore the five field verbs #566 gates off (`TextUndo/TextRedo/TextCopy/TextCut/TextPaste` are compiled out of the widget, so no key reaches a handler), and it never worked from the mouse at all: the replayed event carries the Command flag but hanabi's `cmd_down()` and the library's `KeyChord` both read the real Super key (`input_system.h` :885), which a menu click does not hold. The successor (`text-edit-actions` 2c934d3, source-reviewed; no Mac compile or run yet, so nothing here is a runtime claim) drops the replay: each Edit item queues a verb (`menubar_push_edit_verb`, an ordered same-thread deque), and `TextEditChordsSystem` performs it against the focused field through the widget's public state operations (`state.undo/redo/push_undo_snapshot`, `delete_selection`, `insert_char`, `insert_newline_if_multiline`) with the same snapshot discipline `handle_clipboard_and_undo` uses, so state and bound string move together inside the widget's own frame. The polled chord path uses the same verbs, so keyboard and menu share one owner. Select All goes the same way from the menu; an injected `CMD+A` in a script still reaches the widget's own `TextSelectAll`, which hanabi's enum does carry.
 
-**Hanabi reference.** `src/menubar.mm::HanabiEditBridge`, `src/ecs/keyboard_focus.h::focused_text_field`, and `src/ecs/text_edit_chords_system.h`.
+**What is NOT in this gap.** Shift+Left/Right character selection works today without `TextSelectLeft/Right`: `TextSelectionSystem` (`text_input/systems.h` :46-60) extends the selection from the generic `WidgetLeft/WidgetRight` action plus the raw Shift key. Word and line selection (`TextWordLeft/Right`, `TextHome/End` under Shift) are enum-carried and covered by `tests/ui/composer_shift_selection.e2e`.
+
+**Hanabi reference.** `src/menubar.mm::HanabiEditBridge`, `src/edit_verbs.h::EditVerbQueue`, `src/ecs/text_edit_actions.h` (verbs + `owner_for`), `src/ecs/text_edit_chords_system.h::edit_actions::perform`, `src/ecs/keyboard_focus.h::focused_text_field/focused_text_area`.
 
 **Minimal upstream change.** Expose imperative edit operations that take the state and its bound string together, or expose a focused-text command sink whose implementation runs inside the widget's synchronization point.
 
@@ -12679,11 +12681,13 @@ CLASS: MISSING
 
 **Exact mechanism.** `handle_clipboard_and_undo` checks `magic_enum::enum_contains<InputAction>("TextUndo")` and the equivalent names for redo, copy, cut, paste, and select-all before compiling each branch. A responder bridge can replay the right key and still get no behavior if the app enum omitted the matching name.
 
-**Correctness failure.** The native menu looks complete and the key event reaches the widget, but one Edit item can remain inert with no compiler error or runtime diagnostic.
+**Correctness failure.** The native menu looks complete and the key event reaches the widget, but one Edit item can remain inert with no compiler error; the only runtime diagnostic is `warn_missing_text_actions`' once-per-init log line naming the absent enum members, nothing at the event.
 
-**Workaround.** Hanabi keeps its text-action enum and mapping under direct unit coverage; standard AppKit responders remain independent of that enum.
+**Measured (2026-09-19).** hanabi's `InputAction` carries nine of the sixteen `Text*` names the library binds (`utilities.h` :515-532): `TextBackspace TextDelete TextHome TextEnd TextSelectAll TextWordLeft TextWordRight TextDeleteWordBack TextDeleteWordForward`. The seven absent are `TextCopy TextCut TextPaste TextUndo TextRedo TextSelectLeft TextSelectRight`. `warn_missing_text_actions` (`utilities.h` :95-133) logs them once at init; nothing else reports it. Of the seven, `TextSelectLeft/Right` are NOT a user-visible loss (see #565: the generic arrow + raw Shift path selects by character); the other five have no handler in the widget; #565's corrected workaround supplies app-owned verbs for them (source-reviewed, not yet run on a Mac) and deliberately leaves the enum unchanged so the library's own copies stay compiled out and no verb runs twice.
 
-**Hanabi reference.** `src/input_mapping.h::InputAction`, `tests/unit/test_input_pipeline.cpp::test_enum_carries_the_names_afterhours_gates_on`, and the Edit menu in `src/menubar.mm::install_main_menu`.
+**Workaround.** Hanabi keeps its text-action enum and mapping under direct unit coverage and owns the five clipboard/undo verbs itself (#565); standard AppKit responders remain independent of that enum.
+
+**Hanabi reference.** `src/input_mapping.h::InputAction`, `tests/unit/test_input_pipeline.cpp::test_enum_carries_the_names_afterhours_gates_on`, the Edit menu in `src/menubar.mm::install_main_menu`, `src/ecs/text_edit_actions.h`.
 
 **Minimal upstream change.** Replace string-reflected opt-in with a declared text-action trait or static assertion listing unsupported actions.
 
@@ -14316,3 +14320,19 @@ names them: `build.zig` (`run_by_default`), checked by
 Mac against the unchanged pin only.
 
 CLASS: PORTABILITY (compiles on clang only)
+
+---
+
+### #603 — `find_component_center` returns the centre of a clipped or scrolled-out target: a native click aimed by name lands on whatever is painted there
+
+**Class:** e2e testing (`plugins/e2e_testing/ui_commands.h` :69-98, d90db15). `get_screen_rect` takes the component's rect, applies `HasUIModifiers` and the ancestors' scroll offsets, and `find_component_center` returns its centre when `was_rendered_to_screen` is set. Neither step intersects the rect with the viewport or with the clip rects of scrolling ancestors: a row scrolled out of a list, or a panel whose parent clips it, still answers with a centre — one that lies outside the visible area or under another widget.
+
+**Measured observations.** C16 windowed capture (2026-09-19), `native_click_ui` on the settings palette control before any reveal: the palette was absent from both captured PNGs and the Light-mode assertion timed out. Where the click landed was not observed. Headless `click_ui` takes the same centre (`ui_commands.h` :134-136, `find_component_center` → `simulate_click(x, y)`), so a clipped target misleads both modes alike; the windowed run is where it was seen.
+
+**Cost.** A windowed script cannot trust a by-name native click unless the author has separately proven the target is on screen and unclipped; there is no assertion for that today (`assert_ui … hidden=false` reads `should_hide` (`ui_commands.h` :1108-1109), a layout flag that stays false for a child clipped by a scrolling ancestor).
+
+**Ask.** Intersect the rect with every clipping ancestor and the viewport; return `nullopt` (and let the command fail with "target is clipped/off-screen") when the visible remainder is empty or the centre falls outside it. Optionally expose the visible rect so a `scroll_until_visible <name>` verb can be written.
+
+**Workaround (measured on the owned window, 2026-09-19).** Reveal the target through the app's own navigation before the by-name click — the settings search reveals the palette row — and assert a painted fact about it first. With that in place the C16 capture shows "Palette · Dark" painted, then "Palette · Light" and the whole window light after the press: the by-name click reached the control once the control was on screen. No generic native scroll exists in the DSL; the reveal is per-surface.
+
+CLASS: TESTING / MISSING
