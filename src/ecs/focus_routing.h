@@ -106,6 +106,62 @@ struct KeyboardClaim {
     return true;
 }
 
+inline constexpr int kNoYieldedPane = -1;
+
+struct ComposerIds {
+    long long field = -1;
+    long long container = -1;
+};
+
+[[nodiscard]] inline bool caret_in_this_composer(long long focusId, const ComposerIds& ids) {
+    return focusId >= 0 && (focusId == ids.field || focusId == ids.container);
+}
+
+struct CaretYield {
+    int pane = kNoYieldedPane;
+
+    [[nodiscard]] bool should_yield(long long focusId, const ComposerIds& ids, bool caretInAnyComposer,
+                                    bool composerOwnsInput) const {
+        return caretInAnyComposer && !composerOwnsInput && caret_in_this_composer(focusId, ids);
+    }
+    void yield(int paneIndex) { pane = paneIndex; }
+    [[nodiscard]] bool should_restore(int paneIndex, bool composerOwnsInput,
+                                      bool caretInAnyComposer) const {
+        return pane == paneIndex && composerOwnsInput && !caretInAnyComposer;
+    }
+    [[nodiscard]] bool yielded() const { return pane != kNoYieldedPane; }
+    void settled() { pane = kNoYieldedPane; }
+    void pane_gone(int paneIndex) {
+        if (pane == paneIndex) pane = kNoYieldedPane;
+    }
+    struct ReconcileInputs {
+        bool splitView = false;
+        int settingsPane = -1;
+        bool settingsTab = false;
+        int focusedPane = 0;
+        long long focusIdAtStart = -1;
+        bool composerOwnsInput = false;
+        ComposerIds ids[2];
+    };
+    void reconcile(const ReconcileInputs& in) {
+        if (pane == kNoYieldedPane) return;
+        for (int i = 0; i < 2; ++i)
+            if (!composer_draws(in.splitView, i, in.settingsPane, in.settingsTab, in.focusedPane)) pane_gone(i);
+        if (pane == kNoYieldedPane) return;
+        const int owner = caret_in_this_composer(in.focusIdAtStart, in.ids[0]) ? 0
+                          : caret_in_this_composer(in.focusIdAtStart, in.ids[1]) ? 1
+                                                                                 : kNoYieldedPane;
+        if (owner == kNoYieldedPane) return;
+        if (owner != pane || in.composerOwnsInput) pane = kNoYieldedPane;
+    }
+
+    [[nodiscard]] static bool composer_draws(bool splitView, int paneIndex, int settingsPane, bool settingsTab,
+                                             int focusedPane) {
+        if (splitView) return paneIndex != settingsPane;
+        return !settingsTab && paneIndex == focusedPane;
+    }
+};
+
 [[nodiscard]] inline constexpr bool is_high_surrogate(int unit) {
     return unit >= 0xD800 && unit <= 0xDBFF;
 }

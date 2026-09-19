@@ -314,7 +314,192 @@ static void test_a_surface_and_a_field_are_ranked_separately() {
     CHECK(composer_holds_keyboard(claim));
 }
 
+static void test_a_yielded_caret_returns_to_the_pane_that_yielded_it() {
+    using ecs::model::CaretYield;
+    using ecs::model::ComposerIds;
+    const ComposerIds pane0{85, 84};
+    const ComposerIds pane1{100, 99};
+    const long long FAKE = -2;
+    const auto frame = [](CaretYield& y, long long focus, bool anyComposer, bool owns,
+                          const ComposerIds& ids0, const ComposerIds& ids1) {
+        struct Out { bool yield0, restore0, yield1, restore1; } o{};
+        long long f = focus;
+        o.yield0 = y.should_yield(f, ids0, anyComposer, owns);
+        if (o.yield0) { y.yield(0); f = -2; }
+        o.restore0 = y.should_restore(0, owns, anyComposer && f != -2);
+        if (o.restore0) y.settled();
+        o.yield1 = y.should_yield(f, ids1, anyComposer && f != -2, owns);
+        if (o.yield1) { y.yield(1); f = -2; }
+        o.restore1 = y.should_restore(1, owns, anyComposer && f != -2);
+        if (o.restore1) y.settled();
+        return o;
+    };
+    (void)FAKE;
+
+    {
+        CaretYield y;
+        auto o = frame(y, 100, true, false, pane0, pane1);
+        CHECK(!o.yield0 && !o.restore0 && o.yield1 && !o.restore1);
+        CHECK(y.yielded() && y.pane == 1);
+        o = frame(y, -2, false, false, pane0, pane1);
+        CHECK(!o.yield0 && !o.restore0 && !o.yield1 && !o.restore1);
+        o = frame(y, -2, false, true, pane0, pane1);
+        CHECK(!o.restore0 && o.restore1);
+        CHECK(!y.yielded());
+    }
+    {
+        CaretYield y;
+        auto o = frame(y, 99, true, false, pane0, pane1);
+        CHECK(!o.yield0 && o.yield1 && y.pane == 1);
+        o = frame(y, -2, false, true, pane0, pane1);
+        CHECK(!o.restore0 && o.restore1 && !y.yielded());
+    }
+    {
+        CaretYield y;
+        auto o = frame(y, 85, true, false, pane0, pane1);
+        CHECK(o.yield0 && !o.yield1 && y.pane == 0);
+        o = frame(y, -2, false, true, pane0, pane1);
+        CHECK(o.restore0 && !o.restore1 && !y.yielded());
+    }
+    {
+        CaretYield y;
+        CHECK(y.should_yield(85, pane0, true, false));
+        y.yield(0);
+        CHECK(!y.should_restore(0, false, false));
+        CHECK(y.should_restore(0, true, false));
+        y.settled();
+        CHECK(!y.yielded());
+    }
+    {
+        CaretYield y;
+        CHECK(!y.should_yield(500, pane0, false, false));
+        CHECK(!y.should_yield(100, pane0, true, false));
+        CHECK(!y.should_yield(-1, pane0, true, false));
+        y.yield(1);
+        CHECK(y.should_yield(85, pane0, true, false));
+        y.yield(0);
+        CHECK(y.pane == 0);
+        CHECK(!y.should_restore(1, true, false) && y.should_restore(0, true, false));
+    }
+    {
+        CaretYield y;
+        y.yield(1);
+        CHECK(!y.should_restore(1, true, true));
+        CHECK(!y.should_restore(0, true, true));
+        CHECK(y.should_yield(85, pane0, true, false));
+        y.yield(0);
+        CHECK(!y.should_restore(1, true, false) && y.should_restore(0, true, false));
+    }
+    {
+        using In = CaretYield::ReconcileInputs;
+        const auto split = [&](long long focus, int settingsPane = -1, bool owns = false) {
+            In in; in.splitView = true; in.settingsPane = settingsPane; in.settingsTab = false;
+            in.focusedPane = 1; in.focusIdAtStart = focus; in.composerOwnsInput = owns;
+            in.ids[0] = pane0; in.ids[1] = pane1; return in;
+        };
+        const auto single = [&](long long focus, int focusedPane, bool settingsTab) {
+            In in; in.splitView = false; in.settingsPane = settingsTab ? focusedPane : -1;
+            in.settingsTab = settingsTab; in.focusedPane = focusedPane; in.focusIdAtStart = focus;
+            in.ids[0] = pane0; in.ids[1] = pane1; return in;
+        };
+        CaretYield y;
+        y.yield(1);
+        y.reconcile(split(-2, 1));
+        CHECK(!y.yielded());
+        y.yield(1);
+        y.reconcile(single(-2, 1, true));
+        CHECK(!y.yielded());
+        y.yield(1);
+        y.reconcile(single(-2, 0, false));
+        CHECK(!y.yielded());
+        y.yield(0);
+        y.reconcile(single(-2, 0, false));
+        CHECK(y.yielded() && y.pane == 0);
+        y.settled();
+        y.yield(1);
+        y.reconcile(split(-2));
+        CHECK(y.yielded() && y.pane == 1);
+        y.reconcile(split(0));
+        CHECK(y.yielded() && y.pane == 1);
+        y.reconcile(split(-1));
+        CHECK(y.yielded() && y.pane == 1);
+        y.reconcile(split(100));
+        CHECK(y.yielded() && y.pane == 1);
+        y.reconcile(split(99));
+        CHECK(y.yielded() && y.pane == 1);
+        y.reconcile(split(700));
+        CHECK(y.yielded() && y.pane == 1);
+        y.reconcile(split(85));
+        CHECK(!y.yielded());
+        CHECK(!y.should_restore(1, true, true) && !y.should_restore(0, true, true));
+        y.yield(1);
+        y.reconcile(split(100, -1, true));
+        CHECK(!y.yielded());
+        y.reconcile(split(0, -1, true));
+        CHECK(!y.yielded());
+        CHECK(!y.should_restore(1, true, false) && !y.should_restore(0, true, false));
+        y.yield(1);
+        y.reconcile(split(99, -1, true));
+        CHECK(!y.yielded());
+        y.yield(1);
+        y.reconcile(split(100, -1, false));
+        CHECK(y.yielded() && y.pane == 1);
+        y.reconcile(split(-2, -1, true));
+        CHECK(y.yielded() && y.pane == 1);
+        CHECK(y.should_restore(1, true, false));
+        y.yield(1);
+        y.reconcile(split(84));
+        CHECK(!y.yielded());
+        CHECK(y.should_yield(84, pane0, true, false));
+        y.yield(0);
+        CHECK(y.pane == 0);
+        CHECK(CaretYield::composer_draws(true, 0, -1, false, 1) && CaretYield::composer_draws(true, 1, -1, false, 1));
+        CHECK(!CaretYield::composer_draws(true, 1, 1, false, 0) && CaretYield::composer_draws(true, 0, 1, false, 0));
+        CHECK(!CaretYield::composer_draws(false, 1, -1, false, 0) && CaretYield::composer_draws(false, 0, -1, false, 0));
+        CHECK(!CaretYield::composer_draws(false, 0, 0, true, 0) && !CaretYield::composer_draws(false, 1, 0, true, 0));
+    }
+    {
+        ecs::model::KeyboardClaim claim;
+        claim.observe(0, true, false, true);
+        CHECK(ecs::model::composer_holds_keyboard(claim));
+        claim.observe(1, true, false, false);
+        CHECK(!ecs::model::composer_holds_keyboard(claim));
+        CaretYield y;
+        CHECK(y.should_yield(100, pane1, true, ecs::model::composer_holds_keyboard(claim)));
+        y.yield(1);
+        CHECK(!y.should_restore(0, ecs::model::composer_holds_keyboard(claim), false));
+        CHECK(!y.should_restore(1, ecs::model::composer_holds_keyboard(claim), false));
+        claim.observe(0, false, false, false);
+        CHECK(ecs::model::composer_holds_keyboard(claim));
+        CHECK(!y.should_restore(0, ecs::model::composer_holds_keyboard(claim), false));
+        CHECK(y.should_restore(1, ecs::model::composer_holds_keyboard(claim), false));
+    }
+    {
+        CaretYield y;
+        y.yield(1);
+        CHECK(!y.should_restore(1, true, true));
+        CHECK(!y.should_restore(0, true, true));
+        CHECK(y.should_restore(1, true, false));
+    }
+    {
+        ecs::model::KeyboardClaim claim;
+        claim.observe(0, true, false, true);
+        claim.observe(1, true, false, false);
+        CaretYield y;
+        y.yield(1);
+        claim.observe(0, false, true, true);
+        CHECK(!ecs::model::composer_holds_keyboard(claim));
+        CHECK(!y.should_restore(1, ecs::model::composer_holds_keyboard(claim), false));
+        CHECK(!y.should_yield(700, pane1, false, ecs::model::composer_holds_keyboard(claim)));
+        claim.observe(0, false, false, false);
+        CHECK(ecs::model::composer_holds_keyboard(claim));
+        CHECK(y.should_restore(1, ecs::model::composer_holds_keyboard(claim), false));
+        CHECK(!y.should_restore(0, ecs::model::composer_holds_keyboard(claim), false));
+    }
+}
+
 int main() {
+    test_a_yielded_caret_returns_to_the_pane_that_yielded_it();
     test_a_transcript_takes_both();
     test_an_owner_above_the_composer_takes_neither();
     test_a_focused_field_keeps_what_it_has();

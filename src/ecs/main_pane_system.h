@@ -327,6 +327,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // when the backend can't send, rather than the pane hiding it.
         {
             const auto& cr = layout->composer;
+            model::CaretYield::ReconcileInputs yieldIn;
+            yieldIn.splitView = splitView;
+            yieldIn.settingsPane = settingsPane;
+            yieldIn.settingsTab = settingsTab;
+            yieldIn.focusedPane = std::clamp(app->focusedPane, 0, 1);
+            yieldIn.focusIdAtStart = static_cast<long long>(ctx.focus_id);
+            yieldIn.composerOwnsInput = model::composer_holds_keyboard(app->keyboardClaim);
+            yieldIn.ids[0] = composerIdsLast_[0];
+            yieldIn.ids[1] = composerIdsLast_[1];
+            composerYield_.reconcile(yieldIn);
             // In split view the composer belongs to the FOCUSED pane, and it
             // sits UNDER that pane: full-width under two panes gave no clue
             // which conversation you were typing into, and a composer nailed
@@ -1492,6 +1502,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Whether each pane's field had the caret last frame (the caret-follow
     // rule acts on the rising edge).
     std::array<bool, 2> composerFocusedLast_ = {false, false};
+    std::array<model::ComposerIds, 2> composerIdsLast_ = {};
     float listY_ = 0.0f;
     float listCursorY_ = -1.0f;
     float listCursorH_ = 0.0f;
@@ -1501,7 +1512,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // One-shot: HANABI_FIND_STEP is a stand-in for a keypress, so it fires
     // once and not every frame.
     bool findStepApplied_ = false;
-    bool composerYieldedCaret_ = false;
+    model::CaretYield composerYield_;
     // Last frame's verdict, for the edge where the composer takes the keyboard
     // back. Starts held: the app opens with no surface up and no other field
     // carrying a caret, which is exactly what composer_holds_keyboard says.
@@ -8570,13 +8581,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool caretInComposer = ecs::caret_in_composer(ctx.focus_id);
         const bool composerOwnsInput =
             model::composer_holds_keyboard(app.keyboardClaim);
-        if (caretInComposer && !composerOwnsInput) {
+        if (composerYield_.should_yield(static_cast<long long>(ctx.focus_id),
+                                        composerIdsLast_[static_cast<size_t>(paneIndex)], caretInComposer,
+                                        composerOwnsInput)) {
             ctx.focus_id = ctx.FAKE;
-            composerYieldedCaret_ = true;
+            composerYield_.yield(paneIndex);
         }
         const bool restoreComposerCaret =
-            composerYieldedCaret_ && composerOwnsInput;
-        if (composerYieldedCaret_ && !ecs::any_text_field_focused())
+            composerYield_.should_restore(paneIndex, composerOwnsInput, caretInComposer);
+        if (composerYield_.yielded() && !ecs::any_text_field_focused())
             while (afterhours::input::get_char_pressed() > 0) {
             }
         // The drop above reaches only a caret the composer itself gave up. A
@@ -8598,7 +8611,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             while (afterhours::input::get_char_pressed() > 0) {
             }
         composerHeldKeyboard_ = composerOwnsInput;
-        if (restoreComposerCaret) composerYieldedCaret_ = false;
+        if (restoreComposerCaret) composerYield_.settled();
         auto inputRes = afterhours::ui::imm::text_area(
             ctx, mk(inputWrap.ent(), 1), replyDraft,
             ComponentConfig{}
@@ -8688,6 +8701,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         const auto composerFieldId = focusable_field(inputRes.ent());
+        composerIdsLast_[static_cast<size_t>(paneIndex)] = {static_cast<long long>(composerFieldId),
+                                                            static_cast<long long>(inputRes.ent().id)};
         const bool composerFocused =
             inputRes.ent().has<afterhours::text_input::HasTextAreaState>() &&
             inputRes.ent()
