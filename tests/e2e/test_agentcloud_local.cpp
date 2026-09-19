@@ -331,6 +331,35 @@ int main() {
         std::fprintf(stderr, "503 upload failure was not preserved\n");
         return 1;
     }
+
+    api::SendFailure redirected_failure;
+    std::uint64_t redirected_accepted = 0;
+    std::string redirected_reply;
+    api::StreamSink redirected_sink;
+    redirected_sink.on_failure = [&](const api::SendFailure& failure) {
+        redirected_failure = failure;
+    };
+    redirected_sink.on_accepted = [&](std::uint64_t input) {
+        redirected_accepted = input;
+    };
+    redirected_sink.on_delta = [&](const std::string& delta) {
+        redirected_reply += delta;
+    };
+    client.send_message_streaming(
+        "redirect-local",
+        api::attachments::outgoing("follow this somewhere else", {image.value}),
+        redirected_sink);
+    if (redirected_failure.kind != api::SendFailureKind::Unknown ||
+        redirected_failure.message != "HTTP 307" || redirected_accepted != 0 ||
+        !redirected_reply.empty()) {
+        std::fprintf(stderr,
+                     "307 redirect was not refused: kind=%d message=%s accepted=%llu reply=%s\n",
+                     static_cast<int>(redirected_failure.kind),
+                     redirected_failure.message.c_str(),
+                     static_cast<unsigned long long>(redirected_accepted),
+                     redirected_reply.c_str());
+        return 1;
+    }
     std::filesystem::remove_all(fixture_dir);
 
     const auto fork = client.fork_with_prompt("source-local", "why local?",

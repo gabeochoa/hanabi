@@ -60,6 +60,60 @@ def resume_page(command):
 attachment_received = threading.Event()
 attachment_payload = None
 posted_targets = set()
+redirect_target_port = None
+redirect_target_requests = []
+redirect_source_posts = []
+_redirect_lock = threading.Lock()
+
+
+_redirect_target_stop = threading.Event()
+
+
+def _count_redirect_target(listener):
+    listener.settimeout(0.2)
+    while not _redirect_target_stop.is_set():
+        try:
+            conn, _ = listener.accept()
+        except socket.timeout:
+            continue
+        except OSError:
+            return
+        with conn:
+            request = b""
+            try:
+                conn.settimeout(2)
+                while b"\r\n\r\n" not in request:
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        break
+                    request += chunk
+            except (socket.timeout, OSError):
+                pass
+            line = request.split(b"\r\n", 1)[0].decode(errors="replace")
+            with _redirect_lock:
+                redirect_target_requests.append(line)
+            body = b'{"input_ids":[777]}'
+            try:
+                conn.sendall(
+                    b"HTTP/1.1 202 Accepted\r\n"
+                    + b"Content-Type: application/json\r\n"
+                    + f"Content-Length: {len(body)}\r\n".encode()
+                    + b"Connection: close\r\n\r\n"
+                    + body)
+            except OSError:
+                pass
+
+
+def start_redirect_target():
+    global redirect_target_port
+    target = socket.socket()
+    target.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    target.bind(("127.0.0.1", 0))
+    target.listen(4)
+    redirect_target_port = target.getsockname()[1]
+    thread = threading.Thread(target=_count_redirect_target, args=(target,), daemon=True)
+    thread.start()
+    return target, thread
 
 
 def _dumps(v):
@@ -146,6 +200,18 @@ def _serve(conn):
             require(message.get("apply") == "after_tool_round", message)
             require("idempotency_key" not in message, message)
             files = message.get("attachments", [])
+            if target == "/sessions/redirect-local/messages":
+                require(message.get("text") == "follow this somewhere else", message)
+                require([f.get("name") for f in files] == ["tiny.png"], files)
+                with _redirect_lock:
+                    redirect_source_posts.append(target)
+                location = f"http://127.0.0.1:{redirect_target_port}{target}"
+                conn.sendall(
+                    b"HTTP/1.1 307 Temporary Redirect\r\n"
+                    + f"Location: {location}\r\n".encode()
+                    + b"Content-Length: 0\r\n"
+                    + b"Connection: close\r\n\r\n")
+                return
             if target == "/sessions/reject-local/messages":
                 response = b'{"error":"attachment storage unavailable"}'
                 conn.sendall(
@@ -482,6 +548,15 @@ def _report(served):
         raise SystemExit("no client ever connected")
     if "/sessions/attachment-local/messages" not in posted_targets:
         _thread_errors.append("attachment HTTP route was never called")
+    with _redirect_lock:
+        source_posts = list(redirect_source_posts)
+        target_requests = list(redirect_target_requests)
+    if len(source_posts) != 1:
+        _thread_errors.append(
+            f"redirect source route was POSTed {len(source_posts)} time(s), expected exactly 1")
+    if target_requests:
+        _thread_errors.append(
+            "redirect target received a request:\n" + "\n".join(target_requests))
     for thread in list(_served_threads):
         thread.join(timeout=45)
     for text in _thread_errors:
@@ -507,11 +582,17 @@ def main():
     with open(args.port_file, "w") as out:
         out.write(str(listener.getsockname()[1]))
     listener.settimeout(30)
+    target, target_thread = start_redirect_target()
     served = 0
     try:
         served = _accept_loop(listener)
     except KeyboardInterrupt:
         served = len(_served_threads)
+    _redirect_target_stop.set()
+    target_thread.join(timeout=5)
+    target.close()
+    if target_thread.is_alive():
+        _thread_errors.append("redirect target listener thread did not stop; its count is unverified")
     _report(served)
 
 
