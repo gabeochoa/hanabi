@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "../../vendor/nlohmann/json.hpp"
@@ -54,6 +56,58 @@ struct Clocks {
 inline Clocks carry_held(Clocks fresh, const Clocks* held) {
     if (!fresh.event_ms && held != nullptr && held->event_ms) fresh.event_ms = held->event_ms;
     return fresh;
+}
+
+struct SeededClocks {
+    bool found = false;
+    Clocks clocks;
+    bool operator==(const SeededClocks&) const = default;
+};
+
+inline std::optional<Millis> parse_seed_ms(std::string_view text) {
+    if (text.empty() || text.size() > 19) return std::nullopt;
+    Millis value = 0;
+    for (const char c : text) {
+        if (c < '0' || c > '9') return std::nullopt;
+        if (value > (INT64_MAX - (c - '0')) / 10) return std::nullopt;
+        value = value * 10 + (c - '0');
+    }
+    return value;
+}
+
+inline SeededClocks seeded_clocks_for(std::string_view spec, std::string_view id) {
+    SeededClocks out;
+    while (!spec.empty()) {
+        const auto comma = spec.find(',');
+        const std::string_view item = spec.substr(0, comma);
+        spec = comma == std::string_view::npos ? std::string_view() : spec.substr(comma + 1);
+        const auto c1 = item.find(':');
+        if (c1 == std::string_view::npos || item.substr(0, c1) != id) continue;
+        out.found = true;
+        const std::string_view tail = item.substr(c1 + 1);
+        const auto c2 = tail.find(':');
+        out.clocks.event_ms = parse_seed_ms(tail.substr(0, c2));
+        if (c2 != std::string_view::npos) out.clocks.run_complete_ms = parse_seed_ms(tail.substr(c2 + 1));
+        return out;
+    }
+    return out;
+}
+
+template <typename Row>
+void carry_held_rows(std::vector<Row>& fresh, const std::vector<Row>& held) {
+    std::unordered_map<std::string_view, const Row*> byId;
+    byId.reserve(held.size());
+    for (const Row& h : held) byId.emplace(std::string_view(h.id), &h);
+    if (byId.empty()) return;
+    for (Row& row : fresh) {
+        if (row.last_event_unix_ms) continue;
+        const auto it = byId.find(std::string_view(row.id));
+        if (it == byId.end()) continue;
+        const Clocks heldClocks{it->second->last_event_unix_ms, it->second->last_run_complete_unix_ms};
+        const Clocks carried = carry_held({row.last_event_unix_ms, row.last_run_complete_unix_ms}, &heldClocks);
+        row.last_event_unix_ms = carried.event_ms;
+        row.last_run_complete_unix_ms = carried.run_complete_ms;
+    }
 }
 
 }

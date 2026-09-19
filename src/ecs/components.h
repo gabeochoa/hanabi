@@ -1784,21 +1784,7 @@ struct AppComponent : public afterhours::BaseComponent {
 
     static void carry_held_clocks(std::vector<api::SessionSummary>& fresh,
                                   const std::vector<api::SessionSummary>& held) {
-        for (api::SessionSummary& row : fresh) {
-            if (row.last_event_unix_ms) continue;
-            const api::SessionSummary* was = nullptr;
-            for (const api::SessionSummary& h : held)
-                if (h.id == row.id) {
-                    was = &h;
-                    break;
-                }
-            if (was == nullptr) continue;
-            const api::wire_clock::Clocks heldClocks{was->last_event_unix_ms, was->last_run_complete_unix_ms};
-            const api::wire_clock::Clocks carried = api::wire_clock::carry_held(
-                {row.last_event_unix_ms, row.last_run_complete_unix_ms}, &heldClocks);
-            row.last_event_unix_ms = carried.event_ms;
-            row.last_run_complete_unix_ms = carried.run_complete_ms;
-        }
+        api::wire_clock::carry_held_rows(fresh, held);
     }
 
     // Apply a settled title everywhere it shows: the session list (sidebar

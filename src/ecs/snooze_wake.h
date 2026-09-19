@@ -25,8 +25,9 @@ inline constexpr Verdict kStillParked{State::Active, std::nullopt};
 
 inline constexpr Seconds kLargestSecondsInMillis = INT64_MAX / 1000;
 
-inline std::optional<Millis> seconds_to_ms(Seconds s) {
-    if (s < 0 || s > kLargestSecondsInMillis) return std::nullopt;
+inline Millis seconds_to_ms_saturating(Seconds s) {
+    if (s < 0) return 0;
+    if (s > kLargestSecondsInMillis) return INT64_MAX;
     return s * 1000;
 }
 
@@ -45,7 +46,7 @@ inline bool is_earlier(Millis candidate, std::optional<Millis> current) {
 inline Verdict verdict(Seconds snoozed_until, std::optional<Seconds> snoozed_at, Seconds now_sec,
                        std::optional<Millis> last_run_complete_ms,
                        std::optional<Millis> last_message_ms) {
-    Verdict out = now_sec >= snoozed_until ? Verdict{State::Due, seconds_to_ms(snoozed_until)}
+    Verdict out = now_sec >= snoozed_until ? Verdict{State::Due, seconds_to_ms_saturating(snoozed_until)}
                                            : kStillParked;
     if (const auto message_at = after_snooze_ms(snoozed_at, last_message_ms);
         message_at && is_earlier(*message_at, out.wake_at_ms))
@@ -90,8 +91,8 @@ inline Partition partition(const std::map<std::string, Seconds>& snoozed_until,
         const Verdict v = verdict(until, lookup(snoozed_at, session_id), now_sec,
                                   lookup(last_run_complete_ms, session_id),
                                   lookup(last_message_ms, session_id));
-        if (v.state == State::Active) out.parked.insert(session_id);
-        else if (v.wake_at_ms) out.wake_at_ms[session_id] = *v.wake_at_ms;
+        if (v.wake_at_ms) out.wake_at_ms[session_id] = *v.wake_at_ms;
+        else out.parked.insert(session_id);
     }
     return out;
 }

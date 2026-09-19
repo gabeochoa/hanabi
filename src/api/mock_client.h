@@ -43,6 +43,7 @@
 #include "../ui/model_menu.h"
 #include "compaction.h"
 #include "inbox_state_wire.h"
+#include "wire_clock.h"
 #include "element_rows.h"
 #include "elicitation.h"
 
@@ -113,23 +114,10 @@ class MockClient : public Client {
     static void apply_seeded_row_clocks(SessionSummary& s) {
         const char* v = std::getenv("HANABI_MOCK_ROW_CLOCKS");
         if (v == nullptr || *v == '\0') return;
-        std::string_view rest(v);
-        while (!rest.empty()) {
-            const auto comma = rest.find(',');
-            std::string_view item = rest.substr(0, comma);
-            rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
-            const auto c1 = item.find(':');
-            if (c1 == std::string_view::npos || item.substr(0, c1) != s.id) continue;
-            std::string_view tail = item.substr(c1 + 1);
-            const auto c2 = tail.find(':');
-            const std::string eventText(tail.substr(0, c2));
-            if (!eventText.empty()) s.last_event_unix_ms = std::atoll(eventText.c_str());
-            if (c2 != std::string_view::npos) {
-                const std::string runText(tail.substr(c2 + 1));
-                if (!runText.empty()) s.last_run_complete_unix_ms = std::atoll(runText.c_str());
-            }
-            return;
-        }
+        const wire_clock::SeededClocks seeded = wire_clock::seeded_clocks_for(v, s.id);
+        if (!seeded.found) return;
+        s.last_event_unix_ms = seeded.clocks.event_ms;
+        s.last_run_complete_unix_ms = seeded.clocks.run_complete_ms;
     }
 
     Result<std::vector<SessionSummary>> list_sessions() override {
