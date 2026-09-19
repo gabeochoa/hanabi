@@ -254,28 +254,28 @@ SUP="$ROOT/scripts/lib/supervise.py"
 # record, never from the supervisor's rc.
 CLS="$ROOT/scripts/lib/classify_record.py"
 printf '%s' '{"token":"planted:x:1:1","ownership":"established","exit_status":0,"reap_timed_out":true,"cleanup":"none observed"}' > "$T/rec_rt.json"
-check "8. classifier: a passed fixture whose reap timed out is UNSUPERVISED and uncertain, not a pass" '[ "$("$PY3" -I "$CLS" "$T/rec_rt.json" planted:x:1:1 | cut -d" " -f1,3)" = "unsupervised uncertain" ]'
+check "8. classifier: a passed fixture whose reap timed out is UNSUPERVISED and uncertain, not a pass" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_rt.json" planted:x:1:1) $("$PY3" -I "$CLS" --field cleanup "$T/rec_rt.json" planted:x:1:1)" = "unsupervised uncertain" ]'
 printf '%s' '{not json' > "$T/rec_bad.json"
-check "8. classifier: a malformed record is UNSUPERVISED and uncertain" '[ "$("$PY3" -I "$CLS" "$T/rec_bad.json" planted:x:1:1 | cut -d" " -f1,2,3)" = "unsupervised no_record uncertain" ]'
-check "8. classifier: an absent record is UNSUPERVISED and uncertain" '[ "$("$PY3" -I "$CLS" "$T/does-not-exist.json" planted:x:1:1 | cut -d" " -f1,3)" = "unsupervised uncertain" ]'
+check "8. classifier: a malformed record is UNSUPERVISED and uncertain" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_bad.json" planted:x:1:1) $("$PY3" -I "$CLS" --field reason "$T/rec_bad.json" planted:x:1:1) $("$PY3" -I "$CLS" --field cleanup "$T/rec_bad.json" planted:x:1:1)" = "unsupervised no_record uncertain" ]'
+check "8. classifier: an absent record is UNSUPERVISED and uncertain" '[ "$("$PY3" -I "$CLS" --field result "$T/does-not-exist.json" planted:x:1:1) $("$PY3" -I "$CLS" --field cleanup "$T/does-not-exist.json" planted:x:1:1)" = "unsupervised uncertain" ]'
 printf '%s' '{"token":"planted:x:1:1","ownership":"unestablished","exit_status":null}' > "$T/rec_un.json"
-check "8. classifier: ownership unestablished is UNSUPERVISED" '[ "$("$PY3" -I "$CLS" "$T/rec_un.json" planted:x:1:1 | cut -d" " -f1)" = unsupervised ]'
+check "8. classifier: ownership unestablished is UNSUPERVISED" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_un.json" planted:x:1:1)" = unsupervised ]'
 printf '%s' '{"token":"planted:x:1:1","ownership":"established","wall_hit":true,"exit_status":null,"term_signal":15,"cleanup":"none observed"}' > "$T/rec_wall.json"
-check "8. classifier: wall hit is TIMEOUT even though the child died of a signal" '[ "$("$PY3" -I "$CLS" "$T/rec_wall.json" planted:x:1:1 | cut -d" " -f1,3)" = "timeout certain" ]'
+check "8. classifier: wall hit is TIMEOUT even though the child died of a signal" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_wall.json" planted:x:1:1) $("$PY3" -I "$CLS" --field cleanup "$T/rec_wall.json" planted:x:1:1)" = "timeout certain" ]'
 printf '%s' '{"token":"planted:x:1:1","ownership":"established","interrupted":true,"exit_status":null,"term_signal":15,"cleanup":"none observed"}' > "$T/rec_int.json"
-check "8. classifier: supervisor interrupted is ABORTED" '[ "$("$PY3" -I "$CLS" "$T/rec_int.json" planted:x:1:1 | cut -d" " -f1)" = aborted ]'
+check "8. classifier: supervisor interrupted is ABORTED" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_int.json" planted:x:1:1)" = aborted ]'
 printf '%s' '{"token":"planted:x:1:1","ownership":"established","exit_status":null,"term_signal":11,"cleanup":"none observed"}' > "$T/rec_sig.json"
-check "8. classifier: a child killed by a signal is FAIL with the signal named" '[ "$("$PY3" -I "$CLS" "$T/rec_sig.json" planted:x:1:1 | cut -d" " -f1,2,3)" = "fail signal 11" ]'
+check "8. classifier: a child killed by a signal is FAIL with the signal named" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_sig.json" planted:x:1:1) $("$PY3" -I "$CLS" --field reason "$T/rec_sig.json" planted:x:1:1)" = "fail signal 11" ]'
 printf '%s' '{"token":"planted:x:1:1","ownership":"established","exit_status":5,"cleanup":"uncertain","left_in_group":[7]}' > "$T/rec_f.json"
-check "8. classifier: exit 5 is FAIL, and a non-empty leftover is uncertain" '[ "$("$PY3" -I "$CLS" "$T/rec_f.json" planted:x:1:1 | cut -d" " -f1,4)" = "fail 0" ] && [ "$("$PY3" -I "$CLS" "$T/rec_f.json" planted:x:1:1 | cut -d" " -f3)" = uncertain ]'
+check "8. classifier: exit 5 is FAIL, and a non-empty leftover is uncertain" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_f.json" planted:x:1:1) $("$PY3" -I "$CLS" --field reason "$T/rec_f.json" planted:x:1:1) $("$PY3" -I "$CLS" --field cleanup "$T/rec_f.json" planted:x:1:1)" = "fail exit 5 uncertain" ]'
 printf '%s' '{"token":"planted:x:1:1","ownership":"established","exit_status":0,"cleanup":"none observed","root_pid":4242}' > "$T/rec_ok.json"
-check "8. classifier: exit 0 with nothing observed is PASS, certain, root pid carried" '[ "$("$PY3" -I "$CLS" "$T/rec_ok.json" planted:x:1:1 | cut -d" " -f1,3,4)" = "pass certain 4242" ]'
+check "8. classifier: exit 0 with nothing observed is PASS, certain, root pid carried" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_ok.json" planted:x:1:1) $("$PY3" -I "$CLS" --field reason "$T/rec_ok.json" planted:x:1:1) $("$PY3" -I "$CLS" --field cleanup "$T/rec_ok.json" planted:x:1:1) $("$PY3" -I "$CLS" --field root_pid "$T/rec_ok.json" planted:x:1:1)" = "pass exit 0 certain 4242" ]'
 # Stale-record arms through the CLI: a PASS record carrying another
 # invocation's token, and a truncated one, both fail closed.
 printf '%s' '{"token":"old-run:x:1:1","ownership":"established","exit_status":0,"cleanup":"none observed","observer":"ok"}' > "$T/rec_stale.json"
-check "8. classifier: a PASS record with a foreign token is UNSUPERVISED token_mismatch, uncertain" '[ "$("$PY3" -I "$CLS" "$T/rec_stale.json" "this-run:x:2:2" | cut -d" " -f1,2,3)" = "unsupervised token_mismatch uncertain" ]'
+check "8. classifier: a PASS record with a foreign token is UNSUPERVISED token_mismatch, uncertain" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_stale.json" this-run:x:2:2) $("$PY3" -I "$CLS" --field reason "$T/rec_stale.json" this-run:x:2:2) $("$PY3" -I "$CLS" --field cleanup "$T/rec_stale.json" this-run:x:2:2)" = "unsupervised token_mismatch uncertain" ]'
 printf '%s' '{"token":"this-run:x:2:2","ownership":"established","exit_st' > "$T/rec_trunc.json"
-check "8. classifier: a truncated record is UNSUPERVISED no_record" '[ "$("$PY3" -I "$CLS" "$T/rec_trunc.json" "this-run:x:2:2" | cut -d" " -f1,2)" = "unsupervised no_record" ]'
+check "8. classifier: a truncated record is UNSUPERVISED no_record" '[ "$("$PY3" -I "$CLS" --field result "$T/rec_trunc.json" this-run:x:2:2) $("$PY3" -I "$CLS" --field reason "$T/rec_trunc.json" this-run:x:2:2)" = "unsupervised no_record" ]'
 # The isolated classifier unit (dicts only; no shell, no process).
 if "$PY3" "$ROOT/tests/runner_policy/test_classify_record.py" >"$T/cls_unit.txt" 2>&1; then
     ok "8. classify_record unit passed (see its own labels)"; sed 's/^/      /' "$T/cls_unit.txt"
@@ -294,6 +294,9 @@ check "8. every script record's supervisor token is this run's (RUN_ID prefix), 
 check "8. the failing child (exit 3) classifies as FAIL from the record, reason exit 3" 'grep -q "\"result\":\"fail\",\"reason\":\"exit 3\"" "$T/man8s"'
 check "8. invariant: one launch line: python -I supervise.py … -- env -u <the three policy vars> …; nothing else backgrounds the binary" '[ "$(grep -c "\"\$PYTHON3\" -I \"\$SUPERVISE\" --wall" "$RUNNER")" = 1 ] && grep -A1 "\"\$SUPERVISE\" --wall" "$RUNNER" | grep -q "env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY" && ! grep -qE "exec env .*\"\$EXE\"" "$RUNNER"'
 check "8. invariant: the runner has no kill-by-name, no pgrep, no pid reaper" '! grep -qE "pkill|pgrep|reap_pid|ACTIVE_PIDS|reaper" "$RUNNER"'
+check "8. invariant: the runner sends no signal to a pid number (kill -0 probes only)" '! grep -E "^[[:space:]]*kill( -[A-Za-z0-9]+)? " "$RUNNER" | grep -qv "kill -0"'
+check "8. invariant: this suite sends no signal to a pid number either" '! grep -E "^[[:space:]]*kill( -[A-Za-z0-9]+)? " "$0" | grep -qv "kill -0"'
+check "8. invariant: the runner reads every classifier field through --field, never by splitting its output" '[ "$(grep -c "classify_record.py\" --field" "$RUNNER")" = 5 ] && ! grep -q "verdict%% " "$RUNNER"'
 check "8. invariant: the runner derives result from the record (classify_record.py), not from an rc ladder" 'grep -q "classify_record.py" "$RUNNER" && ! grep -qE "rc.* -eq 124.*result=timeout|result=timeout$" "$RUNNER"'
 check "8. invariant: the runner clears the record path before launch, mints a token and passes it to both supervisor and classifier" 'grep -q "rm -f \"\$record\" \"\$record.tmp\"" "$RUNNER" && grep -q "\-\-token \"\$token\"" "$RUNNER" && grep -q "classify_record.py\" \"\$record\" \"\$token\"" "$RUNNER"'
 check "8. invariant: the supervisor writes its record atomically (tmp + os.replace) with the token first" 'grep -q "os.replace(tmp, path)" "$SUP" && grep -q "\"token\": token" "$SUP"'
@@ -308,6 +311,7 @@ mk_fixtures "$T/done"
 rm "$T/done/windowed_one.e2e"
 rc="$(run_runner "$T/done" "$T/rec8d" "$T/man8d")"
 check "8. a completed launch: run exits 0, its record says none observed, the cleanup record counts 0 uncertain" '[ "$rc" = 0 ] && grep -q "\"cleanup\": \"none observed\"" "$T/man8d" && grep -q "\"record\":\"cleanup\",\"supervisors_at_exit\":0,\"uncertain_cleanups\":0" "$T/man8d"'
+check "8. every manifest line of that run is valid JSON, its pass reason is whole (\"exit 0\"), and the cleanup record joined nothing and sent no signal" '"$PY3" -c "import json,sys; [json.loads(l) for l in open(sys.argv[1]) if l.strip()]" "$T/man8d" && grep -q "\"result\":\"pass\",\"reason\":\"exit 0\"" "$T/man8d" && grep -q "\"supervisors_at_exit\":0,\"supervisors_joined\":0,\"signals_sent\":0" "$T/man8d"'
 # (iii) status preserved through cleanup: a failing last script exits 1 and
 # cleanup reaped nothing.
 rc="$(run_runner "$T/done" "$T/rec8e" "$T/man8e" HANABI_STUB_EXIT=5)"

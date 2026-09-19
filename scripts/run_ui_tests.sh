@@ -184,17 +184,22 @@ if [ "$(uname -s)" = "Darwin" ]; then PYTHON3=/usr/bin/python3; else PYTHON3="$(
 SUPERVISOR_PIDS=()   # supervisors still in flight; each is our direct child
 UNCERTAIN_CLEANUPS=0
 cleanup() {
-    # The runner's own death: tell each in-flight supervisor to tear down
-    # (it takes TERM -> grace -> KILL -> wait on its group) and join it.
-    local p
+    # The runner's own death: JOIN each in-flight supervisor, nothing more.
+    # No signal is ever sent to a pid number -- bash may already have reaped
+    # the child and the number may belong to someone else. The supervisor's
+    # own wall clock (+ grace + its ps timeouts) bounds how long the join can
+    # take; `wait` collects an already-reaped child's status from bash's
+    # table without touching any process. A supervisor still in flight here
+    # is a script whose record was never classified: counted uncertain.
+    local p joined=0
     for p in ${SUPERVISOR_PIDS[@]+"${SUPERVISOR_PIDS[@]}"}; do
-        kill -0 "$p" 2>/dev/null || continue
-        kill -TERM "$p" 2>/dev/null   # our direct, un-waited child: the pid is ours
         wait "$p" 2>/dev/null
+        joined=$((joined + 1))
     done
+    UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + ${#SUPERVISOR_PIDS[@]}))
     [ -n "${MANIFEST:-}" ] && [ -f "$MANIFEST" ] && \
-        printf '{"run_id":"%s","record":"cleanup","supervisors_at_exit":%s,"uncertain_cleanups":%s}\n' \
-            "${RUN_ID:-}" "${#SUPERVISOR_PIDS[@]}" "$UNCERTAIN_CLEANUPS" >> "$MANIFEST"
+        printf '{"run_id":"%s","record":"cleanup","supervisors_at_exit":%s,"supervisors_joined":%s,"signals_sent":0,"uncertain_cleanups":%s}\n' \
+            "${RUN_ID:-}" "${#SUPERVISOR_PIDS[@]}" "$joined" "$UNCERTAIN_CLEANUPS" >> "$MANIFEST"
     if [ "$UNCERTAIN_CLEANUPS" -eq 0 ]; then
         echo "  cleanup: uncertain=0 (every supervisor observed its group empty and no escaped process OBSERVED; a process outside the session is invisible to the group, by construction)"
     else
@@ -380,11 +385,15 @@ for s in "${SCRIPTS[@]}"; do
     # -> unsupervised, uncertain. wall_hit -> timeout. interrupted -> aborted.
     # Else the child's exit_status (0 pass, else fail) or its term_signal
     # (fail, signal named). Cleanup uncertain unless "none observed".
-    verdict="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" "$record" "$token")"
-    result="${verdict%% *}"; rest="${verdict#* }"
-    why="${rest%% *}"; rest="${rest#* }"
-    cleanup_state="${rest%% *}"; rest="${rest#* }"
-    pid="${rest%% *}"; sup_json="${rest#* }"
+    # Read each field from the classifier itself (--field): a reason such as
+    # "exit 0" or "signal 11" contains a space, so nothing is split in bash.
+    result="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" --field result "$record" "$token")"
+    why="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" --field reason "$record" "$token")"
+    cleanup_state="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" --field cleanup "$record" "$token")"
+    pid="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" --field root_pid "$record" "$token")"
+    sup_json="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" --field record "$record" "$token")"
+    case "$pid" in ''|*[!0-9]*) pid=0 ;; esac
+    [ -n "$sup_json" ] || sup_json='{"cleanup":"uncertain","ownership":"no_record"}'
     [ "$cleanup_state" = "certain" ] || UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1))
 
     # OBSERVED mode, cross-checked against the effective one: "Gfx init:" is

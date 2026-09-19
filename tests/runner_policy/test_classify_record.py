@@ -66,6 +66,34 @@ del old["token"]
 check(classify(old, TOKEN) == ("unsupervised", "token_mismatch", "uncertain"), "a record with no token is token_mismatch")
 check(classify(est(exit_status=0), None) == ("pass", "exit 0", "certain"), "with no expected token the token is not checked")
 
+# The CLI protocol: one JSON object; --field prints one value; a reason with a
+# space ("exit 0") is one value, never split.
+import io, json, os, tempfile, contextlib
+from classify_record import main
+with tempfile.TemporaryDirectory() as d:
+    p = os.path.join(d, "rec.json")
+    with open(p, "w") as f:
+        json.dump(est(exit_status=0, root_pid=4242), f)
+    def run(*argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["classify_record.py"] + list(argv))
+        return rc, buf.getvalue().rstrip("\n")
+    rc, out = run(p, TOKEN)
+    v = json.loads(out)
+    check(rc == 0 and out.count("\n") == 0, "CLI prints one line")
+    check([v[k] for k in ("result", "reason", "cleanup", "root_pid")] == ["pass", "exit 0", "certain", 4242],
+          "CLI object carries result, the whole reason, cleanup and root pid")
+    check(v["record"].get("exit_status") == 0, "CLI object carries the record as read")
+    check(run("--field", "reason", p, TOKEN) == (0, "exit 0"), "--field reason prints the whole reason")
+    check(run("--field", "root_pid", p, TOKEN) == (0, "4242"), "--field root_pid prints the pid")
+    check(json.loads(run("--field", "record", p, TOKEN)[1]).get("root_pid") == 4242, "--field record prints the record json")
+    rc, out = run(os.path.join(d, "absent.json"), TOKEN)
+    v = json.loads(out)
+    check([v[k] for k in ("result", "reason", "cleanup", "root_pid")] == ["unsupervised", "no_record", "uncertain", 0],
+          "CLI absent record: unsupervised no_record uncertain, pid 0")
+    check(run("--field", "bogus", p, TOKEN)[0] == 64, "--field with an unknown name is refused (64)")
+
 if failures:
     print("%d failure(s)" % failures)
     sys.exit(1)

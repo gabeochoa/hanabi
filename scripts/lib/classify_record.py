@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """The script's outcome, from the supervisor's VALIDATED record -- never from
-the supervisor's exit code. One line on stdout:
+the supervisor's exit code. One JSON object on one line -- a reason may
+contain spaces ("exit 0", "signal 11"), so nothing here is ever split on
+whitespace:
 
-    <result> <reason> <certain|uncertain> <root_pid> <record json>
+    {"result": ..., "reason": ..., "cleanup": "certain"|"uncertain",
+     "root_pid": <int>, "record": <the record as read, or a no_record stub>}
 
-usage: classify_record.py <record path> [<expected token>]
+usage: classify_record.py [--field result|reason|cleanup|root_pid|record]
+                          <record path> [<expected token>]
+--field prints that one value alone (record as JSON), for a caller that
+wants no parsing at all.
 
 absent / malformed / no `ownership` -> unsupervised no_record uncertain;
 token expected and absent or different -> unsupervised token_mismatch;
@@ -39,20 +45,45 @@ def classify(rec, token=None):
     return "fail", "exit " + str(rec.get("exit_status")), cleanup
 
 
-def main(argv):
-    token = argv[2] if len(argv) > 2 else None
+FIELDS = ("result", "reason", "cleanup", "root_pid", "record")
+
+
+def verdict(path, token=None):
     try:
-        with open(argv[1]) as f:
+        with open(path) as f:
             rec = json.load(f)
-    except (OSError, ValueError, IndexError):
+    except (OSError, ValueError):
         rec = {"cleanup": "uncertain", "ownership": "no_record"}
         result, why, cleanup = "unsupervised", "no_record", "uncertain"
-        print(result, why, cleanup, 0, json.dumps(rec, sort_keys=True))
-        return 0
-    result, why, cleanup = classify(rec, token)
-    if not isinstance(rec, dict):
-        rec = {"cleanup": "uncertain", "ownership": "no_record"}
-    print(result, why, cleanup, int(rec.get("root_pid") or 0), json.dumps(rec, sort_keys=True))
+    else:
+        result, why, cleanup = classify(rec, token)
+        if not isinstance(rec, dict):
+            rec = {"cleanup": "uncertain", "ownership": "no_record"}
+    root_pid = rec.get("root_pid") if isinstance(rec, dict) else 0
+    if not isinstance(root_pid, int):
+        root_pid = 0
+    return {"result": result, "reason": why, "cleanup": cleanup, "root_pid": root_pid, "record": rec}
+
+
+def main(argv):
+    args = list(argv[1:])
+    field = None
+    if len(args) >= 2 and args[0] == "--field":
+        field = args[1]
+        if field not in FIELDS:
+            sys.stderr.write("classify_record.py: unknown --field %r\n" % field)
+            return 64
+        args = args[2:]
+    if not args:
+        sys.stderr.write("usage: classify_record.py [--field NAME] <record path> [<expected token>]\n")
+        return 64
+    v = verdict(args[0], args[1] if len(args) > 1 else None)
+    if field is None:
+        print(json.dumps(v, sort_keys=True))
+    elif field == "record":
+        print(json.dumps(v["record"], sort_keys=True))
+    else:
+        print(v[field])
     return 0
 
 
