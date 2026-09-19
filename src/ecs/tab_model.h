@@ -389,9 +389,7 @@ enum class CloseIntent { Aimed, Forced };
 enum class CloseOutcome { Closed, Refused, Absent };
 
 inline bool tab_host_is_key() {
-#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
-    if (!hanabi_native_has_window()) return true;
-#endif
+    if (hanabi::ui_clock::headless_run()) return true;
     return hanabi_native_tab_host_is_key() != 0;
 }
 

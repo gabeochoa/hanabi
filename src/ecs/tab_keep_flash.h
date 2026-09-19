@@ -31,12 +31,6 @@ inline float ease_in_out(float t) {
     return 1.0f - 2.0f * u * u;
 }
 
-inline float ease_in_out_inverse(float p) {
-    p = std::clamp(p, 0.0f, 1.0f);
-    if (p < 0.5f) return std::sqrt(p * 0.5f);
-    return 1.0f - std::sqrt((1.0f - p) * 0.5f);
-}
-
 inline float scale_for(const Mark& m) {
     if (!m.animated) return 1.0f;
     return 1.0f + (kLitScale - 1.0f) * m.progress;
@@ -51,16 +45,15 @@ class Store {
     bool refuse_close(const std::string& tabId, bool pinned, Seconds now, bool reduceMotion) {
         if (!pinned) return false;
         sweep(now);
-        Seconds start = now;
+        float from = 0.0f;
         if (const auto fading = fading_.find(tabId); fading != fading_.end()) {
-            const float shown = 1.0f - ease_in_out(static_cast<float>((now - fading->second) / kTransition));
-            start = now - static_cast<Seconds>(ease_in_out_inverse(shown)) * kTransition;
+            from = fading->second.at(now);
             fading_.erase(fading);
         }
         Entry& e = entries_[tabId];
         if (!e.lit) {
             e.lit = true;
-            e.lit_at = start;
+            e.rise = Segment{from, 1.0f, now};
             ++generation_;
         }
         e.until = now + (reduceMotion ? kHoldReducedMotion : kHold);
@@ -71,18 +64,17 @@ class Store {
         sweep(now);
         if (const auto it = entries_.find(tabId); it != entries_.end()) {
             if (reduceMotion) return Mark{true, false, 1.0f};
-            return Mark{true, true, ease_in_out(static_cast<float>((now - it->second.lit_at) / kTransition))};
+            return Mark{true, true, it->second.rise.at(now)};
         }
         const auto fading = fading_.find(tabId);
         if (fading == fading_.end() || reduceMotion) return Mark{false, !reduceMotion, 0.0f};
-        const float t = static_cast<float>((now - fading->second) / kTransition);
-        return Mark{false, true, 1.0f - ease_in_out(t)};
+        return Mark{false, true, fading->second.at(now)};
     }
 
     void sweep(Seconds now) {
         for (auto it = entries_.begin(); it != entries_.end();) {
             if (now >= it->second.until) {
-                fading_[it->first] = it->second.until;
+                fading_[it->first] = Segment{it->second.rise.at(it->second.until), 0.0f, it->second.until};
                 it = entries_.erase(it);
                 ++generation_;
             } else {
@@ -90,7 +82,7 @@ class Store {
             }
         }
         for (auto it = fading_.begin(); it != fading_.end();) {
-            if (now >= it->second + kTransition) it = fading_.erase(it);
+            if (now >= it->second.started + kTransition) it = fading_.erase(it);
             else ++it;
         }
     }
@@ -106,13 +98,21 @@ class Store {
     std::uint64_t generation() const { return generation_; }
 
    private:
+    struct Segment {
+        float from = 0.0f;
+        float to = 1.0f;
+        Seconds started = 0;
+        float at(Seconds now) const {
+            return from + (to - from) * ease_in_out(static_cast<float>((now - started) / kTransition));
+        }
+    };
     struct Entry {
         bool lit = false;
-        Seconds lit_at = 0;
+        Segment rise;
         Seconds until = 0;
     };
     std::unordered_map<std::string, Entry> entries_;
-    std::unordered_map<std::string, Seconds> fading_;
+    std::unordered_map<std::string, Segment> fading_;
     std::uint64_t generation_ = 0;
 };
 

@@ -29,6 +29,7 @@
 #include "menubar.h"
 #include "native_extras.h"
 #include "ui/appearance_sink.h"
+#include "ecs/ui_clock.h"
 #include "preload.h"
 #include "rl.h"
 #include "settings.h"
@@ -2067,6 +2068,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
     // A capture has nobody in front of it, so a clicked link must not reach a
     // browser (see src/ui/link_detect.h).
     hanabi::links::headless() = true;
+    hanabi::ui_clock::headless_run() = true;
 
     // NOTE on hi-DPI: the WINDOWED app already runs high_dpi=true, so the real
     // window is crisp on Retina. This HEADLESS capture path renders into a
@@ -2727,6 +2729,7 @@ static int run_e2e(const std::string& path, int w, int h) {
     // Same reason as the capture path: a scripted click on a tracker id must
     // stay inside this process.
     hanabi::links::headless() = true;
+    hanabi::ui_clock::headless_run() = true;
 
     graphics::Config gcfg{};
     gcfg.display = graphics::DisplayMode::Headless;

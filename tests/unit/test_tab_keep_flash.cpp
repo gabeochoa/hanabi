@@ -59,10 +59,27 @@ static void test_a_relight_during_the_fade_continues_from_the_shown_progress() {
     const kf::Mark after = s.mark("a", 10.30, false);
     CHECK(after.lit && !s.fading("a") && near(after.progress, before.progress));
     CHECK(s.mark("a", 10.33, false).progress > after.progress);
-    CHECK(near(s.mark("a", 10.36, false).progress, 1.0f));
+    CHECK(near(s.mark("a", 10.36, false).progress, 0.5f + 0.5f * kf::ease_in_out(0.5f)));
+    CHECK(near(s.mark("a", 10.42, false).progress, 1.0f));
     CHECK(s.mark("a", 10.53, false).lit && !s.mark("a", 10.541, false).lit);
-    for (const float p : {0.1f, 0.25f, 0.5f, 0.75f, 0.9f})
-        CHECK(near(kf::ease_in_out(kf::ease_in_out_inverse(p)), p));
+    const kf::Mark fadeStart = s.mark("a", 10.541, false);
+    CHECK(!fadeStart.lit && near(fadeStart.progress, 1.0f));
+    CHECK(near(s.mark("a", 10.60, false).progress, 0.5f));
+}
+
+static void test_a_fade_cut_short_by_expiry_fades_from_where_it_was() {
+    kf::Store s;
+    s.refuse_close("a", true, 10.0, false);
+    s.refuse_close("a", true, 10.0, false);
+    s.sweep(10.24);
+    CHECK(s.fading("a") && near(s.mark("a", 10.24, false).progress, 1.0f));
+    s.refuse_close("b", true, 20.0, false);
+    CHECK(near(s.mark("b", 20.06, false).progress, 0.5f));
+    s.refuse_close("c", true, 30.0, false);
+    s.sweep(30.24);
+    s.refuse_close("c", true, 30.30, false);
+    s.sweep(30.30 + 0.24);
+    CHECK(near(s.mark("c", 30.54, false).progress, 1.0f));
 }
 
 static void test_a_relight_during_the_fade_clears_the_fade_and_sweep_retires_it() {
@@ -147,6 +164,7 @@ int main() {
     test_a_refused_pinned_tab_lights_for_the_hold_then_rests();
     test_reduce_motion_holds_longer_and_never_animates();
     test_a_relight_during_the_fade_continues_from_the_shown_progress();
+    test_a_fade_cut_short_by_expiry_fades_from_where_it_was();
     test_a_relight_during_the_fade_clears_the_fade_and_sweep_retires_it();
     test_two_tabs_do_not_share_generation_or_fade();
     test_reduce_motion_is_read_at_mark_as_well_as_at_refusal();

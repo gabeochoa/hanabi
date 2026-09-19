@@ -35,6 +35,11 @@ inline double now_seconds() {
            test_offset_seconds();
 }
 
+inline bool& headless_run() {
+    static bool v = false;
+    return v;
+}
+
 inline std::optional<bool>& reduce_motion_override() {
     static std::optional<bool> value;
     return value;
