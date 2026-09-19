@@ -1,0 +1,26 @@
+# The tab menu carries the same Snooze submenu after Mute; picking a preset
+# writes the snooze for the menu's tab while the tab stays open and the
+# other pane's draft focus is untouched; the tab menu then reads
+# "Snoozed until <due>".
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+click_ui composer_reply_input
+expect_focused composer_reply_input
+right_click_ui tab_t9
+wait_frames 8
+expect_text "Snooze"
+click_ui tab_menu_snooze
+wait_frames 6
+expect_text "Tomorrow Morning — tomorrow, 8:00 AM"
+click_ui tab_menu_snooze_tomorrow_8am
+wait_frames 12
+assert_ui tab_t9 hidden=false
+expect_open t2
+expect_text "kicker-tick"
+right_click_ui tab_t9
+wait_frames 8
+expect_text "Snoozed until tomorrow, 8:00 AM"
+key ESCAPE
+wait_frames 4
+expect_focused composer_reply_input

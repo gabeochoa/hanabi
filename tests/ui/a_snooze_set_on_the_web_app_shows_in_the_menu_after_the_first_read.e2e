@@ -1,0 +1,22 @@
+# The inbox state is read beside the catalog: a thread the web app already
+# holds a snooze for (seeded an hour ahead of the pinned clock) shows
+# "Snoozed until <due>" in its row menu without any local act; a thread
+# whose snooze is already past due shows Snooze again (the model says it
+# woke), and nothing in the list moved.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SNOOZES=t6:1781528400:1781524740,t7:1781524740:1781520000
+wait_frames 20
+expect_text "SKU backfill — my name for it"
+expect_text "coordinating 3 shard workers"
+mouse_move 120 475
+wait_frames 3
+right_click 120 475
+wait_frames 8
+expect_text "Snoozed until 1:00 PM"
+key ESCAPE
+wait_frames 4
+right_click_ui chat_row_id_t7
+wait_frames 8
+expect_text "Snooze"
+expect_no_text "Snoozed until"
+key ESCAPE

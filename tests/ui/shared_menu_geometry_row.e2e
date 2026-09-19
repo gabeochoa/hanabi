@@ -5,14 +5,14 @@ right_click 120 400
 wait_frames 8
 
 expect_text "CONVERSATION"
-# 594 tall now (Open, Open & Pin, a divider, Open in Split, a divider added
+# 630 tall now (Snooze after Mute, +36; before that 594: Open, Open & Pin, a divider, Open in Split, a divider added
 # to the 396 of the grouped menu; then Copy Deeplink beside Copy Weblink,
 # two rows always, +36; then Pin before Mute, +36; then Export to Clipboard
 # in its own group, +36 +9) -- taller than the room below a click at
 # y=400 in a 760 window, so the menu is clamped upward and every row's y
 # moves with it; the rows are pinned by x/w/h and order, their y's by the
 # runtime dump once the primary reads them.
-assert_ui row_menu x=120 w=184 h=594
+assert_ui row_menu x=120 w=184 h=630
 assert_ui row_menu_eater w=1100 h=760
 assert_ui row_menu_title h=28
 assert_ui row_menu_open x=124 w=176 h=36
@@ -29,6 +29,7 @@ assert_ui row_menu_export_clipboard w=176 h=36
 assert_ui row_menu_divider_export w=176 h=9
 assert_ui row_menu_pin w=176 h=36
 assert_ui row_menu_mute w=176 h=36
+assert_ui row_menu_snooze w=176 h=36
 assert_ui row_menu_archive w=176 h=36
 
 # No submenu on this menu any more: Open, Open & Pin and Open in Split are

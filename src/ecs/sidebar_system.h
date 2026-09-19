@@ -36,6 +36,8 @@
 #include "../version.h"
 #include "../util/ellipsize.h"
 #include "../util/format.h"
+#include "../ui/snooze_menu.h"
+#include "../util/capture_clock.h"
 #include "../util/prof.h"
 #include "../util/text_cache.h"
 #include "../util/text_epoch.h"
@@ -798,6 +800,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             OpenWeb,
             Archive,
             Mute,
+            Snooze,
             ResetOrder,
             Halt,
             HaltSubtree,
@@ -873,6 +876,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             target->starred ? "unpin" : "pin");
         add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute,
             target->muted ? "unmute" : "mute");
+        if (app.client && app.client->supports_inbox_state()) {
+            const auto snoozed = app.snooze_of(target->id);
+            items.push_back(hanabi::snooze_menu::to_menu_item<hanabi::surface::MenuItem, hanabi::surface::MenuLeaf>(hanabi::snooze_menu::item(
+                snoozed ? std::optional<std::int64_t>(snoozed->snoozed_until) : std::nullopt,
+                capture_clock::inbox_now(), "row_menu_snooze",
+                !app.snooze_available() || app.snoozes.pending(target->id))));
+            actions.push_back(Action::Snooze);
+        }
         divider("row_menu_divider_mute");
         const bool archivedNow = model::is_archived(*target);
         add(archivedNow ? "Unarchive" : "Archive", "row_menu_archive", Action::Archive,
@@ -915,7 +926,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             result = hanabi::surface::native_menu_frame(ctx, uiRoot, 8890, "row_menu",
                                                         app.nativeRowMenu, scope);
             if (result.activated != hanabi::surface::kNoMenuRow)
-                pickedAction = app.nativeRowMenu.action_of(result.activated);
+                pickedAction = app.nativeRowMenu.action_of(result.activated, result.activated_child);
         } else {
             result = hanabi::surface::context_menu(
                 ctx, uiRoot, 8890, metrics, app.rowMenuX, app.rowMenuY,
@@ -924,7 +935,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 subOverlay != nullptr ? std::string_view(subOverlay)
                                       : std::string_view());
             if (result.activated != hanabi::surface::kNoMenuRow)
-                pickedAction = items[result.activated].action_id;
+                pickedAction = result.activated_action.empty() ? items[result.activated].action_id
+                                                               : result.activated_action;
         }
 
         if (result.activated != hanabi::surface::kNoMenuRow) {
@@ -933,8 +945,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // toggle whose direction no longer matches the target's state is
             // absent from this frame's items and so is refused, not inverted.
             std::size_t row = hanabi::surface::kNoMenuRow;
-            for (std::size_t i = 0; i < items.size(); ++i)
-                if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (pickedAction.empty()) break;
+                if (items[i].action_id == pickedAction) row = i;
+                for (const hanabi::surface::MenuLeaf& leaf : items[i].children)
+                    if (!leaf.disabled && leaf.action_id == pickedAction) row = i;
+            }
             if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
                 if (!app.nativeRowMenu.open())
                 hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
@@ -1007,6 +1023,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::Mute:
                     app.requestToggleMute = targetId;
+                    break;
+                case Action::Snooze:
+                    if (const auto pick = hanabi::snooze_menu::parse(pickedAction)) {
+                        AppComponent::SnoozeRequest req;
+                        req.sessionId = targetId;
+                        req.until = pick->until;
+                        app.requestSnooze = req;
+                    }
                     break;
                 case Action::ResetOrder:
                     app.requestResetRowOrder = orderKey;

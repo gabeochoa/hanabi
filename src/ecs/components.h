@@ -30,6 +30,7 @@
 #include "ask_card.h"
 #include "composer_escape.h"
 #include "focus_routing.h"
+#include "inbox_sync_store.h"
 #include "transcript_cache.h"
 #include "transcript_ledger.h"
 
@@ -569,6 +570,29 @@ struct AppComponent : public afterhours::BaseComponent {
     // Request to silence (or un-silence) a thread on this machine. Same
     // one-writer arrangement as the star: the sidebar owns the sessions vector.
     std::string requestToggleMute;
+
+    struct SnoozeRequest {
+        std::string sessionId;
+        std::optional<std::int64_t> until;
+    };
+    std::optional<SnoozeRequest> requestSnooze;
+    hanabi::inbox_sync::Store snoozes;
+    std::uint64_t snoozeClientGeneration = 1;
+    bool inboxReadPending = false;
+    hanabi::inbox_sync::Store::ReadTicket inboxReadTicket;
+    std::future<api::Result<api::InboxStateRead>> inboxReadFuture;
+    struct SnoozeWrite {
+        hanabi::inbox_sync::Intent intent;
+        std::future<api::Result<api::InboxStateWrite>> future;
+    };
+    std::vector<SnoozeWrite> snoozeWrites;
+
+    [[nodiscard]] bool snooze_available() const {
+        return client && client->supports_inbox_state() && snoozes.synced();
+    }
+    [[nodiscard]] std::optional<hanabi::inbox_sync::Entry> snooze_of(const std::string& id) const {
+        return snoozes.get(id);
+    }
 
     // ==== Sidebar manual row order (drag-to-reorder) ======================
     // Folder key -> that folder's PINNED PREFIX of session ids. What the order

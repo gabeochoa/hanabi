@@ -1,0 +1,22 @@
+# A client that cannot address the web app (the mock's inbox knob off = a
+# custom orchestrator with no matched web origin) offers no Snooze row at
+# all: the menu goes Pin, Mute, divider, Archive -- and nothing is posted.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_INBOX_GET=off
+require_thread t2
+wait_frames 12
+mouse_move 120 475
+wait_frames 3
+right_click 120 475
+wait_frames 8
+expect_text "Mute"
+expect_no_ui row_menu_snooze
+expect_no_text "Snooze"
+key ESCAPE
+wait_frames 4
+right_click_ui tab_active
+wait_frames 8
+expect_text "Mute"
+expect_no_ui tab_menu_snooze
+expect_no_text "Snooze"
+key ESCAPE

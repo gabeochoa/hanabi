@@ -21,6 +21,8 @@
 #include "../util/clipboard.h"
 #include "../ui/link_detect.h"
 #include "../util/format.h"
+#include "../ui/snooze_menu.h"
+#include "../util/capture_clock.h"
 #include "tab_colors.h"
 #include "tab_model.h"
 #include "surface_tabs.h"
@@ -887,7 +889,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 !result.cancelled)
                 return;
             if (result.activated != hanabi::surface::kNoMenuRow) {
-                const std::string action = strip.nativeMenu.action_of(result.activated);
+                const std::string action = strip.nativeMenu.action_of(result.activated, result.activated_child);
                 if (action == "archive_close") {
                     app.requestSetArchiveId = strip.menuSessionId;
                     app.requestSetArchiveTo = true;
@@ -895,6 +897,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestToggleArchive = strip.menuSessionId;
                 } else if (action == "mute" || action == "unmute") {
                     app.requestToggleMute = strip.menuSessionId;
+                } else if (const auto pick = hanabi::snooze_menu::parse(action)) {
+                    AppComponent::SnoozeRequest req;
+                    req.sessionId = strip.menuSessionId;
+                    req.until = pick->until;
+                    app.requestSnooze = req;
                 }
             }
         }
@@ -931,7 +938,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         enum Act {
             CloseTab, CloseOthers, CloseRight, Divider, Rename, CopyTitle,
             CopyWeblink, CopyDeeplink, CopyId, OpenWeb, ExportClipboard, Halt, HaltSubtree,
-            Resume, Pin, Mute, Archive, ArchiveClose, Split
+            Resume, Pin, Mute, Snooze, Archive, ArchiveClose, Split
         };
         std::vector<hanabi::surface::MenuItem> items;
         std::vector<Act> actions;
@@ -1010,6 +1017,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             const bool mutedNow = summary != nullptr && summary->muted;
             add(mutedNow ? "Unmute" : "Mute", "tab_menu_mute", Mute, false, false,
                 mutedNow ? "unmute" : "mute");
+            if (app.client && app.client->supports_inbox_state()) {
+                const auto snoozed = app.snooze_of(keepId);
+                items.push_back(hanabi::snooze_menu::to_menu_item<hanabi::surface::MenuItem, hanabi::surface::MenuLeaf>(hanabi::snooze_menu::item(
+                    snoozed ? std::optional<std::int64_t>(snoozed->snoozed_until) : std::nullopt,
+                    capture_clock::inbox_now(), "tab_menu_snooze",
+                    !app.snooze_available() || app.snoozes.pending(keepId))));
+                actions.push_back(Snooze);
+            }
             divider("tab_menu_divider_pin");
             const bool archivedNow = summary != nullptr && model::is_archived(*summary);
             add(archivedNow ? "Unarchive" : "Archive", "tab_menu_archive", Archive, false, false,
@@ -1042,20 +1057,25 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             result = hanabi::surface::native_menu_frame(ctx, uiRoot, 966, "tab_menu",
                                                         strip.nativeMenu, scope);
             if (result.activated != hanabi::surface::kNoMenuRow)
-                pickedAction = strip.nativeMenu.action_of(result.activated);
+                pickedAction = strip.nativeMenu.action_of(result.activated, result.activated_child);
         } else {
             result = hanabi::surface::context_menu(
                 ctx, uiRoot, 966, metrics, strip.menuX, strip.menuY, "", "tab_menu",
                 items, app.menuCursor, keys);
             if (result.activated != hanabi::surface::kNoMenuRow)
-                pickedAction = items[result.activated].action_id;
+                pickedAction = result.activated_action.empty() ? items[result.activated].action_id
+                                                               : result.activated_action;
         }
 
         bool clickedItem = false;
         if (result.activated != hanabi::surface::kNoMenuRow) {
             std::size_t row = hanabi::surface::kNoMenuRow;
-            for (std::size_t i = 0; i < items.size(); ++i)
-                if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (pickedAction.empty()) break;
+                if (items[i].action_id == pickedAction) row = i;
+                for (const hanabi::surface::MenuLeaf& leaf : items[i].children)
+                    if (!leaf.disabled && leaf.action_id == pickedAction) row = i;
+            }
             if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
                 hanabi::surface::drawn_menu_restore_focus(ctx, strip.menuFocusBefore, result.eater_id,
                                                           result.activated_entity);
@@ -1127,6 +1147,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Mute:
                     app.requestToggleMute = keepId;
+                    break;
+                case Snooze:
+                    if (const auto pick = hanabi::snooze_menu::parse(pickedAction)) {
+                        AppComponent::SnoozeRequest req;
+                        req.sessionId = keepId;
+                        req.until = pick->until;
+                        app.requestSnooze = req;
+                    }
                     break;
                 case Archive:
                     app.requestToggleArchive = keepId;

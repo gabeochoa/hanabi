@@ -1,0 +1,38 @@
+# Snooze from a thread's row menu: the submenu offers the presets with their
+# due wording (the runner pins the clock to 2026-06-15 12:00 UTC); picking one
+# writes the snooze to the web app. The row stays where it is -- the
+# reference moves nothing in the sidebar -- and the row menu then reads
+# "Snoozed until <due>" as a single row; picking that row unsnoozes.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+expect_text "SKU backfill — my name for it"
+mouse_move 120 475
+wait_frames 3
+right_click 120 475
+wait_frames 8
+expect_text "Snooze"
+expect_no_text "Snoozed until"
+click_ui row_menu_snooze
+wait_frames 6
+expect_text "In 1 Hour — 1:00 PM"
+expect_text "In 3 Hours — 3:00 PM"
+expect_text "This Evening — 5:00 PM"
+expect_text "Tomorrow Morning — tomorrow, 8:00 AM"
+click_ui row_menu_snooze_one_hour
+wait_frames 12
+expect_text "SKU backfill — my name for it"
+mouse_move 120 475
+wait_frames 3
+right_click 120 475
+wait_frames 8
+expect_text "Snoozed until 1:00 PM"
+expect_no_ui row_menu_snooze_one_hour
+click_ui row_menu_snooze
+wait_frames 12
+expect_text "SKU backfill — my name for it"
+mouse_move 120 475
+wait_frames 3
+right_click 120 475
+wait_frames 8
+expect_text "Snooze"
+expect_no_text "Snoozed until"
+key ESCAPE

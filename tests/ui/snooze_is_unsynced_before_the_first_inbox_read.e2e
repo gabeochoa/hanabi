@@ -1,0 +1,18 @@
+# Before the first successful read of the web app's inbox state nothing may
+# be written: the web app answers a login page, so the Snooze row is drawn
+# disabled and a pick changes nothing.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_INBOX_GET=login
+expect_text "SKU backfill — my name for it"
+mouse_move 120 475
+wait_frames 3
+right_click 120 475
+wait_frames 8
+expect_text "Snooze"
+assert_ui row_menu_snooze hidden=false
+click_ui row_menu_snooze
+wait_frames 8
+expect_no_text "In 1 Hour"
+key ESCAPE
+wait_frames 4
+expect_text "SKU backfill — my name for it"

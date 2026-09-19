@@ -65,6 +65,17 @@ inline int64_t display_now() {
                             : static_cast<int64_t>(std::time(nullptr));
 }
 
+inline int64_t inbox_now() {
+    if (g_pinned_at != 0) return g_pinned_at;
+    static const int64_t mock = [] {
+        const char* v = std::getenv("HANABI_MOCK_NOW");
+        if (v == nullptr || *v == '\0') return static_cast<int64_t>(0);
+        const long long parsed = std::atoll(v);
+        return parsed > 0 ? static_cast<int64_t>(parsed) : static_cast<int64_t>(0);
+    }();
+    return mock != 0 ? mock : static_cast<int64_t>(std::time(nullptr));
+}
+
 // Where in its cycle a time-driven animation is drawn. A capture pins it, so a
 // widget that breathes (the thinking dot eases its radius with a sine of the
 // graphics clock) is photographed at one point in the cycle rather than
