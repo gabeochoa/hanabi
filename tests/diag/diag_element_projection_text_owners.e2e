@@ -22,6 +22,7 @@
 
 require_thread relements
 expect_text "show me the shard health table"
+dump_text_owners "Here is the current"
 
 # E1/E2: the pinned table -- heading is its title, the provenance line says
 # where it is placed, which element it is, and that this is the second
