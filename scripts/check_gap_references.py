@@ -14,7 +14,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-ENTRY = re.compile(r"(?m)^###\s+#(?P<number>\d+)\s+—\s+(?P<title>.+)$")
+ENTRY = re.compile(
+    r"(?m)^(?:"
+    r"###\s+#(?P<number>\d+)\s+—\s+(?P<title>.+)"
+    r"|##\s+#(?P<number2>\d+)\s+(?P<title2>(?!—)(?![\w-]*revisited\b)(?![\w-]*family\b).+)"
+    r"|#\s+Afterhours gap #(?P<number3>\d+)\s+—\s+(?P<title3>.+)"
+    r")$"
+)
+FENCE = re.compile(r"(?m)^\s*(```|~~~)")
 # A cross-reference to another gap, anywhere in an entry or the index.
 GAP_REF = re.compile(r"#(\d{2,4})\b")
 # The closure roster: the only lines allowed to name a removed id. Anchored on
@@ -37,7 +44,7 @@ PREEXISTING_DANGLING = {98, 99, 120, 130, 131, 132, 140, 451, 454, 550, 559,
                         # row -- at origin/main ad2c798 either, verified there.
                         309, 495, 509}
 REFERENCE = re.compile(
-    r"(?ms)^\*\*Hanabi reference\.\*\*\s*(?P<text>.*?)(?=^-?\s*\*\*[^\n]+\.\*\*|^###\s+#|\Z)"
+    r"(?ms)^\*\*Hanabi reference\.\*\*\s*(?P<text>.*?)(?=^-?\s*\*\*[^\n]+\.\*\*|^###\s+#|^##\s+#\d|^#\s+Afterhours gap #|\Z)"
 )
 BACKTICK = re.compile(r"`([^`]+)`")
 CLASS_WORKAROUND = re.compile(
@@ -69,12 +76,43 @@ class Entry:
     body: str
 
 
+def fenced_spans(text: str) -> list[tuple[int, int]]:
+    spans = []
+    opened = None
+    for match in FENCE.finditer(text):
+        if opened is None:
+            opened = match.start()
+        else:
+            spans.append((opened, match.end()))
+            opened = None
+    if opened is not None:
+        spans.append((opened, len(text)))
+    return spans
+
+
+def entry_matches(text: str) -> list[re.Match[str]]:
+    fences = fenced_spans(text)
+    return [
+        match
+        for match in ENTRY.finditer(text)
+        if not any(start <= match.start() < end for start, end in fences)
+    ]
+
+
+def entry_number(match: re.Match[str]) -> int:
+    return int(match.group("number") or match.group("number2") or match.group("number3"))
+
+
+def entry_title(match: re.Match[str]) -> str:
+    return match.group("title") or match.group("title2") or match.group("title3")
+
+
 def parse_entries(text: str) -> list[Entry]:
-    matches = list(ENTRY.finditer(text))
+    matches = entry_matches(text)
     return [
         Entry(
-            number=int(match.group("number")),
-            title=match.group("title"),
+            number=entry_number(match),
+            title=entry_title(match),
             body=text[
                 match.end() : matches[index + 1].start()
                 if index + 1 < len(matches)
@@ -589,6 +627,75 @@ def selftest() -> int:
     return 0
 
 
+def selftest_entry_headings() -> int:
+    canonical = "### #12 — Canonical entry\n\nprose about #12\n\n"
+    two_hash = "## #325 `with_debug_name` takes a `std::string`\n\n**The workaround.** Cache it.\n\n"
+    two_hash_plain = "## #380 A custom command that retries cannot say why\n\nbody 380\n\n"
+    gap_prefix = "# Afterhours gap #590 — button variants drop per-widget text inset\n\n## Observation\n\nbody 590\n\n"
+    revisited = "## #12 revisited — what it cost\n\nfollow-up prose\n\n"
+    family = "### #27-family (recurring) — overflow\n\nfamily prose\n\n"
+    prose = "see #12 and #325; also `#99` in code\n\n"
+    fenced = "```\n### #777 — looks like an entry\n## #778 also\n# Afterhours gap #779 — too\n```\n\n"
+    tilde_fenced = "~~~\n## #780 tilde\n~~~\n\n"
+    heading_prose = "## Observation\n\n# Session 2026-01-01 — notes\n\n#### As of today\n\n"
+    text = (canonical + prose + two_hash + revisited + two_hash_plain + fenced + tilde_fenced
+            + heading_prose + family + gap_prefix)
+    entries = parse_entries(text)
+    by_number = {entry.number: entry for entry in entries}
+    failed = []
+
+    def expect(name: str, condition: bool) -> None:
+        if not condition:
+            failed.append(name)
+
+    expect("count", [entry.number for entry in entries] == [12, 325, 380, 590])
+    expect("canonical title", by_number[12].title == "Canonical entry")
+    expect("canonical body ends at next heading", by_number[12].body == "\n\nprose about #12\n\n" + prose)
+    expect("## title keeps backticks", by_number[325].title == "`with_debug_name` takes a `std::string`")
+    expect("## body holds its workaround", "**The workaround.** Cache it." in by_number[325].body)
+    expect("## body stops before revisited", "follow-up prose" in by_number[325].body
+           and "body 380" not in by_number[325].body)
+    expect("## plain title", by_number[380].title == "A custom command that retries cannot say why")
+    expect("fenced lookalikes stay in the body", "### #777" in by_number[380].body
+           and "## #778" in by_number[380].body and "## #780" in by_number[380].body)
+    expect("gap-prefix title", by_number[590].title == "button variants drop per-widget text inset")
+    expect("gap-prefix body", by_number[590].body.startswith("\n\n## Observation"))
+    expect("revisited is not an entry", sum(1 for e in entries if e.number == 12) == 1)
+    expect("## plain title is an entry", [e.number for e in parse_entries("## #41 plain words here\n")] == [41])
+    expect("## revisited follow-up is not", parse_entries("## #41 revisited — again\n") == [])
+    expect("## revisited without dash is not", parse_entries("## #41 revisited\n") == [])
+    expect("## -family is not", parse_entries("## #41-family (recurring) — x\n") == [])
+    expect("family is not an entry", 27 not in by_number)
+    expect("prose refs are not entries", 99 not in by_number)
+    expect("em-dash ## form is not an entry", not parse_entries("## #41 — dashed\n"))
+    expect("#### is not an entry", not parse_entries("#### #41 — deep\n"))
+    expect("unterminated fence hides the rest", parse_entries("```\n### #1 — a\n") == [])
+    expect("fence reopens", [e.number for e in parse_entries("```\nx\n```\n### #2 — b\n")] == [2])
+    expect("needs_reference on ## entry", needs_reference(by_number[325]))
+    expect("reference text stops at ## entry",
+           reference_text(Entry(1, "t", "**Hanabi reference.** `a/b.h` — x\n## #9 next\n")) == "`a/b.h` — x")
+    expect("reference text stops at gap-prefix entry",
+           reference_text(Entry(1, "t", "**Hanabi reference.** `a/b.h` — x\n# Afterhours gap #9 — n\n")) == "`a/b.h` — x")
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        ledger = "### #1 — Base\n\nbody\n\n## #325 Two hash\n\nbody cites #1\n\n# Afterhours gap #590 — Gp\n\nbody\n\n"
+        expect("cited alternate entries resolve", check_cross_references(ledger + "see #325 and #590\n", root) == [])
+        problems = check_cross_references(ledger + "see #326\n", root)
+        expect("absent id still fails", any("cites #326" in problem for problem in problems))
+        problems = check_cross_references(ledger + "```\n## #777 fenced\n```\nsee #777\n", root)
+        expect("fenced lookalike is not live", any("cites #777" in problem for problem in problems))
+        problems = check_document(ledger.replace("body cites #1", "**The workaround.** Ship.\n"), root)
+        expect("## entry needing a reference is checked",
+               any(problem.startswith("#325 Two hash: workaround claim") for problem in problems))
+
+    if failed:
+        print("check_gap_references entry-heading selftest: FAIL: " + ", ".join(failed))
+        return 1
+    print("check_gap_references entry-heading selftest: 29 checks passed")
+    return 0
+
+
 def selftest_triage_parser() -> int:
     """Every id shape the table actually uses, plus the failure modes.
 
@@ -704,7 +811,7 @@ def selftest_repo_wide() -> int:
 
 def main() -> int:
     if "--selftest" in sys.argv:
-        return selftest_triage_parser() or selftest_repo_wide()
+        return selftest_entry_headings() or selftest_triage_parser() or selftest_repo_wide()
     parser = argparse.ArgumentParser()
     parser.add_argument("--document", type=Path)
     parser.add_argument("--root", type=Path)
