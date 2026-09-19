@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Isolated unit for scripts/lib/classify_record.py: classify(rec, token) over
 dicts. No shell, no process, no file. The runner's verdict ladder, case by
 case, plus the two stale-record arms.
@@ -10,7 +9,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "lib"))
-from classify_record import classify  # noqa: E402
+from classify_record import classify
 
 failures = 0
 
@@ -34,7 +33,6 @@ def est(**kw):
     return rec
 
 
-# The nine ladder cases.
 check(classify(est(exit_status=0, reap_timed_out=True), TOKEN) == ("unsupervised", "established+reap_timed_out", "uncertain"),
       "a passed fixture whose reap timed out is unsupervised, uncertain")
 check(classify({"not": "a record"}, TOKEN) == ("unsupervised", "no_record", "uncertain"),
@@ -58,7 +56,6 @@ check(classify(est(exit_status=0, observer="failed: ps"), TOKEN) == ("pass", "ex
 check(classify(est(exit_status=0, cleanup="uncertain", escaped_group=[9]), TOKEN) == ("pass", "exit 0", "uncertain"),
       "an escaped process makes a pass uncertain")
 
-# The stale-record arms.
 check(classify(est(exit_status=0, token="run:script:99999:1"), TOKEN) == ("unsupervised", "token_mismatch", "uncertain"),
       "a PASS record from another invocation is token_mismatch, never a pass")
 old = est(exit_status=0)
@@ -66,8 +63,6 @@ del old["token"]
 check(classify(old, TOKEN) == ("unsupervised", "token_mismatch", "uncertain"), "a record with no token is token_mismatch")
 check(classify(est(exit_status=0), None) == ("pass", "exit 0", "certain"), "with no expected token the token is not checked")
 
-# The CLI protocol: one JSON object; --field prints one value; a reason with a
-# space ("exit 0") is one value, never split.
 import io, json, os, tempfile, contextlib
 from classify_record import main
 with tempfile.TemporaryDirectory() as d:

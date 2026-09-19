@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Deterministic unit for scripts/lib/supervise.py: every operating-system
 operation is an injected fake, so no process is spawned, no signal is sent
 and no clock is waited on. The fakes record the ORDER of calls, which is what
@@ -13,7 +12,7 @@ import signal
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "lib"))
-import supervise  # noqa: E402
+import supervise
 
 failures = 0
 
@@ -44,17 +43,17 @@ class World:
         self.reset_works = reset_works
         self.root_dies_at = root_dies_at
         self.root_dies_on = set(root_dies_on)
-        self.members = set(members)          # live pids in our group
+        self.members = set(members)
         self.member_dies_on = set(member_dies_on)
-        self.stuck_members = set(stuck_members)  # survive everything
-        self.escaped = list(escaped)         # (pid, ppid, pgid) outside our group, chained to root
-        self.strangers = list(strangers)     # (pid, ppid, pgid) unrelated
+        self.stuck_members = set(stuck_members)
+        self.escaped = list(escaped)
+        self.strangers = list(strangers)
         self.tree_closes_at = tree_closes_at
         self.reapable = reapable
         self.exit_code = exit_code
         self.census_fails = census_fails
-        self.observer_fails_at = observer_fails_at  # clock time from which ps -p fails
-        self.timeouts = []  # every per-call timeout the supervisor asked for
+        self.observer_fails_at = observer_fails_at
+        self.timeouts = []
         self.term_signal = None
         self.calls = []
         self.clock = 0.0
@@ -65,7 +64,6 @@ class World:
         if self.root_dies_at is not None and self.clock >= self.root_dies_at:
             self.root_dead = True
 
-    # -- Ops surface --------------------------------------------------------
     def sigchld_disposition(self):
         return self.sigchld
 
@@ -122,7 +120,7 @@ class World:
         self.timeouts.append(timeout)
         self._tick_root()
         if self.observer_fails_at is not None and self.clock >= self.observer_fails_at:
-            self.clock += timeout  # a hung ps costs its whole timeout
+            self.clock += timeout
             return None
         return self.root_dead
 
@@ -160,8 +158,6 @@ def index_of(world, pred):
 ROOT = 500
 
 
-# T1: normal exit before the wall: the leader exits (observed Z), the group is
-# empty -> no signal at all, one blocking wait, the child's exit code.
 def t1():
     w = World(root_dies_at=1.0, exit_code=3)
     rec, st = run(w)
@@ -174,7 +170,6 @@ def t1():
           "T1 our copy of the write end closes before any census")
 
 
-# T2: wall hit; TERM to the GROUP; leader and member die of it; no KILL; wait.
 def t2():
     w = World(members=(501,))
     rec, st = run(w, wall=1.0)
@@ -187,7 +182,6 @@ def t2():
     check(rec["term_signal"] == signal.SIGTERM and rec["exit_status"] is None, "T2 died of TERM, recorded as such")
 
 
-# T3: the tree ignores TERM -> KILL to the group; then nothing left.
 def t3():
     w = World(members=(501,), root_dies_on=("KILL",), member_dies_on=("KILL",))
     rec, st = run(w, wall=1.0, grace=1.0)
@@ -198,7 +192,6 @@ def t3():
     check(rec["cleanup"] == "none observed", "T3 cleanup none observed")
 
 
-# T4: a member survives even KILL (uninterruptible) -> left_in_group, UNCERTAIN.
 def t4():
     w = World(members=(501, 502), stuck_members=(502,))
     rec, st = run(w, wall=1.0, grace=0.5)
@@ -207,8 +200,6 @@ def t4():
     check(st == 124, "T4 the test outcome (timeout) is separate from the cleanup fact")
 
 
-# T5: descendants that left the session (pgid != ours) but whose ppid chain
-# reaches the root: reported as escaped, never in a killpg argument.
 def t5():
     w = World(root_dies_at=1.0, escaped=((600, ROOT, 600), (601, 600, 600)))
     rec, st = run(w)
@@ -218,8 +209,6 @@ def t5():
     check(rec["cleanup"] == "uncertain", "T5 escaped -> UNCERTAIN, not clean")
 
 
-# T6: a stranger holding a recycled pid number appears with pgid != ours and
-# no chain to the root: not counted, not signalled.
 def t6():
     w = World(root_dies_at=1.0, strangers=((501, 1, 700),))
     rec, st = run(w)
@@ -229,8 +218,6 @@ def t6():
           "T6 none observed; escaped_session not claimed (no portable session read)")
 
 
-# T7: the supervisor itself is told to stop mid-run -> the same teardown path,
-# record written with interrupted=true, exit 130.
 def t7():
     w = World(members=(501,))
     flag = supervise.Interrupted()
@@ -241,16 +228,12 @@ def t7():
     check(len(waits(w)) == 1, "T7 one wait")
 
 
-# T8: SIGCHLD preflight: an inherited SIG_IGN is reset to SIG_DFL before the
-# spawn; a reset that does not take -> no spawn, no signal, ownership refused.
 def t8():
     w = World(sigchld=signal.SIG_IGN, root_dies_at=0.5)
     rec, st = run(w)
     spawn_i = index_of(w, lambda c: isinstance(c, tuple) and c[0] == "spawn")
     check(w.calls[0] == "reset_sigchld" and spawn_i > 0, "T8 SIG_DFL WRITTEN before the spawn (SIG_IGN inherited)")
     check(rec["ownership"] == "established" and rec["sigchld_reset"], "T8 with the reset taken, ownership is established; reset recorded")
-    # Written even when the read already says SIG_DFL: the read cannot see
-    # an inherited SA_NOCLDWAIT flag; the write clears it.
     w_dfl = World(sigchld=signal.SIG_DFL, root_dies_at=0.5)
     rec_dfl, _ = run(w_dfl)
     check(w_dfl.calls[0] == "reset_sigchld" and rec_dfl["sigchld_reset"], "T8 the write happens unconditionally")
@@ -261,8 +244,6 @@ def t8():
     check(signals(w2) == [] and waits(w2) == [], "T8 nothing signalled, nothing waited")
 
 
-# T9: getpgid != pid (setsid did not take): NO signal, NO blocking wait, the
-# child left running and unreaped, exit 78, ownership unestablished.
 def t9():
     w = World(pgid=1)
     rec, st = run(w)
@@ -272,9 +253,6 @@ def t9():
     check(rec["pgid"] == 1 and rec["root_pid"] == ROOT, "T9 observed pgid and root pid recorded")
 
 
-# T10: the leader observed exited (Z) but not yet reapable: bounded
-# non-blocking waits, then reap_timed_out, exit 78, UNCERTAIN. No path may
-# block: the fake has no blocking wait at all.
 def t10():
     w = World(root_dies_at=0.5, reapable=False)
     rec, st = run(w, grace=1.0)
@@ -282,8 +260,6 @@ def t10():
     check(len(waits(w)) >= 2, "T10 bounded repeated non-blocking waits (Z is weaker than waitability)")
     check(rec.get("reap_timed_out") and st == 78 and rec["cleanup"] == "uncertain",
           "T10 leader not reapable -> reap_timed_out, 78, UNCERTAIN")
-    # After a KILL the root may sit in uninterruptible I/O (never Z): the
-    # same bounded loop, never a hang.
     w3 = World(root_dies_on=(), member_dies_on=(), members=(), reapable=False)
     rec3, st3 = run(w3, wall=1.0, grace=1.0)
     check(rec3["kill_sent"], "T10c KILL was sent to the group")
@@ -291,8 +267,6 @@ def t10():
           "T10c root never Z after KILL -> bounded non-blocking waits, reap_timed_out, 78")
 
 
-# T11: Popen raised after fork (exec failure): CPython already waited that
-# child -> spawn_failed, no signal, no wait, 78.
 def t11():
     class NoSpawn(World):
         def spawn(self, cmd, log_fd, tree_fd):
@@ -304,10 +278,6 @@ def t11():
     check(signals(w) == [] and waits(w) == [], "T11 nothing signalled, nothing waited")
 
 
-# T12: the managed Popen object, as the real Ops holds it: no method is
-# called on it before teardown, and returncode is reconciled right after the
-# one waitpid. Exercised through the real Ops class with the subprocess and
-# os primitives substituted -- no process is created.
 def t12():
     import subprocess as sp
     calls = []
@@ -319,20 +289,18 @@ def t12():
         def __init__(self, *a, **k):
             calls.append("construct")
 
-        def __getattr__(self, name):  # any method touch is recorded
+        def __getattr__(self, name):
             calls.append(name)
             raise AssertionError("managed Popen touched: " + name)
 
     real_popen, real_waitpid, real_w2e = sp.Popen, os.waitpid, os.waitstatus_to_exitcode
     sp.Popen = FakePopen
-    os.waitpid = lambda pid, flags: (pid, 0)  # exited 0
+    os.waitpid = lambda pid, flags: (pid, 0)
     os.waitstatus_to_exitcode = lambda status: 7
     try:
         ops = supervise.Ops()
         pid = ops.spawn(["x"], 1, 11)
         check(pid == 4242 and calls == ["construct"], "T12 spawn constructs the Popen and touches nothing else")
-        # A second, unrelated Popen construction (a census helper would do
-        # this) must not poll the managed child.
         FakePopen()
         check(calls == ["construct", "construct"], "T12 another Popen does not poll the managed child")
         got = ops.waitpid(4242)
@@ -343,9 +311,6 @@ def t12():
         sp.Popen, os.waitpid, os.waitstatus_to_exitcode = real_popen, real_waitpid, real_w2e
 
 
-# T13: the pipe closes while the root still runs: no signal, no wait, the
-# loop keeps polling the observer until it reads Z; the record notes the
-# early close; exit status from the one wait.
 def t13():
     w = World(root_dies_at=3.0, tree_closes_at=1, exit_code=2)
     rec, st = run(w, wall=10.0)
@@ -358,8 +323,6 @@ def t13():
     check(st == 2 and rec["exit_status"] == 2, "T13 exit status from the one wait")
 
 
-# T14: the pipe closes and the root is Z on the same tick: the normal path,
-# not an early close.
 def t14():
     w = World(root_dies_at=0.5, tree_closes_at=1, exit_code=0)
     rec, st = run(w)
@@ -367,9 +330,6 @@ def t14():
     check(rec["root_exited"] and signals(w) == [] and st == 0, "T14 normal completion, nothing signalled")
 
 
-# T15: ps cannot be read: the group is still signalled (that needs no
-# census), the record says the census FAILED, the lists are null -- never an
-# empty list that would read as clean -- and cleanup is UNCERTAIN.
 def t15():
     w = World(census_fails=True)
     rec, st = run(w, wall=1.0, grace=0.5)
@@ -382,10 +342,6 @@ def t15():
     check(len(waits(w)) == 1, "T15 one wait after KILL")
 
 
-# T16: the observer (ps -p) hangs/fails from some point on: recorded once as
-# "failed: ps", treated as "alive" (group signals only, never a pid), every
-# per-call timeout clamped to the remaining bound, the loop still ends by the
-# wall, and cleanup is UNCERTAIN even with nothing in the group.
 def t16():
     w = World(observer_fails_at=0.3, root_dies_on=("TERM", "KILL"))
     rec, st = run(w, wall=2.0, grace=1.0)
@@ -396,15 +352,12 @@ def t16():
     check(all(0.05 <= t <= 10.0 for t in w.timeouts), "T16 every ps timeout within [0.05, ps_timeout]")
     check(w.clock <= 2.0 + 1.0 + 2 * 10.0 + 1.0, "T16 total runtime within wall + grace + 2*ps_timeout + a tick")
     check(rec["bounds"] == {"wall": 2.0, "grace": 1.0, "ps_timeout": 10.0}, "T16 bounds stated in the record")
-    # A healthy observer: certain, and every timeout clamped to what was left.
     w2 = World(root_dies_at=0.5)
     rec2, _ = run(w2, wall=3.0, grace=1.0)
     check(rec2["observer"] == "ok" and rec2["cleanup"] == "none observed", "T16b healthy observer -> none observed")
     check(all(t <= 10.0 for t in w2.timeouts), "T16b timeouts never exceed ps_timeout")
 
 
-# Portability: the module must parse as Python 3.9 (the Mac's /usr/bin/python3)
-# and use only the ps spellings BSD ps and procps share.
 def portability():
     import ast
     src = open(os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "lib", "supervise.py")).read()
@@ -425,7 +378,7 @@ def portability():
     import re
     start = src.index("subprocess.Popen(") + len("subprocess.Popen")
     depth, i = 0, start
-    while True:  # the call's own balanced parenthesis, not the first ')'
+    while True:
         if src[i] == "(":
             depth += 1
         elif src[i] == ")":
@@ -441,7 +394,6 @@ def portability():
           "portability: the record states syntax-checked-only")
 
 
-# The pure helpers.
 def helpers():
     child = [(ROOT, 1, ROOT, "S"), (501, ROOT, ROOT, "S")]
     dead_root = [(ROOT, 1, ROOT, "Z")]
@@ -453,8 +405,6 @@ def helpers():
           "sigchld_ok: only SIG_DFL")
 
 
-# Grep invariants over the production module: the ownership argument is
-# structural, so its shape is asserted, not trusted.
 def invariants():
     src = open(os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "lib", "supervise.py")).read()
     check(src.count("os.waitpid(") == 1 and "os.waitpid(pid, os.WNOHANG)" in src,

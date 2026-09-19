@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Owned-process supervisor for one scripted-UI fixture.
 
 Runs ONE child in its own session (setsid: pgid == pid), keeps that child
@@ -62,20 +61,15 @@ assert sys.version_info >= (3, 9), "supervise.py targets the Mac's /usr/bin/pyth
 class Ops:
     """The operating system, as this module uses it."""
 
-    _proc = None  # the managed child's Popen, held for the supervisor's life
+    _proc = None
 
-    def spawn(self, cmd, log_fd, tree_fd):  # -> pid, or None when exec failed
-        # The object is never polled, waited, communicated with or read for
-        # returncode before teardown, so it never enters subprocess._active
-        # and nothing but our one waitpid can reap the child.
+    def spawn(self, cmd, log_fd, tree_fd):
         try:
-            # No env= dict, no shell: the argv carries its own `env` prefix,
-            # so the fixture's variables are built by env(1) for the app alone.
             proc = subprocess.Popen(
                 cmd, stdin=subprocess.DEVNULL, stdout=log_fd, stderr=log_fd,
                 start_new_session=True, pass_fds=(tree_fd,), close_fds=True)
         except OSError:
-            return None  # CPython already waited the failed fork/exec child
+            return None
         self._proc = proc
         return proc.pid
 
@@ -93,21 +87,12 @@ class Ops:
         if got == 0:
             return None
         code = os.waitstatus_to_exitcode(status)
-        # Reconcile the retained object so its finaliser cannot issue a
-        # second wait against a now-reusable number.
         if self._proc is not None and self._proc.pid == pid:
             self._proc.returncode = code
         return (code, None) if code >= 0 else (None, -code)
 
-    # `ps` is run through libc system(3), never subprocess: constructing a
-    # second Popen in this process would reap our dead-but-unreaped leader
-    # from CPython's `_active` list and free its pid (I1). system() waits
-    # only for the child it forked.
     @staticmethod
-    def _ps(args, timeout):  # -> (rc, text); only BSD/procps-common spellings
-        # subprocess.run waits for the pid IT created and nothing else, so
-        # the managed child stays ours to reap; no shell, no file. A hung ps
-        # (the runner's known hazard) is cut at `timeout`.
+    def _ps(args, timeout):
         try:
             done = subprocess.run(["ps"] + args.split(), stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, check=False,
@@ -227,7 +212,7 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_time
               token=""):
     interrupted = interrupted or Interrupted()
     rec = {
-        "token": token,  # binds this record to the invocation that asked for it
+        "token": token,
         "root_pid": None, "pgid": None, "ownership": "unestablished",
         "exit_status": None, "term_signal": None, "wall_hit": False,
         "tree_closed": False, "pipe_closed_early": False, "root_exited": False,
@@ -239,9 +224,6 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_time
         "portability": "syntax-checked against 3.9; runtime unverified until an "
                        "authorized Mac synthetic-unit run",
     }
-    # Always WRITTEN, never merely read: getsignal() cannot see an inherited
-    # SA_NOCLDWAIT, and sigaction replaces the whole disposition -- handler
-    # and flags -- so after this write SIG_DFL is a true statement about both.
     ops.reset_sigchld()
     rec["sigchld_reset"] = True
     if not sigchld_ok(ops.sigchld_disposition()):
@@ -249,7 +231,7 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_time
         return rec, 70
     read_fd, write_fd = ops.pipe()
     pid = ops.spawn(cmd, log_fd, write_fd)
-    ops.close(write_fd)  # the tree alone holds the write end now
+    ops.close(write_fd)
     if pid is None:
         rec["ownership"] = "spawn_failed"
         ops.close(read_fd)
@@ -260,10 +242,6 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_time
     except OSError:
         pgid = None
     if pgid != pid:
-        # Not a session of its own: nothing we could signal is provably ours,
-        # and a blocking wait on a live child would hang. Left running,
-        # unsignalled, unreaped (the pid stays reserved until we exit and it
-        # is reparented); the runner marks the cleanup uncertain.
         rec["pgid"] = pgid
         rec["ownership"] = "unestablished"
         rec["action"] = ("left running unsignalled; not reaped (pid reserved until this "
@@ -273,19 +251,8 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_time
     rec["pgid"] = pgid
     rec["ownership"] = "established"
 
-    # Normal completion is ONE fact: the unreaped leader observed exited
-    # (a zombie; its pid still ours). EOF on the inherited pipe only wakes
-    # the loop to look again -- the app makes no promise to hold an unknown
-    # fd, so a closed pipe with a live leader is noted and waited through.
-    # Only the wall clock (or our own interruption) starts a teardown on a
-    # live leader.
     deadline = ops.monotonic() + wall
 
-    # The observer, tri-state: True (exited), False (alive), None (ps failed
-    # -- recorded once; callers treat it as "assume alive", which only ever
-    # sends a GROUP signal or waits longer). Each call is cut at the smaller
-    # of ps_timeout and the time left to `until`, so one hung ps cannot push
-    # a loop past its bound by more than one call.
     def observe(until):
         z = ops.is_zombie(pid, max(0.05, min(ps_timeout, until - ops.monotonic())))
         if z is None and rec["observer"] == "ok":
@@ -321,9 +288,6 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_time
     ops.close(read_fd)
     rec["root_exited"] = root_exited
 
-    # Teardown while the leader is still unreaped: the group id is held. A
-    # census that fails is UNKNOWN: signals still go to the group (that needs
-    # no census), the report says the census failed, and nothing is clean.
     census_failed = False
     teardown_end = ops.monotonic() + grace + 2 * ps_timeout
 
@@ -365,19 +329,12 @@ def supervise(cmd, wall, grace, log_fd, ops, tick=0.1, interrupted=None, ps_time
         rec["cleanup"] = "uncertain"
     else:
         rec["left_in_group"] = members(snapshot, pgid, pid)
-        # Chained to the root by ppid but in another group. Without a
-        # portable session keyword the two cannot be told apart, so every
-        # such process is reported under escaped_group with session unknown.
         rec["escaped_group"] = escaped(snapshot, pid, pgid)
-        rec["escaped_session"] = None  # no portable session keyword: not observed
+        rec["escaped_session"] = None
         rec["session"] = "unknown"
         rec["cleanup"] = ("none observed" if not rec["left_in_group"] and not rec["escaped_group"]
                           and rec["observer"] == "ok" else "uncertain")
 
-    # The one reap, after every signal, NEVER blocking: a ps `Z` reading is
-    # weaker than waitability, and the bound must be the supervisor's own.
-    # A leader still not reapable within the grace is recorded, not waited
-    # for.
     reaped = None
     end = ops.monotonic() + grace
     while True:
@@ -427,8 +384,6 @@ def main(argv):
     interrupted = Interrupted()
 
     def on_term(_signum, _frame):
-        # Our own death is a teardown, not an escape: the wait loop sees the
-        # flag and takes the ordinary TERM -> grace -> KILL -> wait path.
         interrupted.flag = True
 
     signal.signal(signal.SIGTERM, on_term)

@@ -23,11 +23,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT" || exit 2
 
-# HANABI_UI_EXE points the runner at another executable. It exists for the
-# runner's OWN policy tests (scripts/run_ui_policy_tests.sh), which drive this
-# script against a stub that records what it was asked to launch and opens
-# nothing; the manifest names the executable actually used, so a run against
-# a stub cannot be mistaken for a run against the app.
 EXE="${HANABI_UI_EXE:-$ROOT/output/hanabi_uitest.exe}"
 DIR="${HANABI_UI_TESTS:-$ROOT/tests/ui}"
 
@@ -43,33 +38,6 @@ if [ "$#" -gt 0 ]; then
 fi
 TIMEOUT="${HANABI_UI_TIMEOUT:-60}"
 
-# ---------------------------------------------------------------------------
-# RUN-LEVEL LAUNCH POLICY -- decided ONCE, here, before any fixture is read,
-# and never changed by a fixture.
-#
-#   HANABI_UI_POLICY=headless-only   (default) Every script runs against the
-#       headless backend, in this process's own terms: a script that DECLARES
-#       a windowed run (`# env: HANABI_E2E_WINDOWED=1`) is SKIPPED with that
-#       reason -- never run headless in its place, never run windowed. The
-#       app is launched with HANABI_E2E_HEADLESS_ONLY=1 so a windowed request
-#       that somehow escaped this runner is refused inside the binary before
-#       a window exists (main.cpp, the --e2e entry).
-#   HANABI_UI_POLICY=all             Unrestricted: a script runs in the mode
-#       it declares, INCLUDING windowed/native scripts, which open real
-#       windows and post real input. Only under an explicit grant.
-#
-# Whatever the policy: the MODE of a script comes from the fixture's own
-# `# env:` line and from nothing else. An inherited HANABI_E2E_WINDOWED in
-# this shell would make every script windowed (or, stripped, would silently
-# change what a script declared), so it is a configuration error: refused
-# before any launch; so is an inherited HANABI_E2E_HEADLESS_ONLY, which is
-# this runner's own variable to set. A fixture that sets a POLICY key
-# (HANABI_UI_POLICY, HANABI_E2E_HEADLESS_ONLY, HANABI_UI_EXE, HANABI_UI_TESTS)
-# is trying to move the boundary
-# from inside it: refused, and the run fails. Two `# env:` lines, or the
-# same key twice on one line, is ambiguous: refused likewise. Refusals are
-# recorded in the manifest with their reason, and a run with any refusal
-# exits non-zero even if every selected script passed.
 POLICY="${HANABI_UI_POLICY:-headless-only}"
 case "$POLICY" in
     headless-only|all) ;;
@@ -124,16 +92,9 @@ if [ ! -x "$EXE" ]; then
     exit 2
 fi
 
-# ---------------------------------------------------------------------------
-# THE MANIFEST: one JSON record per script, written BEFORE its launch (the
-# decision) and completed AFTER it (the result), so the file is the account
-# of what this run selected, skipped, refused, launched and observed -- and
-# the totals at the end are COUNTED FROM IT, never from a running tally.
-# Fields are the whitelisted launch facts only: never HOME, never a token
-# path, never the environment wholesale.
 MANIFEST="${HANABI_UI_MANIFEST:-/tmp/hanabi_uitest_manifest.jsonl}"
 : > "$MANIFEST"
-sha256_of() {  # portable: macOS ships shasum, most Linux ships sha256sum
+sha256_of() {
     if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" 2>/dev/null | cut -c1-64
     elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" 2>/dev/null | cut -c1-64
     else echo unknown; fi
@@ -163,34 +124,14 @@ json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 SUITE_TMP="$(mktemp -d /tmp/hanabi_uitest_home.XXXXXX)"
 KEEP_HOMES="${HANABI_UI_KEEP_HOMES:-0}"
 
-# PROCESS OWNERSHIP. Every launch runs under scripts/lib/supervise.py: the
-# binary is the supervisor's direct child in a NEW SESSION (its group id is
-# its own pid), the supervisor keeps it unreaped until every teardown signal
-# has gone to the GROUP -- so the kernel holds the pid and the group id for
-# the whole teardown and no stranger can be reached by a recycled number --
-# then performs the one wait. The runner waits on the supervisor, its own
-# direct child, and reads the supervisor's record. The old shell reaper
-# (ps -> kill on pid numbers) is retired: bash reaps background children on
-# SIGCHLD in every mode, so a pid identity read before a kill is never the
-# identity at the kill.
 SUPERVISE="$SCRIPT_DIR/lib/supervise.py"
 [ -f "$SUPERVISE" ] || { echo "error: $SUPERVISE missing" >&2; exit 65; }
 [ -f "$SCRIPT_DIR/lib/classify_record.py" ] || { echo "error: $SCRIPT_DIR/lib/classify_record.py missing" >&2; exit 65; }
-# The runtime the supervisor was qualified against: Apple's /usr/bin/python3
-# on Darwin (a PATH python3 from a package manager cannot substitute); PATH
-# python3 elsewhere.
 if [ "$(uname -s)" = "Darwin" ]; then PYTHON3=/usr/bin/python3; else PYTHON3="$(command -v python3 || true)"; fi
 [ -n "$PYTHON3" ] && [ -x "$PYTHON3" ] || { echo "error: python3 not found (the supervisor needs it)" >&2; exit 65; }
-SUPERVISOR_PIDS=()   # supervisors still in flight; each is our direct child
+SUPERVISOR_PIDS=()
 UNCERTAIN_CLEANUPS=0
 cleanup() {
-    # The runner's own death: JOIN each in-flight supervisor, nothing more.
-    # No signal is ever sent to a pid number -- bash may already have reaped
-    # the child and the number may belong to someone else. The supervisor's
-    # own wall clock (+ grace + its ps timeouts) bounds how long the join can
-    # take; `wait` collects an already-reaped child's status from bash's
-    # table without touching any process. A supervisor still in flight here
-    # is a script whose record was never classified: counted uncertain.
     local p joined=0
     for p in ${SUPERVISOR_PIDS[@]+"${SUPERVISOR_PIDS[@]}"}; do
         wait "$p" 2>/dev/null
@@ -253,11 +194,6 @@ for s in "${SCRIPTS[@]}"; do
     log="/tmp/hanabi_uitest_${name}.log"
     script_sha="$(sha256_of "$s")"
 
-    # --- the fixture's declared environment, RESOLVED before anything else ---
-    # Every `# env:` line is read (the old head -1 silently dropped a second
-    # one). One line, each key once; policy keys never. The declared mode is
-    # HANABI_E2E_WINDOWED's value on that line: armed = windowed, absent or
-    # "0" = headless.
     env_lines="$(sed -nE 's/^# env:[[:space:]]*//p' "$s")"
     env_line_count="$(printf '%s' "$env_lines" | grep -c . || true)"
     declared_env=()
@@ -285,7 +221,6 @@ for s in "${SCRIPTS[@]}"; do
     done
     if is_armed "$declared_windowed"; then declared_mode=windowed; else declared_mode=headless; fi
 
-    # --- the decision, from the immutable policy and the declared mode ---
     decision=selected; reason=""; effective_mode="$declared_mode"
     if [ -n "$refuse_reason" ]; then
         decision=refused; reason="$refuse_reason"; effective_mode=none
@@ -316,17 +251,7 @@ for s in "${SCRIPTS[@]}"; do
     [ -n "$cfg" ] || cfg='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}'
     printf '%s\n' "$cfg" > "$ISO_HOME/Library/Application Support/hanabi/settings.json"
 
-    # The fixture's `# env:` line adds environment for this script. Needed for
-    # any state a click cannot reach — an overlay whose only binding is a Cmd
-    # chord, for instance, which the injector cannot produce
-    # (afterhours_gaps.md #49). Values may be single-quoted to hold spaces;
-    # parsed with `xargs` above rather than word-splitting so they survive.
-    # Rebuilt from THIS script's line alone every iteration: nothing declared
-    # by an earlier script is in it.
     extra_env=(${declared_env[@]+"${declared_env[@]}"})
-    # Under headless-only, the binary is told the policy too (main.cpp refuses
-    # a windowed entry before a window exists); under `all` the variable is
-    # absent and the script's own declaration decides.
     policy_env=()
     [ "$POLICY" = "headless-only" ] && policy_env+=("HANABI_E2E_HEADLESS_ONLY=1")
 
@@ -350,17 +275,6 @@ for s in "${SCRIPTS[@]}"; do
     # `# env:` line can point a run at the user's general pasteboard. The
     # test binary refuses to start without it (native_extras.mm).
     private_pasteboard="hanabi-e2e-${name}-$$-$(date +%s)"
-    # `env -u HANABI_E2E_WINDOWED`: the inherited value was refused above and
-    # a declared one is in extra_env only when the policy selected it, so
-    # the process starts from a known state. The supervisor owns the launch
-    # (see PROCESS OWNERSHIP); the runner passes the wall clock and the
-    # grace and reads the record.
-    # The supervisor runs in the RUNNER'S environment (python -I: no PYTHON*
-    # variable, no user site); the fixture's environment is built by `env`
-    # INSIDE the supervised argv, exactly as before, and reaches the app only.
-    # The record is bound to THIS invocation by a token the supervisor echoes
-    # first; the runner clears the path before launch and the supervisor
-    # writes atomically, so a stale, partial or foreign record fails closed.
     record="$ISO_HOME/supervise.json"
     rm -f "$record" "$record.tmp"
     token="$RUN_ID:$name:$RANDOM$RANDOM:$(date +%s)"
@@ -379,14 +293,6 @@ for s in "${SCRIPTS[@]}"; do
     wait "$sup"; rc=$?
     keep=(); for p in ${SUPERVISOR_PIDS[@]+"${SUPERVISOR_PIDS[@]}"}; do [ "$p" = "$sup" ] || keep+=("$p"); done
     SUPERVISOR_PIDS=(${keep[@]+"${keep[@]}"})
-    # The script's outcome comes from the supervisor's VALIDATED record, never
-    # from its rc (recorded beside it). Absent / malformed / no `ownership`
-    # -> unsupervised, uncertain. ownership != established or reap_timed_out
-    # -> unsupervised, uncertain. wall_hit -> timeout. interrupted -> aborted.
-    # Else the child's exit_status (0 pass, else fail) or its term_signal
-    # (fail, signal named). Cleanup uncertain unless "none observed".
-    # Read each field from the classifier itself (--field): a reason such as
-    # "exit 0" or "signal 11" contains a space, so nothing is split in bash.
     result="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" --field result "$record" "$token")"
     why="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" --field reason "$record" "$token")"
     cleanup_state="$("$PYTHON3" -I "$SCRIPT_DIR/lib/classify_record.py" --field cleanup "$record" "$token")"
@@ -396,10 +302,6 @@ for s in "${SCRIPTS[@]}"; do
     [ -n "$sup_json" ] || sup_json='{"cleanup":"uncertain","ownership":"no_record"}'
     [ "$cleanup_state" = "certain" ] || UNCERTAIN_CLEANUPS=$((UNCERTAIN_CLEANUPS + 1))
 
-    # OBSERVED mode, cross-checked against the effective one: "Gfx init:" is
-    # logged only by app_init(), the windowed path; the headless run never
-    # logs it. A headless launch whose log carries it opened a window it was
-    # not selected to open -- a policy failure, not a pass, whatever rc says.
     if grep -q 'Gfx init:' "$log" 2>/dev/null; then gfx=true; else gfx=false; fi
     if [ "$effective_mode" = "headless" ] && [ "$gfx" = "true" ]; then
         result=mode_mismatch
@@ -416,12 +318,6 @@ for s in "${SCRIPTS[@]}"; do
     fi
 done
 
-# TOTALS FROM THE RECORDS. Each count is a grep over the manifest; nothing
-# here is a running tally or a subtraction, and selected + skipped + refused
-# must equal the number of records, which must equal the number of scripts
-# found -- or the run is broken and says so.
-# Script records only: the cleanup record is appended by the EXIT trap after
-# these totals and carries no "decision".
 count() { grep -c "$1" "$MANIFEST" || true; }
 N_RECORDS="$(count '"decision":"')"
 N_SELECTED="$(count '"decision":"selected"')"
@@ -445,8 +341,6 @@ if [ "$N_RECORDS" -ne "${#SCRIPTS[@]}" ] || [ $((N_SELECTED + N_SKIPPED + N_REFU
     echo "  MANIFEST BROKEN: records do not reconcile with the scripts found" >&2
     rc_all=3
 fi
-# The cleanup record is written by the EXIT trap AFTER this point; a reader
-# of the manifest treats its absence as UNCERTAIN, never as zero.
 : "$N_CLEANUP_RECORDS"
 if [ "$N_REFUSED" -ne 0 ]; then
     echo "  refused fixtures are a configuration error; see the manifest reasons" >&2

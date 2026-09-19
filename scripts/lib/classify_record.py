@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """The script's outcome, from the supervisor's VALIDATED record -- never from
 the supervisor's exit code. One JSON object on one line -- a reason may
 contain spaces ("exit 0", "signal 11"), so nothing here is ever split on
