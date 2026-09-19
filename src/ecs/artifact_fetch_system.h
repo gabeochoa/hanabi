@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../api/artifact_policy.h"
 #include "../api/artifact_sniff.h"
 #include "../api/disk_cache.h"
 #include "components.h"
@@ -60,15 +61,11 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
         return "";
     }
 
-    // Images draw; audio is fetched by no one -- this build does not play it.
     static bool drawable(std::string_view media_type) {
-        api::ArtifactRef probe;
-        probe.media_type = std::string(media_type);
-        return probe.is_image();
+        return hanabi::artifact_policy::drawable(media_type);
     }
     static std::string unsupported_reason(std::string_view media_type) {
-        if (media_type.rfind("audio/", 0) == 0) return "audio is not played in this build";
-        return "unsupported type " + std::string(media_type);
+        return hanabi::artifact_policy::unsupported_reason(media_type);
     }
 
     static Fetched run_fetch(const std::shared_ptr<api::Client>& c, const std::string& sessionId,
@@ -145,15 +142,21 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
 
     bool resolve(AppComponent& app, const std::string& sessionId, api::Message& m) {
         api::ArtifactRef& ref = m.artifact;
-        if (ref.hidden) return mark(ref, api::ArtifactFetch::Idle);
-        if (!ref.local_path.empty()) {
-            if (ref.is_image() && m.image_path.empty()) m.image_path = ref.local_path;
-            return mark(ref, api::ArtifactFetch::Ready);
+        api::ArtifactFetch settled;
+        std::string reason;
+        if (hanabi::artifact_policy::settle_without_fetch(ref, settled, reason)) {
+            bool changed = false;
+            if (settled == api::ArtifactFetch::Ready) {
+                if (ref.is_image() && m.image_path.empty()) {
+                    m.image_path = ref.local_path;
+                    changed = true;
+                }
+            } else if (!m.image_path.empty()) {
+                m.image_path.clear();
+                changed = true;
+            }
+            return mark(ref, settled, reason) || changed;
         }
-        if (ref.has_metadata() && !drawable(ref.media_type))
-            return mark(ref, api::ArtifactFetch::Unavailable, unsupported_reason(ref.media_type));
-        if (ref.size_bytes > api::disk_cache::kArtifactMaxBytes)
-            return mark(ref, api::ArtifactFetch::Unavailable, "larger than 32 MB; open in the web app");
         const std::string key = key_of(ref);
         auto it = slots_.find(key);
         if (it != slots_.end() && it->second.failed && it->second.transient &&
