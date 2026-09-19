@@ -13564,6 +13564,8 @@ both read from source at the pinned vendor `d90db15`, stood in the way:
 Neither is a defect in what the runner promises: it never promised to wait
 for a retrying command or to honour a handler's budget. Same class, MISSING.
 
+**POSTSCRIPT 2026-09-19 (second measured instance, Snooze; the plain `expect_text` case, no `within=` override).** `a_snooze_set_on_the_web_app_shows_in_the_menu_after_the_first_read` :15 `expect_text "Snoozed until 1:00 PM"` was followed on the next line by `key ESCAPE`. The assertion was still retrying when the Escape closed the menu it read, so its `[TIMEOUT]` dump printed a LATER state (another row's menu), which proves nothing about what the first target showed; why the label was absent on the assertion's first frames is UNRESOLVED (row order under the two-thread seed, the inbox read not landed yet, or timing -- the log cannot separate them). Fixture rule adopted there: hold the state an assertion reads for `MAX_FRAMES + 2` frames before any line that would change it -- `wait_frames 32`, a blocking wait (`wait` is the other, in seconds) -- and address rows by id rather than by coordinate. No runner change.
+
 **The app-owned workaround (hanabi, source of record `src/ecs/e2e_commands.h`
 `namespace within`, `HandleWithinDeadlineSystem`; the tick sites in
 `src/main.cpp` headless and windowed).** A command carrying `within=<frames>`
