@@ -112,6 +112,7 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
         state.persistedAttachments = state.attachments;
     }
 
+  private:
     bool dropTestFired_ = false;
     int dropTestFrames_ = 0;
 };
