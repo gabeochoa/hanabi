@@ -75,7 +75,7 @@ inline afterhours::ui::imm::ElementResult edged_text_input(
     hanabi::ui::field_chrome::clear_focus_border(field.ent().id);
     hanabi::ui::field_chrome::apply_focus_edge(wrap.ent().id, focused,
                                                ctx.theme.accent);
-    if (edited && !field.result) return afterhours::ui::imm::ElementResult{true, field.ent()};
+    if (edited && !field) return afterhours::ui::imm::ElementResult{true, field.ent()};
     return field;
 }
 
