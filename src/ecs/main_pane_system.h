@@ -68,6 +68,7 @@
 #include "../keys.h"
 #include "../settings.h"
 #include "line_draw_state.h"
+#include "text_edit_actions.h"
 #include "ui_imports.h"
 #include "../ui/context_menu.h"
 #include "../ui/transcript_copy.h"
@@ -8607,8 +8608,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         composerHeldKeyboard_ = composerOwnsInput;
         if (restoreComposerCaret) composerYield_.settled();
+        auto composerEp = mk(inputWrap.ent(), 1);
+        if (composerEp.first.get().has<afterhours::text_input::HasTextAreaState>())
+            edit_actions::apply_pending(static_cast<int>(composerEp.first.get().id),
+                                        composerEp.first.get().get<afterhours::text_input::HasTextAreaState>(),
+                                        replyDraft, edit_actions::app_clipboard());
         auto inputRes = afterhours::ui::imm::text_area(
-            ctx, mk(inputWrap.ent(), 1), replyDraft,
+            ctx, composerEp, replyDraft,
             ComponentConfig{}
                 .with_line_height(pixels(kComposerLineH))
                 .with_max_lines(kComposerMaxRows)

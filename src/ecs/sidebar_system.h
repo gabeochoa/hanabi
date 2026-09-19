@@ -63,6 +63,7 @@
 #include "settings_system.h"
 #include "../ui/transcript_copy.h"
 #include "../keys.h"
+#include "text_edit_actions.h"
 #include "ui_imports.h"
 
 namespace ecs {
@@ -1803,8 +1804,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // The same imm::text_input the sheet's field was, so the focusable
         // child carries the same name and every script that says
         // `expect_focused settings_search` still names the same thing.
+        auto searchEp = mk(field.ent(), 2);
+        if (searchEp.first.get().has<afterhours::text_input::HasTextInputState>())
+            edit_actions::apply_pending(static_cast<int>(searchEp.first.get().id),
+                                        searchEp.first.get().get<afterhours::text_input::HasTextInputState>(),
+                                        app.settingsQuery, edit_actions::app_clipboard());
         auto res = afterhours::ui::imm::text_input(
-            ctx, mk(field.ent(), 2), app.settingsQuery,
+            ctx, searchEp, app.settingsQuery,
             ComponentConfig{}
                 .with_size(ComponentSize{
                     pixels(textW), pixels(hanabi::control::kMinHitTarget)})
@@ -2454,8 +2460,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (searchTextW < 40.0f)
             searchTextW = std::max(12.0f, searchInner - kSearchSlot - 24.0f -
                                               (hasQuery ? kSearchSlot : 0.0f));
+        auto sbSearchEp = mk(field.ent(), 2);
+        if (sbSearchEp.first.get().has<afterhours::text_input::HasTextInputState>())
+            edit_actions::apply_pending(static_cast<int>(sbSearchEp.first.get().id),
+                                        sbSearchEp.first.get().get<afterhours::text_input::HasTextInputState>(),
+                                        app.searchQuery, edit_actions::app_clipboard());
         auto searchRes = afterhours::text_input::text_input(
-            ctx, mk(field.ent(), 2), app.searchQuery,
+            ctx, sbSearchEp, app.searchQuery,
             ComponentConfig{}
                 .with_size(ComponentSize{
                     pixels(searchTextW),

@@ -18,6 +18,7 @@
 // carry, and the field fills it transparently.
 
 #include <afterhours/src/plugins/ui/text_input/component.h>
+#include "../ecs/text_edit_actions.h"
 #include "../ecs/ui_imports.h"
 #include "field_chrome.h"
 #include "secondary_surface.h"
@@ -44,8 +45,15 @@ inline afterhours::ui::imm::ElementResult edged_text_input(
     auto wrap = hanabi::ui::div(ctx, ep,
                                 std::move(chrome.with_debug_name(name + "_wrap")));
 
+    auto fieldEp = afterhours::ui::imm::mk(wrap.ent(), 1);
+    bool edited = false;
+    if (fieldEp.first.get().template has<afterhours::text_input::HasTextInputState>())
+        edited = ecs::edit_actions::apply_pending(
+            static_cast<int>(fieldEp.first.get().id),
+            fieldEp.first.get().template get<afterhours::text_input::HasTextInputState>(), value,
+            ecs::edit_actions::app_clipboard());
     auto field = afterhours::ui::imm::text_input(
-        ctx, afterhours::ui::imm::mk(wrap.ent(), 1), value,
+        ctx, fieldEp, value,
         ComponentConfig{}
             .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
             .with_transparent_bg()
@@ -67,6 +75,7 @@ inline afterhours::ui::imm::ElementResult edged_text_input(
     hanabi::ui::field_chrome::clear_focus_border(field.ent().id);
     hanabi::ui::field_chrome::apply_focus_edge(wrap.ent().id, focused,
                                                ctx.theme.accent);
+    if (edited && !field.result) return afterhours::ui::imm::ElementResult{true, field.ent()};
     return field;
 }
 

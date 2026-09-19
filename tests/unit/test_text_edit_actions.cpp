@@ -129,9 +129,91 @@ static void test_ownership_table() {
     CHECK(ea::owner_for(EditVerb::Cut, composer, true) == EditOwner::Field);
 }
 
+static void test_pending_verbs_drain_in_order_on_the_named_focused_field_and_sync_its_binding() {
+    reset();
+    auto& pending = ea::pending_field_edits();
+    pending.clear();
+    HasTextAreaState composer("hello world", 0, 0.5f);
+    std::string bound = "hello world";
+    HasTextInputState other("elsewhere", 0, 0.5f);
+    std::string otherBound = "elsewhere";
+    composer.is_focused = true;
+    other.is_focused = true;
+    const int composerId = 7;
+    const int otherId = 9;
+    CHECK(!ea::apply_pending(composerId, composer, bound, counting()));
+
+    pending.push(composerId, hanabi::EditVerb::SelectAll);
+    pending.push(composerId, hanabi::EditVerb::Cut);
+    CHECK(!ea::apply_pending(otherId, other, otherBound, counting()) && otherBound == "elsewhere");
+    CHECK(pending.verbs.size() == 2);
+    CHECK(ea::apply_pending(composerId, composer, bound, counting()));
+    CHECK(composer.text().empty() && bound.empty() && g_clip == "hello world");
+    CHECK(pending.verbs.empty() && pending.target == -1);
+    CHECK(!ea::apply_pending(composerId, composer, bound, counting()));
+
+    pending.push(composerId, hanabi::EditVerb::Undo);
+    CHECK(ea::apply_pending(composerId, composer, bound, counting()) && composer.text() == "hello world" &&
+          bound == "hello world");
+
+    composer.clear_selection();
+    composer.cursor_position = composer.text_size();
+    for (const char* piece : {"1", "2", "3"}) {
+        g_clip = piece;
+        pending.push(composerId, hanabi::EditVerb::Paste);
+        CHECK(ea::apply_pending(composerId, composer, bound, counting()));
+    }
+    CHECK(composer.text() == "hello world123" && bound == composer.text());
+    pending.push(composerId, hanabi::EditVerb::Undo);
+    pending.push(composerId, hanabi::EditVerb::Undo);
+    pending.push(composerId, hanabi::EditVerb::Undo);
+    CHECK(ea::apply_pending(composerId, composer, bound, counting()) && composer.text() == "hello world" &&
+          bound == "hello world" && pending.verbs.empty());
+    pending.push(composerId, hanabi::EditVerb::Redo);
+    pending.push(composerId, hanabi::EditVerb::Redo);
+    CHECK(ea::apply_pending(composerId, composer, bound, counting()) && composer.text() == "hello world12");
+    pending.push(composerId, hanabi::EditVerb::Undo);
+    pending.push(composerId, hanabi::EditVerb::Undo);
+    CHECK(ea::apply_pending(composerId, composer, bound, counting()) && composer.text() == "hello world");
+
+    g_clip = "X";
+    pending.push(composerId, hanabi::EditVerb::SelectAll);
+    pending.push(composerId, hanabi::EditVerb::Copy);
+    pending.push(composerId, hanabi::EditVerb::Paste);
+    CHECK(!ea::apply_pending(composerId, composer, bound, counting()) && composer.text() == "hello world" &&
+          bound == "hello world" && g_clip == "hello world" && pending.verbs.empty() && pending.target == -1);
+    CHECK(!composer.has_selection() && composer.cursor_position == 11);
+
+    composer.clear_selection();
+    composer.cursor_position = 5;
+    g_clip = "+";
+    pending.push(composerId, hanabi::EditVerb::Paste);
+    pending.push(composerId, hanabi::EditVerb::Paste);
+    CHECK(ea::apply_pending(composerId, composer, bound, counting()) && composer.text() == "hello++ world" &&
+          bound == composer.text() && composer.cursor_position == 7);
+    pending.push(composerId, hanabi::EditVerb::Undo);
+    CHECK(ea::apply_pending(composerId, composer, bound, counting()) && composer.text() == "hello+ world");
+    pending.push(composerId, hanabi::EditVerb::Undo);
+    CHECK(ea::apply_pending(composerId, composer, bound, counting()) && composer.text() == "hello world");
+
+    pending.push(composerId, hanabi::EditVerb::SelectAll);
+    CHECK(!ea::apply_pending(composerId, composer, bound, counting()) && composer.has_selection() &&
+          bound == "hello world");
+
+    pending.push(composerId, hanabi::EditVerb::Cut);
+    pending.push(otherId, hanabi::EditVerb::Paste);
+    CHECK(pending.target == otherId && pending.verbs.size() == 1);
+    composer.is_focused = false;
+    CHECK(!ea::apply_pending(composerId, composer, bound, counting()));
+    other.cursor_position = other.text_size();
+    g_clip = "!";
+    CHECK(ea::apply_pending(otherId, other, otherBound, counting()) && otherBound == "elsewhere!");
+}
+
 int main() {
     std::printf("=== test_text_edit_actions ===\n");
     test_ownership_table();
+    test_pending_verbs_drain_in_order_on_the_named_focused_field_and_sync_its_binding();
     test_copy_needs_a_selection_and_writes_it();
     test_cut_moves_the_selection_and_undo_brings_it_back();
     test_paste_replaces_a_selection_and_is_one_undo_step();

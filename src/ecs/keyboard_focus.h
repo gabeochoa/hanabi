@@ -30,6 +30,21 @@ inline afterhours::text_input::HasTextInputState* focused_text_field() {
     return nullptr;
 }
 
+inline int focused_text_entity() {
+    for (const auto& e :
+         afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+        if (!e) continue;
+        if (e->has<afterhours::text_input::HasTextAreaState>()) {
+            if (e->get<afterhours::text_input::HasTextAreaState>().is_focused) return static_cast<int>(e->id);
+            continue;
+        }
+        if (e->has<afterhours::text_input::HasTextInputState>() &&
+            e->get<afterhours::text_input::HasTextInputState>().is_focused)
+            return static_cast<int>(e->id);
+    }
+    return -1;
+}
+
 inline afterhours::text_input::HasTextAreaState* focused_text_area() {
     for (const auto& e :
          afterhours::ui::UICollectionHolder::get().collection.get_entities()) {

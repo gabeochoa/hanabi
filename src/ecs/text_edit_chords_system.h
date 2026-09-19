@@ -37,6 +37,7 @@
 // state instead, and reads Ctrl as well as Cmd for the reason keys.h gives.
 // ---------------------------------------------------------------------------
 
+#include <cstdio>
 #include <string>
 
 #include "../keys.h"
@@ -63,10 +64,7 @@ inline EditOwner perform(AppComponent& app, EditVerb verb) {
     const EditOwner owner = owner_for(verb, focus, image);
     switch (owner) {
         case EditOwner::Image: AttachmentIntakeSystem::add(app, path); break;
-        case EditOwner::Field:
-            if (area != nullptr) perform_on(*area, verb, app_clipboard());
-            else perform_on(*field, verb, app_clipboard());
-            break;
+        case EditOwner::Field: pending_field_edits().push(focused_text_entity(), verb); break;
         case EditOwner::Transcript: hanabi::text_select::copy(); break;
         case EditOwner::None: break;
     }
@@ -98,6 +96,11 @@ struct TextEditChordsSystem : afterhours::System<> {
     bool should_iterate() const override { return false; }
 
     void once(float) override {
+        if (auto& pending = edit_actions::pending_field_edits(); !pending.verbs.empty()) {
+            std::fprintf(stderr, "[edit-actions] %zu field verb(s) for entity %d were not applied last frame (field not built)\n",
+                         pending.verbs.size(), pending.target);
+            pending.clear();
+        }
         auto* app = find_singleton<AppComponent>();
         if (app != nullptr) {
             int verb = -1;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <string_view>
 
@@ -98,6 +99,45 @@ bool select_all(State& s) {
     s.cursor_position = s.text_size();
     afterhours::text_input::reset_blink(s);
     return true;
+}
+
+struct PendingFieldEdits {
+    int target = -1;
+    std::deque<EditVerb> verbs;
+    void clear() {
+        target = -1;
+        verbs.clear();
+    }
+    void push(int entity, EditVerb verb) {
+        if (target != entity) {
+            verbs.clear();
+            target = entity;
+        }
+        verbs.push_back(verb);
+    }
+};
+
+inline PendingFieldEdits& pending_field_edits() {
+    static PendingFieldEdits pending;
+    return pending;
+}
+
+template <typename State>
+bool perform_on(State& s, EditVerb verb, const Clipboard& clip);
+
+template <typename State>
+bool apply_pending(int entity, State& s, std::string& bound, const Clipboard& clip) {
+    auto& pending = pending_field_edits();
+    if (pending.target != entity || pending.verbs.empty() || !s.is_focused) return false;
+    const std::string before = s.text();
+    while (!pending.verbs.empty()) {
+        const EditVerb verb = pending.verbs.front();
+        pending.verbs.pop_front();
+        perform_on(s, verb, clip);
+    }
+    pending.clear();
+    bound = s.text();
+    return bound != before;
 }
 
 template <typename State>
