@@ -20,7 +20,7 @@ wait_frames 8
 expect_text "Unmute"
 key ESCAPE
 wait_frames 6
-right_click_ui tab_t2
+right_click_ui tab_active
 wait_frames 8
 expect_text "Mute"
 expect_no_text "Unmute"
