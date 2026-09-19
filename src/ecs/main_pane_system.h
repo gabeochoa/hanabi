@@ -2809,7 +2809,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Clicking anywhere in a pane focuses it. A press rather than a
         // release, and read BEFORE the pane builds, so the click that focuses
         // a pane also lands on whatever it was aimed at inside it.
-        if (ctx.mouse.just_pressed && !focused &&
+        const auto* strip = find_singleton<TabStripComponent>();
+        const bool menuOwnsPress = app.menuOpenAtFrameStart || app.rowMenuOpen ||
+                                   (strip != nullptr && strip->menuOpen);
+        if (ctx.mouse.just_pressed && !focused && !menuOwnsPress &&
             afterhours::ui::is_mouse_inside(
                 ctx.mouse.pos, pane_screen_rect(app, index))) {
             app.focusedPane = index;

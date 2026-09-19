@@ -680,6 +680,7 @@ struct AppComponent : public afterhours::BaseComponent {
     bool artifactFetchPending = false;
     long long focusAtFrameStart = -1;
     long long focusBeforeLastPress = -1;
+    bool menuOpenAtFrameStart = false;
 
     // Search across threads (Cmd+Shift+F). Same shape as the palette, over a
     // different corpus: the sessions' titles and previews plus whatever

@@ -610,6 +610,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     }
 
     void for_each_with(Entity&, AppComponent& app, float dt) override {
+        {
+            const auto* strip = find_singleton<TabStripComponent>();
+            app.menuOpenAtFrameStart = app.rowMenuOpen || (strip != nullptr && strip->menuOpen);
+        }
         if (!app.client) return;
 
         // --- Auth: deferred device-code begin() (launch-perf) ---
