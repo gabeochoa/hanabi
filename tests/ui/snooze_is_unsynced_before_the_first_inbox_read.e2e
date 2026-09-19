@@ -13,6 +13,7 @@ assert_ui row_menu_snooze hidden=false
 click_ui row_menu_snooze
 wait_frames 8
 expect_no_text "In 1 Hour"
+expect_no_ui row_menu_snooze_submenu
 key ESCAPE
 wait_frames 4
 expect_text "SKU backfill — my name for it"

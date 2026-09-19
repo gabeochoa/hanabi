@@ -67,6 +67,19 @@ int main() {
         CHECK(m.label.rfind("Snoozed until ", 0) == 0);
         CHECK(sm::parse(m.action_id) && !sm::parse(m.action_id)->until);
     }
+    {
+        CHECK(!sm::active_until(std::nullopt, now));
+        CHECK(!sm::active_until(std::optional<std::int64_t>(now - 60), now));
+        CHECK(!sm::active_until(std::optional<std::int64_t>(now), now));
+        CHECK(sm::active_until(std::optional<std::int64_t>(now + 1), now) &&
+              *sm::active_until(std::optional<std::int64_t>(now + 1), now) == now + 1);
+        const auto woke = sm::item(std::optional<std::int64_t>(now - 60), now, "row_menu_snooze", false, false, utc);
+        CHECK(woke.label == "Snooze" && woke.action_id == "snooze" && !woke.children.empty());
+        const auto due = sm::item(std::optional<std::int64_t>(now), now, "row_menu_snooze", false, false, utc);
+        CHECK(due.label == "Snooze" && !due.children.empty());
+        const auto pending = sm::item(std::optional<std::int64_t>(now + 1), now, "row_menu_snooze", false, false, utc);
+        CHECK(pending.label.rfind("Snoozed until ", 0) == 0 && pending.children.empty() && pending.action_id == "unsnooze");
+    }
 
     if (failures == 0) {
         std::printf("OK\n");

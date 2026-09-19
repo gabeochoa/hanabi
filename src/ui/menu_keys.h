@@ -19,8 +19,23 @@ struct Cursor {
     std::size_t pressed_row = kNoRow;
     std::size_t pressed_child = kNoRow;
     int press_frames = 0;
+    bool hover_held = false;
+    float hover_held_x = 0.0f;
+    float hover_held_y = 0.0f;
 
     bool in_submenu() const { return submenu_open && child != kNoRow; }
+
+    void hold_hover(float x, float y) {
+        hover_held = true;
+        hover_held_x = x;
+        hover_held_y = y;
+    }
+    bool hover_allowed(float x, float y) {
+        if (!hover_held) return true;
+        if (x == hover_held_x && y == hover_held_y) return false;
+        hover_held = false;
+        return true;
+    }
 
     bool row_pressed(std::size_t at) const {
         return press_frames > 0 && pressed_row == at &&

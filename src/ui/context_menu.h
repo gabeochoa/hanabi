@@ -102,7 +102,7 @@ inline bool menu_leaf_enabled(std::size_t i, void* ctx) {
 
 inline void apply_menu_keys(menu::Cursor& cursor, const MenuKeys& keys,
                             const std::vector<MenuItem>& items,
-                            MenuResult* out) {
+                            MenuResult* out, float pointerX = 0.0f, float pointerY = 0.0f) {
     if (keys.key == menu::Key::None) return;
     menu::Shape shape;
     shape.rows = items.size();
@@ -120,6 +120,8 @@ inline void apply_menu_keys(menu::Cursor& cursor, const MenuKeys& keys,
     const std::size_t fromChild = cursor.child;
     const bool wasInSubmenu = cursor.in_submenu();
     cursor = step.cursor;
+    if (step.effect == menu::Effect::ClosedSubmenu && keys.key == menu::Key::Cancel)
+        cursor.hold_hover(pointerX, pointerY);
     if (step.effect == menu::Effect::Activate)
         cursor.hold_press(from, wasInSubmenu ? fromChild : menu::kNoRow);
     if (step.effect == menu::Effect::OpenedSubmenu &&
@@ -145,7 +147,7 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
     using afterhours::ui::imm::mk;
 
     MenuResult out;
-    apply_menu_keys(cursor, keys, items, &out);
+    apply_menu_keys(cursor, keys, items, &out, ctx.mouse.pos.x, ctx.mouse.pos.y);
 
     std::vector<bool> seps(items.size());
     for (std::size_t i = 0; i < items.size(); ++i) seps[i] = items[i].separator;
@@ -283,14 +285,15 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
                              metrics.row_width(), metrics.row_h};
         const bool keyboardOpen = cursor.row == k && cursor.submenu_open;
         const bool pointerOpen =
-            keys.pointer_moved &&
+            keys.pointer_moved && cursor.hover_allowed(ctx.mouse.pos.x, ctx.mouse.pos.y) &&
             (hanabi::overlay::inside(parentRow, ctx.mouse.pos.x,
                                      ctx.mouse.pos.y) ||
              hanabi::overlay::inside(subRect, ctx.mouse.pos.x,
                                      ctx.mouse.pos.y));
         const bool open =
-            keyboardOpen || pointerOpen ||
-            (!forced_submenu.empty() && forced_submenu == item.debug_name);
+            !item.disabled &&
+            (keyboardOpen || pointerOpen ||
+             (!forced_submenu.empty() && forced_submenu == item.debug_name));
         if (!open) continue;
 
         hanabi::overlay::publish_occluder(subRect);

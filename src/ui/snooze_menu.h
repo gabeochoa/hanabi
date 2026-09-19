@@ -50,6 +50,11 @@ inline std::optional<Pick> parse(std::string_view action_id) {
     return Pick{static_cast<std::int64_t>(std::strtoll(digits.c_str(), nullptr, 10))};
 }
 
+inline std::optional<std::int64_t> active_until(std::optional<std::int64_t> snoozed_until, std::int64_t now) {
+    if (!snoozed_until || *snoozed_until <= now) return std::nullopt;
+    return snoozed_until;
+}
+
 inline Row item(std::optional<std::int64_t> snoozed_until, std::int64_t now, const char* debug_name,
                 bool disabled, bool custom_available = false,
                 const snooze_presets::LocalCalendar& cal = {}) {
@@ -57,6 +62,7 @@ inline Row item(std::optional<std::int64_t> snoozed_until, std::int64_t now, con
     m.debug_name = debug_name;
     m.disabled = disabled;
     m.action_id = kParentId;
+    snoozed_until = active_until(snoozed_until, now);
     if (snoozed_until) {
         m.label = snooze_presets::snoozed_until_text(*snoozed_until, now, cal);
         m.action_id = kClearId;

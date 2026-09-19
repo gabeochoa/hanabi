@@ -3,20 +3,29 @@
 # "Snoozed until <due>" in its row menu without any local act; a thread
 # whose snooze is already past due shows Snooze again (the model says it
 # woke), and nothing in the list moved.
+# The runner pins TZ=UTC and HANABI_MOCK_NOW=1781524800 (12:00Z); the labels
+# below are those instants in that zone. t6 is due 13:00Z (pending); t7 was
+# due 11:59Z (past: the menu says Snooze again, never the stale row). Rows
+# are addressed by id, not by a coordinate: with both threads seeded the
+# list order is not the other scripts'. Assertions do not block the next
+# command (runner.h dispatches every tick) and retry for MAX_FRAMES=30
+# (pending_command.h) before they fail, so the menu is held open for 32
+# frames after each one before the Escape that would close what it reads.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_MOCK_SNOOZES=t6:1781528400:1781524740,t7:1781524740:1781520000
 wait_frames 20
 expect_text "SKU backfill — my name for it"
 expect_text "coordinating 3 shard workers"
-mouse_move 120 475
-wait_frames 3
-right_click 120 475
+right_click_ui chat_row_id_t6
 wait_frames 8
 expect_text "Snoozed until 1:00 PM"
+wait_frames 32
 key ESCAPE
 wait_frames 4
 right_click_ui chat_row_id_t7
 wait_frames 8
 expect_text "Snooze"
 expect_no_text "Snoozed until"
+expect_no_text "11:59 AM"
+wait_frames 32
 key ESCAPE

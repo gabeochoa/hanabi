@@ -170,6 +170,27 @@ int main() {
     assert(advance(viaModel, Key::Activate, leafShape).effect ==
            Effect::Activate);
 
+    Cursor hover;
+    assert(hover.hover_allowed(10.0f, 20.0f));
+    hover.hold_hover(10.0f, 20.0f);
+    assert(!hover.hover_allowed(10.0f, 20.0f));
+    assert(!hover.hover_allowed(10.0f, 20.0f));
+    assert(hover.hover_allowed(11.0f, 20.0f));
+    assert(hover.hover_allowed(10.0f, 20.0f));
+    Cursor subCursor;
+    subCursor.row = 2;
+    subCursor.child = 0;
+    subCursor.submenu_open = true;
+    Shape kidShape;
+    kidShape.rows = 5;
+    kidShape.children_of_row = 3;
+    kidShape.row_has_children = true;
+    auto backOut = advance(subCursor, Key::Cancel, kidShape);
+    assert(backOut.effect == Effect::ClosedSubmenu);
+    assert(!backOut.cursor.submenu_open && backOut.cursor.child == kNoRow && backOut.cursor.row == 2);
+    auto closeAll = advance(backOut.cursor, Key::Cancel, kidShape);
+    assert(closeAll.effect == Effect::Close);
+
     std::cout << "menu keys: ok\n";
     return 0;
 }
