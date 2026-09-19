@@ -21,8 +21,9 @@ int main() {
     CHECK(h::is_standard_orchestrator("AGENTCLOUD-ORCHESTRATOR-PROD.playground.x2p.facebook.net"));
     CHECK(h::is_standard_orchestrator("agentcloud-orchestrator-prod.playground.x2p.facebook.net:443"));
     CHECK(h::is_standard_orchestrator("mm.internalmeta.com"));
-    CHECK(h::is_standard_orchestrator("agentcloud.mm.internalmeta.com"));
-    CHECK(h::is_standard_orchestrator("Orchestrator.MM.internalmeta.com:8443"));
+    CHECK(!h::is_standard_orchestrator("agentcloud.mm.internalmeta.com"));
+    CHECK(!h::is_standard_orchestrator("Orchestrator.MM.internalmeta.com:8443"));
+    CHECK(h::is_standard_orchestrator("MM.internalmeta.com:443"));
     CHECK(!h::is_standard_orchestrator("devvm48270.atn0.facebook.com"));
     CHECK(!h::is_standard_orchestrator("devvm48270.atn0.facebook.com:8080"));
     CHECK(!h::is_standard_orchestrator("USER:gabeochoa-orchestrator.playground.x2p.facebook.net"));

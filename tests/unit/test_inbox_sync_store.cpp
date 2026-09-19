@@ -75,11 +75,78 @@ int main() {
         Store s(1);
         s.read_landed(1, read_ok(kSnap));
         CHECK(s.read_landed(1, read_login()).outcome == Outcome::Ignored);
-        CHECK(s.synced() && s.get("t6"));
+        CHECK(!s.synced() && s.phase() == Phase::SignedOut && s.get("t6"));
+        CHECK(!s.begin_write("t2", 9000, 8000));
+        CHECK(s.read_landed(1, read_ok(kSnap)).outcome == Outcome::Applied && s.synced());
         CHECK(s.read_landed(1, read_http(502)).outcome == Outcome::Ignored);
-        CHECK(s.synced() && s.get("t6") && s.last_error() == "inbox state HTTP 502");
+        CHECK(!s.synced() && s.phase() == Phase::Unreachable && s.get("t6") &&
+              s.last_error() == "could not reach the web app");
+        CHECK(s.read_landed(1, read_ok(kSnap)).outcome == Outcome::Applied && s.synced());
+        InboxStateRead unauth;
+        unauth.http_status = 401;
+        unauth.signed_out = true;
+        CHECK(s.read_landed(1, Result<InboxStateRead>{false, std::move(unauth), "inbox state HTTP 401", false}).outcome == Outcome::Ignored);
+        CHECK(s.phase() == Phase::SignedOut && s.get("t6"));
+        CHECK(s.read_landed(1, read_ok(kSnap)).outcome == Outcome::Applied && s.synced());
         CHECK(s.read_landed(1, read_ok("{}")).outcome == Outcome::Ignored);
-        CHECK(s.get("t6"));
+        CHECK(s.phase() == Phase::Malformed && s.get("t6") &&
+              s.last_error() == "the web app sent something unexpected");
+        CHECK(!s.begin_write("t2", 9000, 8000));
+        CHECK(s.read_landed(1, read_ok("not json")).outcome == Outcome::Ignored && s.phase() == Phase::Malformed);
+        CHECK(s.read_landed(1, read_ok(kSnap)).outcome == Outcome::Applied && s.synced());
+        CHECK(s.read_landed(1, Result<InboxStateRead>::failure("inbox state unreachable: timeout")).outcome == Outcome::Ignored);
+        CHECK(s.phase() == Phase::Unreachable && s.last_error() == "could not reach the web app" && s.get("t6"));
+    }
+    {
+        Store s(1);
+        s.read_landed(1, read_ok(kSnap));
+        const auto old_read = s.begin_read();
+        auto in = s.begin_write("t2", 9000, 8000);
+        CHECK(s.write_landed(*in, echo_ok(8001, 9000)).outcome == Outcome::Confirmed);
+        const char* snap_other = R"({"read":[],"snoozes":{"t9":{"snoozedAt":1,"snoozedUntil":7000}}})";
+        CHECK(s.read_landed(old_read, read_ok(snap_other)).outcome == Outcome::Applied);
+        CHECK(s.get("t2") && s.get("t2")->snoozed_until == 9000);
+        CHECK(s.get("t9") && !s.get("t6"));
+        CHECK(s.read_landed(s.begin_read(), read_ok(snap_other)).outcome == Outcome::Applied);
+        CHECK(!s.get("t2") && s.get("t9"));
+        s.read_landed(s.begin_read(), read_ok(kSnap));
+        const auto before_clear = s.begin_read();
+        in = s.begin_write("t6", std::nullopt, std::nullopt);
+        CHECK(s.write_landed(*in, echo_ok(std::nullopt, std::nullopt)).outcome == Outcome::Confirmed);
+        CHECK(s.read_landed(before_clear, read_ok(kSnap)).outcome == Outcome::Applied);
+        CHECK(!s.get("t6"));
+        CHECK(s.read_landed(s.begin_read(), read_ok(kSnap)).outcome == Outcome::Applied && s.get("t6"));
+        const auto stale = s.begin_read();
+        in = s.begin_write("t2", 9500, 8100);
+        s.write_landed(*in, echo_ok(8101, 9500));
+        CHECK(s.read_landed(stale, read_login()).outcome == Outcome::Ignored && s.phase() == Phase::SignedOut);
+        CHECK(s.get("t2") && s.get("t2")->snoozed_until == 9500);
+        s.reset(2);
+        CHECK(s.mutation_epoch() == 0);
+    }
+    {
+        Store s(1);
+        s.read_landed(1, read_ok(kSnap));
+        auto first = s.begin_write("t2", 9000, 8000);
+        CHECK(first && s.pending("t2"));
+        CHECK(!s.begin_write("t2", 9500, 8100));
+        CHECK(s.get("t2")->snoozed_until == 9000);
+        CHECK(s.begin_write("t9", 7000, 6000).has_value());
+        CHECK(s.write_landed(*first, echo_ok(8001, 9000)).outcome == Outcome::Confirmed);
+        CHECK(!s.pending("t2"));
+        auto second = s.begin_write("t2", 9500, 8100);
+        CHECK(second && second->before && second->before->snoozed_until == 9000);
+        CHECK(s.write_landed(*second, write_http(409)).outcome == Outcome::RolledBack);
+        CHECK(s.get("t2")->snoozed_until == 9000);
+    }
+    {
+        Store s(1);
+        s.read_landed(1, read_ok(kSnap));
+        auto in = s.begin_write("t2", 9000, 8000);
+        CHECK(s.read_landed(1, read_login()).outcome == Outcome::Ignored && !s.synced());
+        CHECK(s.pending("t2") && s.get("t2"));
+        CHECK(s.write_landed(*in, echo_ok(8001, 9000)).outcome == Outcome::Confirmed);
+        CHECK(s.get("t2")->snoozed_at == 8001);
     }
     {
         Store s(1);
@@ -155,16 +222,16 @@ int main() {
         Store s(1);
         s.read_landed(1, read_ok(kSnap));
         auto first = s.begin_write("t2", 9000, 8000);
-        auto second = s.begin_write("t2", 9500, 8100);
-        CHECK(second->ticket == 2 && !second->before);
-        CHECK(s.write_landed(*first, write_http(409)).outcome == Outcome::Ignored);
-        CHECK(s.get("t2") && s.get("t2")->snoozed_until == 9500);
-        CHECK(s.write_landed(*second, echo_ok(8150, 9500)).outcome == Outcome::Confirmed);
-        CHECK(s.get("t2")->snoozed_until == 9500 && s.get("t2")->snoozed_at == 8150);
-        Intent foreign = *second;
+        Intent stale = *first;
+        stale.ticket = 99;
+        CHECK(s.write_landed(stale, write_http(409)).outcome == Outcome::Ignored);
+        CHECK(s.get("t2") && s.get("t2")->snoozed_until == 9000 && s.pending("t2"));
+        Intent foreign = *first;
         foreign.generation = 7;
         CHECK(s.write_landed(foreign, write_http(409)).outcome == Outcome::Ignored);
-        CHECK(s.get("t2")->snoozed_until == 9500);
+        CHECK(s.write_landed(*first, echo_ok(8150, 9000)).outcome == Outcome::Confirmed);
+        CHECK(s.write_landed(*first, write_http(409)).outcome == Outcome::Ignored);
+        CHECK(s.get("t2")->snoozed_until == 9000 && s.get("t2")->snoozed_at == 8150);
     }
     {
         Store s(1);
@@ -184,7 +251,6 @@ int main() {
         CHECK(!s.begin_write("", 9000, 8000));
         CHECK(!s.begin_write(std::string(300, 'x'), 9000, 8000));
     }
-
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

@@ -27,14 +27,8 @@ inline std::string canonical_host(std::string_view host) {
 
 inline bool is_standard_orchestrator(std::string_view host) {
     const std::string h = canonical_host(host);
-    if (h.empty()) return false;
-    if (h == kStandardOrchestratorHost || h == kRcOrchestratorHost) return true;
-    const std::string_view vip = kVipDomain;
-    if (h == vip) return true;
-    if (h.size() > vip.size() + 1 && h.compare(h.size() - vip.size(), vip.size(), vip) == 0 &&
-        h[h.size() - vip.size() - 1] == '.')
-        return true;
-    return false;
+    return !h.empty() &&
+           (h == kStandardOrchestratorHost || h == kRcOrchestratorHost || h == kVipDomain);
 }
 
 }

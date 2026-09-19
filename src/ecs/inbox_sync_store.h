@@ -20,7 +20,7 @@ struct Entry {
     bool operator==(const Entry&) const = default;
 };
 
-enum class Phase { Unsynced, SignedOut, Synced };
+enum class Phase { Unsynced, SignedOut, Unreachable, Malformed, Synced };
 
 struct Intent {
     std::uint64_t ticket = 0;
@@ -55,27 +55,45 @@ class Store {
         return pending_.count(std::string(id)) != 0;
     }
     [[nodiscard]] const std::string& last_error() const { return error_; }
+    [[nodiscard]] std::uint64_t mutation_epoch() const { return epoch_; }
 
     void reset(std::uint64_t generation) {
         generation_ = generation;
         phase_ = Phase::Unsynced;
         entries_.clear();
         pending_.clear();
+        confirmed_.clear();
         error_.clear();
+        epoch_ = 0;
     }
 
+    struct ReadTicket {
+        std::uint64_t generation = 0;
+        std::uint64_t epoch = 0;
+    };
+    [[nodiscard]] ReadTicket begin_read() const { return {generation_, epoch_}; }
+
     Change read_landed(std::uint64_t generation, const api::Result<api::InboxStateRead>& r) {
-        if (generation != generation_) return {Outcome::Ignored, "another generation"};
+        return read_landed(ReadTicket{generation, epoch_}, r);
+    }
+
+    Change read_landed(ReadTicket t, const api::Result<api::InboxStateRead>& r) {
+        if (t.generation != generation_) return {Outcome::Ignored, "another generation"};
         if (!r.ok) {
-            error_ = r.error.empty() ? "inbox state unavailable" : r.error;
-            if (r.value.signed_out && phase_ != Phase::Synced) phase_ = Phase::SignedOut;
+            phase_ = r.value.signed_out ? Phase::SignedOut : Phase::Unreachable;
+            error_ = phase_ == Phase::SignedOut ? "not signed in to the web app"
+                                                : "could not reach the web app";
             return {Outcome::Ignored, error_};
         }
-        const auto snap = r.value.signed_out ? std::nullopt
-                                             : api::inbox_state::parse_snapshot(r.value.body);
-        if (!snap) {
+        if (r.value.signed_out) {
+            phase_ = Phase::SignedOut;
             error_ = "not signed in to the web app";
-            if (phase_ != Phase::Synced) phase_ = Phase::SignedOut;
+            return {Outcome::Ignored, error_};
+        }
+        const auto snap = api::inbox_state::parse_snapshot(r.value.body);
+        if (!snap) {
+            phase_ = Phase::Malformed;
+            error_ = "the web app sent something unexpected";
             return {Outcome::Ignored, error_};
         }
         std::map<std::string, Entry> fresh;
@@ -86,8 +104,14 @@ class Store {
                 e.snoozed_at = at->second;
             fresh[id] = e;
         }
-        for (const auto& [id, intent] : pending_) {
-            (void)intent;
+        for (const auto& [id, slot] : pending_) {
+            (void)slot;
+            auto mine = entries_.find(id);
+            if (mine == entries_.end()) fresh.erase(id);
+            else fresh[id] = mine->second;
+        }
+        for (const auto& [id, confirmed_at] : confirmed_) {
+            if (confirmed_at <= t.epoch) continue;
             auto mine = entries_.find(id);
             if (mine == entries_.end()) fresh.erase(id);
             else fresh[id] = mine->second;
@@ -108,8 +132,8 @@ class Store {
         in.generation = generation_;
         in.session_id = id;
         in.until = until;
-        if (auto older = pending_.find(id); older != pending_.end()) in.before = older->second.before;
-        else if (auto it = entries_.find(id); it != entries_.end()) in.before = it->second;
+        if (pending_.count(id) != 0) return std::nullopt;
+        if (auto it = entries_.find(id); it != entries_.end()) in.before = it->second;
         if (until) {
             Entry e;
             e.snoozed_until = *until;
@@ -135,6 +159,7 @@ class Store {
         using api::inbox_state::Confirmation;
         if (confirmation.kind == Confirmation::Unconfirmed)
             return rollback(in, "the web app did not confirm the snooze");
+        confirmed_[in.session_id] = ++epoch_;
         if (confirmation.kind == Confirmation::Cleared) {
             entries_.erase(in.session_id);
             return {Outcome::Confirmed, ""};
@@ -167,9 +192,11 @@ class Store {
 
     std::uint64_t generation_ = 1;
     std::uint64_t tickets_ = 0;
+    std::uint64_t epoch_ = 0;
     Phase phase_ = Phase::Unsynced;
     std::map<std::string, Entry> entries_;
     std::map<std::string, Intent> pending_;
+    std::map<std::string, std::uint64_t> confirmed_;
     std::string error_;
 };
 
