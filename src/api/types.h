@@ -478,6 +478,8 @@ struct SessionSummary {
     // the server has archived — and REPLACED, never merged, on every refresh:
     // a row that lost its stamp was unarchived somewhere else.
     int64_t server_archived_at_ms = 0;
+    std::optional<int64_t> last_event_unix_ms;
+    std::optional<int64_t> last_run_complete_unix_ms;
 };
 
 // A sub-agent (child worker) running under a session. The transcript's

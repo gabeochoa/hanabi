@@ -148,6 +148,43 @@ static void test_rows_sort_newest_first_by_seq() {
     CHECK(out[2].id == "old");
 }
 
+static void test_row_clocks_read_activity_then_event_and_run_complete() {
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"both","last_seq":9,"last_activity_unix_ms":5,"last_event_unix_ms":9,"last_run_complete_unix_ms":4},
+      {"session_id":"zero","last_seq":8,"last_activity_unix_ms":0,"last_event_unix_ms":9},
+      {"session_id":"event","last_seq":7,"last_event_unix_ms":9},
+      {"session_id":"nullact","last_seq":6,"last_activity_unix_ms":null,"last_event_unix_ms":9},
+      {"session_id":"neg","last_seq":5,"last_activity_unix_ms":-1,"last_event_unix_ms":-2,"last_run_complete_unix_ms":-3},
+      {"session_id":"types","last_seq":4,"last_activity_unix_ms":true,"last_event_unix_ms":"9","last_run_complete_unix_ms":1.5},
+      {"session_id":"huge","last_seq":3,"last_activity_unix_ms":18446744073709551615,"last_run_complete_unix_ms":9223372036854775807},
+      {"session_id":"none","last_seq":2}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 8);
+    const auto find = [&](const char* id) -> const api::SessionSummary* {
+        for (const auto& s : out)
+            if (s.id == id) return &s;
+        return nullptr;
+    };
+    const auto* both = find("both");
+    CHECK(both && both->last_event_unix_ms == std::optional<int64_t>{5} &&
+          both->last_run_complete_unix_ms == std::optional<int64_t>{4});
+    const auto* zero = find("zero");
+    CHECK(zero && zero->last_event_unix_ms == std::optional<int64_t>{0});
+    const auto* event = find("event");
+    CHECK(event && event->last_event_unix_ms == std::optional<int64_t>{9} && !event->last_run_complete_unix_ms);
+    const auto* nullact = find("nullact");
+    CHECK(nullact && nullact->last_event_unix_ms == std::optional<int64_t>{9});
+    const auto* neg = find("neg");
+    CHECK(neg && !neg->last_event_unix_ms && !neg->last_run_complete_unix_ms);
+    const auto* types = find("types");
+    CHECK(types && !types->last_event_unix_ms && !types->last_run_complete_unix_ms);
+    const auto* huge = find("huge");
+    CHECK(huge && !huge->last_event_unix_ms && huge->last_run_complete_unix_ms == std::optional<int64_t>{INT64_MAX});
+    const auto* none = find("none");
+    CHECK(none && !none->last_event_unix_ms && !none->last_run_complete_unix_ms);
+}
+
 static void test_no_timestamp_on_this_wire() {
     // Documents a real gap rather than an oversight: the row has last_seq and
     // nothing clock-like, so relative time cannot be rendered from the list.
@@ -2761,6 +2798,7 @@ static void test_hello_access_folds_to_the_reference_read_only_rule() {
 int main() {
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
+    test_row_clocks_read_activity_then_event_and_run_complete();
     test_models_reply_parses_the_deployment_menu();
     test_attach_greeting_carries_the_wider_token_accounting();
     test_session_options_patch_wire_shape();

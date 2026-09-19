@@ -1,4 +1,5 @@
 #include "agentcloud_client.h"
+#include "wire_clock.h"
 #include "disk_cache.h"
 #include "inbox_state_wire.h"
 #include "attachments.h"
@@ -285,6 +286,8 @@ SessionSummary summary_from_row(const json& s) {
     // attaching.
     apply_frozen_from(s, sum);
     sum.server_archived_at_ms = int_or(s, "archived_at_unix_ms", 0);
+    sum.last_event_unix_ms = wire_clock::read_event_ms(s);
+    sum.last_run_complete_unix_ms = wire_clock::read_run_complete_ms(s);
     apply_state(s, sum);
     return sum;
 }
