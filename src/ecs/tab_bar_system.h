@@ -1152,7 +1152,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         model::pin_thread_tab(strip, app, tabEntity, !tab.pinned);
                         break;
                     }
-                    app.requestToggleStar = keepId;
+                    app.requestSetStarId = keepId;
+                    app.requestSetStarTo = !tab.pinned;
                     break;
                 case ExportClipboard:
                     if (const auto payload = hanabi::transcript_copy::export_clipboard_payload(

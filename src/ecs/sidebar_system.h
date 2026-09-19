@@ -102,10 +102,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app->subagentSidebarSeeded = true;
         }
 
-        if (!app->requestToggleStar.empty()) {
+        const auto star_id = !app->requestToggleStar.empty() ? app->requestToggleStar
+                                                             : app->requestSetStarId;
+        if (!star_id.empty()) {
+            const bool directed = app->requestToggleStar.empty();
             for (auto& s : app->sessions) {
-                if (s.id == app->requestToggleStar) {
-                    const bool starred = !s.starred;
+                if (s.id == star_id) {
+                    const bool starred = directed ? app->requestSetStarTo : !s.starred;
                     model::set_thread_pinned(*app, find_singleton<TabStripComponent>(), s.id,
                                              starred);
                     app->raise_toast(starred ? "Thread pinned" : "Thread unpinned", s.id,
@@ -114,6 +117,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 }
             }
             app->requestToggleStar.clear();
+            app->requestSetStarId.clear();
         }
 
         // Apply a pending archive toggle, in the same single-writer spot and

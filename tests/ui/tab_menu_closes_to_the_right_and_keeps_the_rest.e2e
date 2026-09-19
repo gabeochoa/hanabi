@@ -90,7 +90,8 @@ wait_frames 10
 expect_text "Unpin"
 click_ui tab_menu_pin
 wait_frames 16
-expect_tab t7 kept
+expect_tab t7 unpinned
+expect_no_ui folder_head_Pinned
 right_click_ui tab_active
 wait_frames 10
 click_ui tab_menu_close

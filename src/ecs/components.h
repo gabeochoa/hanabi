@@ -562,6 +562,8 @@ struct AppComponent : public afterhours::BaseComponent {
     // Phase I: request to toggle a thread's starred flag (set by sidebar row,
     // consumed by whichever system owns the summary mutation).
     std::string requestToggleStar;
+    std::string requestSetStarId;
+    bool requestSetStarTo = false;
 
     // Request to flip a thread's machine-local archive overlay, set by the row
     // menu and applied by the sidebar — the same one-writer arrangement the
