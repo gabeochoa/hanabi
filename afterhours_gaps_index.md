@@ -29,8 +29,8 @@ that do not exist, and `make source-checks` runs it.
 | Numbered headings parsed by the reference checker | **276** |
 | Distinct numeric gap numbers | **265** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **271** rows, **271** unique identifiers — includes index-only ids with no detailed entry |
-| Standalone live asks | **151** (152 less the ten fixed at 1ac6db2, less #593 fixed at d90db15, plus #594–#602) |
+| **Rows in the triage table (§6)** | **274** rows, **274** unique identifiers — includes index-only ids with no detailed entry |
+| Standalone live asks | not recounted; see §6 verdicts |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
@@ -888,6 +888,9 @@ correction narrows them rather than closing them.
 | 596 | An imm subtree built twice from one call site collides on its ids unless the caller salts `otherID` | SHARP EDGE | MEDIUM | XS | live · app workaround (salted root `mk`) |
 | 597 | The Metal pointer is letterboxed against an app-owned resolution the library never refreshes; the draw path is not letterboxed | SHARP EDGE | HIGH | XS | live · app registers `CollectCurrentResolution` ahead of the UI bridge + `pointer_gate.sh` |
 | 599 | `imm::popover` dismisses before its body runs on the frame focus leaves the panel, but an imm button's click reaches the body a frame after the press: a row press is lost (fc0fd04, d90db15) | SHARP EDGE | HIGH | XS | live · app acts in the click listener, not the return value |
+| 598 | A Cmd chord never becomes a key event: the macOS view answers `performKeyEquivalent:` only for Tab, so an app without a main menu cannot see Command shortcuts at all | SHARP EDGE | HIGH | S | live |
+| 600 | `imm::popover` drops the caller's debug name: the panel is always "popover_panel" | SHARP EDGE | MED | XS | live |
+| 601 | The UI plugin has no notion of an external tracker owning the pointer: while a native menu (NSMenu) tracks, hot/active are last frame's and a press underneath still registers | MISSING | HIGH | M | live · app-side adapter (`surface::native_menu_frame`) |
 | 602 | `core/system.h` in-class explicit specializations of `HasAllComponents<>` / `CallWithComponents<>` / `CallWithChildComponents<>` do not compile under GCC (clang extension; conforming `if constexpr` arm exists only under `_WIN32`) | PORTABILITY | MED | XS | live · no workaround admitted (Mac build against the pin) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
