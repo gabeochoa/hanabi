@@ -1,0 +1,47 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t6","pinned_tabs":["t6"],"starred":["t6"],"theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
+require_thread t6
+wait_frames 12
+native_mode on
+wait_frames 4
+expect_tab t6 pinned
+assert_ui folder_head_Pinned hidden=false
+native_click_ui tab_t2
+wait_frames 12
+expect_open t2
+native_key 40 k cmd
+wait_frames 12
+expect_text "Command palette"
+expect_text "Keyboard shortcuts"
+expect_no_text "Close Kept Tab"
+native_key 53 -
+wait_frames 10
+expect_no_text "Command palette"
+native_click_ui tab_t6
+wait_frames 12
+expect_open t6
+native_key 40 k cmd
+wait_frames 12
+expect_text "Command palette"
+expect_text "Close Kept Tab"
+native_key 40 k
+native_key 14 e
+native_key 35 p
+native_key 17 t
+wait_frames 10
+expect_text "Close Kept Tab"
+expect_no_text "Show or hide the sidebar"
+native_key 36 -
+wait_frames 16
+expect_no_text "Command palette"
+expect_tab t6 absent
+expect_open t2
+expect_tab t2 kept
+assert_ui folder_head_Pinned hidden=false
+native_key 40 k cmd
+wait_frames 12
+expect_text "Command palette"
+expect_no_text "Close Kept Tab"
+native_key 53 -
+wait_frames 8
+expect_no_text "Command palette"
