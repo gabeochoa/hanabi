@@ -16,4 +16,5 @@ click_ui chat_row_id_t1
 expect_open t1
 expect_text_drawn "price-tiers.png" within=120
 assert_ui artifact_image hidden=false
-expect_no_text "unavailable"
+expect_no_text "unavailable: The artifact read answered 503."
+expect_text_drawn "unavailable: audio is not played in this build" within=60
