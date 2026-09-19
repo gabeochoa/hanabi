@@ -1,11 +1,11 @@
 # A shown artifact whose create/version event is outside the loaded page
 # arrives with no file name and no mime. The fetch does not need them: the
 # id and version address the content, the response's type and name fill the
-# row, and the image draws. While the bytes are in flight the row says so.
+# row, and the image draws. While the bytes are in flight the row shows the
+# bare id; the mock answers within a frame, so that state is not asserted here.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_ARTIFACT_DEMO=typeless HANABI_OPEN=t1
 require_thread t1
-expect_text "art-chart"
 expect_text_drawn "price-tiers.png" within=120
 expect_text_drawn "image/png" within=60
 assert_ui artifact_image hidden=false
