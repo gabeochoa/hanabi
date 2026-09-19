@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -30,7 +31,16 @@ inline float ease_in_out(float t) {
     return 1.0f - 2.0f * u * u;
 }
 
-inline float scale_for(const Mark& m) { return 1.0f + (kLitScale - 1.0f) * m.progress; }
+inline float ease_in_out_inverse(float p) {
+    p = std::clamp(p, 0.0f, 1.0f);
+    if (p < 0.5f) return std::sqrt(p * 0.5f);
+    return 1.0f - std::sqrt((1.0f - p) * 0.5f);
+}
+
+inline float scale_for(const Mark& m) {
+    if (!m.animated) return 1.0f;
+    return 1.0f + (kLitScale - 1.0f) * m.progress;
+}
 
 inline float opacity_for(const Mark& m) {
     return kRestingOpacity + (kLitOpacity - kRestingOpacity) * m.progress;
@@ -41,10 +51,16 @@ class Store {
     bool refuse_close(const std::string& tabId, bool pinned, Seconds now, bool reduceMotion) {
         if (!pinned) return false;
         sweep(now);
+        Seconds start = now;
+        if (const auto fading = fading_.find(tabId); fading != fading_.end()) {
+            const float shown = 1.0f - ease_in_out(static_cast<float>((now - fading->second) / kTransition));
+            start = now - static_cast<Seconds>(ease_in_out_inverse(shown)) * kTransition;
+            fading_.erase(fading);
+        }
         Entry& e = entries_[tabId];
         if (!e.lit) {
             e.lit = true;
-            e.lit_at = now;
+            e.lit_at = start;
             ++generation_;
         }
         e.until = now + (reduceMotion ? kHoldReducedMotion : kHold);
@@ -58,12 +74,8 @@ class Store {
             return Mark{true, true, ease_in_out(static_cast<float>((now - it->second.lit_at) / kTransition))};
         }
         const auto fading = fading_.find(tabId);
-        if (fading == fading_.end()) return Mark{false, !reduceMotion, 0.0f};
+        if (fading == fading_.end() || reduceMotion) return Mark{false, !reduceMotion, 0.0f};
         const float t = static_cast<float>((now - fading->second) / kTransition);
-        if (reduceMotion || t >= 1.0f) {
-            fading_.erase(fading);
-            return Mark{false, !reduceMotion, 0.0f};
-        }
         return Mark{false, true, 1.0f - ease_in_out(t)};
     }
 
@@ -77,6 +89,10 @@ class Store {
                 ++it;
             }
         }
+        for (auto it = fading_.begin(); it != fading_.end();) {
+            if (now >= it->second + kTransition) it = fading_.erase(it);
+            else ++it;
+        }
     }
 
     void forget(const std::string& tabId) {
@@ -85,7 +101,8 @@ class Store {
     }
 
     bool is_lit(const std::string& tabId) const { return entries_.count(tabId) != 0; }
-    bool empty() const { return entries_.empty() && fading_.empty(); }
+    bool empty() const { return entries_.empty(); }
+    bool fading(const std::string& tabId) const { return fading_.count(tabId) != 0; }
     std::uint64_t generation() const { return generation_; }
 
    private:

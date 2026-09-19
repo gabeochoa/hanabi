@@ -43,9 +43,58 @@ static void test_reduce_motion_holds_longer_and_never_animates() {
     CHECK(s.refuse_close("a", true, 10.0, true));
     CHECK(s.mark("a", 10.0, true) == (kf::Mark{true, false, 1.0f}));
     CHECK(s.mark("a", 10.5, true) == (kf::Mark{true, false, 1.0f}));
+    CHECK(near(kf::scale_for(s.mark("a", 10.5, true)), 1.0f));
+    CHECK(near(kf::opacity_for(s.mark("a", 10.5, true)), 1.0f));
     CHECK(s.mark("a", 10.599, true).lit);
     CHECK(s.mark("a", 10.6, true) == (kf::Mark{false, false, 0.0f}));
     CHECK(s.empty());
+}
+
+static void test_a_relight_during_the_fade_continues_from_the_shown_progress() {
+    kf::Store s;
+    s.refuse_close("a", true, 10.0, false);
+    const kf::Mark before = s.mark("a", 10.30, false);
+    CHECK(!before.lit && s.fading("a") && near(before.progress, 0.5f));
+    CHECK(s.refuse_close("a", true, 10.30, false));
+    const kf::Mark after = s.mark("a", 10.30, false);
+    CHECK(after.lit && !s.fading("a") && near(after.progress, before.progress));
+    CHECK(s.mark("a", 10.33, false).progress > after.progress);
+    CHECK(near(s.mark("a", 10.36, false).progress, 1.0f));
+    CHECK(s.mark("a", 10.53, false).lit && !s.mark("a", 10.541, false).lit);
+    for (const float p : {0.1f, 0.25f, 0.5f, 0.75f, 0.9f})
+        CHECK(near(kf::ease_in_out(kf::ease_in_out_inverse(p)), p));
+}
+
+static void test_a_relight_during_the_fade_clears_the_fade_and_sweep_retires_it() {
+    kf::Store s;
+    s.refuse_close("a", true, 10.0, false);
+    CHECK(!s.mark("a", 10.30, false).lit && s.fading("a"));
+    CHECK(s.refuse_close("a", true, 10.31, false));
+    CHECK(s.is_lit("a") && !s.fading("a"));
+    s.sweep(10.31 + 0.24 + 0.12);
+    CHECK(!s.is_lit("a") && !s.fading("a") && s.empty());
+    s.refuse_close("b", true, 20.0, false);
+    s.sweep(20.30);
+    CHECK(s.fading("b") && s.empty());
+    s.sweep(20.36);
+    CHECK(!s.fading("b"));
+}
+
+static void test_two_tabs_do_not_share_generation_or_fade() {
+    kf::Store s;
+    s.refuse_close("a", true, 10.0, false);
+    s.refuse_close("b", true, 10.1, false);
+    CHECK(s.generation() == 2);
+    s.refuse_close("a", true, 10.15, false);
+    CHECK(s.generation() == 2);
+    CHECK(s.mark("a", 10.38, false).lit);
+    CHECK(!s.mark("a", 10.39, false).lit);
+    CHECK(!s.mark("b", 10.39, false).lit && s.fading("b"));
+    s.forget("a");
+    CHECK(s.fading("b") && near(s.mark("b", 10.40, false).progress, 1.0f - kf::ease_in_out(0.06f / 0.12f)));
+    s.refuse_close("c", true, 10.40, true);
+    CHECK(s.mark("c", 10.40, true) == (kf::Mark{true, false, 1.0f}));
+    CHECK(s.mark("b", 10.40, false).animated);
 }
 
 static void test_reduce_motion_is_read_at_mark_as_well_as_at_refusal() {
@@ -97,6 +146,9 @@ int main() {
     test_an_unpinned_tab_is_never_refused_or_lit();
     test_a_refused_pinned_tab_lights_for_the_hold_then_rests();
     test_reduce_motion_holds_longer_and_never_animates();
+    test_a_relight_during_the_fade_continues_from_the_shown_progress();
+    test_a_relight_during_the_fade_clears_the_fade_and_sweep_retires_it();
+    test_two_tabs_do_not_share_generation_or_fade();
     test_reduce_motion_is_read_at_mark_as_well_as_at_refusal();
     test_a_repeat_extends_the_deadline_without_a_new_transition();
     test_sweep_expires_without_a_mark_and_forget_clears();

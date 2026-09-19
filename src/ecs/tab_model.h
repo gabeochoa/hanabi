@@ -27,6 +27,7 @@
 #include "components.h"
 #include "tab_keep_flash.h"
 #include "ui_clock.h"
+#include "../resize_drive.h"
 
 namespace ecs::model {
 
@@ -386,6 +387,13 @@ inline void reconcile_panes_with_tabs(const TabStripComponent& strip,
 
 enum class CloseIntent { Aimed, Forced };
 enum class CloseOutcome { Closed, Refused, Absent };
+
+inline bool tab_host_is_key() {
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    if (!hanabi_native_has_window()) return true;
+#endif
+    return hanabi_native_tab_host_is_key() != 0;
+}
 
 inline const Tab* active_tab(const TabStripComponent& strip) {
     for (const auto id : strip.tabOrder) {

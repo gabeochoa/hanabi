@@ -66,13 +66,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (app.requestCloseKeptTab) {
             app.requestCloseKeptTab = false;
-            if (const Tab* active = model::active_tab(strip); active != nullptr && hanabi_native_tab_host_is_key())
+            if (const Tab* active = model::active_tab(strip); active != nullptr && model::tab_host_is_key())
                 model::request_close(strip, app, active->sessionId, model::CloseIntent::Forced);
         }
         {
             const Tab* active = model::active_tab(strip);
             menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::CloseKeptTab),
-                                        active != nullptr && active->pinned && hanabi_native_tab_host_is_key());
+                                        active != nullptr && active->pinned && model::tab_host_is_key());
         }
 
         // Reopen the last closed tab, serviced beside the close it undoes so

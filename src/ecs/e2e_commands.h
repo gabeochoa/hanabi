@@ -3830,7 +3830,12 @@ struct HandleTabKeepFlashCommands
                 cmd.fail("tab_keep_flash_advance requires <seconds>");
                 return;
             }
-            hanabi::ui_clock::test_offset_seconds() += std::strtod(cmd.arg(0).c_str(), nullptr);
+            if (!hanabi::ui_clock::advance_test_offset(cmd.arg(0))) {
+                cmd.fail(std::format("tab_keep_flash_advance: '{}' is not a finite non-negative number of seconds "
+                                     "within the test clock's range",
+                                     cmd.arg(0)));
+                return;
+            }
             cmd.consume();
             return;
         }

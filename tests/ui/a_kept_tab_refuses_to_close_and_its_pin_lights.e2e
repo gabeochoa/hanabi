@@ -34,10 +34,15 @@ wait_frames 4
 expect_tab t6 pinned
 expect_open t6
 expect_tab_keep_flash t6 lit
-key CMD+W
+tab_keep_flash_advance 0.2
 wait_frames 2
 expect_tab_keep_flash t6 lit
-tab_keep_flash_advance 1
+key CMD+W
+wait_frames 2
+tab_keep_flash_advance 0.2
+wait_frames 2
+expect_tab_keep_flash t6 lit
+tab_keep_flash_advance 0.1
 wait_frames 2
 expect_tab_keep_flash t6 resting
 right_click_ui tab_active
