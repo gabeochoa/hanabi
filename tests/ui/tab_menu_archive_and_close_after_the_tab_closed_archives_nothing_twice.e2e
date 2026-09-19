@@ -19,3 +19,7 @@ expect_no_ui tab_menu_archive_close
 expect_no_text "Session archived"
 expect_open t2
 assert_ui chat_row_id_t9 hidden=false
+click_text Archived
+wait_frames 8
+expect_text "oncall sweep finished"
+assert_ui chat_row_id_t9 hidden=false
