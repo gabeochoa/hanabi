@@ -777,6 +777,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
         const api::SessionSummary* target = app.find_summary(app.rowMenuSessionId);
         if (target == nullptr) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, -1);
             app.close_row_menu();
             return;
         }
@@ -895,6 +897,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         std::string pickedAction;  // the pick, as an id
         if (!app.rowMenuNativeTried) {
             app.rowMenuNativeTried = true;
+            app.rowMenuFocusBefore = static_cast<long long>(ctx.focus_id);
             hanabi::surface::native_menu_open(app.nativeRowMenu, scope, "row_menu", items,
                                               app.rowMenuX, app.rowMenuY,
                                               static_cast<long long>(ctx.focus_id));
@@ -933,7 +936,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
             if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
-                app.close_row_menu();
+                if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
                 return;
             }
             switch (actions[row]) {
@@ -1017,10 +1023,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 case Action::Divider:
                     break;
             }
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
             app.close_row_menu();
             return;
         }
-        if (result.dismissed || result.cancelled) app.close_row_menu();
+        if (result.dismissed || result.cancelled) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
+        }
     }
 
     static hanabi::surface::MenuKeys menu_keys_for(AppComponent& app) {
@@ -1042,6 +1056,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto& store = Settings::get().saved_views_mut();
         const hanabi::views::SavedView* target = store.find(app.rowMenuViewId);
         if (target == nullptr) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, -1);
             app.close_row_menu();
             return;
         }
@@ -1075,6 +1091,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         std::string pickedAction;
         if (!app.rowMenuNativeTried) {
             app.rowMenuNativeTried = true;
+            app.rowMenuFocusBefore = static_cast<long long>(ctx.focus_id);
             hanabi::surface::native_menu_open(app.nativeRowMenu, scope, "view_menu", items,
                                               app.rowMenuX, app.rowMenuY,
                                               static_cast<long long>(ctx.focus_id));
@@ -1099,7 +1116,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
             if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
-                app.close_row_menu();
+                if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
                 return;
             }
             switch (actions[row]) {
@@ -1129,10 +1149,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     if (store.restore_defaults() > 0) Settings::get().save_views();
                     break;
             }
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
             app.close_row_menu();
             return;
         }
-        if (result.dismissed || result.cancelled) app.close_row_menu();
+        if (result.dismissed || result.cancelled) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
+        }
     }
 
     // Delete a shelf, and move off it if it was the one being shown --

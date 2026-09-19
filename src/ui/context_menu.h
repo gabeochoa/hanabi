@@ -71,6 +71,8 @@ struct MenuResult {
     bool dismissed = false;
     bool cancelled = false;
     Rect rect{};
+    long long eater_id = -1;
+    long long activated_entity = -1;
 };
 
 struct MenuKeys {
@@ -152,6 +154,7 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
             .with_roundness(0.0f)
             .with_render_layer(layer - 1)
             .with_debug_name(std::string(debugName) + "_eater"));
+    out.eater_id = static_cast<long long>(eater.ent().id);
     out.dismissed =
         out.dismissed ||
         hanabi::overlay::dismisses(static_cast<bool>(eater), ctx.mouse.pos.x,
@@ -242,6 +245,7 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
         if (hit && !item.disabled && item.children.empty()) {
             out.activated = k;
             out.activated_action = item.action_id;
+            out.activated_entity = static_cast<long long>(hit.ent().id);
         }
         if (hit && !item.disabled && !item.children.empty()) {
             cursor.row = k;
@@ -319,6 +323,7 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
                 out.activated = k;
                 out.activated_child = c;
                 out.activated_action = leaf.action_id.empty() ? item.action_id : leaf.action_id;
+                out.activated_entity = static_cast<long long>(leafHit.ent().id);
             }
         }
         if (hanabi::overlay::inside(subRect, ctx.mouse.pos.x, ctx.mouse.pos.y))
@@ -362,6 +367,20 @@ void native_menu_restore_focus(Ctx& ctx, const hanabi::native_menu::Open& open) 
             .valid();
     const long long to = hanabi::native_menu::focus_to_restore(
         open.focus_before, open.eater_id, now, static_cast<long long>(ctx.ROOT), exists);
+    if (to >= 0) ctx.set_focus(static_cast<afterhours::EntityID>(to));
+}
+
+template <typename Ctx>
+void drawn_menu_restore_focus(Ctx& ctx, long long focusBefore, long long eaterId,
+                              long long pickedEntity = -1) {
+    const long long now = static_cast<long long>(ctx.focus_id);
+    const bool exists =
+        focusBefore >= 0 &&
+        afterhours::ui::UICollectionHolder::getEntityForID(
+            static_cast<afterhours::EntityID>(focusBefore))
+            .valid();
+    const long long to = hanabi::native_menu::focus_to_restore(
+        focusBefore, eaterId, now, static_cast<long long>(ctx.ROOT), exists, pickedEntity);
     if (to >= 0) ctx.set_focus(static_cast<afterhours::EntityID>(to));
 }
 

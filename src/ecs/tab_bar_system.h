@@ -1033,6 +1033,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         std::string pickedAction;
         if (!strip.menuNativeTried) {
             strip.menuNativeTried = true;
+            strip.menuFocusBefore = static_cast<long long>(ctx.focus_id);
             hanabi::surface::native_menu_open(strip.nativeMenu, scope, "tab_menu", items,
                                               strip.menuX, strip.menuY,
                                               static_cast<long long>(ctx.focus_id));
@@ -1056,6 +1057,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
             if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
+                hanabi::surface::drawn_menu_restore_focus(ctx, strip.menuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
                 strip.close_menu();
                 app.menuCursor = {};
                 return;
@@ -1163,6 +1166,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             testOverlay != nullptr && std::string_view(testOverlay) == "tab-menu";
         if (clickedItem || result.cancelled ||
             (result.dismissed && !forcedForCapture)) {
+            if (!strip.nativeMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, strip.menuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
             strip.close_menu();
             app.menuCursor = {};
         }

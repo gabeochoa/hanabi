@@ -1321,6 +1321,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // the NSMenu if it did. Cleared with the menu; a close while AppKit still
     // tracks cancels the NSMenu.
     bool rowMenuNativeTried = false;
+    long long rowMenuFocusBefore = -1;
     std::string rowMenuNativeScope;  // the opening the native state belongs to
     hanabi::native_menu::Open nativeRowMenu;
     void open_view_menu(std::string viewId, float x, float y) {
@@ -1378,6 +1379,7 @@ struct AppComponent : public afterhours::BaseComponent {
     }
     void close_row_menu() {
         rowMenuOpen = false;
+        rowMenuFocusBefore = -1;
         rowMenuSessionId.clear();
         rowMenuViewId.clear();
         menuCursor = {};
@@ -2189,9 +2191,11 @@ struct TabStripComponent : public afterhours::BaseComponent {
     float menuY = 0.0f;         // cursor y at right-click
     // The native arm's state for this menu (see AppComponent::nativeRowMenu).
     bool menuNativeTried = false;
+    long long menuFocusBefore = -1;
     hanabi::native_menu::Open nativeMenu;
     void close_menu() {
         menuOpen = false;
+        menuFocusBefore = -1;
         menuTabId = std::numeric_limits<afterhours::EntityID>::max();
         menuSessionId.clear();
         if (nativeMenu.open()) {

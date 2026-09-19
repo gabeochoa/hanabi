@@ -225,7 +225,21 @@ static void test_the_viewer_remembers_the_focus_before_the_press_that_opened_it(
     CHECK(focus_to_restore(ROOT, BACKDROP, IMAGE, ROOT, true, IMAGE) == -1);
 }
 
+static void test_a_drawn_menu_gives_focus_back_to_what_it_displaced() {
+    using hanabi::native_menu::focus_to_restore;
+    const long long ROOT = 0, COMPOSER = 42, EATER = 8890, PICKED_ROW = 8893, OTHER = 77;
+    CHECK(focus_to_restore(COMPOSER, EATER, PICKED_ROW, ROOT, true, PICKED_ROW) == COMPOSER);
+    CHECK(focus_to_restore(COMPOSER, EATER, EATER, ROOT, true, PICKED_ROW) == COMPOSER);
+    CHECK(focus_to_restore(COMPOSER, EATER, ROOT, ROOT, true, PICKED_ROW) == COMPOSER);
+    CHECK(focus_to_restore(COMPOSER, EATER, OTHER, ROOT, true, PICKED_ROW) == -1);
+    CHECK(focus_to_restore(COMPOSER, EATER, PICKED_ROW, ROOT, true, -1) == -1);
+    CHECK(focus_to_restore(COMPOSER, EATER, EATER, ROOT, true, -1) == COMPOSER);
+    CHECK(focus_to_restore(COMPOSER, EATER, PICKED_ROW, ROOT, false, PICKED_ROW) == -1);
+    CHECK(focus_to_restore(COMPOSER, -1, ROOT, ROOT, true, -1) == COMPOSER);
+}
+
 int main() {
+    test_a_drawn_menu_gives_focus_back_to_what_it_displaced();
     test_appearance_rides_the_request();
     test_the_viewer_remembers_the_focus_before_the_press_that_opened_it();
     test_a_child_pick_resolves_to_the_leaf_id_and_falls_back_to_the_row();
