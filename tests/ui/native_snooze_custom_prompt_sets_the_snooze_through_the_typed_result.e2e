@@ -2,12 +2,13 @@
 # executable): the row menu's Snooze submenu carries a divider and Custom…
 # last (row 18 for t6 = 16 Pin, 17 Mute, 18 Snooze; children 0-4 presets on
 # the pinned clock, 5 divider, 6 Custom). Picking Custom queues the native
-# prompt for THIS thread; the typed result is injected -- state only, no
-# NSAlert is driven -- and settled against the captured session: a cancel
-# leaves the store absent at epoch 0, a Set lands one confirmed snooze for
-# t6 at the injected instant (epoch 1) while t2, the open thread, stays
-# absent.
+# prompt for THIS thread; the e2e-only hold keeps it queued so no NSAlert
+# runs, the typed result is injected -- state only -- and settled against
+# the captured session: a cancel leaves the store absent at epoch 0, a Set
+# lands one confirmed snooze for t6 at the injected instant (epoch 1) while
+# t2, the open thread, stays absent.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
 require_thread t2
 wait_frames 10
 native_mode on
@@ -15,6 +16,7 @@ wait_frames 4
 expect_open t2
 snooze_store_expect t6 absent 0
 snooze_store_expect t2 absent 0
+snooze_prompt_hold on
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6
 native_menu_expect busy session:t6
@@ -48,3 +50,4 @@ native_menu_expect busy session:t6
 native_menu_inject dismiss
 wait_frames 8
 native_menu_expect idle
+snooze_prompt_hold off
