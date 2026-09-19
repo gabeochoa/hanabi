@@ -4449,3 +4449,11 @@ the same call that was already made once.
 - **#114** — a sprite's rendered INK extent is not derivable from its atlas rect
   and its `draw_px`, so every icon is sized by build-measure-repeat. Two builds
   for one 8px mark.
+
+## native vs injected input modes in one script DSL (2026-09-19)
+
+What was wanted: a windowed script that drives the real window with the same verbs a headless script uses.
+
+What happened: under `native_mode on` the app refuses the injected verbs (`click_ui`, `key`, `type`, …) loudly at run time (`HandleInjectedInputWhileNativeCommand`), and a native verb before `native_mode on` — or `native_mode on` without `HANABI_E2E_WINDOWED=1` — fails just as loudly. The theme-toggle fixture was authored with `click_ui` under native mode and was found only by a Mac run. (The clock siblings' first failure was a different thing: `expect_text` reading a native NSMenu's title, which the drawn-text registry cannot see — an observer mismatch, not a mode-guard refusal.)
+
+Why it is friction and not a library gap: the app's guards already fail loudly and correctly; what was missing is a lexical preflight so an author without a Mac learns the mistake before the run. The checker lives in the native-control bank under `scripts/native_controls/` (version 72ff7a77, 11 tests); it reads a script, tracks `native_mode on/off` and the `# env:` header, and flags injected verbs after `native_mode on`, native verbs before it, and `native_mode on` without the windowed env. App tooling; no library change is asked for. Candidate wiring: `scripts/run_ui_tests.sh` runs it before launching a windowed script.
