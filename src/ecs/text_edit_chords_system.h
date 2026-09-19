@@ -40,15 +40,74 @@
 #include <string>
 
 #include "../keys.h"
+#include "../menubar.h"
+#include "../native_extras.h"
+#include "../ui/text_select.h"
+#include "attachment_intake_system.h"
+#include "components.h"
 #include "keyboard_focus.h"
+#include "text_edit_actions.h"
 #include "ui_imports.h"
 
 namespace ecs {
+
+namespace edit_actions {
+
+inline EditOwner perform(AppComponent& app, EditVerb verb) {
+    const Clipboard clip = app_clipboard();
+    if (verb == EditVerb::Paste && composer_field_focused()) {
+        char path[4096] = {};
+        if (native_take_clipboard_image(path, sizeof(path))) {
+            AttachmentIntakeSystem::add(app, path);
+            return EditOwner::Image;
+        }
+    }
+    if (auto* area = focused_text_area()) {
+        perform_on(*area, verb, clip);
+        return EditOwner::Field;
+    }
+    if (auto* field = focused_text_field()) {
+        perform_on(*field, verb, clip);
+        return EditOwner::Field;
+    }
+    if (verb == EditVerb::Copy) {
+        hanabi::text_select::copy();
+        return EditOwner::Transcript;
+    }
+    return EditOwner::None;
+}
+
+inline bool chord_pressed(EditVerb verb) {
+    using namespace hanabi::keys;
+    if (!cmd_or_ctrl_down()) return false;
+    switch (verb) {
+        case EditVerb::Undo: return !shift_down() && pressed(kZ);
+        case EditVerb::Redo: return shift_down() && pressed(kZ);
+        case EditVerb::Cut: return pressed(kX);
+        case EditVerb::Copy: return pressed(kC);
+        case EditVerb::Paste: return pressed(kV);
+        case EditVerb::SelectAll: return false;
+        case EditVerb::Count: break;
+    }
+    return false;
+}
+
+}
 
 struct TextEditChordsSystem : afterhours::System<> {
     bool should_iterate() const override { return false; }
 
     void once(float) override {
+        auto* app = find_singleton<AppComponent>();
+        if (app != nullptr) {
+            int verb = -1;
+            while (menubar_take_edit_verb(&verb))
+                edit_actions::perform(*app, static_cast<edit_actions::EditVerb>(verb));
+            for (int v = 0; v < static_cast<int>(edit_actions::EditVerb::Count); ++v) {
+                const auto verb = static_cast<edit_actions::EditVerb>(v);
+                if (edit_actions::chord_pressed(verb)) edit_actions::perform(*app, verb);
+            }
+        }
         if (!hanabi::keys::cmd_or_ctrl_down()) return;
         if (!hanabi::keys::pressed(hanabi::keys::kBackspace)) return;
 

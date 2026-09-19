@@ -24,6 +24,7 @@
 #include "menubar.h"
 #include "resize_drive.h"
 #include "settings.h"
+#include "edit_verbs.h"
 #include "shortcuts.h"
 
 // ---- action flags: set on the main thread by menu items, drained by C++ ----
@@ -126,35 +127,6 @@ static NSEventModifierFlags native_modifiers(std::uint8_t modifiers) {
     return flags;
 }
 
-static void replay_edit_key(unsigned short keyCode, NSString* characters,
-                            NSEventModifierFlags modifiers) {
-    NSWindow* window = [NSApp keyWindow];
-    if (window == nil) window = [NSApp mainWindow];
-    if (window == nil) return;
-    NSEvent* down = [NSEvent keyEventWithType:NSEventTypeKeyDown
-                                     location:NSZeroPoint
-                                modifierFlags:modifiers
-                                    timestamp:[NSProcessInfo processInfo].systemUptime
-                                 windowNumber:window.windowNumber
-                                      context:nil
-                                   characters:characters
-                  charactersIgnoringModifiers:[characters lowercaseString]
-                                    isARepeat:NO
-                                      keyCode:keyCode];
-    NSEvent* up = [NSEvent keyEventWithType:NSEventTypeKeyUp
-                                   location:NSZeroPoint
-                              modifierFlags:modifiers
-                                  timestamp:[NSProcessInfo processInfo].systemUptime
-                               windowNumber:window.windowNumber
-                                    context:nil
-                                 characters:characters
-                charactersIgnoringModifiers:[characters lowercaseString]
-                                  isARepeat:NO
-                                    keyCode:keyCode];
-    [window sendEvent:down];
-    [window sendEvent:up];
-}
-
 bool menubar_edit_binding(const char* selector, unsigned short* keyCode,
                            unsigned long long* modifiers) {
     if (selector == nullptr || keyCode == nullptr || modifiers == nullptr)
@@ -182,41 +154,33 @@ bool menubar_edit_binding(const char* selector, unsigned short* keyCode,
     return false;
 }
 
-static void replay_edit_action(const char* selector, NSString* characters) {
-    unsigned short keyCode = 0;
-    unsigned long long modifiers = 0;
-    if (!menubar_edit_binding(selector, &keyCode, &modifiers)) return;
-    replay_edit_key(keyCode, characters,
-                    static_cast<NSEventModifierFlags>(modifiers));
-}
-
 @interface HanabiEditBridge : NSResponder
 @end
 
 @implementation HanabiEditBridge
 - (void)undo:(id)sender {
     (void)sender;
-    replay_edit_action("undo:", @"z");
+    menubar_push_edit_verb(static_cast<int>(hanabi::EditVerb::Undo));
 }
 - (void)redo:(id)sender {
     (void)sender;
-    replay_edit_action("redo:", @"Z");
+    menubar_push_edit_verb(static_cast<int>(hanabi::EditVerb::Redo));
 }
 - (void)cut:(id)sender {
     (void)sender;
-    replay_edit_action("cut:", @"x");
+    menubar_push_edit_verb(static_cast<int>(hanabi::EditVerb::Cut));
 }
 - (void)copy:(id)sender {
     (void)sender;
-    replay_edit_action("copy:", @"c");
+    menubar_push_edit_verb(static_cast<int>(hanabi::EditVerb::Copy));
 }
 - (void)paste:(id)sender {
     (void)sender;
-    replay_edit_action("paste:", @"v");
+    menubar_push_edit_verb(static_cast<int>(hanabi::EditVerb::Paste));
 }
 - (void)selectAll:(id)sender {
     (void)sender;
-    replay_edit_action("selectAll:", @"a");
+    menubar_push_edit_verb(static_cast<int>(hanabi::EditVerb::SelectAll));
 }
 @end
 
@@ -478,6 +442,27 @@ void menubar_install(void) {
 }
 
 static std::array<std::atomic<int>, hanabi::shortcuts::kDefinitions.size()> g_command_enabled{};
+
+static constexpr std::size_t kEditVerbRing = 16;
+static std::array<std::atomic<int>, kEditVerbRing> g_edit_verbs{};
+static std::atomic<std::size_t> g_edit_head{0};
+static std::atomic<std::size_t> g_edit_tail{0};
+
+void menubar_push_edit_verb(int verb) {
+    const std::size_t tail = g_edit_tail.load();
+    if (tail - g_edit_head.load() >= kEditVerbRing) return;
+    g_edit_verbs[tail % kEditVerbRing].store(verb);
+    g_edit_tail.store(tail + 1);
+}
+
+bool menubar_take_edit_verb(int* verb) {
+    if (verb == nullptr) return false;
+    const std::size_t head = g_edit_head.load();
+    if (head == g_edit_tail.load()) return false;
+    *verb = g_edit_verbs[head % kEditVerbRing].load();
+    g_edit_head.store(head + 1);
+    return true;
+}
 
 void menubar_set_command_enabled(int command, bool enabled) {
     if (command < 0 || command >= static_cast<int>(g_command_enabled.size())) return;

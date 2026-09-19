@@ -1,0 +1,57 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+reset_clipboard_probe
+click_ui composer_reply_input
+wait_frames 4
+type "hello world"
+wait_frames 6
+expect_input_text composer_reply_input "hello world"
+key CMD+C
+wait_frames 4
+expect_input_text composer_reply_input "hello world"
+key CMD+A
+wait_frames 4
+expect_selected_text composer_reply_input "hello world"
+key CMD+C
+wait_frames 4
+expect_clipboard hello world
+expect_input_text composer_reply_input "hello world"
+key CMD+X
+wait_frames 4
+expect_input_text composer_reply_input ""
+expect_clipboard hello world
+key CMD+Z
+wait_frames 4
+expect_input_text composer_reply_input "hello world"
+key CMD+SHIFT+Z
+wait_frames 4
+expect_input_text composer_reply_input ""
+set_clipboard pasted words
+key CMD+V
+wait_frames 6
+expect_input_text composer_reply_input "pasted words"
+key CMD+V
+wait_frames 6
+expect_input_text composer_reply_input "pasted wordspasted words"
+key CMD+Z
+wait_frames 4
+expect_input_text composer_reply_input "pasted words"
+key CMD+Z
+wait_frames 4
+expect_input_text composer_reply_input ""
+key CMD+SHIFT+Z
+wait_frames 4
+expect_input_text composer_reply_input "pasted words"
+key CMD+A
+wait_frames 4
+set_clipboard replaced
+key CMD+V
+wait_frames 6
+expect_input_text composer_reply_input "replaced"
+type "!"
+wait_frames 4
+expect_input_text composer_reply_input "replaced!"
+key CMD+BACKSPACE
+wait_frames 6
+expect_input_text composer_reply_input ""

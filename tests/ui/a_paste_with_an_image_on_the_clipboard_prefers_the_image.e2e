@@ -1,0 +1,17 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_PASTE_IMAGE_TEST=tests/fixtures/attachments/sample.png
+require_thread t2
+wait_frames 16
+set_clipboard words on the clipboard
+click_ui sb_search
+wait_frames 8
+key CMD+V
+wait_frames 12
+expect_no_text "sample.png"
+expect_input_text sb_search_text "words on the clipboard"
+click_ui composer_reply_input
+wait_frames 8
+key CMD+V
+wait_frames 16
+expect_text "sample.png"
+expect_input_text composer_reply_input ""

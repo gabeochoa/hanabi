@@ -162,9 +162,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         // Cmd+C copies selected transcript text. Checked before the composer
         // sees the key: with a selection up, Cmd+C means the selection.
-        if (hanabi::keys::cmd_down() &&
-            hanabi::keys::pressed(hanabi::keys::kC))
-            hanabi::text_select::copy();
         if (app->escape == EscapeIntent::ClearTranscript) {
             // Step one of the composer's two-step Escape is "dismiss the
             // transient thing", and a live selection is a transient thing. The

@@ -1,0 +1,32 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
+require_thread t2
+wait_frames 12
+native_mode on
+wait_frames 4
+reset_clipboard_probe
+native_click_ui composer_reply_input
+wait_frames 6
+native_key 4 h
+native_key 34 i
+wait_frames 8
+expect_input_text composer_reply_input "hi"
+native_key 0 a cmd
+wait_frames 6
+expect_selected_text composer_reply_input "hi"
+native_key 8 c cmd
+wait_frames 6
+expect_clipboard hi
+native_key 7 x cmd
+wait_frames 6
+expect_input_text composer_reply_input ""
+native_key 6 z cmd
+wait_frames 6
+expect_input_text composer_reply_input "hi"
+native_key 6 z cmd shift
+wait_frames 6
+expect_input_text composer_reply_input ""
+set_clipboard pasted words
+native_key 9 v cmd
+wait_frames 8
+expect_input_text composer_reply_input "pasted words"

@@ -47,6 +47,8 @@ inline constexpr int kG = ah::G;
 inline constexpr int kK = ah::K;
 inline constexpr int kN = ah::N;
 inline constexpr int kV = ah::V;
+inline constexpr int kX = ah::X;
+inline constexpr int kZ = ah::Z;
 inline constexpr int kW = ah::W;
 
 // Tab: the one keystroke in this app whose whole purpose is to move focus, and

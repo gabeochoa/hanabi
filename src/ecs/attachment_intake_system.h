@@ -83,10 +83,6 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
         // can write (afterhours_gaps.md #49, #256). This path had exactly that
         // shape -- the paste route was never once exercised by a test, and the
         // focus gate below would have passed vacuously without this.
-        if (composer_field_focused() &&
-            (hanabi::keys::cmd_down() || hanabi::keys::ctrl_down()) &&
-            hanabi::keys::pressed(hanabi::keys::kV))
-            if (native_take_clipboard_image(path, sizeof(path))) add(*app, path);
 
         // A drop is a push: whatever AppKit queued drains in one pass, so a
         // multi-image drop arrives as a multi-image drop.

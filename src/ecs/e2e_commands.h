@@ -278,6 +278,31 @@ struct HandleResetClipboardCommand
     }
 };
 
+struct HandleSetClipboardCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        const bool escaped = cmd.is("set_clipboard_escaped");
+        if (cmd.is_consumed() || (!cmd.is("set_clipboard") && !escaped)) return;
+        std::string text = cmd.has_args(1) ? joined_args(cmd, 0) : std::string();
+        if (escaped) {
+            std::string unescaped;
+            for (std::size_t i = 0; i < text.size(); ++i) {
+                if (text[i] == '\\' && i + 1 < text.size() && text[i + 1] == 'n') {
+                    unescaped.push_back('\n');
+                    ++i;
+                } else {
+                    unescaped.push_back(text[i]);
+                }
+            }
+            text = std::move(unescaped);
+        }
+        hanabi::clipboard::set_text(text);
+        cmd.consume();
+    }
+};
+
 struct HandleExpectClipboardCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -4164,6 +4189,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());
     sm.register_update_system(std::make_unique<HandleExpectPanesCommand>());
     sm.register_update_system(std::make_unique<HandleResetClipboardCommand>());
+    sm.register_update_system(std::make_unique<HandleSetClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleExpectClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOutboxCommand>());
     sm.register_update_system(std::make_unique<HandleSeedCacheCommand>());
