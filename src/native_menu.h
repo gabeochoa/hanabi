@@ -195,6 +195,11 @@ void mark_tracking_for_test(std::uint64_t generation);
 // its close arrives as `dismissed`.
 void cancel(std::uint64_t generation);
 
+inline long long viewer_focus_before(long long focus_now, long long opener_id,
+                                     long long focus_before_last_press) {
+    return (opener_id >= 0 && focus_now == opener_id) ? focus_before_last_press : focus_now;
+}
+
 inline long long focus_to_restore(long long focus_before, long long eater_id,
                                   long long focus_now, long long root_id,
                                   bool before_still_exists, long long opener_id = -1) {

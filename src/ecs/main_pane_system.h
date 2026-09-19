@@ -91,6 +91,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto* layout = find_singleton<LayoutComponent>();
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;
+        app->focusBeforeLastPress = app->focusAtFrameStart;
+        app->focusAtFrameStart = static_cast<long long>(ctx.focus_id);
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const auto& r = layout->main;
@@ -13586,7 +13588,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (openNow) openDemoSeeded = true;
             if (img.ent().get<afterhours::ui::HasClickListener>().down || openNow) {
                 if (app.viewerImagePath.empty()) {
-                    app.viewerFocusBefore = static_cast<long long>(ctx.focus_id);
+                    app.viewerFocusBefore = hanabi::native_menu::viewer_focus_before(
+                        static_cast<long long>(ctx.focus_id), static_cast<long long>(img.ent().id),
+                        app.focusBeforeLastPress);
                     app.viewerOpenerEntity = static_cast<long long>(img.ent().id);
                 }
                 app.viewerImagePath = ip;

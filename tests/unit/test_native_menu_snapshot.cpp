@@ -196,8 +196,38 @@ static void test_a_child_pick_resolves_to_the_leaf_id_and_falls_back_to_the_row(
     CHECK(open.action_of(1, 0).empty());
 }
 
+static void test_the_viewer_remembers_the_focus_before_the_press_that_opened_it() {
+    using hanabi::native_menu::focus_to_restore;
+    using hanabi::native_menu::viewer_focus_before;
+    const long long ROOT = 0, COMPOSER = 42, IMAGE = 8310, BACKDROP = 8300;
+    long long atFrameStart = -1, beforeLastPress = -1;
+    const auto frame = [&](long long focusNow) {
+        beforeLastPress = atFrameStart;
+        atFrameStart = focusNow;
+    };
+    frame(COMPOSER);
+    frame(COMPOSER);
+    frame(IMAGE);
+    const long long before = viewer_focus_before(IMAGE, IMAGE, beforeLastPress);
+    CHECK(before == COMPOSER);
+    CHECK(focus_to_restore(before, BACKDROP, IMAGE, ROOT, true, IMAGE) == COMPOSER);
+    CHECK(focus_to_restore(before, BACKDROP, BACKDROP, ROOT, true, IMAGE) == COMPOSER);
+    frame(IMAGE);
+    frame(IMAGE);
+    CHECK(viewer_focus_before(IMAGE, IMAGE, beforeLastPress) == IMAGE);
+    CHECK(focus_to_restore(IMAGE, BACKDROP, IMAGE, ROOT, true, IMAGE) == IMAGE);
+    frame(COMPOSER);
+    CHECK(viewer_focus_before(COMPOSER, IMAGE, beforeLastPress) == COMPOSER);
+    CHECK(viewer_focus_before(COMPOSER, -1, IMAGE) == COMPOSER);
+    frame(ROOT);
+    frame(IMAGE);
+    CHECK(viewer_focus_before(IMAGE, IMAGE, beforeLastPress) == ROOT);
+    CHECK(focus_to_restore(ROOT, BACKDROP, IMAGE, ROOT, true, IMAGE) == -1);
+}
+
 int main() {
     test_appearance_rides_the_request();
+    test_the_viewer_remembers_the_focus_before_the_press_that_opened_it();
     test_a_child_pick_resolves_to_the_leaf_id_and_falls_back_to_the_row();
     test_separators_hold_a_slot_and_no_action();
     test_focus_returns_only_when_the_menu_took_it();
