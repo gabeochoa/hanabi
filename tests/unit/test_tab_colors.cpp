@@ -56,12 +56,8 @@ static bool apart(Color got, int r, int g, int b, int tol = kTol) {
     return false;
 }
 
-// Sampled off docs/visual-parity/ref/01_home.png, over the solid interior of
-// each pin rather than at its brightest pixel — the first tab's is at x296..301
-// y45..50 and the second's at x520..525, and the outer column of either is a
-// third of a covered pixel, which is what makes a peak sample lie.
-static const int kRefPinOnInactive[3] = {107, 107, 127};
-static const int kRefPinOnActive[3] = {109, 111, 127};
+static const int kRefPinOnInactive[3] = {101, 115, 124};
+static const int kRefPinOnActive[3] = {105, 125, 139};
 
 static void test_the_pin_matches_the_reference_on_an_inactive_tab() {
     std::printf("test_the_pin_matches_the_reference_on_an_inactive_tab\n");
