@@ -755,6 +755,11 @@ namespace {
 // The shipped SessionEvent vocabulary minus what parse_page_frames renders.
 // A tag in neither place is one this build has never seen, and that one
 // draws an Unsupported row instead of vanishing.
+bool is_unsupported_wire_event(const std::string& type) {
+    static const std::set<std::string> kUnsupported = {"voice_turn"};
+    return kUnsupported.count(type) != 0;
+}
+
 bool is_silent_wire_event(const std::string& type) {
     static const std::set<std::string> kSilent = {
         "session_created", "options_changed", "session_renamed",
@@ -777,7 +782,7 @@ bool is_silent_wire_event(const std::string& type) {
         "tool_output", "compaction_started", "usage_delta", "telemetry",
         "reply_handled", "session_halted", "session_resumed",
         "elicitation_requested", "elicitation_resolved",
-        "option_defaults_changed", "child_elicitation_notice",
+        "option_defaults_changed", "child_elicitation_notice", "confinement_changed",
         "control_mode_changed", "channel_replies_paused",
         "channel_replies_resumed", "tool_checkpoint",
         "elicitation_notice_settled", "child_elicitation_update",
@@ -1483,6 +1488,8 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                                        created);
             else
                 push_event(EventKind::Unsupported, sanitized_wire_tag(type), "");
+        } else if (is_unsupported_wire_event(type)) {
+            push_event(EventKind::Unsupported, sanitized_wire_tag(type), "");
         } else if (!is_silent_wire_event(type)) {
             push_event(EventKind::Unsupported, sanitized_wire_tag(type), "");
         }

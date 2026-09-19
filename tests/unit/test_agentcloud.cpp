@@ -454,6 +454,34 @@ static std::string element_frame(int seq, const char* instance, int revision,
            "\"title\":\"Shard health\",\"run\":1" + std::string(extra) + "}}}";
 }
 
+static void test_a_confinement_change_is_a_silent_options_fold() {
+    const std::string reply = "{\"type\":\"page\",\"frames\":[" +
+        std::string(R"({"seq":1,"event":{"type":"user_input","text":"hi"}},)") +
+        std::string(R"({"seq":2,"event":{"type":"confinement_changed","sandbox_preset":"none","internet":null}},)") +
+        std::string(R"({"seq":3,"event":{"type":"block","block":{"kind":"text","text":"there"}}})") +
+        "]}";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 2);
+    CHECK(out[0].role == Role::User && out[1].role == Role::Assistant);
+    for (const auto& m : out) CHECK(m.kind != api::EventKind::Unsupported);
+}
+
+static void test_a_voice_turn_is_an_unsupported_row_that_carries_none_of_its_payload() {
+    const std::string reply = "{\"type\":\"page\",\"frames\":[" +
+        std::string(R"({"seq":1,"event":{"type":"user_input","text":"hi"}},)") +
+        std::string(R"({"seq":2,"event":{"type":"voice_turn","call_id":"call-7f3a","speaker":"agent","status":"interrupted","text":"two shards landed"}},)") +
+        std::string(R"({"seq":3,"event":{"type":"block","block":{"kind":"text","text":"there"}}})") +
+        "]}";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 3);
+    CHECK(out[1].kind == api::EventKind::Unsupported);
+    CHECK(out[1].subtitle == "voice_turn");
+    CHECK(out[1].text.empty());
+    for (const auto& m : out)
+        for (const char* leak : {"call-7f3a", "two shards landed", "interrupted", "agent"})
+            CHECK(m.text.find(leak) == std::string::npos && m.subtitle.find(leak) == std::string::npos);
+}
+
 static void test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event() {
     const std::string reply = "{\"type\":\"page\",\"frames\":[" +
         std::string(R"({"seq":1,"event":{"type":"user_input","text":"show the table"}},)") +
@@ -2821,6 +2849,8 @@ int main() {
     test_the_serving_model_is_read_off_the_attach();
     test_a_fallback_frame_names_the_model_now_answering();
     test_the_node_roster_and_the_create_node_clause();
+    test_a_confinement_change_is_a_silent_options_fold();
+    test_a_voice_turn_is_an_unsupported_row_that_carries_none_of_its_payload();
     test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event();
     test_a_page_folds_every_revision_of_an_instance_into_one_row();
     test_a_malformed_element_frame_is_the_degraded_row_at_its_seq();

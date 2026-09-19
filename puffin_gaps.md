@@ -368,6 +368,13 @@ collapse/expand.
 
 **Size:** Medium for the versions read and switcher; small for follow-latest; the truncated-read banner needs a text artifact renderer first.
 
+### Wire tags without a client decision (2026-09-19)
+
+Two tags the platform shipped after the reference's contract (`clients/rust/generated` at 11ff6299):
+
+- `confinement_changed` — a mid-session change to the session's own confinement ask, REPLACING like `options_changed`; the platform declares it additive and inert for an old reader. The delivered reference has no handling of it and hanabi holds no confinement state (`fold_options_changed` reads model/effort only), so it is SILENT here. The repl draws "confinement: filesystem X, network Y"; a notice in this client is a future decision, not parity.
+- `voice_turn` — one recorded voice turn (speaker + text + a recorder status). The delivered reference parks it as undecided-with-live-verb (WireTypes.swift :310-318, :847-853). Hanabi classifies it explicitly UNSUPPORTED (`is_unsupported_wire_event`): the row draws as the Unsupported marker with the tag and none of the payload — no speaker, no text, no call id. Rendering voice turns as dialog is a parity gap, not a decision this client has made.
+
 ## COMPOSER & SENDING (11 gaps)
 
 ### 1. Composer history walk (arrow keys)

@@ -65,6 +65,9 @@ def check(source, fixture):
     silent = re.findall(r'"([a-z][a-z0-9_.]*)"', silent_body)
     if not silent:
         fail("is_silent_wire_event lists no tags")
+    unsupported_body = function_body(
+        source, "bool is_unsupported_wire_event(const std::string& type)")
+    unsupported = re.findall(r'"([a-z][a-z0-9_.]*)"', unsupported_body)
     parser = function_body(
         source, "std::vector<Message> parse_page_frames(const std::string& msg_json)")
     drawn = set(re.findall(r'type == "([a-z][a-z0-9_.]*)"', parser))
@@ -82,16 +85,22 @@ def check(source, fixture):
     silent_set = set(silent)
     if len(silent_set) != len(silent):
         problems.append("is_silent_wire_event repeats a tag")
+    unsupported_set = set(unsupported)
+    if len(unsupported_set) != len(unsupported):
+        problems.append("is_unsupported_wire_event repeats a tag")
     for tag in tags:
-        in_silent = tag in silent_set
-        in_drawn = tag in drawn
-        if in_silent and in_drawn:
-            problems.append(f"{tag} is both drawn and silent")
-        elif not in_silent and not in_drawn:
+        places = [name for name, group in (("drawn", drawn), ("silent", silent_set),
+                                           ("unsupported", unsupported_set))
+                  if tag in group]
+        if len(places) > 1:
+            problems.append(f"{tag} is both {' and '.join(places)}")
+        elif not places:
             problems.append(f"{tag} is a shipped tag with no decision: it "
                             "would draw as unknown")
     for tag in sorted(silent_set - set(tags)):
         problems.append(f"{tag} is silenced but is not a shipped tag")
+    for tag in sorted(unsupported_set - set(tags)):
+        problems.append(f"{tag} is marked unsupported but is not a shipped tag")
     for tag in sorted(drawn - set(tags)):
         problems.append(f"{tag} is drawn but is not a shipped tag")
     if DEMO_TAG in tags:
@@ -135,6 +144,16 @@ def selftest(source, fixture):
     undecided = check(source, fixture + "tag_invented_next_quarter\n")
     if not any("tag_invented_next_quarter" in p for p in undecided):
         fail("selftest: a shipped tag this build never decided passed")
+    doubled = source.replace('"task_progress",', '"task_progress", "voice_turn",', 1)
+    if doubled == source:
+        fail("selftest: could not plant the silent-and-unsupported mutant")
+    if not any("voice_turn is both" in p for p in check(doubled, fixture)):
+        fail("selftest: a tag both silent and unsupported passed")
+    unshipped = source.replace('{"voice_turn"}', '{"voice_turn", "tag_nobody_ships"}', 1)
+    if unshipped == source:
+        fail("selftest: could not plant the unshipped-unsupported mutant")
+    if not any("tag_nobody_ships is marked unsupported" in p for p in check(unshipped, fixture)):
+        fail("selftest: an unsupported tag that is not shipped passed")
 
 
 def main():
@@ -148,7 +167,7 @@ def main():
     if problems:
         fail(*problems)
     print("wire-event-vocabulary: OK "
-          f"({len(fixture_tags(fixture))} shipped tags, each drawn or silent)")
+          f"({len(fixture_tags(fixture))} shipped tags, each drawn, silent or unsupported)")
 
 
 if __name__ == "__main__":
