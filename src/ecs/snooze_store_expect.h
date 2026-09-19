@@ -1,6 +1,8 @@
 #pragma once
+#include <charconv>
 #include <cstdint>
 #include <optional>
+#include <system_error>
 #include <string>
 
 #include "inbox_sync_driver.h"
@@ -52,25 +54,34 @@ inline std::string describe(const Observed& have) {
     return out;
 }
 
+template <class Integer>
+inline std::optional<Integer> whole_number(const std::string& text) {
+    if (text.empty() || text.front() < '0' || text.front() > '9') return std::nullopt;
+    Integer parsed{};
+    const char* const begin = text.data();
+    const char* const end = begin + text.size();
+    const auto result = std::from_chars(begin, end, parsed, 10);
+    if (result.ec != std::errc{} || result.ptr != end) return std::nullopt;
+    return parsed;
+}
+
 inline std::optional<Expectation> parse(const std::string& id, const std::string& kind,
                                         const std::string& value, const std::string& epoch) {
-    const auto whole_number = [](const std::string& s) {
-        if (s.empty()) return false;
-        for (const char c : s)
-            if (c < '0' || c > '9') return false;
-        return true;
-    };
     Expectation e;
     e.session_id = id;
-    if (id.empty() || !whole_number(epoch)) return std::nullopt;
-    e.epoch = static_cast<std::uint64_t>(std::stoull(epoch));
+    if (id.empty()) return std::nullopt;
+    const auto parsed_epoch = whole_number<std::uint64_t>(epoch);
+    if (!parsed_epoch) return std::nullopt;
+    e.epoch = *parsed_epoch;
     if (kind == "absent") {
         if (!value.empty()) return std::nullopt;
         e.absent = true;
         return e;
     }
-    if (kind != "confirmed" || !whole_number(value)) return std::nullopt;
-    e.until_unix_sec = static_cast<std::int64_t>(std::stoll(value));
+    if (kind != "confirmed") return std::nullopt;
+    const auto parsed_until = whole_number<std::int64_t>(value);
+    if (!parsed_until) return std::nullopt;
+    e.until_unix_sec = *parsed_until;
     return e;
 }
 

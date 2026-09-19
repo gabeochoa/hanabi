@@ -95,6 +95,25 @@ static void test_snooze_store_expect_predicate() {
     CHECK(!sse::parse("t6", "absent", "", "-1"));
     CHECK(!sse::parse("", "absent", "", "0"));
     CHECK(!sse::parse("t6", "cleared", "", "0"));
+    CHECK(!sse::parse("t6", "absent", "", "18446744073709551616"));
+    CHECK(!sse::parse("t6", "confirmed", "9223372036854775808", "1"));
+    CHECK(!sse::parse("t6", "confirmed", std::string(400, '9'), "1"));
+    CHECK(!sse::parse("t6", "absent", "", std::string(400, '9')));
+    CHECK(!sse::parse("t6", "confirmed", "+1781542800", "1"));
+    CHECK(!sse::parse("t6", "confirmed", " 1781542800", "1"));
+    CHECK(!sse::parse("t6", "confirmed", "1781542800 ", "1"));
+    CHECK(!sse::parse("t6", "confirmed", "0x10", "1"));
+    CHECK(!sse::parse("t6", "confirmed", "1e9", "1"));
+    {
+        const auto max_epoch = sse::parse("t6", "absent", "", "18446744073709551615");
+        CHECK(max_epoch && max_epoch->epoch == 18446744073709551615ULL);
+        const auto max_until = sse::parse("t6", "confirmed", "9223372036854775807", "0");
+        CHECK(max_until && max_until->until_unix_sec == 9223372036854775807LL);
+        const auto zero = sse::parse("t6", "confirmed", "0", "0");
+        CHECK(zero && zero->until_unix_sec == 0 && zero->epoch == 0);
+        const auto padded = sse::parse("t6", "confirmed", "007", "0");
+        CHECK(padded && padded->until_unix_sec == 7);
+    }
     const sse::Expectation absent0 = *parsed_absent;
     const sse::Expectation confirmed1 = *parsed_confirmed;
 
