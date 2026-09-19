@@ -18,7 +18,7 @@ native_menu_expect closed
 native_menu_expect idle
 expect_open t9
 expect_input_text composer_reply_input ""
-click_ui composer_send
+native_click_ui composer_send
 wait_frames 16
 expect_backend_state t9 ready
 native_right_click_ui chat_row_id_t9
@@ -31,7 +31,7 @@ native_key 53
 wait_frames 12
 native_menu_expect closed
 native_menu_expect idle
-click_ui tab_t2
+native_click_ui tab_t2
 wait_frames 12
 expect_open t2
 assert_ui tab_t9 hidden=false
