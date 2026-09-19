@@ -1039,7 +1039,7 @@ void apply_serving_model_from_state(const json& state, Session& out) {
     out.model = std::move(m);
 }
 
-}  // namespace
+}
 
 ModelMenu parse_models_reply(const std::string& msg_json) {
     ModelMenu out;
