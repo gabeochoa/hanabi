@@ -6,6 +6,11 @@
 // `SERVICE_IDENTITY:<name>`, and an unescaped colon comes back as an HTTP 400
 // with an opaque body, which reads like an auth problem rather than a typo.
 #include <atomic>
+#include <chrono>
+#include <mutex>
+#include <future>
+#include <functional>
+#include <condition_variable>
 #include <ctime>
 #include <thread>
 #include <cstdio>
@@ -1254,30 +1259,44 @@ static void test_a_shown_artifact_is_a_row_with_its_file_and_size() {
 // arrives with its type and name from the headers.
 static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
     std::printf("test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives\n");
+    // The client-controlled facts: (a) a declared Content-Length above the
+    // cap is refused from the HEADERS -- the server WITHHOLDS its body behind
+    // a gate and the client must have settled 413 with zero bytes BEFORE the
+    // gate opens; (b) an undeclared (chunked) body is cut at the cap -- the
+    // server serves one chunk per request from the client and stops when the
+    // client hangs up, and the client must have settled 413 before the server
+    // could have handed it the whole body. No sender-side counter is proof.
     httplib::Server svr;
-    std::atomic<int> declared_chunks{0};
-    std::atomic<std::uint64_t> chunked_sent{0};
     const std::uint64_t cap = api::disk_cache::kArtifactMaxBytes;
+    std::mutex gate_mu;
+    std::condition_variable gate_cv;
+    bool release = false;
+    const auto release_gate = [&] {
+        { std::lock_guard<std::mutex> lk(gate_mu); release = true; }
+        gate_cv.notify_all();
+    };
+    struct ReleaseOnExit {
+        const std::function<void()>& f;
+        ~ReleaseOnExit() { f(); }
+    };
     svr.Get("/artifacts/big-declared/content", [&](const httplib::Request&, httplib::Response& res) {
         res.set_content_provider(
             cap + 1024, "image/png",
-            [&](std::size_t, std::size_t, httplib::DataSink& sink) {
-                ++declared_chunks;
-                const std::string chunk(65536, 'x');
-                sink.write(chunk.data(), chunk.size());
-                return true;
+            [&](std::size_t, std::size_t, httplib::DataSink&) {
+                std::unique_lock<std::mutex> lk(gate_mu);
+                gate_cv.wait_for(lk, std::chrono::seconds(15), [&] { return release; });
+                return false;  // after the gate: close without a body
             });
     });
+    std::atomic<std::uint64_t> chunked_offered{0};
     svr.Get("/artifacts/big-chunked/content", [&](const httplib::Request&, httplib::Response& res) {
         res.set_chunked_content_provider("application/octet-stream",
                                          [&](std::size_t, httplib::DataSink& sink) {
+                                             if (chunked_offered >= cap + (64u << 20)) return false;
                                              const std::string chunk(1 << 20, 'y');
-                                             if (chunked_sent >= cap + (4u << 20)) {
-                                                 sink.done();
-                                                 return true;
-                                             }
+                                             if (!sink.is_writable()) return false;
                                              if (!sink.write(chunk.data(), chunk.size())) return false;
-                                             chunked_sent += chunk.size();
+                                             chunked_offered += chunk.size();
                                              return true;
                                          });
     });
@@ -1301,20 +1320,47 @@ static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
     tok.expires_at = static_cast<int64_t>(std::time(nullptr)) + 3600;
     api::AgentcloudClient client(cfg, tok);
 
+    {
+        // (a) The body is withheld. If the client refuses from the headers,
+        // its future is ready within the bound while the gate is still shut.
+        const std::function<void()> releaser = release_gate;
+        ReleaseOnExit always{releaser};
+        api::ArtifactRef ref;
+        ref.id = "big-declared";
+        auto fut = std::async(std::launch::async, [&] { return client.fetch_artifact("s1", ref); });
+        const bool ready = fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+        CHECK(ready);
+        if (ready) {
+            auto r = fut.get();
+            CHECK(!r.ok && r.value.http_status == 413);
+            CHECK(r.error.find("32 MB") != std::string::npos);
+            CHECK(r.value.bytes.empty());
+        }
+        release_gate();
+        if (!ready) fut.wait_for(std::chrono::seconds(15));
+    }
+
+    {
+        // (b) Chunked, no declared length: the client cuts at the cap. The
+        // server offers up to cap + 64 MB; the client's answer must settle
+        // within the bound, be 413, and carry no bytes.
+        api::ArtifactRef ref;
+        ref.id = "big-chunked";
+        auto fut = std::async(std::launch::async, [&] { return client.fetch_artifact("s1", ref); });
+        const bool ready = fut.wait_for(std::chrono::seconds(30)) == std::future_status::ready;
+        CHECK(ready);
+        if (ready) {
+            auto r = fut.get();
+            CHECK(!r.ok && r.value.http_status == 413);
+            CHECK(r.value.bytes.empty());
+        } else {
+            fut.wait_for(std::chrono::seconds(30));
+        }
+    }
+
     api::ArtifactRef ref;
-    ref.id = "big-declared";
-    auto r = client.fetch_artifact("s1", ref);
-    CHECK(!r.ok && r.value.http_status == 413);
-    CHECK(r.error.find("32 MB") != std::string::npos);
-    CHECK(declared_chunks.load() <= 1);
-
-    ref.id = "big-chunked";
-    r = client.fetch_artifact("s1", ref);
-    CHECK(!r.ok && r.value.http_status == 413);
-    CHECK(chunked_sent.load() < cap + (4u << 20));
-
     ref.id = "small";
-    r = client.fetch_artifact("s1", ref);
+    auto r = client.fetch_artifact("s1", ref);
     CHECK(r.ok);
     CHECK(r.value.media_type == "image/png");
     CHECK(r.value.file_name == "chart.png");
