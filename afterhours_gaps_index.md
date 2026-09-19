@@ -854,7 +854,7 @@ correction narrows them rather than closing them.
 | 562 | E2E parses SUPER but never holds it | MISSING | HIGH | XS | live |
 | 563 | `CMD+` means Ctrl rather than Command in scripts | FOOTGUN | HIGH | XS | dup→#256 |
 | 564 | Synthetic input is intentionally absent from shipping builds | NOT A GAP | — | — | security boundary |
-| 565 | Text editing has no imperative native-responder command surface | MISSING | HIGH | M | live · app-owned verbs over public state ops (2c934d3, no Mac run yet); key replay withdrawn |
+| 565 | Text editing has no imperative native-responder command surface | MISSING | HIGH | M | live · app-owned verbs applied at the field binding as an ordered per-entity batch (e4fa44c; runtime after build 21); key replay withdrawn |
 | 566 | Native Edit capabilities depend on magic enum names | FOOTGUN | HIGH | S | dup→#255 |
 | 567 | Headless UI assertions cannot observe AppKit menus | PLATFORM | MED | — | dup→#308 |
 | 568 | Modifier release state has no Super slot | MISSING | HIGH | XS | live |
