@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -35,16 +36,138 @@ static int g_failures = 0;
         }                                                           \
     } while (0)
 
-// Isolate Settings' on-disk file to a per-pid temp dir so the real user
-// settings are never touched.
+struct SettingsSandbox {
+    std::string dir;
+    std::string originalCwd;
+    std::string originalHome;
+    std::string originalXdg;
+    bool hadHome = false;
+    bool hadXdg = false;
+    bool live = false;
+    bool launcherHadSettingsFile = false;
+};
+
+static SettingsSandbox& settings_sandbox() {
+    static SettingsSandbox box;
+    return box;
+}
+
+static std::filesystem::path launcher_settings_file(const SettingsSandbox& box) {
+    return std::filesystem::path(box.originalCwd) / "hanabi" / "settings.json";
+}
+
+static bool path_is_inside(const std::filesystem::path& p, const std::filesystem::path& dir) {
+    auto pi = p.begin();
+    for (auto di = dir.begin(); di != dir.end(); ++di, ++pi) {
+        if (di->empty()) continue;
+        if (pi == p.end() || *pi != *di) return false;
+    }
+    return true;
+}
+
+static bool sandbox_removed(const std::error_code& removeEc, const std::error_code& statEc, bool stillThere) {
+    return !removeEc && !statEc && !stillThere;
+}
+
+static bool restore_env(const char* name, bool had, const std::string& value) {
+    return (had ? setenv(name, value.c_str(), 1) : unsetenv(name)) == 0;
+}
+
+static void restore_settings_sandbox() {
+    SettingsSandbox& box = settings_sandbox();
+    if (!box.live) return;
+    box.live = false;
+    bool ok = true;
+    if (::chdir(box.originalCwd.c_str()) != 0) {
+        std::printf("  FAIL: sandbox restore: chdir(%s) failed\n", box.originalCwd.c_str());
+        ok = false;
+    }
+    if (!restore_env("HOME", box.hadHome, box.originalHome)) ok = false;
+    if (!restore_env("XDG_CONFIG_HOME", box.hadXdg, box.originalXdg)) ok = false;
+    std::error_code removeEc;
+    std::filesystem::remove_all(box.dir, removeEc);
+    std::error_code statEc;
+    const bool stillThere = std::filesystem::exists(box.dir, statEc);
+    if (!sandbox_removed(removeEc, statEc, stillThere)) {
+        std::printf("  FAIL: sandbox restore: remove_all(%s): remove=%s stat=%s present=%d\n", box.dir.c_str(),
+                    removeEc.message().c_str(), statEc.message().c_str(), stillThere ? 1 : 0);
+        ok = false;
+    }
+    if (!ok) {
+        std::fflush(stdout);
+        std::_Exit(1);
+    }
+}
+
+[[noreturn]] static void sandbox_setup_failed(SettingsSandbox& box, const char* what) {
+    std::printf("  FAIL: sandbox setup: %s; the unit cannot sandbox and will not run\n", what);
+    if (!box.originalCwd.empty()) (void)::chdir(box.originalCwd.c_str());
+    (void)restore_env("HOME", box.hadHome, box.originalHome);
+    (void)restore_env("XDG_CONFIG_HOME", box.hadXdg, box.originalXdg);
+    if (!box.dir.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(box.dir, ec);
+    }
+    std::exit(1);
+}
+
 static void isolate_settings() {
-    std::string dir = "/tmp/hanabi_test_cfg_" + std::to_string(::getpid());
-    // afterhours get_config_path honors XDG_CONFIG_HOME on non-mac; on mac it
-    // uses Application Support. Either way we point HOME/XDG at the temp dir so
-    // create_directories lands somewhere disposable. Best-effort — the value
-    // round-trips in-memory regardless of where the file lands.
-    setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
-    setenv("HOME", dir.c_str(), 1);
+    SettingsSandbox& box = settings_sandbox();
+    if (box.live) return;
+    std::error_code ec;
+    box.originalCwd = std::filesystem::current_path(ec).string();
+    if (ec || box.originalCwd.empty()) sandbox_setup_failed(box, "current_path() failed");
+    if (const char* h = std::getenv("HOME")) {
+        box.hadHome = true;
+        box.originalHome = h;
+    }
+    if (const char* x = std::getenv("XDG_CONFIG_HOME")) {
+        box.hadXdg = true;
+        box.originalXdg = x;
+    }
+    box.launcherHadSettingsFile = std::filesystem::exists(launcher_settings_file(box), ec);
+    const char* base = std::getenv("TMPDIR");
+    std::string templ = std::string(base != nullptr && *base != '\0' ? base : "/tmp");
+    if (templ.back() != '/') templ += '/';
+    templ += "hanabi_test_settings_XXXXXX";
+    std::vector<char> buf(templ.begin(), templ.end());
+    buf.push_back('\0');
+    const char* made = ::mkdtemp(buf.data());
+    if (made == nullptr) sandbox_setup_failed(box, "mkdtemp failed");
+    box.dir = made;
+    const std::string canon = std::filesystem::canonical(made, ec).string();
+    if (ec || canon.empty()) sandbox_setup_failed(box, "canonical(sandbox) failed");
+    box.dir = canon;
+    if (setenv("XDG_CONFIG_HOME", box.dir.c_str(), 1) != 0 || setenv("HOME", box.dir.c_str(), 1) != 0)
+        sandbox_setup_failed(box, "setenv failed");
+    if (::chdir(box.dir.c_str()) != 0) sandbox_setup_failed(box, "chdir(sandbox) failed");
+    if (std::atexit(restore_settings_sandbox) != 0) sandbox_setup_failed(box, "atexit failed");
+    box.live = true;
+}
+
+static void test_settings_path_stays_inside_the_sandbox() {
+    std::printf("test_settings_path_stays_inside_the_sandbox\n");
+    isolate_settings();
+    const SettingsSandbox& box = settings_sandbox();
+    CHECK(box.live);
+    std::error_code ec;
+    const std::filesystem::path path = Settings::get().get_settings_path();
+    const std::filesystem::path canonPath = std::filesystem::weakly_canonical(path, ec);
+    CHECK(!ec && path_is_inside(canonPath, std::filesystem::path(box.dir)));
+    CHECK(canonPath.parent_path().parent_path() == std::filesystem::path(box.dir));
+    CHECK(path.filename() == "settings.json");
+    CHECK(std::filesystem::weakly_canonical(path, ec) != std::filesystem::weakly_canonical(launcher_settings_file(box), ec));
+    Settings::get().set_yap_level(1);
+    Settings::get().write_save_file();
+    CHECK(std::filesystem::exists(path, ec));
+    CHECK(std::filesystem::exists(launcher_settings_file(box), ec) == box.launcherHadSettingsFile);
+    const std::error_code none;
+    const std::error_code denied = std::make_error_code(std::errc::permission_denied);
+    CHECK(sandbox_removed(none, none, false));
+    CHECK(!sandbox_removed(denied, none, false));
+    CHECK(!sandbox_removed(none, denied, false));
+    CHECK(!sandbox_removed(none, none, true));
+    CHECK(!sandbox_removed(none, denied, true));
 }
 
 // --- (1)+(2) each wired control changes the persisted value + marks dirty ---
@@ -717,6 +840,7 @@ static void test_appearance_context_and_chip_defaults_round_trip() {
 
 int main() {
     std::printf("=== test_settings ===\n");
+    test_settings_path_stays_inside_the_sandbox();
     test_wired_controls_change_value();
     test_mock_settings_write();
     test_settings_write_config_gate();
