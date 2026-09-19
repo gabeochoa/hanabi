@@ -126,7 +126,7 @@ check "7. a failing script is result fail with its rc, run exits 1" '[ "$rc" = 1
 mk_fixtures "$T/own"
 rm "$T/own/windowed_one.e2e"
 BYSTANDER_LIFETIME=30
-( exec -a "$STUB" sleep "$BYSTANDER_LIFETIME" ) &
+( exec -a "$STUB" sleep "$BYSTANDER_LIFETIME" ) >/dev/null 2>&1 &
 bystander=$!
 bystander_t0=$(date +%s)
 bystander_alive() {
