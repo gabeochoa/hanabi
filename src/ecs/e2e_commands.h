@@ -76,6 +76,7 @@
 #include "../native_menu.h"
 #include "../util/capture_clock.h"
 #include "../native_snooze_prompt.h"
+#include "snooze_store_expect.h"
 #include "../resize_drive.h"
 #include "../test_hooks.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
@@ -2052,6 +2053,51 @@ struct HandleSnoozePromptInjectCommand
         }
         hanabi::native_snooze_prompt::inject_result_for_test(r);
         cmd.consume();
+    }
+};
+
+struct HandleSnoozeStoreExpectCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    static constexpr int kGiveUpFrame = 240;
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("snooze_store_expect")) return;
+        const std::size_t n = cmd.args.size();
+        const bool absent_shape = n == 3 && cmd.arg(1) == "absent";
+        const bool confirmed_shape = n == 4 && cmd.arg(1) == "confirmed";
+        if (!absent_shape && !confirmed_shape) {
+            cmd.fail("snooze_store_expect requires <session id> absent <epoch> | "
+                     "<session id> confirmed <until_unix_sec> <epoch>");
+            return;
+        }
+        const auto want = hanabi::snooze_store_expect::parse(
+            cmd.arg(0), cmd.arg(1), confirmed_shape ? cmd.arg(2) : std::string(),
+            confirmed_shape ? cmd.arg(3) : cmd.arg(2));
+        if (!want) {
+            cmd.fail("snooze_store_expect: <until_unix_sec> and <epoch> must be whole numbers");
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        const std::string backend = app ? app->backend_label : std::string("none");
+        if (backend != "mock") {
+            cmd.fail(std::format("snooze_store_expect refuses a '{}' backend: only the offline mock", backend));
+            return;
+        }
+        const auto have = hanabi::snooze_store_expect::observe(app->inbox, app->snooze_available(),
+                                                               want->session_id);
+        if (hanabi::snooze_store_expect::satisfied(*want, have)) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("snooze_store_expect {}: wanted {} at epoch {}, have {}", want->session_id,
+                             want->absent ? std::string("absent")
+                                          : "confirmed until " + std::to_string(want->until_unix_sec),
+                             want->epoch, hanabi::snooze_store_expect::describe(have)));
     }
 };
 
@@ -4124,6 +4170,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleCaptureMarkerCommand>());
     sm.register_update_system(std::make_unique<HandleNativeMenuInjectCommand>());
     sm.register_update_system(std::make_unique<HandleSnoozePromptInjectCommand>());
+    sm.register_update_system(std::make_unique<HandleSnoozeStoreExpectCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRowsJoinCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRelCommand>());
     sm.register_update_system(std::make_unique<HandleDoubleClickWordCommand>());

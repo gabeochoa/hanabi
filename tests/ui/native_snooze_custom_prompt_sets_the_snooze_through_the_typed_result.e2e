@@ -4,13 +4,17 @@
 # the pinned clock, 5 divider, 6 Custom). Picking Custom queues the native
 # prompt for THIS thread; the typed result is injected -- state only, no
 # NSAlert is driven -- and settled against the captured session: a cancel
-# writes nothing, a Set writes one snooze whose "Snoozed until" reads the
-# injected instant.
+# leaves the store absent at epoch 0, a Set lands one confirmed snooze for
+# t6 at the injected instant (epoch 1) while t2, the open thread, stays
+# absent.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 require_thread t2
 wait_frames 10
 native_mode on
 wait_frames 4
+expect_open t2
+snooze_store_expect t6 absent 0
+snooze_store_expect t2 absent 0
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6
 native_menu_expect busy session:t6
@@ -18,9 +22,12 @@ native_menu_inject 18 6
 wait_frames 6
 native_menu_expect idle
 snooze_prompt_expect queued
+expect_open t2
 snooze_prompt_inject cancel
 wait_frames 8
 snooze_prompt_expect idle
+snooze_store_expect t6 absent 0
+snooze_store_expect t2 absent 0
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6
 native_menu_expect busy session:t6
@@ -28,9 +35,13 @@ native_menu_inject 18 6
 wait_frames 6
 native_menu_expect idle
 snooze_prompt_expect queued
+expect_open t2
 snooze_prompt_inject set 1781542800
 wait_frames 12
 snooze_prompt_expect idle
+snooze_store_expect t6 confirmed 1781542800 1
+snooze_store_expect t2 absent 1
+expect_open t2
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6
 native_menu_expect busy session:t6
