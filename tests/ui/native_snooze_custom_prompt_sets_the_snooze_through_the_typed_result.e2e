@@ -7,7 +7,7 @@
 # the captured session: a cancel leaves the store absent at epoch 0, a Set
 # lands one confirmed snooze for t6 at the injected instant (epoch 1) while
 # t2, the open thread, stays absent.
-# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_E2E_WINDOWED=1
 require_thread t2
 wait_frames 10

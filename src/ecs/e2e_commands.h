@@ -2058,7 +2058,6 @@ struct HandleSnoozePromptInjectCommand
 
 struct HandleSnoozeStoreExpectCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
-    static constexpr int kGiveUpFrame = 240;
     void for_each_with(afterhours::Entity&,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
