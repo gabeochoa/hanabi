@@ -7,6 +7,7 @@
 # Row 18 for t6 = 16 Pin, 17 Mute, 18 Snooze; children 0-4 presets on the
 # pinned clock, 5 divider, 6 Custom.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
 require_thread t2
 wait_frames 10
 native_mode on
