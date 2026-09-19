@@ -5,6 +5,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #include "../../src/api/disk_cache.h"
