@@ -67,8 +67,6 @@ struct MenuItem {
 struct MenuResult {
     std::size_t activated = kNoMenuRow;
     std::size_t activated_child = kNoMenuRow;
-    // The picked element's stable id, when the caller gave it one: the
-    // leaf's for a child pick, else the row's. Empty = index-only identity.
     std::string activated_action;
     bool dismissed = false;
     bool cancelled = false;

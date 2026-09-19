@@ -175,8 +175,6 @@ static void test_separators_hold_a_slot_and_no_action() {
     CHECK(resolve(open, 10, now) == 10);
 }
 
-// A child pick resolves to the leaf's own id; a leaf without one, a row
-// picked as itself, or an index off the snapshot falls back to the row rule.
 static void test_a_child_pick_resolves_to_the_leaf_id_and_falls_back_to_the_row() {
     NativeMenuOpen open;
     open.generation = 12;
@@ -185,12 +183,11 @@ static void test_a_child_pick_resolves_to_the_leaf_id_and_falls_back_to_the_row(
     open.child_action_ids = {{}, {"snooze_1h", "snooze_3h", ""}, {}};
     CHECK(open.action_of(1, 0) == "snooze_1h");
     CHECK(open.action_of(1, 1) == "snooze_3h");
-    CHECK(open.action_of(1, 2) == "snooze");            // leaf given no id -> the row's
-    CHECK(open.action_of(1, kNoMenuRow) == "snooze");   // the parent row picked as itself
-    CHECK(open.action_of(0, 0) == "open");              // a row with no children: row rule
-    CHECK(open.action_of(1, 7) == "snooze");            // child past the snapshot: row rule
-    CHECK(open.action_of(9, 0).empty());                // row past the snapshot: nothing
-    // A rebuilt parent vector does not change what the snapshot says.
+    CHECK(open.action_of(1, 2) == "snooze");
+    CHECK(open.action_of(1, kNoMenuRow) == "snooze");
+    CHECK(open.action_of(0, 0) == "open");
+    CHECK(open.action_of(1, 7) == "snooze");
+    CHECK(open.action_of(9, 0).empty());
     open.action_ids.clear();
     CHECK(open.action_of(1, 0) == "snooze_1h");
     CHECK(open.action_of(1, 2).empty());
