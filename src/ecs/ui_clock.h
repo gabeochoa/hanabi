@@ -30,14 +30,15 @@ inline bool advance_test_offset(std::string_view text) {
     return true;
 }
 
-inline double now_seconds() {
-    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count() +
-           test_offset_seconds();
-}
-
 inline bool& headless_run() {
     static bool v = false;
     return v;
+}
+
+inline double now_seconds() {
+    if (headless_run()) return test_offset_seconds();
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count() +
+           test_offset_seconds();
 }
 
 inline std::optional<bool>& reduce_motion_override() {
