@@ -14269,3 +14269,36 @@ authored by the theme lane, run and measured here.
 CLASS: WORKAROUND (app-side adapter); the library keeps no "external tracker
 owns input" state.
 
+
+### #602 — `core/system.h` does not compile under GCC: in-class explicit specializations of `HasAllComponents<>`, `CallWithComponents<>`, `CallWithChildComponents<>`
+
+**Class:** portability (`core/system.h` :229-323, d90db15). Three template
+members are explicitly specialized inside the enclosing class template
+(`template<> struct HasAllComponents<type_list<>>` at :248, the
+`CallWithComponents` pair at :293, `CallWithChildComponents` at :325). Clang accepts this as an
+extension; GCC 14.4.1 rejects it (`explicit specialization in non-namespace
+scope`, `too few template-parameter-lists`) — six errors, hard, not silenced by
+`-fpermissive`. The library already carries a conforming `if constexpr` arm for
+each of the three, but only under `#ifdef _WIN32`.
+
+**Cost.** Any translation unit that reaches `core/system.h` cannot be compiled
+on a Linux/GCC node. In hanabi that is every unit through `ui/theme.h` →
+`util/atlas_guard.h` (test_tab_colors, test_data, and the ECS headers), so a
+Linux author can run only the std-only units; the rest are Mac-only by
+toolchain, not by content.
+
+**Reproducer.** `g++ -std=c++20 -fsyntax-only -I. -isystem vendor
+tests/unit/test_tab_colors.cpp` on Linux (after a `mach-o/dyld.h` stub for
+`util/prof.h`): the six errors above.
+
+**Workaround.** None in the repo, deliberately: the vendor tree is pinned and
+unpatched. A development-only overlay (a COPY of vendor/ with the three
+`#ifdef _WIN32` guards flipped, outside the repo) compiles and the unit runs;
+its result is an author signal about hanabi's own code, never a verification of
+the dependency — acceptance is the Mac build against the unchanged pin.
+
+**Ask.** Make the `if constexpr` arm unconditional (or guard the in-class form
+with `__clang__` instead of `!_WIN32`): same semantics, standard C++17, one
+diff of three preprocessor lines.
+
+CLASS: PORTABILITY (compiles on clang only)
