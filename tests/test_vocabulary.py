@@ -264,6 +264,16 @@ class TreeModeNeedsNoGit(unittest.TestCase):
         self.assertIn("2 files scanned, 1 pre-existing occurrence(s)", out)
         self.assertEqual(err, "")
 
+    def test_main_hands_the_patched_root_to_both_scanners(self):
+        seen = []
+        with mock.patch.object(cv, "ROOT", "/spy/root"), \
+             mock.patch.object(cv, "scan_tree", side_effect=lambda root: seen.append(("tree", root)) or 0), \
+             mock.patch.object(cv, "scan_delta", side_effect=lambda root: seen.append(("delta", root)) or 0):
+            rc_tree = cv.main(["--tree"])
+            rc_delta = cv.main([])
+        self.assertEqual((rc_tree, rc_delta), (0, 0))
+        self.assertEqual(seen, [("tree", "/spy/root"), ("delta", "/spy/root")])
+
     def test_main_routes_tree_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             plain = Path(tmp) / "plain"
