@@ -98,6 +98,7 @@ class MockClient : public Client {
     // summary-row keys.
     static SessionSummary catalog_row(SessionSummary s) {
         s.replies_paused = false;
+        apply_seeded_row_clocks(s);
         // bz6 exists to be a STALE row beside a fresher attach: its freeze is
         // deliberately withheld from the catalog so the only way the UI can
         // learn it is the attach, which is the propagation path under test.
@@ -107,6 +108,28 @@ class MockClient : public Client {
             s.frozen_reason.clear();
         }
         return s;
+    }
+
+    static void apply_seeded_row_clocks(SessionSummary& s) {
+        const char* v = std::getenv("HANABI_MOCK_ROW_CLOCKS");
+        if (v == nullptr || *v == '\0') return;
+        std::string_view rest(v);
+        while (!rest.empty()) {
+            const auto comma = rest.find(',');
+            std::string_view item = rest.substr(0, comma);
+            rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
+            const auto c1 = item.find(':');
+            if (c1 == std::string_view::npos || item.substr(0, c1) != s.id) continue;
+            std::string_view tail = item.substr(c1 + 1);
+            const auto c2 = tail.find(':');
+            const std::string eventText(tail.substr(0, c2));
+            if (!eventText.empty()) s.last_event_unix_ms = std::atoll(eventText.c_str());
+            if (c2 != std::string_view::npos) {
+                const std::string runText(tail.substr(c2 + 1));
+                if (!runText.empty()) s.last_run_complete_unix_ms = std::atoll(runText.c_str());
+            }
+            return;
+        }
     }
 
     Result<std::vector<SessionSummary>> list_sessions() override {
@@ -1798,6 +1821,7 @@ class MockClient : public Client {
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
+        "HANABI_MOCK_ROW_CLOCKS",
         "HANABI_MOCK_ACCESS",      "HANABI_MOCK_NO_HALT",
         "HANABI_MOCK_HALT_REFUSE", "HANABI_MOCK_HALT_NO_ECHO",
         "HANABI_MOCK_HALT_OBSERVE_LATCH", "HANABI_MOCK_NO_HALT_ADVERT",
