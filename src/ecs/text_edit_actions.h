@@ -4,9 +4,12 @@
 #include <string>
 #include <string_view>
 
+#include <afterhours/src/plugins/ui/text_input/state.h>
+#include <afterhours/src/plugins/ui/text_input/text_area_state.h>
+#include <afterhours/src/plugins/ui/text_input/utils.h>
+
 #include "../edit_verbs.h"
 #include "../util/clipboard.h"
-#include "ui_imports.h"
 
 namespace ecs::edit_actions {
 
