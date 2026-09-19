@@ -1,0 +1,31 @@
+# Mute from an open conversation tab's menu: the same act as the sidebar
+# row's Mute -- the session is muted (the row's bell shows, the toast with
+# Undo appears), the tab menu then reads Unmute, and Unmute clears it. The
+# thread's state is the word; nothing about the tab changes.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+right_click_ui tab_t9
+wait_frames 8
+expect_text "Mute"
+expect_no_text "Unmute"
+expect_a11y "Mute" says="Mute, menuitem"
+click_ui tab_menu_mute
+expect_text_drawn "Session muted" within=60
+assert_ui row_muted hidden=false
+expect_open t2
+assert_ui tab_t9 hidden=false
+key ESCAPE
+wait_frames 6
+# One state, two menus: the sidebar row for t9 reads Unmute as well.
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_text "Unmute"
+key ESCAPE
+wait_frames 6
+right_click_ui tab_t9
+wait_frames 8
+expect_text "Unmute"
+click_ui tab_menu_mute
+expect_text_drawn "Session unmuted" within=60
+expect_no_ui row_muted

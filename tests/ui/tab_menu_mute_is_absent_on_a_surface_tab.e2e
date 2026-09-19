@@ -1,0 +1,15 @@
+# A surface tab (Settings) is not a conversation: its menu is the Close group
+# and Keep Tab Open, with no session block -- no Mute, as no Pin, no Archive.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+click_ui sb_settings
+wait_frames 20
+right_click_ui tab_active
+wait_frames 10
+expect_text "Keep Tab Open"
+expect_no_ui tab_menu_mute
+expect_no_text "Mute"
+expect_no_ui tab_menu_pin
+expect_no_ui tab_menu_archive
+key ESCAPE

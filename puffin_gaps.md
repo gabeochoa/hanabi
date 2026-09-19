@@ -586,6 +586,7 @@ collapse/expand.
 **Size:** Large. The hard part is what "live" means for a tab no pane draws — stream subscription, refetch cadence and memory for every open tab.
 
 ### 8. Archive and Close Tab: refusal flash, Retry on an unlanded archive, undo scope, pick after the tab closed
+*(Tab menu shared block as of 2026-09-18: Pin/Unpin → Mute/Unmute → [Snooze slot reserved: no snooze model yet] → divider → Archive/Unarchive → Archive and Close Tab → divider → Open in split. Mute reached the tab menu with the row menu's drain; Snooze and "Show linked-chat banner" remain open here and in the row menu.)*
 **What it does:** The reference's tab menu carries Archive/Unarchive and, beneath, "Archive and Close Tab" (absent once archived; disabled while the tab is kept). Decided at click time from the live model: tab gone → archive only; kept → refused with the tab's pin flashing; else close first, then archive in the background. If the archive does not land it toasts "held on this Mac" with Retry. Single-thread archives have no undo toast (only multi-target ones do).
 
 **Where in puffin:** `SessionMenuItems.swift`, `TabStrip.swift`, `ArchivedSessions.swift` (0.7.4 review cut)

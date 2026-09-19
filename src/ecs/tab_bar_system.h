@@ -899,6 +899,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestSetArchiveTo = true;
                 } else if (action == "archive" || action == "unarchive") {
                     app.requestToggleArchive = strip.menuSessionId;
+                } else if (action == "mute" || action == "unmute") {
+                    app.requestToggleMute = strip.menuSessionId;
                 }
             }
         }
@@ -917,7 +919,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
     // against the reference, and deliberately not faked here: "Move Tab to
     // New Window" (no second window), the four split directions (one split
     // here), "Copy Deeplink" (one link scheme), and the shared block's
-    // Mute / Snooze items. "Pin tab" is a KEPT TAB
+    // Snooze item. "Pin tab" is a KEPT TAB
     // (survives close-others and close-to-right); the reference's Pin on this
     // menu is the thread's pin, written together with the tab's -- also open.
     //
@@ -936,7 +938,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         enum Act {
             CloseTab, CloseOthers, CloseRight, Divider, Rename, CopyTitle,
             CopyWeblink, CopyDeeplink, CopyId, OpenWeb, ExportClipboard, Halt, HaltSubtree,
-            Resume, Pin, Archive, ArchiveClose, Split
+            Resume, Pin, Mute, Archive, ArchiveClose, Split
         };
         std::vector<hanabi::surface::MenuItem> items;
         std::vector<Act> actions;
@@ -1019,11 +1021,14 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             }
             add(tab.pinned ? "Unpin" : "Pin", "tab_menu_pin", Pin, false, false,
                 tab.pinned ? "unpin" : "pin");
+            const api::SessionSummary* summary = app.find_summary(keepId);
+            const bool mutedNow = summary != nullptr && summary->muted;
+            add(mutedNow ? "Unmute" : "Mute", "tab_menu_mute", Mute, false, false,
+                mutedNow ? "unmute" : "mute");
             divider("tab_menu_divider_pin");
             // Archive / Unarchive through the row menu's drain; Archive and
             // Close Tab beneath it, only while not archived, disabled for a
             // kept (pinned) tab -- the tab's flag, as the reference reads it.
-            const api::SessionSummary* summary = app.find_summary(keepId);
             const bool archivedNow = summary != nullptr && model::is_archived(*summary);
             add(archivedNow ? "Unarchive" : "Archive", "tab_menu_archive", Archive, false, false,
                 archivedNow ? "unarchive" : "archive");
@@ -1144,6 +1149,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                                      : std::string_view{},
                             keepId))
                         hanabi::clipboard::set_text(*payload);
+                    break;
+                case Mute:
+                    app.requestToggleMute = keepId;
                     break;
                 case Archive:
                     app.requestToggleArchive = keepId;
