@@ -26,10 +26,10 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **276** |
-| Distinct numeric gap numbers | **265** (several numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **277** (recount at 7fd3276 + #603) |
+| Distinct numeric gap numbers | **272** (271 at 7fd3276 + #603; several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **274** rows, **274** unique identifiers — includes index-only ids with no detailed entry |
+| **Rows in the triage table (§6)** | **275** rows, **275** unique identifiers — includes index-only ids with no detailed entry |
 | Standalone live asks | not recounted; see §6 verdicts |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
