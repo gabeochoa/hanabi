@@ -179,4 +179,4 @@ inline SnoozeConfirmation confirm_snooze(const Echo& echo, std::optional<Seconds
     return {};
 }
 
-}  // namespace api::inbox_state
+}

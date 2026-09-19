@@ -186,4 +186,4 @@ inline std::string snoozed_until_text(Seconds until, Seconds now, const LocalCal
     return "Snoozed until " + due_text(until, now, cal);
 }
 
-}  // namespace hanabi::snooze_presets
+}

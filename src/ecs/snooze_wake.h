@@ -94,4 +94,4 @@ inline std::optional<Millis> effective_attention_ms(std::optional<Millis> activi
     return std::max(*activity_ms, *wake_at_ms);
 }
 
-}  // namespace hanabi::snooze_wake
+}

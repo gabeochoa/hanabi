@@ -39,35 +39,34 @@ static void use_zone(const char* zone) {
     tzset();
 }
 
-// America/New_York, computed with an independent tz database (Python zoneinfo).
 namespace ny {
-constexpr std::int64_t fri_1500 = 1789758000;         // Fri 2026-09-18 15:00 EDT
-constexpr std::int64_t fri_1700 = 1789765200;         // Fri 2026-09-18 17:00 EDT
-constexpr std::int64_t sat_0800 = 1789819200;         // Sat 2026-09-19 08:00 EDT
-constexpr std::int64_t mon_0800 = 1789992000;         // Mon 2026-09-21 08:00 EDT
-constexpr std::int64_t fri_1830 = 1789770600;         // Fri 2026-09-18 18:30 EDT
-constexpr std::int64_t sun_1000 = 1789912800;         // Sun 2026-09-20 10:00 EDT
-constexpr std::int64_t sat_1000 = 1789826400;         // Sat 2026-09-19 10:00 EDT
-constexpr std::int64_t sun_0800 = 1789905600;         // Sun 2026-09-20 08:00 EDT
-constexpr std::int64_t thu_1400 = 1789668000;         // Thu 2026-09-17 14:00 EDT
-constexpr std::int64_t spring_sat_1000 = 1772895600;  // Sat 2026-03-07 10:00 EST
-constexpr std::int64_t spring_sun_0800 = 1772971200;  // Sun 2026-03-08 08:00 EDT (21h later)
-constexpr std::int64_t spring_mon_0800 = 1773057600;  // Mon 2026-03-09 08:00 EDT
-constexpr std::int64_t fall_sat_1000 = 1793455200;    // Sat 2026-10-31 10:00 EDT
-constexpr std::int64_t fall_sun_0800 = 1793538000;    // Sun 2026-11-01 08:00 EST (23h later)
-constexpr std::int64_t fri_2330 = 1789788600;         // Fri 2026-09-18 23:30 EDT
-constexpr std::int64_t sat_0030 = 1789792200;         // Sat 2026-09-19 00:30 EDT
-constexpr std::int64_t thu24_0900 = 1790254800;       // Thu 2026-09-24 09:00 EDT (+6 days)
-constexpr std::int64_t fri25_0900 = 1790341200;       // Fri 2026-09-25 09:00 EDT (+7 days)
-constexpr std::int64_t fri_1200 = 1789747200;         // Fri 2026-09-18 12:00 EDT
-constexpr std::int64_t fri_0005 = 1789704300;         // Fri 2026-09-18 00:05 EDT
-constexpr std::int64_t dec3_1645 = 1796334300;        // Thu 2026-12-03 16:45 EST
-}  // namespace ny
+constexpr std::int64_t fri_1500 = 1789758000;
+constexpr std::int64_t fri_1700 = 1789765200;
+constexpr std::int64_t sat_0800 = 1789819200;
+constexpr std::int64_t mon_0800 = 1789992000;
+constexpr std::int64_t fri_1830 = 1789770600;
+constexpr std::int64_t sun_1000 = 1789912800;
+constexpr std::int64_t sat_1000 = 1789826400;
+constexpr std::int64_t sun_0800 = 1789905600;
+constexpr std::int64_t thu_1400 = 1789668000;
+constexpr std::int64_t spring_sat_1000 = 1772895600;
+constexpr std::int64_t spring_sun_0800 = 1772971200;
+constexpr std::int64_t spring_mon_0800 = 1773057600;
+constexpr std::int64_t fall_sat_1000 = 1793455200;
+constexpr std::int64_t fall_sun_0800 = 1793538000;
+constexpr std::int64_t fri_2330 = 1789788600;
+constexpr std::int64_t sat_0030 = 1789792200;
+constexpr std::int64_t thu24_0900 = 1790254800;
+constexpr std::int64_t fri25_0900 = 1790341200;
+constexpr std::int64_t fri_1200 = 1789747200;
+constexpr std::int64_t fri_0005 = 1789704300;
+constexpr std::int64_t dec3_1645 = 1796334300;
+}
 namespace utc {
 constexpr std::int64_t fri_1500 = 1789743600;
 constexpr std::int64_t fri_1700 = 1789750800;
 constexpr std::int64_t sat_0800 = 1789804800;
-}  // namespace utc
+}
 
 static const Option* find(const std::vector<Option>& options, Choice choice) {
     for (const Option& o : options)
@@ -81,7 +80,6 @@ static bool sorted_by_instant(const std::vector<Option>& options) {
     return true;
 }
 
-// ---- presets ---------------------------------------------------------------
 
 static void test_a_friday_afternoon_offers_all_six_in_instant_order() {
     use_zone("America/New_York");
@@ -207,7 +205,6 @@ static void test_a_custom_instant_is_refused_never_clamped() {
     CHECK(!presets::is_in_range(now, now));
 }
 
-// ---- wording -----------------------------------------------------------------
 
 static void test_due_wording_buckets_by_calendar_day() {
     use_zone("America/New_York");
@@ -233,7 +230,6 @@ static void test_due_wording_buckets_by_calendar_day() {
     use_zone("America/New_York");
 }
 
-// ---- wake --------------------------------------------------------------------
 
 static void test_a_snooze_is_due_at_its_instant_and_not_a_second_before() {
     using wake::State;
@@ -322,7 +318,6 @@ static void test_a_wake_raises_attention_but_never_lowers_it() {
     CHECK(wake::effective_attention_ms(9, 7) == std::optional<std::int64_t>{9});
 }
 
-// ---- wire ------------------------------------------------------------------
 
 static void test_the_route_body_parses_into_a_snapshot_with_int_and_double_tolerance() {
     const auto parsed = wire::parse_snapshot(R"({
