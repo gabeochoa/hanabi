@@ -13604,8 +13604,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const bool openNow = kOpenDemo && !openDemoSeeded;
             if (openNow) openDemoSeeded = true;
             if (img.ent().get<afterhours::ui::HasClickListener>().down || openNow) {
-                if (app.viewerImagePath.empty())
+                if (app.viewerImagePath.empty()) {
                     app.viewerFocusBefore = static_cast<long long>(ctx.focus_id);
+                    app.viewerOpenerEntity = static_cast<long long>(img.ent().id);
+                }
                 app.viewerImagePath = ip;
                 app.viewerImageName = name;
             }

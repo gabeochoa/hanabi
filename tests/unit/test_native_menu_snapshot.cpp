@@ -123,6 +123,17 @@ static void test_focus_returns_only_when_the_menu_took_it() {
     CHECK(focus_to_restore(BEFORE, EATER, ELSEWHERE, ROOT, true) == -1);
     // The remembered element is gone (its row was archived away): leave it.
     CHECK(focus_to_restore(BEFORE, EATER, EATER, ROOT, false) == -1);
+    const long long OPENER = 8310;
+    CHECK(focus_to_restore(BEFORE, EATER, OPENER, ROOT, true, OPENER) == BEFORE);
+    CHECK(focus_to_restore(BEFORE, EATER, EATER, ROOT, true, OPENER) == BEFORE);
+    CHECK(focus_to_restore(BEFORE, EATER, ROOT, ROOT, true, OPENER) == BEFORE);
+    CHECK(focus_to_restore(BEFORE, EATER, -1, ROOT, true, OPENER) == BEFORE);
+    CHECK(focus_to_restore(BEFORE, EATER, ELSEWHERE, ROOT, true, OPENER) == -1);
+    CHECK(focus_to_restore(BEFORE, EATER, OPENER, ROOT, false, OPENER) == -1);
+    CHECK(focus_to_restore(OPENER, EATER, OPENER, ROOT, true, OPENER) == OPENER);
+    CHECK(focus_to_restore(BEFORE, EATER, OPENER, ROOT, true) == -1);
+    CHECK(focus_to_restore(BEFORE, EATER, OPENER, ROOT, true, -1) == -1);
+    CHECK(focus_to_restore(BEFORE, EATER, EATER, ROOT, true, EATER) == BEFORE);
     // Nothing was focused when the menu opened: nothing to restore.
     CHECK(focus_to_restore(-1, EATER, EATER, ROOT, true) == -1);
     CHECK(focus_to_restore(ROOT, EATER, EATER, ROOT, true) == -1);

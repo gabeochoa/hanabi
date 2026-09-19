@@ -198,22 +198,14 @@ void mark_tracking_for_test(std::uint64_t generation);
 // its close arrives as `dismissed`.
 void cancel(std::uint64_t generation);
 
-// The focus-return rule, as a pure function so it can be unit-tested apart
-// from the UI: given the focus the menu opened with, the eater's id, the
-// focus at close, and whether the remembered element still exists, what
-// should focus be after the close? `-1` = leave focus where it is.
-//   * focus moved somewhere real during the menu (a menu action asked for
-//     it) -> leave it (-1)
-//   * focus is on the eater, or on nothing (ROOT/-1) -> the remembered
-//     element if it still exists, else -1
-//   * nothing was remembered -> -1
 inline long long focus_to_restore(long long focus_before, long long eater_id,
                                   long long focus_now, long long root_id,
-                                  bool before_still_exists) {
+                                  bool before_still_exists, long long opener_id = -1) {
     if (focus_before < 0 || focus_before == root_id || !before_still_exists) return -1;
     const bool onEater = eater_id >= 0 && focus_now == eater_id;
+    const bool onOpener = opener_id >= 0 && focus_now == opener_id;
     const bool onNothing = focus_now < 0 || focus_now == root_id;
-    if (!onEater && !onNothing) return -1;  // a menu action's own focus request wins
+    if (!onEater && !onOpener && !onNothing) return -1;
     return focus_before;
 }
 

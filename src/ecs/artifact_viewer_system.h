@@ -23,8 +23,10 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
         app.viewerImagePath.clear();
         app.viewerImageName.clear();
         const long long before = app.viewerFocusBefore;
+        const long long opener = app.viewerOpenerEntity;
         const long long backdropEntity = app.viewerBackdropEntity;
         app.viewerFocusBefore = -1;
+        app.viewerOpenerEntity = -1;
         app.viewerBackdropEntity = -1;
         const bool exists =
             before >= 0 &&
@@ -33,7 +35,7 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
                 .valid();
         const long long to = hanabi::native_menu::focus_to_restore(
             before, backdropEntity, static_cast<long long>(ctx.focus_id),
-            static_cast<long long>(ctx.ROOT), exists);
+            static_cast<long long>(ctx.ROOT), exists, opener);
         if (to >= 0) ctx.set_focus(static_cast<afterhours::EntityID>(to));
     }
 
