@@ -18,6 +18,4 @@ expect_no_ui tab_menu
 expect_no_ui tab_menu_archive_close
 expect_no_text "Session archived"
 expect_open t2
-click_text Archived
-wait_frames 8
-expect_no_text "kicker-tick"
+assert_ui chat_row_id_t9 hidden=false
