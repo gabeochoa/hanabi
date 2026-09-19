@@ -28,8 +28,10 @@
 #include <cstdlib>
 #include <ctime>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <atomic>
 #include <set>
 #include <string>
@@ -40,6 +42,7 @@
 #include "client.h"
 #include "../ui/model_menu.h"
 #include "compaction.h"
+#include "inbox_state_wire.h"
 #include "element_rows.h"
 #include "elicitation.h"
 
@@ -1163,6 +1166,109 @@ class MockClient : public Client {
     }
 
     bool supports_artifacts() const override { return true; }
+
+    bool supports_inbox_state() const override {
+        const char* k = std::getenv("HANABI_MOCK_INBOX_GET");
+        return !(k && std::string_view(k) == "off");
+    }
+    Result<InboxStateRead> read_inbox_state() override {
+        outbound_calls().fetch_add(1);
+        ++inbox_gets();
+        InboxStateRead out;
+        const char* k = std::getenv("HANABI_MOCK_INBOX_GET");
+        if (k && std::string_view(k) == "login") {
+            out.http_status = 200;
+            out.body = "<!doctype html><title>Log in</title>";
+            out.signed_out = true;
+            return Result<InboxStateRead>::success(std::move(out));
+        }
+        if (k && std::string_view(k) == "500") {
+            out.http_status = 500;
+            return Result<InboxStateRead>{false, std::move(out), "inbox state HTTP 500", false};
+        }
+        seed_snoozes_once();
+        std::lock_guard<std::mutex> lk(inbox_mu());
+        nlohmann::json snoozes = nlohmann::json::object();
+        for (const auto& [id, s] : snoozes_())
+            snoozes[id] = {{"snoozedAt", s.first}, {"snoozedUntil", s.second}};
+        nlohmann::json body = {{"read", nlohmann::json::array()},
+                               {"archived", nlohmann::json::array()},
+                               {"starred", nlohmann::json::array()},
+                               {"lastSeenAt", nlohmann::json::object()},
+                               {"snoozes", snoozes}};
+        out.http_status = 200;
+        out.body = body.dump();
+        return Result<InboxStateRead>::success(std::move(out));
+    }
+    Result<InboxStateWrite> write_snooze(const std::string& session_id,
+                                         std::optional<int64_t> snoozed_until_sec) override {
+        outbound_calls().fetch_add(1);
+        InboxStateWrite out;
+        const int nth = ++inbox_posts();
+        const char* k = std::getenv("HANABI_MOCK_INBOX_POST");
+        const std::string_view knob = k ? std::string_view(k) : std::string_view();
+        if (nth == 1 && !knob.empty()) {
+            if (knob == "drop") return Result<InboxStateWrite>::failure("inbox state unreachable: connection reset");
+            if (knob == "400" || knob == "403" || knob == "409") {
+                out.http_status = std::atoi(k);
+                out.body = knob == "400" ? R"({"error":"snoozedUntil out of range"})"
+                         : knob == "403" ? R"({"error":"missing csrf"})"
+                                         : R"({"error":"too many snoozes"})";
+                return Result<InboxStateWrite>{false, std::move(out), "snooze write HTTP " + std::string(knob), false};
+            }
+            if (knob == "noecho") {
+                out.http_status = 200;
+                out.body = R"({"ok":true})";
+                return Result<InboxStateWrite>::success(std::move(out));
+            }
+        }
+        seed_snoozes_once();
+        std::lock_guard<std::mutex> lk(inbox_mu());
+        const int64_t now = mock_now();
+        nlohmann::json echo = {{"ok", true}};
+        if (snoozed_until_sec) {
+            snoozes_()[session_id] = {now, *snoozed_until_sec};
+            echo["snoozedAt"] = now;
+            echo["snoozedUntil"] = *snoozed_until_sec;
+        } else {
+            snoozes_().erase(session_id);
+            echo["snoozedAt"] = nullptr;
+            echo["snoozedUntil"] = nullptr;
+        }
+        out.http_status = 200;
+        out.body = echo.dump();
+        return Result<InboxStateWrite>::success(std::move(out));
+    }
+    static std::atomic<int>& inbox_gets() { static std::atomic<int> n{0}; return n; }
+    static std::atomic<int>& inbox_posts() { static std::atomic<int> n{0}; return n; }
+    static std::map<std::string, std::pair<int64_t, int64_t>>& snoozes_() {
+        static std::map<std::string, std::pair<int64_t, int64_t>> m;
+        return m;
+    }
+    static std::mutex& inbox_mu() { static std::mutex m; return m; }
+    static void seed_snoozes_once() {
+        static bool seeded = false;
+        std::lock_guard<std::mutex> lk(inbox_mu());
+        if (seeded) return;
+        seeded = true;
+        const char* v = std::getenv("HANABI_MOCK_SNOOZES");
+        if (!v || !*v) return;
+        std::string_view rest(v);
+        while (!rest.empty()) {
+            const auto comma = rest.find(',');
+            std::string_view item = rest.substr(0, comma);
+            rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
+            const auto c1 = item.find(':');
+            if (c1 == std::string_view::npos) continue;
+            const std::string id(item.substr(0, c1));
+            std::string_view tail = item.substr(c1 + 1);
+            const auto c2 = tail.find(':');
+            const int64_t until = std::atoll(std::string(tail.substr(0, c2)).c_str());
+            const int64_t at = c2 == std::string_view::npos ? until - 3600
+                                                            : std::atoll(std::string(tail.substr(c2 + 1)).c_str());
+            snoozes_()[id] = {at, until};
+        }
+    }
     static std::atomic<int>& artifact_fetches() {
         static std::atomic<int> n{0};
         return n;
@@ -1692,6 +1798,7 @@ class MockClient : public Client {
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
         "HANABI_ELEMENTS_DEMO",
+        "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ACCESS",      "HANABI_MOCK_NO_HALT",
         "HANABI_MOCK_HALT_REFUSE", "HANABI_MOCK_HALT_NO_ECHO",
         "HANABI_MOCK_HALT_OBSERVE_LATCH", "HANABI_MOCK_NO_HALT_ADVERT",

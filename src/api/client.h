@@ -852,6 +852,17 @@ class Client {
             "This backend does not serve artifact bytes.");
     }
 
+    virtual bool supports_inbox_state() const { return false; }
+    virtual Result<InboxStateRead> read_inbox_state() {
+        return Result<InboxStateRead>::failure("This backend has no inbox state.");
+    }
+    virtual Result<InboxStateWrite> write_snooze(const std::string& session_id,
+                                                 std::optional<int64_t> snoozed_until_sec) {
+        (void)session_id;
+        (void)snoozed_until_sec;
+        return Result<InboxStateWrite>::failure("This backend has no inbox state.");
+    }
+
     // Whether this client can send (kickoff + reply). The composer uses this to
     // decide between an enabled Send and the honest disabled caption. The mock
     // supports send; the http adapter supports it only when a chat path is

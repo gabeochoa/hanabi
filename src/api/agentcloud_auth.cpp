@@ -1,4 +1,6 @@
 #include "agentcloud_auth.h"
+#include "agentcloud_hosts.h"
+#include "inbox_state_wire.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -64,7 +66,21 @@ AuthConfig auth_config_from_env() {
     cfg.verifier = env_or("HANABI_AC_VERIFIER", "");
     cfg.host = env_or("HANABI_AC_HOST", "");
     cfg.validity_secs = env_int_or("HANABI_AC_VALIDITY_SECS", cfg.validity_secs);
+    resolve_web_origin(cfg, env_or("HANABI_AC_WEB_ORIGIN", ""));
     return cfg;
+}
+
+void resolve_web_origin(AuthConfig& cfg, const std::string& override_origin) {
+    cfg.web_origin.clear();
+    cfg.web_verifier.clear();
+    if (!override_origin.empty()) {
+        cfg.web_origin = override_origin;
+    } else if (agentcloud_hosts::is_standard_orchestrator(cfg.host)) {
+        cfg.web_origin = agentcloud_hosts::kWebOrigin;
+    } else {
+        return;
+    }
+    cfg.web_verifier = inbox_state::kCatVerifier;
 }
 
 Token mint_token(const AuthConfig& cfg, std::string* error) {
@@ -118,6 +134,11 @@ Token TokenCache::get(std::string* error) {
     Token fresh = mint_token(cfg_, error);
     if (!fresh.empty()) token_ = fresh;
     return fresh;
+}
+
+void TokenCache::seed(Token token) {
+    std::lock_guard<std::mutex> lk(mu_);
+    token_ = std::move(token);
 }
 
 void TokenCache::invalidate() {

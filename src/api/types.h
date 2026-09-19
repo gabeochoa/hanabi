@@ -941,6 +941,17 @@ struct UserSettings {
 // `refused` is the server answering no about the thing itself (an error frame
 // to an attach), as opposed to a transport that never answered: the first is
 // a fact about the thread and the list should say so, the second is weather.
+struct InboxStateRead {
+    int http_status = 0;
+    std::string body;
+    bool signed_out = false;
+};
+
+struct InboxStateWrite {
+    int http_status = 0;
+    std::string body;
+};
+
 template <typename T>
 struct Result {
     bool ok = false;

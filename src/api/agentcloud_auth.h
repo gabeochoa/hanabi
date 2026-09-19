@@ -44,7 +44,21 @@ struct AuthConfig {
     [[nodiscard]] bool configured() const {
         return !mint_host.empty() && !verifier.empty() && !host.empty();
     }
+
+    std::string web_origin;
+    std::string web_verifier;
+    [[nodiscard]] bool web_configured() const {
+        return configured() && !web_origin.empty() && !web_verifier.empty();
+    }
+    [[nodiscard]] AuthConfig web_auth() const {
+        AuthConfig w = *this;
+        w.verifier = web_verifier;
+        w.host = web_origin;
+        return w;
+    }
 };
+
+void resolve_web_origin(AuthConfig& cfg, const std::string& override_origin);
 
 // Reads the HANABI_AC_* environment above. Never throws; missing values simply
 // leave the config unconfigured().
@@ -78,6 +92,8 @@ class TokenCache {
     // rejects a token the client still believed was valid — the clocks can
     // disagree, and the server's opinion is the one that counts.
     void invalidate();
+
+    void seed(Token token);
 
     [[nodiscard]] const AuthConfig& config() const { return cfg_; }
 

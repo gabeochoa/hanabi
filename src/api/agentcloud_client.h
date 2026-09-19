@@ -135,6 +135,14 @@ class AgentcloudClient : public Client {
     // make_client checks this before choosing us over the mock.
     [[nodiscard]] bool ready() const { return auth_.config().configured(); }
 
+    bool supports_inbox_state() const override {
+        return ready() && auth_.config().web_configured();
+    }
+    Result<InboxStateRead> read_inbox_state() override;
+    Result<InboxStateWrite> write_snooze(const std::string& session_id,
+                                         std::optional<int64_t> snoozed_until_sec) override;
+    void seed_web_token(agentcloud::Token token);
+
    private:
     // One request/reply over a short-lived socket on the control channel.
     // Returns the decoded `msg` object as raw JSON text, or empty with *error.
@@ -181,6 +189,7 @@ class AgentcloudClient : public Client {
                                 std::uint64_t since_seq = 0);
 
     agentcloud::TokenCache auth_;
+    agentcloud::TokenCache web_auth_;
 };
 
 namespace agentcloud {

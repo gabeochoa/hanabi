@@ -1,5 +1,6 @@
 #include "agentcloud_client.h"
 #include "disk_cache.h"
+#include "inbox_state_wire.h"
 #include "attachments.h"
 #include "element_rows.h"
 #include "tool_kinds.h"
@@ -377,11 +378,91 @@ ContextUsage context_usage_from_state(const json& state) {
 }  // namespace
 
 AgentcloudClient::AgentcloudClient(agentcloud::AuthConfig cfg)
-    : auth_(std::move(cfg)) {}
+    : auth_(cfg), web_auth_(cfg.web_auth()) {}
 
 AgentcloudClient::AgentcloudClient(agentcloud::AuthConfig cfg,
                                    agentcloud::Token token)
-    : auth_(std::move(cfg), std::move(token)) {}
+    : auth_(cfg, std::move(token)), web_auth_(cfg.web_auth()) {}
+
+void AgentcloudClient::seed_web_token(agentcloud::Token token) {
+    web_auth_.seed(std::move(token));
+}
+
+namespace {
+
+bool looks_signed_out(const httplib::Response& r) {
+    if (r.status >= 300 && r.status < 400) return true;
+    const std::string ct = r.get_header_value("Content-Type");
+    return ct.rfind("text/html", 0) == 0;
+}
+
+}  // namespace
+
+Result<InboxStateRead> AgentcloudClient::read_inbox_state() {
+    if (!supports_inbox_state())
+        return Result<InboxStateRead>::failure("inbox state is not addressable from this orchestrator");
+    const auto& cfg = web_auth_.config();
+    std::string auth_error;
+    const auto token = web_auth_.get(&auth_error);
+    if (token.empty()) return Result<InboxStateRead>::failure(auth_error);
+    httplib::Client client(("http://" + cfg.host).c_str());
+    if (!cfg.proxy_host.empty() && cfg.proxy_port > 0)
+        client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
+    client.set_follow_location(false);
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(20, 0);
+    const httplib::Headers headers{
+        {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
+        {"Accept", "application/json"}};
+    auto res = client.Get(inbox_state::kRoutePath, headers);
+    if (!res) return Result<InboxStateRead>::failure("inbox state unreachable: " + httplib::to_string(res.error()));
+    InboxStateRead out;
+    out.http_status = res->status;
+    out.body = res->body;
+    out.signed_out = looks_signed_out(*res);
+    if (res->status == 401 || res->status == 403) {
+        web_auth_.invalidate();
+        out.signed_out = true;
+    }
+    if (res->status != 200)
+        return Result<InboxStateRead>{false, std::move(out),
+                                      "inbox state HTTP " + std::to_string(res->status), false};
+    return Result<InboxStateRead>::success(std::move(out));
+}
+
+Result<InboxStateWrite> AgentcloudClient::write_snooze(const std::string& session_id,
+                                                       std::optional<int64_t> snoozed_until_sec) {
+    if (!supports_inbox_state())
+        return Result<InboxStateWrite>::failure("inbox state is not addressable from this orchestrator");
+    inbox_state::Patch patch;
+    patch.snoozed_until = std::optional<std::optional<int64_t>>{snoozed_until_sec};
+    const auto body = inbox_state::body_for(session_id, patch);
+    if (!body) return Result<InboxStateWrite>::failure("the session id is not one the inbox accepts");
+    const auto& cfg = web_auth_.config();
+    std::string auth_error;
+    const auto token = web_auth_.get(&auth_error);
+    if (token.empty()) return Result<InboxStateWrite>::failure(auth_error);
+    httplib::Client client(("http://" + cfg.host).c_str());
+    if (!cfg.proxy_host.empty() && cfg.proxy_port > 0)
+        client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
+    client.set_follow_location(false);
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(20, 0);
+    const httplib::Headers headers{
+        {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
+        {inbox_state::kCsrfHeader, inbox_state::kCsrfHeaderValue},
+        {"Accept", "application/json"}};
+    auto res = client.Post(inbox_state::kRoutePath, headers, *body, "application/json");
+    if (!res) return Result<InboxStateWrite>::failure("inbox state unreachable: " + httplib::to_string(res.error()));
+    InboxStateWrite out;
+    out.http_status = res->status;
+    out.body = res->body;
+    if (res->status == 401 || res->status == 403) web_auth_.invalidate();
+    if (res->status != 200)
+        return Result<InboxStateWrite>{false, std::move(out),
+                                       "snooze write HTTP " + std::to_string(res->status), false};
+    return Result<InboxStateWrite>::success(std::move(out));
+}
 
 AgentcloudClient::~AgentcloudClient() = default;
 
