@@ -19,6 +19,19 @@ expect_text_drawn "| C | ok | 0s |" within=60
 # Export to Clipboard from the thread's row: the whole conversation as
 # loaded, every row through body_of, no trailing trim -- exact bytes.
 reset_clipboard_probe
+mouse_move 140 600
+scroll_wheel 0 -6
+wait_frames 6
+scroll_wheel 0 -6
+wait_frames 6
+scroll_wheel 0 -6
+wait_frames 6
+scroll_wheel 0 -6
+wait_frames 6
+scroll_wheel 0 -6
+wait_frames 6
+scroll_wheel 0 -6
+wait_frames 10
 right_click_ui chat_row_id_relements
 wait_frames 8
 expect_text "Export to Clipboard"
