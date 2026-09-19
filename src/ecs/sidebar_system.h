@@ -879,9 +879,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             target->muted ? "unmute" : "mute");
         if (app.client && app.client->supports_inbox_state()) {
             const auto snoozed = app.snooze_of(target->id);
-            items.push_back(hanabi::snooze_menu::to_menu_item<hanabi::surface::MenuItem, hanabi::surface::MenuLeaf>(hanabi::snooze_menu::item(
+            const std::int64_t inboxNow = capture_clock::inbox_now();
+            const auto rowDue = hanabi::snooze_menu::due_at(
                 snoozed ? std::optional<std::int64_t>(snoozed->snoozed_until) : std::nullopt,
-                capture_clock::inbox_now(), "row_menu_snooze",
+                snoozed ? snoozed->snoozed_at : std::nullopt, inboxNow,
+                {target->last_event_unix_ms, target->last_run_complete_unix_ms});
+            items.push_back(hanabi::snooze_menu::to_menu_item<hanabi::surface::MenuItem, hanabi::surface::MenuLeaf>(hanabi::snooze_menu::item(
+                rowDue, inboxNow, "row_menu_snooze",
                 !app.snooze_available() || app.snooze_busy(target->id),
                 hanabi::native_snooze_prompt::available())));
             actions.push_back(Action::Snooze);

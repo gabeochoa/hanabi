@@ -8,6 +8,7 @@
 
 #include <vector>
 
+#include "../ecs/snooze_wake.h"
 #include "snooze_presets.h"
 
 namespace hanabi::snooze_menu {
@@ -53,6 +54,18 @@ inline std::optional<Pick> parse(std::string_view action_id) {
 inline std::optional<std::int64_t> active_until(std::optional<std::int64_t> snoozed_until, std::int64_t now) {
     if (!snoozed_until || *snoozed_until <= now) return std::nullopt;
     return snoozed_until;
+}
+
+struct RowClocks {
+    std::optional<std::int64_t> event_ms;
+    std::optional<std::int64_t> run_complete_ms;
+};
+
+inline std::optional<std::int64_t> due_at(std::optional<std::int64_t> snoozed_until,
+                                          std::optional<std::int64_t> snoozed_at, std::int64_t now,
+                                          const RowClocks& clocks) {
+    if (!snoozed_until) return std::nullopt;
+    return snooze_wake::due_at(*snoozed_until, snoozed_at, now, clocks.run_complete_ms, clocks.event_ms);
 }
 
 inline Row item(std::optional<std::int64_t> snoozed_until, std::int64_t now, const char* debug_name,
