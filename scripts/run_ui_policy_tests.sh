@@ -293,12 +293,12 @@ rc="$(run_runner "$T/stale" "$T/rec8s" "$T/man8s" HANABI_STUB_EXIT=3)"
 check "8. every script record's supervisor token is this run's (RUN_ID prefix), none foreign" '[ "$(grep -c "\"token\": \"" "$T/man8s")" -ge 1 ] && ! grep -q "\"token\": \"old-run" "$T/man8s" && [ "$(grep -o "\"token\": \"[^:]*" "$T/man8s" | sort -u | wc -l | tr -d " ")" = 1 ]'
 check "8. the failing child (exit 3) classifies as FAIL from the record, reason exit 3" 'grep -q "\"result\":\"fail\",\"reason\":\"exit 3\"" "$T/man8s"'
 check "8. invariant: one launch line: python -I supervise.py … -- env -u <the three policy vars> …; nothing else backgrounds the binary" '[ "$(grep -c "\"\$PYTHON3\" -I \"\$SUPERVISE\" --wall" "$RUNNER")" = 1 ] && grep -A1 "\"\$SUPERVISE\" --wall" "$RUNNER" | grep -q "env -u HANABI_E2E_WINDOWED -u HANABI_E2E_HEADLESS_ONLY -u HANABI_UI_POLICY" && ! grep -qE "exec env .*\"\$EXE\"" "$RUNNER"'
-check "8. invariant: the runner has no kill-by-name, no pgrep, no pid reaper" '! grep -qE "pkill|pgrep|reap_pid|ACTIVE_PIDS|reaper" "$RUNNER"'
+check "8. invariant: the runner has no kill-by-name, no pgrep, no pid reaper (code lines; comments may name what was retired)" '! grep -vE "^[[:space:]]*#" "$RUNNER" | grep -qE "pkill|pgrep|reap_pid|ACTIVE_PIDS|reaper"'
 check "8. invariant: the runner sends no signal to a pid number (kill -0 probes only)" '! grep -E "^[[:space:]]*kill( -[A-Za-z0-9]+)? " "$RUNNER" | grep -qv "kill -0"'
 check "8. invariant: this suite sends no signal to a pid number either" '! grep -E "^[[:space:]]*kill( -[A-Za-z0-9]+)? " "$0" | grep -qv "kill -0"'
 check "8. invariant: the runner reads every classifier field through --field, never by splitting its output" '[ "$(grep -c "classify_record.py\" --field" "$RUNNER")" = 5 ] && ! grep -q "verdict%% " "$RUNNER"'
 check "8. invariant: the runner derives result from the record (classify_record.py), not from an rc ladder" 'grep -q "classify_record.py" "$RUNNER" && ! grep -qE "rc.* -eq 124.*result=timeout|result=timeout$" "$RUNNER"'
-check "8. invariant: the runner clears the record path before launch, mints a token and passes it to both supervisor and classifier" 'grep -q "rm -f \"\$record\" \"\$record.tmp\"" "$RUNNER" && grep -q "\-\-token \"\$token\"" "$RUNNER" && grep -q "classify_record.py\" \"\$record\" \"\$token\"" "$RUNNER"'
+check "8. invariant: the runner clears the record path before launch, mints a token and passes it to both supervisor and classifier" 'grep -q "rm -f \"\$record\" \"\$record.tmp\"" "$RUNNER" && grep -q "\-\-token \"\$token\"" "$RUNNER" && grep -q "classify_record.py\" --field result \"\$record\" \"\$token\"" "$RUNNER"'
 check "8. invariant: the supervisor writes its record atomically (tmp + os.replace) with the token first" 'grep -q "os.replace(tmp, path)" "$SUP" && grep -q "\"token\": token" "$SUP"'
 check "8. invariant: the supervisor has exactly one os.waitpid site" '[ "$(grep -c "os.waitpid(" "$SUP")" = 1 ]'
 check "8. invariant: the supervisor never signals a pid number (killpg only)" '! grep -q "os\.kill(" "$SUP" && grep -q "os.killpg(" "$SUP"'
@@ -310,7 +310,7 @@ check "8. invariant: on Darwin the runner pins /usr/bin/python3" 'grep -q "PYTHO
 mk_fixtures "$T/done"
 rm "$T/done/windowed_one.e2e"
 rc="$(run_runner "$T/done" "$T/rec8d" "$T/man8d")"
-check "8. a completed launch: run exits 0, its record says none observed, the cleanup record counts 0 uncertain" '[ "$rc" = 0 ] && grep -q "\"cleanup\": \"none observed\"" "$T/man8d" && grep -q "\"record\":\"cleanup\",\"supervisors_at_exit\":0,\"uncertain_cleanups\":0" "$T/man8d"'
+check "8. a completed launch: run exits 0, its record says none observed, the cleanup record counts 0 uncertain" '[ "$rc" = 0 ] && grep -q "\"cleanup\": \"none observed\"" "$T/man8d" && grep -q "\"record\":\"cleanup\",\"supervisors_at_exit\":0,\"supervisors_joined\":0,\"signals_sent\":0,\"uncertain_cleanups\":0" "$T/man8d"'
 check "8. every manifest line of that run is valid JSON, its pass reason is whole (\"exit 0\"), and the cleanup record joined nothing and sent no signal" '"$PY3" -c "import json,sys; [json.loads(l) for l in open(sys.argv[1]) if l.strip()]" "$T/man8d" && grep -q "\"result\":\"pass\",\"reason\":\"exit 0\"" "$T/man8d" && grep -q "\"supervisors_at_exit\":0,\"supervisors_joined\":0,\"signals_sent\":0" "$T/man8d"'
 # (iii) status preserved through cleanup: a failing last script exits 1 and
 # cleanup reaped nothing.
