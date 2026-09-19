@@ -16,9 +16,6 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kCaptionH = 24.0f;
     static constexpr int kBackdropId = 8300;
 
-    // The menu's restore rule (native_menu::focus_to_restore): back to the
-    // element focused at open, if it still exists and nothing else claimed
-    // focus meanwhile.
     static void close(AppComponent& app, UIContext<InputAction>& ctx) {
         app.viewerImagePath.clear();
         app.viewerImageName.clear();
@@ -39,8 +36,6 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
         if (to >= 0) ctx.set_focus(static_cast<afterhours::EntityID>(to));
     }
 
-    // The viewer follows its row: a row hidden or gone from every pane
-    // closes it, as a clip stops when its row is gone.
     static bool still_shown(const AppComponent& app, const std::string& path) {
         for (std::size_t i = 0; i < app.active_pane_count(); ++i) {
             const Pane& pane = app.panes[i];
@@ -129,4 +124,4 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
     }
 };
 
-}  // namespace ecs
+}

@@ -50,11 +50,6 @@ struct Config {
     //                        reply (response carries the assistant message(s)).
     std::string base_url;
     std::string token;
-    // Web origin for the Copy Weblink / Open in Web actions (client-side
-    // only; never an API endpoint). Empty by default and no host is compiled
-    // in: without one those rows are disabled, and the deep link (the app's
-    // own scheme) stands alone. Set via config web_base_url / env
-    // HANABI_WEB_BASE_URL to point at a real web UI origin.
     std::string web_base_url;
     // Where a work-tracker id in a message points. Empty by default and no
     // host is compiled in anywhere: with this unset a "D948120" in a reply
@@ -433,9 +428,6 @@ enum class StreamEventKind {
     AsksChanged,
     ModelFallback,  // a refusal handoff; payload = the model now answering
     ModelPinned,    // the session's model pin changed; payload = the pin or ""
-    // The session's OWN halt flag moved on a durable frame past the attach
-    // boundary: payload "halted" or "resumed". Never a containment mark --
-    // that has no frame; only a fresh attach carries it.
     HaltChanged,
     // A compaction round is in flight (payload = JSON
     // {"started_at_unix_ms":N,"output_tokens":N}; a missing field is one the
@@ -826,14 +818,6 @@ class Client {
         return Result<std::string>::failure("this backend cannot stop a run");
     }
 
-    // Halt / resume the SESSION (not the run): a halt interrupts the open run
-    // AND parks every future one until a resume; `subtree` also contains the
-    // session's descendants through a root-level mark. Owner-only on the
-    // server, advertised as `halt_v1` on the owner's attach. Distinct from
-    // interrupt_session, which stops the open run and lets the next start.
-    // The outcome says what was OBSERVED and what was PROVEN -- a silent
-    // success is proven only by the durable echo, and a subtree mark only by
-    // a fresh attach (see halt_state.h).
     virtual bool supports_halt() const { return false; }
     virtual hanabi::halt::Outcome set_halt_state(const std::string& session_id,
                                                  hanabi::halt::Intent intent) {

@@ -43,9 +43,6 @@ inline bool same_row(const api::Message& a, const api::Message& b) {
            a.run_outcome == b.run_outcome && a.run_note == b.run_note;
 }
 
-// What a fresh parse cannot know about an artifact row: the bytes the fetch
-// system already adopted for it. Carried across a replacement so a refetch
-// never resets a drawn row, unless the version changed (new bytes).
 inline void carry_artifact_state(const api::Message& from, api::Message& to) {
     if (to.kind != api::EventKind::Artifact || from.artifact.version != to.artifact.version) return;
     to.artifact.local_path = from.artifact.local_path;
@@ -110,11 +107,6 @@ inline ReconcileOutcome reconcile_transcript(
     std::size_t updatedLo = existing.size();
     std::size_t updatedHi = 0;
     const std::size_t tailStart = existing.size();
-    // An element row is folded, not replaced or appended: the server's copy
-    // may be a window's view (a later anchor, an older revision) and the fold
-    // keeps the lowest anchor and the highest revision, standing the row at
-    // its anchor. A row that moved or landed anywhere but the tail shifted
-    // indices the ledger holds, and only a reset re-reads them all.
     bool reshaped = false;
     const auto reindex = [&] {
         at.clear();

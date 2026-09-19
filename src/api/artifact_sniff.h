@@ -3,9 +3,6 @@
 #include <string>
 #include <string_view>
 
-// The media type of a byte run, from its signature alone -- for an artifact
-// whose response carried no usable Content-Type. Only the types the rows can
-// draw; anything else is empty, never guessed.
 namespace hanabi::artifact_sniff {
 
 inline std::string media_type(std::string_view b) {
@@ -29,4 +26,4 @@ inline bool usable(std::string_view media_type) {
            media_type != "text/plain" && media_type != "binary/octet-stream";
 }
 
-}  // namespace hanabi::artifact_sniff
+}

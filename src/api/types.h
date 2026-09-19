@@ -77,12 +77,8 @@ enum class EventKind {
     // summary (the row's text) stands in for them. Drawn as a divider with the
     // summary behind a disclosure, never as a message, because nobody said it.
     Compaction,
-    // Persisted as an integer in the transcript cache: append only, values
-    // fixed here so two branches cannot land on one number.
     Artifact = 13,
     Element = 14,
-    // A run's terminal with no message to hang it on: drawn as the outcome
-    // divider alone. Only emitted when it carries a note.
     RunOutcome = 15,
 };
 
@@ -102,8 +98,6 @@ struct ElementFacts {
     bool operator==(const ElementFacts&) const = default;
 };
 
-// The row's byte state; Unavailable carries the reason. A transient failure
-// is retried on re-observation, a permanent one is not.
 enum class ArtifactFetch { Idle, Pending, Ready, Unavailable };
 
 struct ArtifactRef {
@@ -112,9 +106,9 @@ struct ArtifactRef {
     std::string file;
     std::string media_type;
     std::uint64_t size_bytes = 0;
-    int file_count = 0;  // files on the version; `file` is the first
-    std::int64_t shown_seq = 0;  // the artifact_shown frame's seq
-    bool hidden = false;         // artifact_hidden after the show; row stays
+    int file_count = 0;
+    std::int64_t shown_seq = 0;
+    bool hidden = false;
     std::string local_path;
     ArtifactFetch fetch = ArtifactFetch::Idle;
     std::string unavailable_reason;
@@ -134,9 +128,9 @@ struct ArtifactRef {
 
 struct ArtifactContent {
     std::string bytes;
-    std::string media_type;  // response Content-Type, first token
-    std::string file_name;   // response Content-Disposition filename
-    int http_status = 0;     // on failure: the status, 0 for transport
+    std::string media_type;
+    std::string file_name;
+    int http_status = 0;
 };
 
 // High-signal attention state of a thread. This is the single notion the UI
@@ -361,7 +355,7 @@ struct Message {
     // the divider prints the word the server said, so an outcome this build
     // predates still reads instead of rendering as "unknown".
     std::string run_outcome;
-    std::string run_note;  // "N of M declared calls did not run", or empty
+    std::string run_note;
 
     // What this row IS (see EventKind). LAST, and defaulted, because the mock
     // builds Messages by aggregate initialization — a member inserted above
@@ -373,9 +367,6 @@ struct Message {
     ElementFacts element;
 };
 
-// May a run's terminal (the outcome divider) hang beneath this message? Only a
-// message the transcript draws AND Copy/Export emit: not reasoning, not a
-// degraded unknown-event row, not a blank body.
 inline bool carries_run_terminal(const Message& m) {
     if (m.kind == EventKind::Thinking || m.kind == EventKind::Unsupported ||
         m.kind == EventKind::RunOutcome)
@@ -389,7 +380,7 @@ inline bool carries_run_terminal(const Message& m) {
                 if (c != '\n' && c != '\r') return true;
             return !m.attachments.empty();
         }
-        default: return true;  // event rows (tool call, spawn, node, …) draw a row
+        default: return true;
     }
 }
 
@@ -768,9 +759,6 @@ inline SessionAccess session_access_from_wire(std::string_view token) {
     if (token == "owner") return SessionAccess::Owner;
     return SessionAccess::Unknown;
 }
-// The halt pair is advertised only to the OWNER (the server pushes `halt_v1`
-// under `access.is_owner()`), so this is the observation-side twin of the
-// advert: an attach that is not the owner's offers no Halt or Resume.
 inline bool access_is_owner(SessionAccess a) { return a == SessionAccess::Owner; }
 inline bool access_is_read_only(SessionAccess a) {
     return a == SessionAccess::None || a == SessionAccess::Read;
@@ -853,12 +841,7 @@ struct Session {
     std::optional<SessionPlan> plan;
     // This subscription's access, from the attach (hello.access).
     SessionAccess access = SessionAccess::Unknown;
-    // Whether THIS attach's Hello advertised `halt_v1`. The server pushes the
-    // token only for the owner, so it is capability AND permission for the
-    // halt pair; a menu offers Halt or Resume only when it is set.
     bool can_halt = false;
-    // Whether THIS attach's Hello advertised `elements_v1`. Recorded only:
-    // element rows draw as their text projection with or without it.
     bool elements_advertised = false;
     // The compaction owed, from the attach (see PendingCompaction).
     std::optional<PendingCompaction> pending_compaction;
@@ -922,9 +905,6 @@ struct Session {
     }
 };
 
-// The halt-menu gate over one attached session: the attach advertised the
-// verb AND the attach is the owner's. The advert alone is what the server
-// keys on; the access read guards a server that advertised more widely.
 inline bool session_may_halt(const Session& s) {
     return s.can_halt && access_is_owner(s.access);
 }

@@ -174,8 +174,6 @@ static void test_artifact_bytes_are_cache_bytes() {
     CHECK(!api::disk_cache::store_artifact(dir + "/escaped.bin", "x"));
     CHECK(!std::filesystem::exists(dir + "/escaped.bin"));
     CHECK(api::disk_cache::total_bytes() == 5000);
-    // Two files of one version never share a path; a version with no file
-    // name still has one; the cap refuses, and refusing writes nothing.
     const std::string a = api::disk_cache::artifact_path("art-2", "v1", "a.png", ".png");
     const std::string b = api::disk_cache::artifact_path("art-2", "v1", "b.png", ".png");
     const std::string nameless = api::disk_cache::artifact_path("art-2", "v1", "", ".png");
@@ -1965,14 +1963,9 @@ static void test_copy_turn_spans_from_the_opening_user_message_to_the_next() {
     CHECK(tc::copy_turn_payload(ms, "t1") == turn1);
     CHECK(tc::copy_turn_payload(ms, "th1") == turn1);
 }
-// Export to Clipboard's payload: "# <title>\n\n" then body_of for every loaded
-// message in order, with NO trailing trim (the reference's whole-transcript
-// render; only renderTurn trims). Thinking is omitted; a run outcome rides on
-// its message; an empty conversation is the header alone.
 static void test_export_transcript_is_the_title_then_every_row_untrimmed() {
     std::printf("test_export_transcript_is_the_title_then_every_row_untrimmed\n");
     namespace tc = hanabi::transcript_copy;
-    // Empty: header, two newlines, nothing else -- not nil, not a beep.
     CHECK(tc::render_transcript({}, "quiet thread") == "# quiet thread\n\n");
     CHECK(tc::render_transcript({}, "") == "# \n\n");
 
@@ -2020,46 +2013,26 @@ static void test_export_transcript_is_the_title_then_every_row_untrimmed() {
     if (got != want) std::printf("export:\n%s\n--- want:\n%s\n", got.c_str(), want.c_str());
     CHECK(got == want);
     CHECK(got.find("private reasoning") == std::string::npos);
-    // Untrimmed: the whole ends with the last row's own two newlines, and the
-    // turn's "\n\n\n" before the outcome rule is kept as body_of wrote it
-    // (render_turn would have trimmed both).
     CHECK(got.size() >= 2 && got.compare(got.size() - 2, 2, "\n\n") == 0);
     CHECK(got.find("first answer\n\n\n---") != std::string::npos);
-    // Every row is body_of's, in order: the export is the concatenation.
     std::string concat = "# SKU backfill\n\n";
     for (const auto& m : ms) concat += tc::body_of(m);
     CHECK(got == concat);
 }
-// The export header's title: the STORED catalog title trimmed of whitespace
-// only (a "[P]" the user wrote stays -- an export copies stored text, as Copy
-// Title does; only renders hide it) unless empty or the create placeholder;
-// else the open session's; else eight characters of the id -- the
-// reference's displayTitle, not the tab label.
 static void test_export_title_is_the_catalog_title_else_eight_id_characters() {
     std::printf("test_export_title_is_the_catalog_title_else_eight_id_characters\n");
     namespace tc = hanabi::transcript_copy;
     CHECK(tc::export_title("SKU backfill", "", "t6") == "SKU backfill");
     CHECK(tc::export_title("  [P] SKU backfill \n", "", "t6") == "[P] SKU backfill");
-    // The catalog wins over the open session's title when both are usable.
     CHECK(tc::export_title("catalog says", "open says", "t6") == "catalog says");
-    // Empty or placeholder catalog title: the open session's stands in.
     CHECK(tc::export_title("", "open says", "t6") == "open says");
     CHECK(tc::export_title("New task", "open says", "t6") == "open says");
     CHECK(tc::export_title("  ", "[P] open says", "t6") == "[P] open says");
-    // Neither usable: eight characters of the id, or the whole short id.
     CHECK(tc::export_title("", "", "0123456789abcdef") == "01234567");
     CHECK(tc::export_title("New task", "New task", "abc-123") == "abc-123");
     CHECK(tc::export_title("", "", "t6") == "t6");
-    // The header then reads it.
     CHECK(tc::render_transcript({}, tc::export_title("", "", "0123456789ab")) == "# 01234567\n\n");
 }
-// Model / pick-time-guard test, not a live race: the payload exists for the
-// captured target while a PANE holds it; when that pane lets go -- the cache
-// still holding a copy, another pane still attached to a different thread --
-// the payload for the old id is ABSENT, never the cache's copy, never the
-// other pane's text. The clipboard non-write follows from the `if` around
-// this helper at the two pick sites (read, not executed here: unit binaries
-// carry no clipboard probe).
 static void test_export_payload_is_absent_for_a_detached_target_even_with_cache_and_another_pane_live() {
     std::printf("test_export_payload_is_absent_for_a_detached_target_even_with_cache_and_another_pane_live\n");
     namespace tc = hanabi::transcript_copy;
@@ -2077,40 +2050,24 @@ static void test_export_payload_is_absent_for_a_detached_target_even_with_cache_
     app.panes[0].openSession = left;
     app.panes[1].selectedId = "t9";
     app.panes[1].openSession = right;
-    app.transcriptCache.put(right);  // the cache holds t9 too, as it would after its load
+    app.transcriptCache.put(right);
 
-    // Attached: the payload is t9's, from the pane, with the catalog title.
     const auto before = tc::export_clipboard_payload(app.session_with_messages("t9"), "kicker-tick", "t9");
     CHECK(before.has_value());
     CHECK(*before == "# kicker-tick\n\n### **Agentcloud**\n\nright body\n\n");
 
-    // Detach t9 through the real model step a tab close takes for the pane
-    // (reconcile_panes_with_tabs -> reset_pane_to): the right pane lets go;
-    // the cache KEEPS its copy; the left pane stays attached to t2.
     ecs::model::reset_pane_to(app.panes[1], "");
     CHECK(app.transcriptCache.peek("t9") != nullptr);
     CHECK(app.panes[0].openSession && app.panes[0].openSession->summary.id == "t2");
     CHECK(app.session_with_messages("t9") == nullptr);
 
-    // The same captured id now resolves to nothing: no payload -- not the
-    // cache's t9 copy, not the attached left pane's text.
     const auto after = tc::export_clipboard_payload(app.session_with_messages("t9"), "kicker-tick", "t9");
     CHECK(!after.has_value());
-    // And a pane holding a DIFFERENT thread is never a stand-in for the id.
     CHECK(!tc::export_clipboard_payload(app.session_with_messages("t2"), "kicker-tick", "t9").has_value());
-    // The left thread itself still exports, from its own pane.
     const auto other = tc::export_clipboard_payload(app.session_with_messages("t2"), "left thread", "t2");
     CHECK(other.has_value() && other->find("left body") != std::string::npos &&
           other->find("right body") == std::string::npos);
 }
-// The test binary's launch policy, as both checks in main() decide it: the
-// SET of modes argv requested against the policy parsed from
-// HANABI_E2E_HEADLESS_ONLY. Unset admits everything (behaviour unchanged);
-// "1" admits exactly `--e2e <script>` alone with HANABI_E2E_WINDOWED
-// unarmed and refuses every other mode (--version and the URL parsers
-// included) and every combination, naming what was requested; any other value is malformed and refuses naming the value.
-// This is what the binary calls -- the exe-side guard's coverage is here,
-// since the runner's stub tests cannot reach code inside the real binary.
 static void test_launch_policy_admits_only_the_headless_e2e_entry() {
     std::printf("test_launch_policy_admits_only_the_headless_e2e_entry\n");
 
@@ -2118,8 +2075,6 @@ static void test_launch_policy_admits_only_the_headless_e2e_entry() {
     using R = lp::EntryRequest;
     const auto e2e = [] { R r; r.e2e_script = true; return r; };
     const auto with = [](R r, auto f) { f(r); return r; };
-    // parse_policy: exactly "1" is the policy; unset/empty is no policy; any
-    // other spelling is MALFORMED (fail closed).
     CHECK(lp::parse_policy(nullptr) == lp::Policy::Unset);
     CHECK(lp::parse_policy("") == lp::Policy::Unset);
     CHECK(lp::parse_policy("1") == lp::Policy::HeadlessOnly);
@@ -2128,7 +2083,6 @@ static void test_launch_policy_admits_only_the_headless_e2e_entry() {
     CHECK(lp::parse_policy("HEADLESS_ONLY") == lp::Policy::Malformed);
     CHECK(lp::windowed_armed("1") && lp::windowed_armed("yes") && !lp::windowed_armed("0") &&
           !lp::windowed_armed("") && !lp::windowed_armed(nullptr));
-    // Unset x every mode -> admitted (behaviour unchanged).
     {
         R modes[] = {e2e(), with(R{}, [](R& r) { r.screenshot = true; }),
                      with(R{}, [](R& r) { r.atlas_stress = true; }),
@@ -2142,9 +2096,7 @@ static void test_launch_policy_admits_only_the_headless_e2e_entry() {
                      with(e2e(), [](R& r) { r.screenshot = true; })};
         for (const R& r : modes) CHECK(lp::admits(r, lp::Policy::Unset).admitted);
     }
-    // HeadlessOnly x {e2e only} -> admitted.
     CHECK(lp::admits(e2e(), lp::Policy::HeadlessOnly).admitted);
-    // HeadlessOnly x each refused shape -> refused, reason naming the mode.
     const auto refused_naming = [&](R r, const char* needle) {
         const auto v = lp::admits(r, lp::Policy::HeadlessOnly);
         return !v.admitted && v.reason.find(needle) != std::string::npos;
@@ -2158,10 +2110,7 @@ static void test_launch_policy_admits_only_the_headless_e2e_entry() {
     CHECK(refused_naming(with(R{}, [](R& r) { r.notify_probe = true; }), "--notify-probe"));
     CHECK(refused_naming(with(R{}, [](R& r) { r.chime_probe = true; }), "--chime-probe"));
     CHECK(refused_naming(with(R{}, [](R& r) { r.native_diagnostics = true; }), "--native-diagnostics"));
-    // `--e2e ""` is the default launch (main.cpp: an empty script string
-    // selects no e2e), so it arrives as default_app and refuses.
     CHECK(refused_naming(with(R{}, [](R& r) { r.default_app = true; }), "no script"));
-    // A conflict names BOTH modes.
     {
         const auto v = lp::admits(with(e2e(), [](R& r) { r.screenshot = true; }), lp::Policy::HeadlessOnly);
         CHECK(!v.admitted && v.reason.find("--screenshot") != std::string::npos &&
@@ -2170,15 +2119,11 @@ static void test_launch_policy_admits_only_the_headless_e2e_entry() {
                                   lp::Policy::HeadlessOnly);
         CHECK(!w.admitted && w.reason.find("HANABI_E2E_WINDOWED (armed), --screenshot") != std::string::npos);
     }
-    // --version and the URL parsers open no window but are not the test
-    // path: refused alone, refused beside a script.
     CHECK(refused_naming(with(R{}, [](R& r) { r.version = true; }), "--version"));
     CHECK(refused_naming(with(R{}, [](R& r) { r.parse_url = true; }), "--parse-thread-url/--parse-settings-url"));
     CHECK(refused_naming(with(e2e(), [](R& r) { r.version = true; }), "--version"));
     CHECK(refused_naming(with(e2e(), [](R& r) { r.parse_url = true; }), "--parse-thread-url/--parse-settings-url"));
-    // The pre-window backstop's shape: e2e requested but the window reached.
     CHECK(refused_naming(with(e2e(), [](R& r) { r.default_app = true; }), "default app launch"));
-    // Malformed x {e2e only, default} -> refused naming the value.
     for (const char* bad : {"0", "yes", "HEADLESS_ONLY"}) {
         const auto a = lp::admits(e2e(), lp::Policy::Malformed, bad);
         const auto b = lp::admits(with(R{}, [](R& r) { r.default_app = true; }), lp::Policy::Malformed, bad);
@@ -2186,8 +2131,6 @@ static void test_launch_policy_admits_only_the_headless_e2e_entry() {
         CHECK(!b.admitted && b.reason.find(std::string("'") + bad + "'") != std::string::npos);
     }
 }
-// The byte signature names only what the rows can draw; the response's own
-// type is trusted only when it is a real type.
 static void test_artifact_sniff_names_only_drawable_types() {
     std::printf("test_artifact_sniff_names_only_drawable_types\n");
     namespace sn = hanabi::artifact_sniff;
@@ -2204,8 +2147,6 @@ static void test_artifact_sniff_names_only_drawable_types() {
           !sn::usable("text/plain") && !sn::usable(""));
 }
 
-// Copy Turn and Export keep the artifact line for a shown row and for a
-// hidden one -- the row stays in history either way.
 static void test_copy_and_export_keep_the_artifact_line_hidden_or_not() {
     std::printf("test_copy_and_export_keep_the_artifact_line_hidden_or_not\n");
     namespace tc = hanabi::transcript_copy;
@@ -2255,12 +2196,6 @@ static void test_copy_turn_starts_at_what_is_loaded_and_maps_every_row_kind() {
     CHECK(tc::turn_around(ms, "d1").first == 0);
 }
 
-// An Element row (a model-emitted element drawn as its text projection) in
-// Copy Turn, Copy Message and Export: ONE body_of arm serves all three, and
-// its fence is longer than any backtick run in the projection so a
-// projection holding ``` still closes. The mock's HANABI_ELEMENTS_DEMO
-// fixture is built through the same fold the wire parser runs, so what the
-// headless scripts photograph is what a real page folds. ADDED, NOT RUN.
 static void test_element_rows_export_through_one_fenced_body_arm() {
     std::printf("test_element_rows_export_through_one_fenced_body_arm\n");
     namespace tc = hanabi::transcript_copy;
@@ -2284,7 +2219,6 @@ static void test_element_rows_export_through_one_fenced_body_arm() {
     el::fold_element(ms, note, 4, 0);
     ms.push_back(tc_msg("5", api::Role::Assistant, "Done."));
 
-    // Copy Message on an element row copies the projection, literally.
     CHECK(tc::offers_copy_message(ms[1]));
     CHECK(tc::copy_message_payload(ms, "element:shard-health") == table.projection);
     CHECK(tc::copy_message_payload(ms, "element:fence-note") == note.projection);
@@ -2306,14 +2240,10 @@ static void test_element_rows_export_through_one_fenced_body_arm() {
     const std::string turn = tc::copy_turn_payload(ms, "element:fence-note");
     if (turn != want) std::printf("turn:\n%s\n--- want:\n%s\n", turn.c_str(), want.c_str());
     CHECK(turn == want);
-    // The export is the same arm: title heading, then every row untrimmed.
     CHECK(tc::render_transcript(ms, "shard health table") ==
           "# shard health table\n\n" + want + "\n");
-    // A turn never starts at an element row; it belongs to the turn above.
     CHECK(tc::turn_around(ms, "element:shard-health").first == 0);
 
-    // The mock fixture is the same fold: one row per instance, rev 2 text,
-    // standing where rev 1 was emitted (seq 3, between "2" and "4").
     setenv("HANABI_ELEMENTS_DEMO", "1", 1);
     api::MockClient mock;
     const auto fixture = mock.get_session("relements");
@@ -2340,16 +2270,6 @@ static void test_element_rows_export_through_one_fenced_body_arm() {
     }
 }
 
-// Element facts survive the transcript cache: a thread restored from disk
-// draws its element rows with heading and provenance and folds a later
-// refetch against the revision it saved, not against zero.
-// A restart keeps what the transcript SAID: the run terminal (outcome and
-// note) and an artifact's stable identity -- id, version, file, type, size,
-// file count, hidden mark, shown seq. It never keeps what one launch DID
-// with the bytes: local_path, fetch state, the adopted image_path. So a
-// hidden artifact reloads hidden on the first frame, a terminal keeps its
-// divider, and no picture draws from a previous launch's path before the
-// fetch system has looked.
 static void test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identity() {
     std::printf("test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identity\n");
     std::string dir = "/tmp/hanabi_test_terminal_" + std::to_string(::getpid());
@@ -2396,7 +2316,7 @@ static void test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identi
     shown.artifact.hidden = false;
     shown.artifact.shown_seq = 9;
     shown.image_path = "/old/launch/art-1-v2-chart.png";
-    api::Message picture;  // an ORDINARY image message keeps its image_path
+    api::Message picture;
     picture.id = "40";
     picture.role = api::Role::User;
     picture.text = "look";
@@ -2413,7 +2333,6 @@ static void test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identi
     CHECK(m[1].kind == api::EventKind::RunOutcome && m[1].id == "run_finished:20");
     CHECK(m[1].run_outcome == "completed" && m[1].run_note == "1 of 1 declared call did not run");
     CHECK(m[1].text.empty());
-    // Hidden artifact: identity intact, hidden intact, adoption gone.
     CHECK(m[2].kind == api::EventKind::Artifact && m[2].artifact.id == "art-1");
     CHECK(m[2].artifact.version == "v1" && m[2].artifact.file == "price-tiers.png");
     CHECK(m[2].artifact.media_type == "image/png" && m[2].artifact.size_bytes == 4901);
@@ -2421,16 +2340,11 @@ static void test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identi
     CHECK(m[2].artifact.local_path.empty() && m[2].artifact.unavailable_reason.empty());
     CHECK(m[2].artifact.fetch == api::ArtifactFetch::Idle);
     CHECK(m[2].image_path.empty());
-    // Shown artifact: ref intact, image_path cleared so resolve() re-adopts
-    // from the cache file keyed (id, version, file).
     CHECK(!m[3].artifact.hidden && m[3].artifact.version == "v2" && m[3].artifact.file == "chart.png");
     CHECK(m[3].image_path.empty() && m[3].artifact.local_path.empty());
     CHECK(m[3].artifact.fetch == api::ArtifactFetch::Idle);
-    // Ordinary image message: unchanged behaviour.
     CHECK(m[4].image_path == "/attachments/photo.png");
 
-    // A cache written BEFORE these fields existed (the e57faf4 shape: no
-    // artifact, no run_*) loads with defaults, not garbage.
     const std::string legacy = R"({"version":1,
       "summary":{"id":"old","title":"old thread","state":0},
       "messages":[
@@ -2498,8 +2412,6 @@ static void test_disk_cache_round_trips_an_element_row() {
         want.anchor_seq = 31;
         CHECK(row.element == want);
         CHECK(back->messages[1].text == "still here");
-        // A row cached without element facts (a file from before this
-        // field) reads as no facts, so the next refetch's copy wins.
         CHECK(!back->messages[1].element.present());
     }
     api::disk_cache::wipe_all();

@@ -305,10 +305,6 @@ json to_json(const Message& m) {
                 // why. docs/SEARCH.md S4.
                 {"tool_status", m.tool_status},
                 {"element", element_to_json(m.element)},
-                // The run terminal and the artifact's STABLE identity. Not
-                // saved: local_path / fetch / unavailable_reason / the
-                // artifact's image_path -- per-launch adoption the fetch
-                // system re-derives from the ref and the cache directory.
                 {"run_outcome", m.run_outcome},
                 {"run_note", m.run_note},
                 {"artifact", json{{"id", m.artifact.id},
@@ -358,8 +354,6 @@ Message message_from_json(const json& j) {
         m.artifact.hidden = a.value("hidden", false);
         m.artifact.shown_seq = a.value("shown_seq", (int64_t)0);
     }
-    // An artifact row's picture is adopted per launch (existence check,
-    // visibility gate, hidden mark), never restored from an old path.
     if (m.kind == EventKind::Artifact) m.image_path.clear();
     return m;
 }

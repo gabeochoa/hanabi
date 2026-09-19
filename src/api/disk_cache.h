@@ -133,7 +133,6 @@ struct Draft {
     std::vector<Attachment> attachments;
 };
 
-// Keyed by id, version and file: two files of one version never share a path.
 std::string artifact_path(const std::string& id, const std::string& version,
                           const std::string& file, const std::string& extension);
 inline constexpr std::uint64_t kArtifactMaxBytes = 32ull * 1024 * 1024;

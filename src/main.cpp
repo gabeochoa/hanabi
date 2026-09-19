@@ -2884,11 +2884,9 @@ static int run_e2e(const std::string& path, int w, int h) {
             if (!q.empty())
                 apply_stream_demo(&q[0].get().get<ecs::AppComponent>());
         }
-        // A `within=` command holds the script until it settles (its handler
-        // still runs every frame; only dispatch waits) -- see within::.
         if (hanabi::e2e::within::within_failed()) {
             hanabi::e2e::within::within_failed() = false;
-            runner.skip_current_script();  // terminal: no further line dispatches
+            runner.skip_current_script();
         } else if (!hanabi::e2e::within::within_barrier_holds()) {
             runner.tick(kDt);
         }
@@ -2941,18 +2939,6 @@ int main(int argc, char* argv[]) {
                      "--notify-probe"});
     cmdl.parse(argc, argv);
 
-    // EARLY-ENTRY DOMINANCE. HANABI_E2E_HEADLESS_ONLY=1 is the runner's
-    // run-level policy, carried into the process so that a request which
-    // escaped the runner's own filtering -- a fixture's `# env:` line, an
-    // inherited shell variable, a different argv -- is refused HERE, right
-    // after argv is parsed and before ANY branch below initialises anything,
-    // rather than trusted to the shell. The decision is launch_policy.h's:
-    // the SET of modes argv requested, against the policy. Under it exactly
-    // `--e2e <script>` alone, with HANABI_E2E_WINDOWED unarmed, is admitted;
-    // a windowed --e2e, --screenshot, --atlas-stress, the probes, the
-    // diagnostics, a bare launch, and any combination are refused by
-    // construction, their code untouched; a malformed policy value refuses
-    // too. Without the variable every entry behaves exactly as before.
     const char* policyValue = std::getenv("HANABI_E2E_HEADLESS_ONLY");
     const hanabi::policy::Policy launchPolicy = hanabi::policy::parse_policy(policyValue);
     const auto entry_request = [&](bool reachedWindow) {
@@ -3063,7 +3049,6 @@ int main(int argc, char* argv[]) {
         if (const char* ew = std::getenv("HANABI_WIN_W"); ew && *ew) sw = atoi(ew);
         if (const char* eh = std::getenv("HANABI_WIN_H"); eh && *eh) sh = atoi(eh);
         if (hanabi::policy::windowed_armed(std::getenv("HANABI_E2E_WINDOWED"))) {
-            // (Under the headless-only policy this branch was refused above.)
             // Before app_init reads a config, adopts a token or opens a
             // store: a windowed script posts real input into a real window,
             // and the only backend it may reach is the offline mock in a
@@ -3112,11 +3097,6 @@ int main(int argc, char* argv[]) {
     cfg.frame = app_frame;
     cfg.cleanup = app_cleanup;
 
-    // PRE-WINDOW BACKSTOP. The one call that creates the window, decided once
-    // more with the same rule and the request AS REACHED (the window is the
-    // default launch, whatever argv said), so that any entry added above
-    // this line in the future is covered whether or not it thought about the
-    // policy: a headless-only process does not open a window.
     if (const auto v = hanabi::policy::admits(entry_request(true), launchPolicy,
                                               policyValue ? policyValue : "");
         !v.admitted) {

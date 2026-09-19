@@ -1121,19 +1121,12 @@ static void test_pinning_keeps_and_restores_tabs() {
     CHECK(second == "Tab: finished, and wants you to read it, pinned, active");
 }
 
-// The two links a thread has, and the web-base contract behind the first.
-// The web link exists only for a configured http(s) origin (no host is
-// compiled in; the base is trimmed of spaces and trailing slashes and joined
-// with one '/'); anything that is not a web origin yields NO web link rather
-// than a rewritten one. The deep link is the app's own registered scheme with
-// the host its URL handler parses, and needs no configuration.
 static void test_thread_links() {
     std::printf("test_thread_links\n");
     using ecs::model::deep_link_for;
     using ecs::model::has_web_base;
     using ecs::model::web_base_for;
     using ecs::model::web_url_for;
-    // Configured base: joined cleanly, trailing slashes and spaces trimmed.
     CHECK(web_url_for("https://example.test", "t5") == "https://example.test/t5");
     CHECK(web_url_for("https://example.test/", "abc-123") == "https://example.test/abc-123");
     CHECK(web_url_for("https://example.test//", "t5") == "https://example.test/t5");
@@ -1141,25 +1134,18 @@ static void test_thread_links() {
           "https://example.test/session/t5");
     CHECK(web_url_for("HTTP://Example.test", "t5") == "HTTP://Example.test/t5");
     CHECK(has_web_base("http://localhost:8080"));
-    // No usable base => no web link, and the rows that need one are disabled.
     CHECK(web_url_for("", "t5").empty());
     CHECK(!has_web_base(""));
     CHECK(!has_web_base("   "));
     CHECK(!has_web_base("/"));
-    CHECK(!has_web_base("https://"));  // a scheme with no host is not an origin
-    // Not a web origin: never honoured as one (a Weblink must open in a
-    // browser), and never rewritten into one either -- that is a policy
-    // this contract does not take.
+    CHECK(!has_web_base("https://"));
     CHECK(web_base_for(std::string(product_branding::kUrlScheme) + "://thread").empty());
     CHECK(web_base_for("ftp://example.test").empty());
     CHECK(web_base_for("example.test").empty());
     CHECK(web_url_for("example.test", "t5").empty());
-    // The deep link: the app's scheme, the handler's host, the id; independent
-    // of any base.
     CHECK(deep_link_for("t5") == std::string(product_branding::kUrlScheme) + "://thread/t5");
     CHECK(deep_link_for("abc-123") ==
           std::string(product_branding::kUrlScheme) + "://thread/abc-123");
-    // The two never coincide for the same id, whatever the base.
     CHECK(deep_link_for("t5") != web_url_for("https://example.test", "t5"));
 }
 

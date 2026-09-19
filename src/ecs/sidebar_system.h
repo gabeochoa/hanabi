@@ -98,13 +98,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app->subagentSidebarSeeded = true;
         }
 
-        // The one act behind the row's star glyph, the row menu's Pin, and the
-        // undo toast: the thread's pin, mirrored onto its open tab if it has
-        // one (model::set_thread_pinned). Applied HERE so this owned system is
-        // the single writer of the sessions vector's starred flag (the Starred
-        // view's count and membership move on the very next render), and
-        // toggled against the state at APPLY time, not the label that was
-        // drawn.
         if (!app->requestToggleStar.empty()) {
             for (auto& s : app->sessions) {
                 if (s.id == app->requestToggleStar) {
@@ -123,9 +116,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // for the same reason: the Archived count and every view's membership
         // must agree on the very next render. The overlay is what moves, not
         // the backend's own state, so a later list fetch cannot undo it.
-        // One writer for both spellings: toggle (row/tab Archive, with the
-        // undo toast) and directed (Archive and Close Tab: no toast, no undo;
-        // matching the current state writes nothing).
         const auto archive_id = !app->requestToggleArchive.empty() ? app->requestToggleArchive
                                                                   : app->requestSetArchiveId;
         if (!archive_id.empty()) {
@@ -849,11 +839,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         divider("row_menu_divider_rename");
         add("Copy Title", "row_menu_copy_title", Action::CopyTitle, "copy_title",
             target->title.empty());
-        // Two links, two rows, always both: the web link is for a reader who
-        // has not installed the app, the deep link opens THIS app. The web
-        // rows need a configured web origin (no host is compiled in) and are
-        // disabled -- present, dimmed -- without one; the deep link needs
-        // nothing. Open in Web follows the web URL only, never the scheme.
         const bool webBase = model::has_web_base(app.webBaseUrl);
         add("Copy Weblink", "row_menu_copy_weblink", Action::CopyWeblink, "copy_weblink",
             !webBase);
@@ -861,29 +846,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         add("Copy Session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
         add("Open in Web", "row_menu_open_web", Action::OpenWeb, "open_web", !webBase);
         divider("row_menu_divider_copy");
-        // Export to Clipboard: the whole conversation as Markdown, from the
-        // ATTACHED session's messages as loaded -- never a fetch, never the
-        // cache: a copy that needed a round trip would lose the race with the
-        // paste that follows. Disabled (present, dimmed) for a row this app
-        // has not attached. Its own group, after the links.
         add("Export to Clipboard", "row_menu_export_clipboard", Action::ExportClipboard,
             "export_clipboard", app.session_with_messages(target->id) == nullptr);
         divider("row_menu_divider_export");
-        // Halt / Resume: the one group that changes what the SESSION does.
-        // Offered only for a thread this app has ATTACHED (an open pane
-        // carries its fresh observation) on a backend that serves the verb;
-        // a sidebar-only row offers nothing rather than a row that can only
-        // fail. Which rows appear is halt_state.h's rule: a thread contained
-        // by an ancestor gets none (its own Resume would clear only itself),
-        // a root halted alone still gets Halt with Sub-agents. Ids are
-        // directional; a stale pick is refused, never inverted.
         if (const api::Session* attached = app.session_with_messages(target->id);
             attached != nullptr && app.client && app.client->supports_halt()) {
             const auto observed = hanabi::halt::Observation::from_state(
                 target->id, attached->halted, attached->halted_by, attached->halted_reason);
-            // Capability = THIS attach advertised `halt_v1` AND it is the
-            // owner's: the server pushes the token only for the owner, so a
-            // viewer's or writer's attach offers nothing.
             const auto rows = hanabi::halt::rows_for(
                 observed, api::session_may_halt(*attached), attached->sub_agents.size());
             const bool busy = app.halt_in_flight_for(target->id);
@@ -898,10 +867,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             }
             if (rows.any()) divider("row_menu_divider_halt");
         }
-        // Pin names the THREAD (the tab menu says the same word for the same
-        // act): the thread's pin, mirrored onto its open tab if it has one;
-        // a closed row's pin opens nothing. The word is the STATE -- "Unpin"
-        // over a pinned thread -- and pins are local Settings, always known.
         add(target->starred ? "Unpin" : "Pin", "row_menu_pin", Action::Pin,
             target->starred ? "unpin" : "pin");
         add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute,
@@ -967,9 +932,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             std::size_t row = hanabi::surface::kNoMenuRow;
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
-            // A disabled row cannot be picked: the drawn menu never activates
-            // one and AppKit never fires one, so a pick that names one (an
-            // injected route, or a stale snapshot) is dropped, not dispatched.
             if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
                 app.close_row_menu();
                 return;
@@ -1019,8 +981,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     hanabi::clipboard::set_text(target->title);
                     break;
                 case Action::OpenWeb:
-                    // The web URL or nothing: a disabled row cannot be picked,
-                    // and a picked one never routes the app scheme outward.
                     if (const std::string url = model::web_url_for(app.webBaseUrl, targetId);
                         !url.empty())
                         hanabi::links::open(url);
@@ -1029,16 +989,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestToggleArchive = targetId;
                     break;
                 case Action::Pin:
-                    // The same request the row's star glyph makes: applied at
-                    // the single-writer spot against the state THEN, with the
-                    // undo toast, and mirrored onto an open tab there.
                     app.requestToggleStar = targetId;
                     break;
                 case Action::ExportClipboard:
-                    // Resolved at PICK time against the id captured at open:
-                    // a thread detached since the menu was built writes
-                    // nothing (the drawn row was disabled; a stale snapshot is
-                    // dropped here), and no other pane's session stands in.
                     if (const auto payload = hanabi::transcript_copy::export_clipboard_payload(
                             app.session_with_messages(targetId),
                             app.find_summary(targetId) ? app.find_summary(targetId)->title
@@ -1145,9 +1098,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             std::size_t row = hanabi::surface::kNoMenuRow;
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (!pickedAction.empty() && items[i].action_id == pickedAction) row = i;
-            // A disabled row cannot be picked: the drawn menu never activates
-            // one and AppKit never fires one, so a pick that names one (an
-            // injected route, or a stale snapshot) is dropped, not dispatched.
             if (row == hanabi::surface::kNoMenuRow || items[row].disabled) {
                 app.close_row_menu();
                 return;

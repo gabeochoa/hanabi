@@ -19,9 +19,6 @@ inline std::string unsupported_reason(std::string_view media_type) {
     return "unsupported type " + std::string(media_type);
 }
 
-// The row's state from its ref alone: hidden -> a known undrawable type is
-// unavailable whatever bytes are cached -> cached bytes are ready -> too
-// large -> needs a fetch (false).
 inline bool settle_without_fetch(const api::ArtifactRef& ref, api::ArtifactFetch& state,
                                  std::string& reason) {
     reason.clear();
@@ -46,4 +43,4 @@ inline bool settle_without_fetch(const api::ArtifactRef& ref, api::ArtifactFetch
     return false;
 }
 
-}  // namespace hanabi::artifact_policy
+}

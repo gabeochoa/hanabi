@@ -439,12 +439,6 @@ static void test_an_unknown_event_draws_a_row_naming_its_tag() {
     CHECK(out[1].text == "still here");
 }
 
-// --- element rows -----------------------------------------------------------
-// `element_emitted` used to be in neither list and drew an "unknown event"
-// row. It is now the Element row: one per instance, at the instance's first
-// seq, carrying its highest revision, drawn as the text projection. The
-// reader's validation is the wire contract's; a rejected frame is the degraded
-// Unsupported row at that seq, never a silent drop. ADDED, NOT RUN here.
 
 static std::string element_frame(int seq, const char* instance, int revision,
                                  const char* projection,
@@ -481,13 +475,10 @@ static void test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event() {
     CHECK(out[1].element.anchor_seq == 2);
     CHECK(out[1].created_at == 1700000002);
     CHECK(out[2].text == "there");
-    // The tree rode the wire and was never kept anywhere.
     CHECK(out[1].text.find("children") == std::string::npos);
 }
 
 static void test_a_page_folds_every_revision_of_an_instance_into_one_row() {
-    // E2/E3 through the real page parser: three revisions across the page,
-    // text rows between them. One row, where rev 1 stood, saying rev 3.
     const std::string reply = "{\"type\":\"page\",\"frames\":[" +
         std::string(R"({"seq":10,"event":{"type":"user_input","text":"show"}},)") +
         element_frame(11, "shard-health", 1, "rev one") + "," +
@@ -506,16 +497,12 @@ static void test_a_page_folds_every_revision_of_an_instance_into_one_row() {
     CHECK(out[1].created_at == 1700000015);
     CHECK(out[2].text == "first");
     CHECK(out[3].text == "second");
-    // The same page fed twice (a reconnect re-feed) is the same rows.
     const auto again = parse_page_frames(reply);
     CHECK(again.size() == out.size());
     CHECK(again[1].text == out[1].text && again[1].element == out[1].element);
 }
 
 static void test_a_malformed_element_frame_is_the_degraded_row_at_its_seq() {
-    // E6: revision 0, a missing projection, an instance over 120 bytes, a
-    // non-object payload -- each draws the Unsupported row naming the tag
-    // at ITS seq; the valid frame beside them still folds.
     const std::string long_instance(121, 'i');
     const std::string reply = "{\"type\":\"page\",\"frames\":[" +
         element_frame(1, "zero-rev", 0, "x") + "," +
@@ -534,14 +521,10 @@ static void test_a_malformed_element_frame_is_the_degraded_row_at_its_seq() {
     }
     CHECK(out[5].kind == api::EventKind::Element);
     CHECK(out[5].text == "ok");
-    // A projection past the event bound is malformed, not sparse.
     const std::string huge(16 * 1024 + 1, 'p');
     const auto big = parse_page_frames("{\"type\":\"page\",\"frames\":[" +
                                        element_frame(7, "big", 1, huge.c_str()) + "]}");
     CHECK(big.size() == 1 && big[0].kind == api::EventKind::Unsupported);
-    // Sparse but valid: no title, empty projection -> the element key is
-    // both heading and text. `run` is required: a payload without it is
-    // malformed, not sparse.
     const auto sparse = parse_page_frames(R"({"type":"page","frames":[
       {"seq":8,"event":{"type":"element_emitted","element":{"instance":"bare","revision":1,"placement":"inline","element":"std/Note","projection":"","run":0}}},
       {"seq":9,"event":{"type":"element_emitted","element":{"instance":"runless","revision":1,"placement":"inline","element":"std/Note","projection":"x"}}}
@@ -550,7 +533,6 @@ static void test_a_malformed_element_frame_is_the_degraded_row_at_its_seq() {
     CHECK(sparse[0].subtitle == "std/Note" && sparse[0].text == "std/Note");
     CHECK(sparse[0].element.run == 0);
     CHECK(sparse[1].kind == api::EventKind::Unsupported && sparse[1].id == "9");
-    // The reader alone, on the payload string.
     api::ElementFacts facts;
     CHECK(api::agentcloud::element_facts_from_json(
         R"({"instance":"a","revision":2,"placement":"artifact","element":"std/Card","projection":"p","run":3,"artifact":{"artifact_id":"art_9","version_id":"v2"}})",
@@ -563,12 +545,6 @@ static void test_a_malformed_element_frame_is_the_degraded_row_at_its_seq() {
 }
 
 static void test_the_attach_seed_folds_into_the_page_and_moves_a_windowed_anchor() {
-    // E5 + E3 through the attach path as hanabi runs it: the page is parsed
-    // first (a WINDOW that starts after the table's first emit), then
-    // hello.state.elements is folded through the same fold. The table's
-    // seed carries the true anchor -> the row moves ahead of the window;
-    // the card's seed is a row the window never had; a malformed seed and
-    // one without an anchor are skipped and counted.
     api::Session session;
     session.messages = parse_page_frames("{\"type\":\"page\",\"frames\":[" +
         std::string(R"({"seq":40,"event":{"type":"user_input","text":"later question"}},)") +
@@ -598,18 +574,15 @@ static void test_the_attach_seed_folds_into_the_page_and_moves_a_windowed_anchor
     CHECK(session.messages[1].element.anchor_seq == 30);
     CHECK(session.messages[1].text == "Run summary");
     CHECK(session.messages[1].element.artifact_id == "art_9");
-    // `run` absent is a malformed seed (skipped); `run` 0 is a real first run.
     CHECK(session.messages[2].id == "element:run-zero");
     CHECK(session.messages[2].element.run == 0);
     CHECK(session.messages[3].text == "later question");
     CHECK(session.messages[4].text == "answer");
-    // Seed then the same page again: nothing doubles.
     const auto again = api::agentcloud::parse_element_state(hello, session);
     CHECK(again.folded == 3 && session.messages.size() == 5);
 }
 
 static void test_the_elements_capability_is_recorded_and_changes_nothing() {
-    // E10: without the advert the rows are the same rows.
     api::Session with;
     api::Session without;
     const char* elements = R"("elements":[{"anchor_seq":5,"instance":"i","revision":1,"placement":"inline","element":"std/Note","projection":"note","run":1}])";
@@ -622,8 +595,6 @@ static void test_the_elements_capability_is_recorded_and_changes_nothing() {
     CHECK(with.messages.size() == 1 && without.messages.size() == 1);
     CHECK(with.messages[0].text == without.messages[0].text);
     CHECK(with.messages[0].element == without.messages[0].element);
-    // A greeting with no elements bag: nothing folded, nothing skipped, and
-    // an unreadable greeting is the same as none.
     api::Session bare;
     const auto none = api::agentcloud::parse_element_state(R"({"type":"hello","state":{}})", bare);
     CHECK(none.folded == 0 && none.skipped == 0 && bare.messages.empty());
@@ -650,14 +621,9 @@ static bool has_control_bytes(const std::string& s) {
     return false;
 }
 
-// tool_run_requested is the run's declared worklist, rowless; the run's
-// terminal -- the outcome divider beneath the run's last drawn-and-exported
-// message -- says what did not run. T1-T5, and the carrier rules (a)-(e).
 static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_terminal() {
     std::printf("test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_terminal\n");
     namespace tc = hanabi::transcript_copy;
-    // T1 / (a): declared 3, dispatched 1 (one declared position + one free
-    // call), the run ends on an assistant text -> the terminal rides it.
     const std::string t1 = R"({"type":"page","frames":[
       {"seq":10,"event":{"type":"run_started","run":10}},
       {"seq":11,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b","input":"x"},{"tool":"c","timeout_ms":5},{"input":"no tool"}]}},
@@ -677,8 +643,6 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
           "### **Agentcloud**\n\nDone what I could.\n\n---\n\n"
           "*(turn failed \xc2\xb7 2 of 3 declared calls did not run)*\n\n");
 
-    // T2 / (d): declared 1, dispatched 0, zero-message run, outcome absent ->
-    // a bare RunOutcome row, completed, singular.
     const std::string t2 = R"({"type":"page","frames":[
       {"seq":20,"event":{"type":"run_started","run":20}},
       {"seq":21,"event":{"type":"tool_run_requested","calls":[{"tool":"only"}]}},
@@ -691,9 +655,6 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
     CHECK(out[0].run_note == "1 of 1 declared call did not run");
     CHECK(tc::body_of(out[0]) == "---\n\n*(turn completed \xc2\xb7 1 of 1 declared call did not run)*\n\n");
 
-    // T3: declared 3, dispatched 3, completed -> the run's last row carries
-    // "completed" with no note (drawn only when last, as before) and no bare
-    // row is added.
     const std::string t3 = R"({"type":"page","frames":[
       {"seq":30,"event":{"type":"run_started","run":30}},
       {"seq":31,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b"},{"tool":"c"}]}},
@@ -706,16 +667,12 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
     CHECK(out.size() == 3);
     CHECK(out[2].run_outcome == "completed" && out[2].run_note.empty());
     CHECK(tc::body_of(out[2]).find("*(turn completed)*") != std::string::npos);
-    // A zero-message completed run with nothing to say adds no row at all.
     const std::string quiet = R"({"type":"page","frames":[
       {"seq":36,"event":{"type":"run_started","run":36}},
       {"seq":37,"event":{"type":"run_finished","run":36}}
     ]})";
     CHECK(parse_page_frames(quiet).empty());
 
-    // T4 / (e): the declaration re-fed and a second declaration for the same
-    // run are ignored; a later EMPTY run with a note gets its own bare row and
-    // never lands on the first run's last visible message.
     const std::string t4 = R"({"type":"page","frames":[
       {"seq":40,"event":{"type":"run_started","run":40}},
       {"seq":41,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b"}]}},
@@ -735,9 +692,6 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
     CHECK(out[2].kind == api::EventKind::RunOutcome && out[2].id == "run_finished:50");
     CHECK(out[2].run_outcome == "failed" && out[2].run_note == "1 of 1 declared call did not run");
 
-    // T5: a declaration before any run_started (a backward page) has no run
-    // and is dropped; an empty calls list declares nothing; the failed
-    // zero-message run still gets its bare divider (non-completed outcome).
     const std::string t5 = R"({"type":"page","frames":[
       {"seq":61,"event":{"type":"tool_run_requested","calls":[{"tool":"a"}]}},
       {"seq":60,"event":{"type":"run_started","run":60}},
@@ -749,9 +703,6 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
     CHECK(out[0].kind == api::EventKind::RunOutcome && out[0].run_outcome == "failed" &&
           out[0].run_note.empty());
 
-    // (b) the run's LAST row is reasoning, preceded by text -> the terminal
-    // rides the text, never the reasoning. (c) a run whose ONLY rows are
-    // reasoning -> a bare row.
     const std::string bc = R"({"type":"page","frames":[
       {"seq":70,"event":{"type":"run_started","run":70}},
       {"seq":71,"event":{"type":"tool_run_requested","calls":[{"tool":"a"},{"tool":"b"}]}},
@@ -781,9 +732,6 @@ static void test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_ter
     CHECK(undispatched_declared_calls_note(2, 5).empty());
 }
 
-// T6: a delivered input is not the human: a Delivery row whose label slot
-// carries the origin from source.kind (+ the source's `task` for the two task
-// kinds). The body is the server's text.
 static void test_a_delivered_input_is_labelled_by_its_source_kind() {
     std::printf("test_a_delivered_input_is_labelled_by_its_source_kind\n");
     const std::string reply = R"({"type":"page","frames":[
@@ -809,16 +757,14 @@ static void test_a_delivered_input_is_labelled_by_its_source_kind() {
     CHECK(out[3].subtitle == "hook output");
     CHECK(out[4].subtitle == "subscription");
     CHECK(out[5].subtitle == "task cancelled");
-    CHECK(out[6].subtitle.empty());  // unknown kind: bare Delivered
-    CHECK(out[7].subtitle.empty());  // no source: bare Delivered
+    CHECK(out[6].subtitle.empty());
+    CHECK(out[7].subtitle.empty());
     CHECK(out[8].kind == api::EventKind::Text && out[8].role == Role::User);
     CHECK(api::agentcloud::delivery_label_for("goal_drive", "") == "goal driver");
     CHECK(api::agentcloud::delivery_label_for("task", "") == "task");
     CHECK(api::agentcloud::delivery_label_for("", "").empty());
 }
 
-// T7/T8: the parser stores assistant text VERBATIM -- tags and all; the
-// unwrapping is display-only (test_data: thinking_tags).
 static void test_the_parser_keeps_thinking_tags_in_the_stored_text() {
     std::printf("test_the_parser_keeps_thinking_tags_in_the_stored_text\n");
     const std::string reply = R"({"type":"page","frames":[
@@ -1252,20 +1198,8 @@ static void test_a_shown_artifact_is_a_row_with_its_file_and_size() {
     CHECK(!out[1].artifact.hidden && !out[2].artifact.hidden && !out[3].artifact.hidden);
 }
 
-// The real fetch against a local server: the 32 MB cap binds the TRANSFER.
-// (a) a declared Content-Length above the cap is refused before any body
-// (the server's provider is never asked); (b) an undeclared (chunked) body
-// is cut the moment it passes the cap, not read whole; (c) a small answer
-// arrives with its type and name from the headers.
 static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
     std::printf("test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives\n");
-    // The client-controlled facts: (a) a declared Content-Length above the
-    // cap is refused from the HEADERS -- the server WITHHOLDS its body behind
-    // a gate and the client must have settled 413 with zero bytes BEFORE the
-    // gate opens; (b) an undeclared (chunked) body is cut at the cap -- the
-    // server serves one chunk per request from the client and stops when the
-    // client hangs up, and the client must have settled 413 before the server
-    // could have handed it the whole body. No sender-side counter is proof.
     httplib::Server svr;
     const std::uint64_t cap = api::disk_cache::kArtifactMaxBytes;
     std::mutex gate_mu;
@@ -1285,7 +1219,7 @@ static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
             [&](std::size_t, std::size_t, httplib::DataSink&) {
                 std::unique_lock<std::mutex> lk(gate_mu);
                 gate_cv.wait_for(lk, std::chrono::seconds(15), [&] { return release; });
-                return false;  // after the gate: close without a body
+                return false;
             });
     });
     std::atomic<std::uint64_t> chunked_offered{0};
@@ -1321,8 +1255,6 @@ static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
     api::AgentcloudClient client(cfg, tok);
 
     {
-        // (a) The body is withheld. If the client refuses from the headers,
-        // its future is ready within the bound while the gate is still shut.
         const std::function<void()> releaser = release_gate;
         ReleaseOnExit always{releaser};
         api::ArtifactRef ref;
@@ -1341,9 +1273,6 @@ static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
     }
 
     {
-        // (b) Chunked, no declared length: the client cuts at the cap. The
-        // server offers up to cap + 64 MB; the client's answer must settle
-        // within the bound, be 413, and carry no bytes.
         api::ArtifactRef ref;
         ref.id = "big-chunked";
         auto fut = std::async(std::launch::async, [&] { return client.fetch_artifact("s1", ref); });
@@ -1370,11 +1299,6 @@ static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
     th.join();
 }
 
-// artifact_hidden: the row stays, marked hidden, seq-gated. (a) a hide after
-// the show marks it; (b) a hide OLDER than the show (a backward page) does
-// not; (c) a later show is a new, shown row; (d) a version added after a hide
-// changes nothing; (e) two shows of one id before the hide are both marked;
-// audience to_model never reaches the rows.
 static void test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored() {
     std::printf("test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored\n");
     const std::string reply = R"({"type":"page","frames":[
@@ -1408,13 +1332,10 @@ static void test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_igno
     const auto out = parse_page_frames(reply);
     CHECK(out.size() == 3);
     for (const auto& m : out) CHECK(m.kind == api::EventKind::Artifact);
-    // (b) the seq-1 hide preceded both shows: ignored. (a)+(e) the seq-6 hide
-    // marks both earlier shows. (c) the seq-8 show is a fresh, shown row on v2.
     CHECK(out[0].artifact.shown_seq == 3 && out[0].artifact.hidden);
     CHECK(out[1].artifact.shown_seq == 4 && out[1].artifact.hidden);
     CHECK(out[2].artifact.shown_seq == 8 && !out[2].artifact.hidden);
     CHECK(out[2].artifact.version == "v2" && out[2].artifact.file == "c.png");
-    // Multifile: the first file, and the count, on the v1 rows.
     CHECK(out[0].artifact.file == "a.png" && out[0].artifact.file_count == 2);
     CHECK(out[2].artifact.file_count == 1);
 }

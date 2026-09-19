@@ -877,12 +877,6 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-    // The menu's tab is gone (closed under a standing menu). The drawn menu
-    // closes with it -- no pointer can pick past its own eater. The NATIVE
-    // menu keeps tracking, so its pick is read once more and routed by the
-    // session id captured at open: Archive and Close Tab archives (nothing to
-    // close), plain Archive toggles; anything else no longer has a tab to act
-    // on and is dropped.
     void route_orphan_pick(UIContext<InputAction>& ctx, Entity& uiRoot,
                            TabStripComponent& strip, AppComponent& app) {
         if (strip.nativeMenu.open() && !strip.menuSessionId.empty()) {
@@ -891,7 +885,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 ctx, uiRoot, 966, "tab_menu", strip.nativeMenu, scope);
             if (result.activated == hanabi::surface::kNoMenuRow && !result.dismissed &&
                 !result.cancelled)
-                return;  // still tracking
+                return;
             if (result.activated != hanabi::surface::kNoMenuRow) {
                 const std::string action = strip.nativeMenu.action_of(result.activated);
                 if (action == "archive_close") {
@@ -919,7 +913,6 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
     // against the reference, and deliberately not faked here: "Move Tab to
     // New Window" (no second window), the four split directions (one split
     // here), "Copy Deeplink" (one link scheme), and the shared block's
-    // Snooze item. "Pin tab" is a KEPT TAB
     // (survives close-others and close-to-right); the reference's Pin on this
     // menu is the thread's pin, written together with the tab's -- also open.
     //
@@ -985,23 +978,15 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 !(app.client && app.client->supports_rename()));
             divider("tab_menu_divider_rename");
             add("Copy Title", "tab_menu_copy_title", CopyTitle);
-            // Two links, two rows (see SidebarSystem::render_row_menu): the
-            // web rows need a configured web origin and are disabled without
-            // one; the deep link needs nothing.
             const bool webBase = model::has_web_base(app.webBaseUrl);
             add("Copy Weblink", "tab_menu_copy_weblink", CopyWeblink, !webBase);
             add("Copy Deeplink", "tab_menu_copy_deeplink", CopyDeeplink);
             add("Copy Session ID", "tab_menu_copy_id", CopyId);
             add("Open in Web", "tab_menu_open_web", OpenWeb, !webBase);
             divider("tab_menu_divider_copy");
-            // Export to Clipboard (see SidebarSystem::render_row_menu): the
-            // attached session's messages as loaded; disabled until attached.
-            // Conversation tabs only -- this is the non-surface branch.
             add("Export to Clipboard", "tab_menu_export_clipboard", ExportClipboard,
                 app.session_with_messages(keepId) == nullptr);
             divider("tab_menu_divider_export");
-            // Halt / Resume, the tab's own attach being the observation
-            // (see SidebarSystem::render_row_menu for the rule).
             if (const api::Session* attached = app.session_with_messages(keepId);
                 attached != nullptr && app.client && app.client->supports_halt()) {
                 const auto observed = hanabi::halt::Observation::from_state(
@@ -1026,9 +1011,6 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             add(mutedNow ? "Unmute" : "Mute", "tab_menu_mute", Mute, false, false,
                 mutedNow ? "unmute" : "mute");
             divider("tab_menu_divider_pin");
-            // Archive / Unarchive through the row menu's drain; Archive and
-            // Close Tab beneath it, only while not archived, disabled for a
-            // kept (pinned) tab -- the tab's flag, as the reference reads it.
             const bool archivedNow = summary != nullptr && model::is_archived(*summary);
             add(archivedNow ? "Unarchive" : "Archive", "tab_menu_archive", Archive, false, false,
                 archivedNow ? "unarchive" : "archive");
@@ -1127,19 +1109,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Pin:
                     if (isSurface) {
-                        // Keep Tab Open on a SURFACE: a tab fact only -- there
-                        // is no thread to pin, no shelf, no star, no undo
-                        // toast -- so it keeps the tab directly. The drain
-                        // below would find no session for a surface id and
-                        // do nothing (measured: Stop Keeping Open vanished).
                         model::pin_thread_tab(strip, app, tabEntity, !tab.pinned);
                         break;
                     }
-                    // A conversation's Pin: the same request the sidebar's
-                    // star glyph and row menu make, applied at the single-
-                    // writer spot through model::set_thread_pinned (this tab
-                    // found by id), with the undo toast -- one entry point
-                    // for every THREAD pin gesture.
                     app.requestToggleStar = keepId;
                     break;
                 case ExportClipboard:
@@ -1157,9 +1129,6 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestToggleArchive = keepId;
                     break;
                 case ArchiveClose: {
-                    // Decided now, from the live tab: kept -> refused, nothing
-                    // archived or closed; else close first, then the directed
-                    // archive the same tick (idempotent if archived meanwhile).
                     if (tabEntity.get<Tab>().pinned) break;
                     for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
                         if (strip.tabOrder[i] != tabEntity.id) continue;

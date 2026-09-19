@@ -199,12 +199,6 @@ class MockClient : public Client {
     Result<Session> get_session(const std::string& id) override {
         session_reads().fetch_add(1);
         if (injected_refusal(id)) return refusal_for(id);
-        // A latched re-attach: the Hello that would confirm a halt's mark or
-        // an unconfirmed write is HELD until the script releases it
-        // (release_halt_observe), so the provisional brake caption can be
-        // read for as many frames as the script likes. Armed after a halt
-        // write by HANABI_MOCK_HALT_OBSERVE_LATCH=1; bounded like the
-        // compaction latch so a broken script fails on its assertions.
         if (halt_observe_armed().load()) {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             while (!halt_observe_release().load() &&
@@ -1083,11 +1077,6 @@ class MockClient : public Client {
     // settled on (trimmed), so the caller applies the echo rather than its own
     // request. Refusals are real refusals — an empty or over-long title comes
     // back as a failure with the reason, which is what the rename modal shows.
-    // Halt / resume, with the real distinction the wire draws: the session's
-    // OWN flag (`halted`), its OWN subtree mark (`halted_by` naming itself),
-    // and an ANCESTOR's containment (`halted_by` naming the root). Every
-    // attempt is counted BEFORE any dedupe, so a script can assert how many
-    // writes the serializer actually let through.
     bool supports_halt() const override {
         return std::getenv("HANABI_MOCK_NO_HALT") == nullptr;
     }
@@ -1107,7 +1096,6 @@ class MockClient : public Client {
             out.detail = "no such session: " + session_id;
             return out;
         }
-        // The owner's attach is the only one that advertises the verb.
         if (!target->can_halt || target->access != SessionAccess::Owner) {
             out.status = Status::Failed;
             out.detail = "this connection may not halt or resume this conversation";
@@ -1131,8 +1119,6 @@ class MockClient : public Client {
             return out;
         }
         if (const char* refuse = std::getenv("HANABI_MOCK_HALT_REFUSE"); refuse && *refuse) {
-            // The runner splits `# env:` on whitespace, so the knob is a token
-            // and the mock speaks the server's sentence for it.
             out.status = Status::Refused;
             out.detail = std::string_view(refuse) == "frozen_by_operator"
                              ? "halt refused: the session is frozen by an operator"
@@ -1140,9 +1126,6 @@ class MockClient : public Client {
             return out;
         }
         if (const char* dry = std::getenv("HANABI_MOCK_HALT_NO_ECHO"); dry && *dry) {
-            // The write lands but the echo never arrives (the socket dropped):
-            // exactly the server's silent success seen from a client that
-            // missed the frame.
             apply_halt(*target, session_id, intent);
             if (std::getenv("HANABI_MOCK_HALT_OBSERVE_LATCH") != nullptr && intent != Intent::Resume)
                 halt_observe_armed().store(true);
@@ -1151,13 +1134,9 @@ class MockClient : public Client {
             return out;
         }
         apply_halt(*target, session_id, intent);
-        // The latch holds the re-attach that would CONFIRM a halt's mark; a
-        // resume's confirmation is not what the scripts read, so it flows.
         if (std::getenv("HANABI_MOCK_HALT_OBSERVE_LATCH") != nullptr && intent != Intent::Resume)
             halt_observe_armed().store(true);
         out.status = Status::Confirmed;
-        // The flag's echo proves the flag; the mark has no frame. A re-read
-        // (get_session -> the next Hello) is what shows it.
         out.mark_confirmed = false;
         return out;
     }
@@ -1165,7 +1144,7 @@ class MockClient : public Client {
         using hanabi::halt::Intent;
         if (intent == Intent::Resume) {
             target.halted = false;
-            if (target.halted_by == id) {  // only the session's OWN mark clears
+            if (target.halted_by == id) {
                 target.halted_by.clear();
                 target.halted_reason.clear();
                 target.halt_contained = false;
@@ -1184,8 +1163,6 @@ class MockClient : public Client {
     }
 
     bool supports_artifacts() const override { return true; }
-    // HANABI_MOCK_ARTIFACT_FAIL_ONCE=<status>: each artifact's first fetch
-    // answers that status; the next succeeds (a transient failure).
     static std::atomic<int>& artifact_fetches() {
         static std::atomic<int> n{0};
         return n;
@@ -1215,7 +1192,6 @@ class MockClient : public Client {
         for (std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
             out.bytes.append(buf, n);
         std::fclose(f);
-        // The server's headers, whatever the caller knew.
         out.media_type = ref.id == "art-chart" ? "image/png" : "audio/wav";
         out.file_name = ref.id == "art-chart" ? "price-tiers.png" : "approval-note.wav";
         return Result<ArtifactContent>::success(std::move(out));
@@ -1255,7 +1231,6 @@ class MockClient : public Client {
     // Test seam: let a latched compaction round (HANABI_MOCK_COMPACT_HOLD_MS=
     // latch) finish. Safe to call when none is held.
     static void release_compaction() { compact_release().store(true); }
-    // Test seam: let the held re-attach through (release_halt_observe).
     static void release_halt_observe() { halt_observe_release().store(true); }
     // Release every held send from now on; a new hold re-arms by calling
     // `arm_compact_send_hold` (the script's next press does that through the
@@ -2268,9 +2243,6 @@ class MockClient : public Client {
             // pixels; the summary is a faithful digest of the four rows above
             // it, because a fixture that summarizes something else teaches
             // the reader the divider lies.
-            // HANABI_ARTIFACT_DEMO: 1|open = bytes local; fetch = rows fetch;
-            // typeless = shown, create not in the page; hidden = shown then
-            // hidden.
             if (const char* demo = std::getenv("HANABI_ARTIFACT_DEMO");
                 demo != nullptr && *demo != 0) {
                 const std::string mode = demo;
@@ -3002,13 +2974,6 @@ class MockClient : public Client {
             v.push_back(std::move(pin));
         }
 
-        // ELEMENT FIXTURE: one thread of model-emitted elements, seeded only
-        // under HANABI_ELEMENTS_DEMO. Rows carry their seq as their id so
-        // api::elements::fold_element -- the same fold the wire parser runs
-        // -- stands each element at its FIRST emit and folds the re-emit
-        // into that row: a pinned table re-emitted at rev 2, an inline note
-        // whose projection holds a run of backticks, an artifact-placed card
-        // with an empty projection.
         if (const char* ed = std::getenv("HANABI_ELEMENTS_DEMO");
             ed && *ed && std::string(ed) != "0") {
             Session s;
@@ -3659,11 +3624,6 @@ class MockClient : public Client {
                 s.access = session_access_from_wire(a);
             else
                 s.access = SessionAccess::Owner;
-            // The halt advert as the server pushes it: owner only, and only
-            // when this backend serves the verb at all.
-            // HANABI_MOCK_NO_HALT_ADVERT withholds the token while the verb
-            // is still served: an older server the client would otherwise
-            // send to on `supports_halt()` alone.
             s.can_halt = s.access == SessionAccess::Owner &&
                          std::getenv("HANABI_MOCK_NO_HALT") == nullptr &&
                          std::getenv("HANABI_MOCK_NO_HALT_ADVERT") == nullptr;

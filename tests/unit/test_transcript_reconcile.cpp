@@ -119,11 +119,6 @@ static void test_the_cursor_is_the_newest_durable_seq() {
     CHECK(ecs::model::newest_seq({}) == 0);
 }
 
-// The production path a live hide takes: the refetch window re-delivers the
-// artifact row with `hidden` set and the same text/subtitle. The row must be
-// refreshed (it draws differently), and the bytes the fetch system adopted
-// -- unknown to a fresh parse -- must survive the replacement. A new version
-// is new bytes: nothing carried.
 static void test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes() {
     auto mine = three();
     Message art = row("13", api::Role::System, "image/png  \xc2\xb7  4 KB");
@@ -138,7 +133,6 @@ static void test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes(
     art.image_path = art.artifact.local_path;
     mine.push_back(art);
 
-    // Same row, now hidden (text and subtitle unchanged).
     Message fresh_hidden = art;
     fresh_hidden.artifact.hidden = true;
     fresh_hidden.artifact.local_path.clear();
@@ -151,12 +145,10 @@ static void test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes(
     CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Ready);
     CHECK(mine[3].image_path == mine[3].artifact.local_path);
 
-    // The same window again: nothing changes, nothing is reset.
     out = ecs::model::reconcile_transcript(mine, {fresh_hidden});
     CHECK(out.kind == Kind::Unchanged);
     CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Ready);
 
-    // A re-show on a NEW version replaces the row and carries no bytes.
     Message fresh_v2 = art;
     fresh_v2.artifact.version = "v2";
     fresh_v2.artifact.local_path.clear();
@@ -169,9 +161,6 @@ static void test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes(
     CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Idle);
 }
 
-// (f) A refetch that adds the run's terminal to an existing last message --
-// same text, only run_outcome/run_note new -- must land, not be dropped as
-// "same row".
 static void test_a_run_terminal_arriving_on_an_existing_row_lands() {
     auto mine = three();
     Message fresh = mine[2];
@@ -181,7 +170,6 @@ static void test_a_run_terminal_arriving_on_an_existing_row_lands() {
     CHECK(out.kind == Kind::Updated);
     CHECK(mine[2].run_outcome == "failed");
     CHECK(mine[2].run_note == "2 of 3 declared calls did not run");
-    // And a bare RunOutcome row appended by the fresh page is appended here.
     Message bare;
     bare.id = "run_finished:40";
     bare.role = api::Role::System;

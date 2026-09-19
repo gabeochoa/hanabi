@@ -128,24 +128,14 @@ inline Brake brake_for(const std::string& id, const api::SessionSummary* sum,
         return {true, true,
                 line("Frozen", sum->frozen_by, sum->frozen_reason, "")};
     if (open != nullptr && open->halt_engaged()) {
-        // Contained by an ancestor: the mark is the ROOT's, and a resume aimed
-        // at this thread would clear a bit it never had -- so the banner names
-        // the conversation whose Resume lifts the tree (the reference's own
-        // hint, SessionBrakeBanner.resumeHint).
         const bool byAncestor = !open->halted_by.empty() && open->halted_by != id;
         std::string caption =
             line("Halted", open->halted_by, open->halted_reason,
                  byAncestor ? "resume " + open->halted_by + " to lift the whole tree"
                             : "no run will start until it is resumed");
-        // Provisional words stay in the caption -- not in a toast that times
-        // out -- until a fresh attach has spoken to the mark.
         if (!haltNote.empty()) caption += " (" + haltNote + ")";
         return {true, false, std::move(caption)};
     }
-    // No proven brake yet, but a halt write whose fate is not observed (or a
-    // resumed root whose mark release is not): the caption carries the
-    // provisional note in the same parenthesised form, so the state has a
-    // surface before the first Hello and the toast is only the acknowledgement.
     if (!haltNote.empty()) return {true, false, "Halt (" + haltNote + ")"};
     return {};
 }

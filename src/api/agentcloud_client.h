@@ -239,7 +239,6 @@ std::string artifact_row_text(const ArtifactRef& ref);
 inline constexpr std::size_t kWireTagMaxBytes = 80;
 inline constexpr const char* kUntypedWireTag = "(untyped)";
 std::string sanitized_wire_tag(const std::string& raw);
-// Pure pieces of parse_page_frames, exposed for their units.
 std::string delivery_label_for(const std::string& source_kind, const std::string& task_id);
 std::string undispatched_declared_calls_note(int declared, int dispatched);
 
@@ -368,8 +367,6 @@ class LiveTurn {
     using ChildCauseMap =
         std::map<std::pair<std::string, std::uint64_t>, std::uint64_t>;
     void share_child_causes(ChildCauseMap* causes) { causesShared_ = causes; }
-    // The attach Hello's journal seq: a durable halt/resume frame at or below
-    // it is history the snapshot already folded, never a change.
     void set_boundary(int64_t boundary) { boundary_ = boundary; }
 
    private:

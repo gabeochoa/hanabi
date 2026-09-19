@@ -361,10 +361,6 @@ struct Pane {
 struct AppComponent : public afterhours::BaseComponent {
     std::shared_ptr<api::Client> client;
     std::string backend_label;
-    // Web origin for Copy Weblink / Open in Web (from config web_base_url /
-    // env HANABI_WEB_BASE_URL). Empty or not http(s) => no web link: those
-    // rows are disabled; Copy Deeplink (the app's own scheme) needs nothing.
-    // Never used as an API endpoint.
     std::string webBaseUrl;
     // Where a work-tracker id in a message points (from config
     // tracker_base_url / env HANABI_TRACKER_BASE_URL). Empty => ids in the
@@ -568,10 +564,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // menu and applied by the sidebar — the same one-writer arrangement the
     // star toggle uses, so the sessions vector still has exactly one mutator.
     std::string requestToggleArchive;
-    // Directed form: archive (true) or unarchive (false) `requestSetArchiveId`
-    // without flipping, and without the toggle's undo toast -- the combined
-    // Archive and Close Tab must never unarchive a thread archived since the
-    // menu was built, and a landed combined act shows nothing.
     std::string requestSetArchiveId;
     bool requestSetArchiveTo = false;
     // Request to silence (or un-silence) a thread on this machine. Same
@@ -682,9 +674,9 @@ struct AppComponent : public afterhours::BaseComponent {
 
     std::string viewerImagePath;
     std::string viewerImageName;
-    long long viewerFocusBefore = -1;    // focus_id at open; restored at close
+    long long viewerFocusBefore = -1;
     long long viewerOpenerEntity = -1;
-    long long viewerBackdropEntity = -1;  // the scrim's entity, once drawn
+    long long viewerBackdropEntity = -1;
     bool artifactFetchPending = false;
 
     // Search across threads (Cmd+Shift+F). Same shape as the palette, over a
@@ -1178,8 +1170,6 @@ struct AppComponent : public afterhours::BaseComponent {
         std::string asksJson;
         std::optional<std::string> servingModel;
         bool servingFallback = false;
-        // The session's own halt flag, when a durable frame moved it during
-        // this collect: the LAST value seen wins.
         std::optional<bool> ownHalted;
         // Every compaction marker the turn journaled, in order: each lands as
         // its own divider row between the echo and the reply when the drain
@@ -1516,13 +1506,6 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string requestInterruptId;
     std::future<api::Result<std::string>> interruptFuture;
     bool interruptPending = false;
-    // --- Halt / resume: the session-level brake (not the run's Stop) -------
-    // One serializer per session (halt_state.h): at most one write in flight,
-    // an opposite intent queued behind it, same-kind intents coalesced, and
-    // after an unconfirmed write nothing else goes out until a fresh attach
-    // has been observed. The worker is one future at a time app-wide; the
-    // write it carries names its session and ticket so a late answer from an
-    // older attempt cannot settle a newer one.
     struct HaltWrite {
         std::string sessionId;
         hanabi::halt::Intent intent = hanabi::halt::Intent::Halt;
@@ -1530,28 +1513,18 @@ struct AppComponent : public afterhours::BaseComponent {
         int pane = 0;
     };
     std::unordered_map<std::string, hanabi::halt::Serializer> haltSerializers;
-    std::deque<HaltWrite> haltWrites;   // issued by the serializers, waiting for the worker
+    std::deque<HaltWrite> haltWrites;
     std::optional<HaltWrite> haltInFlight;
     std::future<hanabi::halt::Outcome> haltFuture;
-    // Sessions whose last write was UNCONFIRMED: the next attach observation
-    // (refetch) is what frees them. Shown as "not confirmed" until then.
     std::unordered_set<std::string> haltAwaitingObservation;
-    // Sessions whose OWN FLAG is proven but whose containment MARK is not yet
-    // observed (a subtree halt, or a marked root's resume): the brake caption
-    // says "not yet confirmed" until a Hello speaks to the mark. Distinct from
-    // the set above: nothing is gated, only the words are provisional.
     std::unordered_set<std::string> haltMarkUnconfirmed;
-    // What the brake caption should append for `id`, or empty.
     static bool halt_log_on() { return std::getenv("HANABI_HALT_LOG") != nullptr; }
-    std::unordered_set<std::string> captionLogArm;  // trace only
+    std::unordered_set<std::string> captionLogArm;
     std::string halt_confirmation_note(const std::string& id) const {
         std::string note;
         if (haltAwaitingObservation.count(id)) note = "sent, not confirmed";
         else if (haltMarkUnconfirmed.count(id)) note = "sub-agent containment not yet confirmed";
         if (halt_log_on() && !note.empty()) {
-            // Logged on every frame drawn after a `cleared` line for this id
-            // (captionLogArm), else once per distinct note: the question the
-            // trace answers is whether the caption is drawn AFTER the erase.
             static std::string lastLogged;
             const std::string key = id + "|" + note;
             if (key != lastLogged || captionLogArm.count(id)) {
@@ -1563,8 +1536,6 @@ struct AppComponent : public afterhours::BaseComponent {
         }
         return note;
     }
-    // The still-current intent a person may retry by hand after an
-    // unconfirmed or failed write, per session.
     std::unordered_map<std::string, hanabi::halt::Intent> haltRetryable;
 
     void request_halt(const std::string& id, hanabi::halt::Intent intent, int pane) {
@@ -1579,8 +1550,6 @@ struct AppComponent : public afterhours::BaseComponent {
         if (const auto w = sz.retry(it->second))
             haltWrites.push_back(HaltWrite{id, w->intent, w->ticket, pane});
     }
-    // A fresh observation of `id` (an attach Hello landed, or a durable frame
-    // moved the flag): frees an observe-gated serializer and drains its queue.
     void halt_observed(const std::string& id, const hanabi::halt::Observation& now,
                        hanabi::halt::Serializer::Source source =
                            hanabi::halt::Serializer::Source::Hello) {
@@ -1594,7 +1563,7 @@ struct AppComponent : public afterhours::BaseComponent {
         if (it == haltSerializers.end()) return;
         if (source == hanabi::halt::Serializer::Source::Hello) {
             const auto a = haltAwaitingObservation.erase(id);
-            const auto m = haltMarkUnconfirmed.erase(id);  // a Hello has spoken to the mark
+            const auto m = haltMarkUnconfirmed.erase(id);
             if (halt_log_on()) {
                 std::fprintf(stderr, "[halt] cleared %s awaiting-=%zu mark-=%zu (this=%p)\n", id.c_str(),
                              a, m, static_cast<const void*>(this));
@@ -1608,13 +1577,7 @@ struct AppComponent : public afterhours::BaseComponent {
                 r != haltRetryable.end() && hanabi::halt::satisfied(r->second, now))
                 haltRetryable.erase(r);
     }
-    // Busy = a write in flight, or an unconfirmed one awaiting its
-    // observation: the rows are drawn (the state is what was last observed)
-    // but disabled -- a pick now would only queue behind what is unknown.
     bool halt_in_flight_for(const std::string& id) const {
-        // A mark not yet observed is unknown state too: a Resume picked
-        // against it would settle on an echo that proves nothing about
-        // the mark. Rows stay drawn but dimmed until the Hello.
         if (haltAwaitingObservation.count(id) || haltMarkUnconfirmed.count(id)) return true;
         const auto it = haltSerializers.find(id);
         return it != haltSerializers.end() && it->second.in_flight();
@@ -2218,7 +2181,7 @@ struct TabStripComponent : public afterhours::BaseComponent {
     bool menuOpen = false;
     afterhours::EntityID menuTabId =
         std::numeric_limits<afterhours::EntityID>::max();
-    std::string menuSessionId;  // captured at open; outlives the tab entity
+    std::string menuSessionId;
     float menuX = 0.0f;         // cursor x at right-click (menu top-left)
     float menuY = 0.0f;         // cursor y at right-click
     // The native arm's state for this menu (see AppComponent::nativeRowMenu).

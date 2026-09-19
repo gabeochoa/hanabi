@@ -191,4 +191,4 @@ inline FoldOutcome fold_element_row(std::vector<Message>& rows, const Message& f
     return fold_element(rows, fresh.element, fresh.element.anchor_seq, fresh.created_at);
 }
 
-}  // namespace api::elements
+}

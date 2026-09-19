@@ -16,11 +16,6 @@
 
 namespace ecs {
 
-// Fetches a shown artifact's bytes into the cache, once per (id, version,
-// file), and stamps every row that refers to it with the result. A fetch does
-// not need the version manifest: the id and version address the content, the
-// response's Content-Type / Content-Disposition (then the byte signature)
-// type it. Transient failures retry on re-observation; permanent ones stand.
 struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
     struct Fetched {
         bool ok = false;
@@ -216,8 +211,6 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
                 if (resolve(*app, sessionId, m)) pane.note_transcript_update(i);
             }
         }
-        // Re-observation retries a transient failure: once its row is out of
-        // every pane the slot is dropped, so the row's return fetches again.
         for (auto it = slots_.begin(); it != slots_.end();) {
             const bool gone = std::find(observed.begin(), observed.end(), it->first) == observed.end();
             if (it->second.failed && it->second.transient && gone) it = slots_.erase(it);
@@ -229,4 +222,4 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
     std::unordered_map<std::string, Slot> slots_;
 };
 
-}  // namespace ecs
+}

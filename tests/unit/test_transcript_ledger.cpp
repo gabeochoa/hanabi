@@ -903,18 +903,9 @@ static void test_slack_above_and_below_keep_the_edges_honest() {
     CHECK(std::fabs(led.scroll_for(up, viewH) - (s1 - 30.0f)) < 0.01f);
 }
 
-// Pinned to the bottom, the viewport top is the CLAMPED top, never the total:
-// a thread shorter than the viewport starts at 0 (less the slack above), and
-// a window derived from it -- the paragraph cull the bubbles apply -- must
-// keep every row of that thread. Using the total instead put the window's
-// top half a viewport below the real one and culled the body of a short
-// early row while later rows drew (the first assistant paragraph before an
-// element row).
 static void test_pinned_bottom_top_is_the_clamped_top_not_the_total() {
     std::printf("test_pinned_bottom_top_is_the_clamped_top_not_the_total\n");
     FakeThread t;
-    // The element fixture's shape: user, assistant, element, assistant,
-    // element, assistant, element -- seven rows, ~505 px, in a 760 px view.
     for (int i = 0; i < 7; ++i) {
         FakeThread::Msg m;
         m.id = std::to_string(i);
@@ -930,23 +921,19 @@ static void test_pinned_bottom_top_is_the_clamped_top_not_the_total() {
     follow.bottom = true;
     frame(led, t, reset_mut(1), f, follow, viewH);
     const float total = led.total();
-    CHECK(total > 400.0f && total < viewH);  // the premise: a short thread
+    CHECK(total > 400.0f && total < viewH);
     const float top = led.pinned_bottom_top(viewH);
-    CHECK(std::fabs(top - 0.0f) < 0.01f);                  // the content's top
-    CHECK(std::fabs(top - led.scroll_for(follow, viewH)) < 0.01f);  // one rule
-    // The paragraph window the bubbles cull against, derived from the pinned
-    // top: every row's pixels lie inside it. Derived from the total, row 1
-    // (the first assistant paragraph) would fall above the window.
+    CHECK(std::fabs(top - 0.0f) < 0.01f);
+    CHECK(std::fabs(top - led.scroll_for(follow, viewH)) < 0.01f);
     const float winTopFromClamp = top - viewH * 0.5f;
     const float winTopFromTotal = total - viewH * 0.5f;
     for (std::size_t r = 0; r < led.rows(); ++r) {
         const float rowTop = led.top_of(r);
         CHECK(rowTop + led.geom(r).total() >= winTopFromClamp);
     }
-    CHECK(led.top_of(1) + led.geom(1).total() < winTopFromTotal);  // the old rule culled it
-    CHECK(led.top_of(3) + led.geom(3).total() >= winTopFromTotal);  // while a later row drew
+    CHECK(led.top_of(1) + led.geom(1).total() < winTopFromTotal);
+    CHECK(led.top_of(3) + led.geom(3).total() >= winTopFromTotal);
 
-    // A long thread: pinned top is total + slack - viewH, the same as before.
     FakeThread big = FakeThread::heterogeneous(200, 3);
     TranscriptLedger led2;
     led2.set_slack_below(28.0f);

@@ -5,19 +5,11 @@
 #include <string_view>
 #include <vector>
 
-// Display-only unwrapping of the model's <thinking> protocol tags in
-// assistant prose: the stored text, the raw view, Copy and Export keep the
-// tags; the rendered prose drops them. Pairs are matched with a stack and
-// both plain tokens removed (the text between is kept); an attributed tag
-// claims its partner and both survive; a lone plain tag is removed only at
-// the text's first non-whitespace offset. A tag inside a code span, on a
-// blockquote line, or preceded by a backslash is sheltered. Fenced code
-// never reaches this (the caller splits fences first).
 namespace hanabi::thinking_tags {
 
 struct Tag {
     std::size_t start = 0;
-    std::size_t end = 0;  // one past '>'
+    std::size_t end = 0;
     bool closer = false;
     bool plain = false;
 };
@@ -42,7 +34,6 @@ inline bool on_blockquote_line(std::string_view s, std::size_t at) {
     return ls < s.size() && s[ls] == '>' && ls < at;
 }
 
-// Scans for <thinking…> / </thinking…> tags, skipping sheltered ones.
 inline std::vector<Tag> scan(std::string_view s) {
     std::vector<Tag> tags;
     bool inCode = false;
@@ -84,8 +75,6 @@ inline std::vector<Tag> scan(std::string_view s) {
     return tags;
 }
 
-// Fenced code blocks (``` … ```) are left whole; prose between them is
-// unwrapped part by part, each part judged from its own first offset.
 inline std::string unwrap_prose(std::string_view s);
 inline std::string unwrap(std::string_view s) {
     std::string out;
@@ -98,7 +87,6 @@ inline std::string unwrap(std::string_view s) {
         }
         const std::size_t close = s.find("```", fence + 3);
         if (close == std::string_view::npos) {
-            // An unclosed fence: prose before it, code to the end.
             out += unwrap_prose(s.substr(pos, fence - pos));
             out.append(s.substr(fence));
             return out;
@@ -145,4 +133,4 @@ inline std::string unwrap_prose(std::string_view s) {
 
 inline bool is_blank(std::string_view s) { return first_non_space(s) == s.size(); }
 
-}  // namespace hanabi::thinking_tags
+}

@@ -1210,9 +1210,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // __bold__ -> bold. Display-only (api::Message untouched). Conservative:
     // only removes matched paired delimiters, leaves lone `*`/`_`/`` ` `` alone
     // (e.g. "a * b" or a path with underscores is untouched).
-    // The text a row is DRAWN from: secrets redacted and, for an assistant
-    // prose row, the model's <thinking> protocol tags unwrapped (display only;
-    // m.text, the raw view, Copy and Export keep them).
     static std::string display_source(const api::Message& m) {
         std::string t = redact_secrets(m.text);
         if (m.role == api::Role::Assistant && m.kind == api::EventKind::Text &&
@@ -1220,8 +1217,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             t = hanabi::thinking_tags::unwrap(t);
         return t;
     }
-    // An assistant row whose prose unwraps to nothing draws no bubble (the row
-    // stays in the ledger, minimap and export).
     static bool draws_no_bubble(const api::Message& m) {
         return m.role == api::Role::Assistant && m.kind == api::EventKind::Text &&
                m.subtitle != "thinking" && m.attachments.empty() &&
@@ -3145,7 +3140,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static bool draws_outcome(const api::Message& m, bool isLast) {
         return !m.run_note.empty() || draws_outcome(m.run_outcome, isLast);
     }
-    // "failed · 2 of 3 declared calls did not run"
     static std::string outcome_label(const api::Message& m) {
         return m.run_note.empty() ? m.run_outcome : m.run_outcome + " \xc2\xb7 " + m.run_note;
     }
@@ -7622,8 +7616,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (AppComponent::halt_log_on() &&
             (brake.caption.find("confirmed") != std::string::npos ||
              app.captionLogArm.count(openId))) {
-            // Trace: the composer's brake inputs on every frame after an erase
-            // for this id (armed by `cleared`), and on any provisional draw.
             const auto& tp = app.panes[static_cast<std::size_t>(composerTarget.pane_index)];
             std::fprintf(stderr,
                          "[halt] composer pane=%d openId='%s' engaged=%d full='%s' note='%s' open=%s "
@@ -13363,15 +13355,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          colW - kEventInset - kThinkingInset);
     }
 
-    // ---- Element rows -----------------------------------------------------
-    //
-    // A model-emitted element, drawn as its TEXT projection: a head naming
-    // the element (its title, else its registry key), a provenance line when
-    // there is something to say beyond "inline, first revision", then the
-    // projection as literal wrapped lines -- no markdown pass, no link
-    // detection, nothing executed. The projection is model-authored via a
-    // tool and is untrusted text. The `elements_v1` advert changes nothing
-    // here: this client has no element runtime and never claims one.
     static bool is_element(const api::Message& m) {
         return m.kind == api::EventKind::Element;
     }
@@ -13456,7 +13439,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         render_ask_wrapped(ctx, body.ent(), 1, body_text,
                            ask_wrap_lines(body_text, textW), textW, kLinePitch,
                            theme::text_primary(), "element_line",
-                           /*selectable=*/true);
+                           true);
     }
 
     // The fold's own comment has always said this row is "one quiet row
@@ -13529,8 +13512,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("artifact_block"));
 
-        // State rides in the faint span; row height never changes. A row
-        // typed from the response shows what the response said.
         std::string detail = m.text;
         if (detail.empty() && !m.artifact.media_type.empty()) detail = m.artifact.media_type;
         const std::string& name = (m.subtitle == m.artifact.id && !m.artifact.file.empty())

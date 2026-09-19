@@ -567,13 +567,6 @@ inline void pin_thread_tab(TabStripComponent& strip, AppComponent& app,
     if (pinned) switch_to_tab(app, tabEntity);
 }
 
-// ONE writer for a thread's pin, whatever surface asked: the row menu, the
-// row's star glyph, the tab menu, the undo toast. The thread's pin (Settings +
-// the sessions vector) is written always; the tab half only when a tab for the
-// thread EXISTS -- pinning a closed row opens nothing and navigates nowhere
-// (the reference's setThreadPinned guards on index(of:)). With a tab present
-// the whole of pin_thread_tab applies: kept prefix, and a select on PIN only.
-// Returns whether a tab was touched, for a caller that reports it.
 inline bool set_thread_pinned(AppComponent& app, TabStripComponent* strip,
                               const std::string& id, bool pinned) {
     if (strip != nullptr) {
@@ -603,17 +596,6 @@ inline void close_all(TabStripComponent& strip, AppComponent& app) {
     app.view = SmartView::Home;
 }
 
-// The two links a thread has, kept apart because they are for different
-// readers. Pure, so the exact shapes are unit-asserted (test_e2e.cpp) rather
-// than formed inline at the menu.
-//
-// The WEB base is configured (config web_base_url / env HANABI_WEB_BASE_URL)
-// and NO host is compiled in: without one there is no web link -- the rows
-// that need one are disabled rather than handed an invented origin. A base is
-// usable only when it is a web origin: trimmed of surrounding spaces and
-// trailing slashes, and spelled with http:// or https://. Any other scheme is
-// not a web front end, and honouring it would make "Copy Weblink" hand out an
-// app-only link -- exactly what the two rows exist to keep apart.
 inline std::string web_base_for(const std::string& configured) {
     std::size_t b = 0, e = configured.size();
     while (b < e && configured[b] == ' ') ++b;
@@ -623,7 +605,6 @@ inline std::string web_base_for(const std::string& configured) {
     for (char& c : lowered) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     const bool web = lowered.rfind("https://", 0) == 0 || lowered.rfind("http://", 0) == 0;
     if (!web) return {};
-    // A bare scheme with no host is not an origin either.
     const std::size_t hostAt = base.find("://") + 3;
     if (hostAt >= base.size()) return {};
     return base;
@@ -631,18 +612,11 @@ inline std::string web_base_for(const std::string& configured) {
 inline bool has_web_base(const std::string& configured) {
     return !web_base_for(configured).empty();
 }
-// The web URL for a thread: `<base>/<id>`, or empty when there is no usable
-// web base. This is what leaves the app when someone means to SHARE a
-// conversation: it opens for a reader who has never installed the app.
 inline std::string web_url_for(const std::string& configured, const std::string& sessionId) {
     const std::string base = web_base_for(configured);
     if (base.empty()) return {};
     return base + "/" + sessionId;
 }
-// The application deep link for a thread, in the app's own registered scheme
-// and the host its URL handler parses (native_extras.mm parse_scheme_url
-// "thread"; the Spotlight catalog emits the same shape). Always available:
-// it depends on no configuration.
 inline std::string deep_link_for(const std::string& sessionId) {
     return std::string(product_branding::kUrlScheme) + "://thread/" + sessionId;
 }

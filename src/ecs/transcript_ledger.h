@@ -514,9 +514,6 @@ class TranscriptLedger {
         const float maxY = std::max(-slackAbove_, index_.total() + slackBelow_ - viewH);
         return std::clamp(y, -slackAbove_, maxY);
     }
-    // The viewport top when the reader is pinned to the bottom: the deepest
-    // top the content allows, which for a thread shorter than the viewport
-    // is the top of the content, not its total height.
     float pinned_bottom_top(float viewH) const {
         return clamp_top(std::numeric_limits<float>::max(), viewH);
     }

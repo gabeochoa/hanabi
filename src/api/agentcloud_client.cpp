@@ -1049,7 +1049,6 @@ void parse_pending_compaction(const std::string& hello_json, Session& out) {
     // hello.access rides the hello envelope, beside state (optional; a
     // token this build cannot name reads as Unknown, never as read-only).
     out.access = session_access_from_wire(str_or(hello, "access", ""));
-    // The halt advert, per attach: the server pushes it only for the owner.
     out.can_halt = hello_has_capability(hello_json, "halt_v1");
     const json& state = obj_at(hello, "state");
     const json& keys = obj_at(state, "compact_keys");
@@ -1115,7 +1114,7 @@ struct ArtifactVersion {
     std::string file;
     std::string media_type;
     std::uint64_t size_bytes = 0;
-    int file_count = 0;  // the version's files; `file` is the first
+    int file_count = 0;
 };
 
 struct KnownArtifact {
@@ -1151,7 +1150,7 @@ void note_artifact_version(
     k.versions[vid] = artifact_version_from_json(version);
 }
 
-}  // namespace
+}
 
 std::string artifact_size_label(std::uint64_t bytes) {
     char buf[32];
@@ -1179,8 +1178,6 @@ std::string artifact_row_text(const ArtifactRef& ref) {
     return text;
 }
 
-// A delivered input's origin label, from `source.kind` -- the reference's
-// InputSourceKind table. Unknown or absent -> "" (bare Delivered).
 std::string delivery_label_for(const std::string& kind, const std::string& task_id) {
     if (kind == "goal_drive") return "goal driver";
     if (kind == "task") return task_id.empty() ? "task" : "task " + task_id;
@@ -1216,12 +1213,10 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
     std::unordered_map<std::string, size_t> row_for_child_id;
     std::unordered_map<int64_t, size_t> row_for_outcome_seq;
     std::unordered_map<std::string, KnownArtifact> known_artifacts;
-    // Declared tool calls per run (keyed by the run_started seq), and how
-    // many of them dispatched: the run terminal says what did not run.
     int64_t last_run_started = 0;
     std::unordered_map<int64_t, int> declared_calls;
     std::unordered_map<int64_t, int> dispatched_calls;
-    std::unordered_map<int64_t, size_t> first_row_of_run;  // out.size() at run_started
+    std::unordered_map<int64_t, size_t> first_row_of_run;
 
     for (const json& f : msg["frames"]) {
         if (!f.is_object()) continue;
@@ -1308,7 +1303,6 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             m.kind = EventKind::ToolCall;
             m.subtitle = str_or(e, "tool", "");
             row_for_intent_seq[seq] = out.size() - 1;
-            // A declared position dispatches as call_id "tool_run:<run>:<i>".
             if (const std::string call = str_or(e, "call_id", ""); call.rfind("tool_run:", 0) == 0) {
                 const std::size_t colon = call.find(':', 9);
                 if (colon != std::string::npos) {
@@ -1431,8 +1425,6 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                                     artifact_row_text(ref));
             m.artifact = std::move(ref);
         } else if (type == "artifact_hidden") {
-            // Seq-gated: marks the shows of that id that precede it; a hide
-            // older than a show leaves it. In-page only (puffin_gaps.md).
             if (str_or(e, "audience", "") != "to_client") continue;
             const std::string hidden = str_or(e, "artifact_id", "");
             if (hidden.empty()) continue;
@@ -1444,8 +1436,6 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             last_run_started = seq;
             first_row_of_run[seq] = out.size();
         } else if (type == "tool_run_requested") {
-            // Rowless: the run's recovery worklist. First declaration per run
-            // wins; a declaration before any run_started has no run.
             if (last_run_started != 0 && last_run_started < seq &&
                 declared_calls.find(last_run_started) == declared_calls.end()) {
                 int n = 0;
@@ -1455,9 +1445,6 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                 if (n > 0) declared_calls[last_run_started] = n;
             }
         } else if (type == "run_finished") {
-            // The run's terminal rides the run's last message (the divider
-            // beneath it); a run with no message gets a bare RunOutcome row,
-            // but only when there is a note to carry.
             const int64_t run = int_or(e, "run", 0);
             const auto d = declared_calls.find(run);
             const int declared = d == declared_calls.end() ? 0 : d->second;
@@ -1466,8 +1453,6 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             const std::string note = undispatched_declared_calls_note(declared, dispatched);
             std::string outcome = str_or(obj_at(e, "outcome"), "outcome", "");
             if (outcome.empty()) outcome = "completed";
-            // Walk back over THIS run's rows only to the last one that both
-            // draws and exports; never into a prior run.
             Message* carrier = nullptr;
             if (const auto first = first_row_of_run.find(run); first != first_row_of_run.end())
                 for (size_t i = out.size(); i > first->second; --i)
@@ -1492,10 +1477,6 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             // folded is the information, the text is the detail.
             push_event(EventKind::Compaction, "", str_or(e, "summary", ""));
         } else if (type == "element_emitted") {
-            // One row per instance: a re-emit lands on the row the first
-            // emit made (api::elements::fold_element), never as a new row.
-            // A payload the reader rejects is the degraded Unsupported row
-            // at this seq, the same row an unknown tag draws.
             ElementFacts facts;
             if (element_facts_from_value(obj_at(e, "element"), &facts))
                 elements::fold_element(out, facts, static_cast<std::uint64_t>(seq),
@@ -1742,8 +1723,6 @@ bool LiveTurn::feed(const json& msg, const StreamSink& sink) {
     }
     if (str_or(msg, "type", "") != "frame") return true;
 
-    // The halt pair rides beside the turn's own frames: the session's own
-    // flag, from a DURABLE frame past this attach's boundary only.
     if (str_or(msg, "frame", "") == "durable" && int_or(msg, "seq", 0) > boundary_) {
         const std::string t = str_or(obj_at(msg, "event"), "type", "");
         if (t == "session_halted")
@@ -2915,9 +2894,6 @@ hanabi::halt::Outcome AgentcloudClient::set_halt_state(const std::string& sessio
     if (conn == nullptr) return fail("could not parse " + url);
     struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
 
-    // A fresh, owner-authorized attach of its own: the `halt_v1` advert is
-    // pushed only for the owner, so its absence on THIS attach is the refusal,
-    // read before anything is sent.
     const json attach_env = {
         {"sub", 1},
         {"payload",
@@ -2940,9 +2916,6 @@ hanabi::halt::Outcome AgentcloudClient::set_halt_state(const std::string& sessio
     if (!agentcloud::hello_has_capability(hello.dump(), "halt_v1"))
         return fail("this connection may not halt or resume this conversation");
 
-    // What this attach OBSERVES, before any write: the own flag from the
-    // journal fold, and `halted_by` split into the session's own mark or an
-    // ancestor's containment.
     {
         Session seen;
         apply_brakes_from_state(obj_at(hello, "state"), seen);
@@ -2952,25 +2925,20 @@ hanabi::halt::Outcome AgentcloudClient::set_halt_state(const std::string& sessio
     }
     if (satisfied(intent, out.observed)) {
         out.status = Status::Satisfied;
-        out.mark_confirmed = true;  // the Hello itself is the fresh observation
+        out.mark_confirmed = true;
         return out;
     }
     if (out.observed.contained() && intent == Intent::Resume) {
-        // A resume from a contained descendant clears only this session's own
-        // state and leaves the ancestor's containment standing -- refused here
-        // rather than sent and reported as a success it is not.
         out.status = Status::Contained;
         out.detail = out.observed.contained_by;
-        out.mark_confirmed = true;  // the Hello IS the fresh observation, as on Satisfied
+        out.mark_confirmed = true;
         return out;
     }
 
-    // The hello's boundary: only a durable frame beyond it is a change that
-    // happened after this attach.
     const int64_t boundary = int_or(hello, "boundary", 0);
 
     json payload = {{"cmd", verb(intent)}};
-    if (subtree(intent)) payload["subtree"] = true;  // omitted when false, as the server's serde
+    if (subtree(intent)) payload["subtree"] = true;
     const json env = {{"sub", 1}, {"payload", payload}};
     const std::string wire = env.dump();
     if (!ws_send_text(conn, wire.data(), wire.size()))
@@ -3206,10 +3174,6 @@ Result<ArtifactContent> AgentcloudClient::fetch_artifact(
         path += "&version=" + agentcloud::percent_encode(ref.version);
     if (!ref.file.empty())
         path += "&path=" + agentcloud::percent_encode(ref.file);
-    // The cap is a safety bound, so it binds the TRANSFER: a declared
-    // Content-Length above it is refused before any body; an undeclared or
-    // chunked body is cut the moment it passes the cap. No whole-body
-    // allocation precedes the check.
     constexpr std::uint64_t cap = disk_cache::kArtifactMaxBytes;
     std::string body;
     bool tooLarge = false;
