@@ -75,20 +75,30 @@ inline std::optional<Millis> parse_seed_ms(std::string_view text) {
     return value;
 }
 
-inline SeededClocks seeded_clocks_for(std::string_view spec, std::string_view id) {
+inline SeededClocks seeded_clocks_for(std::string_view spec, std::string_view id, std::int64_t poll = 1) {
     SeededClocks out;
+    std::int64_t bestFrom = -1;
     while (!spec.empty()) {
         const auto comma = spec.find(',');
-        const std::string_view item = spec.substr(0, comma);
+        std::string_view item = spec.substr(0, comma);
         spec = comma == std::string_view::npos ? std::string_view() : spec.substr(comma + 1);
+        std::int64_t from = 1;
+        if (const auto at = item.rfind('@'); at != std::string_view::npos) {
+            const auto parsed = parse_seed_ms(item.substr(at + 1));
+            if (!parsed) continue;
+            from = *parsed;
+            item = item.substr(0, at);
+        }
         const auto c1 = item.find(':');
         if (c1 == std::string_view::npos || item.substr(0, c1) != id) continue;
+        if (from > poll || from < bestFrom || (from == bestFrom && out.found)) continue;
+        bestFrom = from;
         out.found = true;
         const std::string_view tail = item.substr(c1 + 1);
         const auto c2 = tail.find(':');
         out.clocks.event_ms = parse_seed_ms(tail.substr(0, c2));
-        if (c2 != std::string_view::npos) out.clocks.run_complete_ms = parse_seed_ms(tail.substr(c2 + 1));
-        return out;
+        out.clocks.run_complete_ms =
+            c2 == std::string_view::npos ? std::nullopt : parse_seed_ms(tail.substr(c2 + 1));
     }
     return out;
 }

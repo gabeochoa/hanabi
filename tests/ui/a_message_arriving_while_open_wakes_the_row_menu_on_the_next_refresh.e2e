@@ -1,0 +1,37 @@
+# A message that lands AFTER the snooze wakes the row menu while the app is
+# open: the catalog is re-read after a Stop (interrupt -> list refresh), and
+# the refreshed row carries a later message clock. Poll 1 seeds t9 with a
+# message BEFORE its snooze (parked); poll 2, the refresh the Stop causes,
+# seeds a message 30 s after it (woke). The tab menu has no row clocks and
+# reads "Snoozed until 1:00 PM" throughout. Runner clock 12:00Z, TZ=UTC;
+# snoozed at 11:59Z until 13:00Z. Each menu is held 32 frames for the
+# assertion's retry window before the Escape that closes it. The seed's
+# poll numbers assume one catalog read at launch; the first assertion is
+# what would catch a second one.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark"}
+# env: HANABI_MOCK_SNOOZES=t9:1781528400:1781524740 HANABI_MOCK_ROW_CLOCKS=t9:1781524700000,t9:1781524770000@2
+require_thread t9
+wait_frames 20
+expect_backend_state t9 running
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_text "Snoozed until 1:00 PM"
+wait_frames 32
+key ESCAPE
+wait_frames 4
+expect_input_text composer_reply_input ""
+click_ui composer_send
+wait_frames 16
+expect_backend_state t9 ready
+right_click_ui chat_row_id_t9
+wait_frames 8
+expect_text "Snooze"
+expect_no_text "Snoozed until"
+wait_frames 32
+key ESCAPE
+wait_frames 4
+right_click_ui tab_t9
+wait_frames 8
+expect_text "Snoozed until 1:00 PM"
+wait_frames 32
+key ESCAPE

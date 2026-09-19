@@ -144,6 +144,29 @@ static void test_a_clock_only_refresh_keeps_ids_and_titles_and_moves_only_the_cl
     CHECK(again[0].last_event_unix_ms == std::optional<std::int64_t>{300} && !again[0].last_run_complete_unix_ms);
 }
 
+static void test_a_later_poll_moves_the_same_rows_clock_from_x_to_y() {
+    std::vector<FakeRow> held{fake("t6", 1781524700000, 1781524600000, "SKU backfill")};
+    std::vector<FakeRow> poll2{fake("t6", 1781524770000, 1781524600000, "SKU backfill")};
+    wc::carry_held_rows(poll2, held);
+    CHECK(poll2.size() == 1 && poll2[0].id == "t6" && poll2[0].title == "SKU backfill");
+    CHECK(poll2[0].last_event_unix_ms == std::optional<std::int64_t>{1781524770000});
+    CHECK(poll2[0].last_run_complete_unix_ms == std::optional<std::int64_t>{1781524600000});
+    std::vector<FakeRow> poll3{fake("t6", 1781524000000, std::nullopt, "SKU backfill")};
+    wc::carry_held_rows(poll3, poll2);
+    CHECK(poll3[0].last_event_unix_ms == std::optional<std::int64_t>{1781524000000});
+    CHECK(!poll3[0].last_run_complete_unix_ms);
+    std::vector<FakeRow> poll4{fake("t6", std::nullopt, 1781524900000, "SKU backfill")};
+    wc::carry_held_rows(poll4, poll3);
+    CHECK(poll4[0].last_event_unix_ms == std::optional<std::int64_t>{1781524000000});
+    CHECK(poll4[0].last_run_complete_unix_ms == std::optional<std::int64_t>{1781524900000});
+    const std::int64_t now = 1781524800;
+    const std::int64_t until = now + 3600;
+    const std::optional<std::int64_t> at = 1781524740;
+    CHECK(sm::due_at(until, at, now, {held[0].last_event_unix_ms, held[0].last_run_complete_unix_ms}) ==
+          std::optional<std::int64_t>{until});
+    CHECK(!sm::due_at(until, at, now, {poll2[0].last_event_unix_ms, poll2[0].last_run_complete_unix_ms}));
+}
+
 static void test_seeded_row_clocks_parse_like_the_wire_boundary() {
     const auto none = wc::seeded_clocks_for("", "t6");
     CHECK(!none.found);
@@ -171,6 +194,22 @@ static void test_seeded_row_clocks_parse_like_the_wire_boundary() {
     CHECK(first.found && first.clocks.event_ms == std::optional<std::int64_t>{1});
     const auto malformedItem = wc::seeded_clocks_for("t6,t6:3", "t6");
     CHECK(malformedItem.found && malformedItem.clocks.event_ms == std::optional<std::int64_t>{3});
+    const char* staged = "t6:100:50,t6:300@2,t6:900:70@4,t7:5@3";
+    CHECK(wc::seeded_clocks_for(staged, "t6", 1).clocks.event_ms == std::optional<std::int64_t>{100});
+    CHECK(wc::seeded_clocks_for(staged, "t6", 1).clocks.run_complete_ms == std::optional<std::int64_t>{50});
+    CHECK(wc::seeded_clocks_for(staged, "t6", 2).clocks.event_ms == std::optional<std::int64_t>{300});
+    CHECK(!wc::seeded_clocks_for(staged, "t6", 2).clocks.run_complete_ms);
+    CHECK(wc::seeded_clocks_for(staged, "t6", 3).clocks.event_ms == std::optional<std::int64_t>{300});
+    CHECK(wc::seeded_clocks_for(staged, "t6", 4).clocks.event_ms == std::optional<std::int64_t>{900});
+    CHECK(wc::seeded_clocks_for(staged, "t6", 4).clocks.run_complete_ms == std::optional<std::int64_t>{70});
+    CHECK(wc::seeded_clocks_for(staged, "t6", 99).clocks.event_ms == std::optional<std::int64_t>{900});
+    CHECK(!wc::seeded_clocks_for(staged, "t7", 2).found);
+    CHECK(wc::seeded_clocks_for(staged, "t7", 3).found &&
+          wc::seeded_clocks_for(staged, "t7", 3).clocks.event_ms == std::optional<std::int64_t>{5});
+    CHECK(!wc::seeded_clocks_for("t6:1@x", "t6", 5).found);
+    CHECK(!wc::seeded_clocks_for("t6:1@-1", "t6", 5).found);
+    CHECK(wc::seeded_clocks_for("t6:1@0", "t6", 1).found);
+    CHECK(wc::seeded_clocks_for("t6:1@2,t6:2@2", "t6", 2).clocks.event_ms == std::optional<std::int64_t>{1});
 }
 
 static void test_menu_due_at_matches_the_reference_rule() {
@@ -263,6 +302,7 @@ int main() {
     test_carry_keeps_fresh_values_and_inherits_only_the_event_clock();
     test_carry_over_rows_matches_the_per_row_rule_and_touches_nothing_else();
     test_a_clock_only_refresh_keeps_ids_and_titles_and_moves_only_the_clocks();
+    test_a_later_poll_moves_the_same_rows_clock_from_x_to_y();
     test_seeded_row_clocks_parse_like_the_wire_boundary();
     test_menu_due_at_matches_the_reference_rule();
     test_after_snooze_units_and_bounds();

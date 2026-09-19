@@ -111,16 +111,22 @@ class MockClient : public Client {
         return s;
     }
 
+    static std::atomic<int>& list_polls() {
+        static std::atomic<int> n{0};
+        return n;
+    }
+
     static void apply_seeded_row_clocks(SessionSummary& s) {
         const char* v = std::getenv("HANABI_MOCK_ROW_CLOCKS");
         if (v == nullptr || *v == '\0') return;
-        const wire_clock::SeededClocks seeded = wire_clock::seeded_clocks_for(v, s.id);
+        const wire_clock::SeededClocks seeded = wire_clock::seeded_clocks_for(v, s.id, list_polls().load());
         if (!seeded.found) return;
         s.last_event_unix_ms = seeded.clocks.event_ms;
         s.last_run_complete_unix_ms = seeded.clocks.run_complete_ms;
     }
 
     Result<std::vector<SessionSummary>> list_sessions() override {
+        list_polls().fetch_add(1);
         const SeedPtr seedRef = seed_ptr();
         const auto& sessions = *seedRef;
         std::vector<SessionSummary> out;
