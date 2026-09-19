@@ -1,0 +1,30 @@
+# DIAGNOSTIC COPY of tab_menu_archive_and_close_after_the_tab_closed_archives_nothing_twice:
+# text owners of the thread title are dumped before and after the Archived view opens;
+# the private settings.json is kept (HANABI_UI_KEEP_HOMES=1) to read the archived map back.
+# The drawn menu does not survive its tab: when the tab is closed under a
+# standing menu (the detach_thread seam; no pointer can reach past the
+# menu's own eater), the menu closes with it and no pick happens -- so
+# nothing is archived, nothing crashes, the other tab stands. That is what
+# the reference does when there is no click; with a click after the tab
+# went it archives (archive-only), which hanabi's NATIVE arm does too
+# (route_orphan_pick, by the session id captured at open) and no headless
+# script can reach.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 12
+right_click_ui tab_t9
+wait_frames 8
+expect_text "Archive and Close Tab"
+detach_thread t9
+expect_tab t9 absent within=60
+expect_no_ui tab_menu
+expect_no_ui tab_menu_archive_close
+expect_no_text "Session archived"
+expect_open t2
+dump_text_owners "kicker-tick"
+assert_ui chat_row_id_t9 hidden=false
+click_text Archived
+wait_frames 8
+dump_text_owners "kicker-tick"
+dump_text_owners "oncall sweep"
+expect_no_text "kicker-tick"
