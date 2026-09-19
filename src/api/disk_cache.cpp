@@ -1,4 +1,5 @@
 #include "disk_cache.h"
+#include "wire_clock.h"
 #include <branding.h>
 
 #include <algorithm>
@@ -152,7 +153,7 @@ std::string safe_name(const std::string& id) {
 // older build therefore loads as a thread with no brakes rather than failing
 // to load, and the first refresh replaces the guess with the server's answer.
 json to_json(const SessionSummary& s) {
-    return json{{"id", s.id},
+    json out{{"id", s.id},
                 {"title", s.title},
                 {"updated_at", s.updated_at},
                 {"status", s.status},
@@ -166,6 +167,9 @@ json to_json(const SessionSummary& s) {
                 {"frozen_reason", s.frozen_reason},
                 {"replies_paused", s.replies_paused},
                 {"server_archived_at_ms", s.server_archived_at_ms}};
+    if (s.last_event_unix_ms) out["last_event_unix_ms"] = *s.last_event_unix_ms;
+    if (s.last_run_complete_unix_ms) out["last_run_complete_unix_ms"] = *s.last_run_complete_unix_ms;
+    return out;
 }
 
 SessionSummary summary_from_json(const json& j) {
@@ -186,6 +190,8 @@ SessionSummary summary_from_json(const json& j) {
     s.frozen_reason = j.value("frozen_reason", "");
     s.replies_paused = j.value("replies_paused", false);
     s.server_archived_at_ms = j.value("server_archived_at_ms", (int64_t)0);
+    s.last_event_unix_ms = wire_clock::read_ms(j, "last_event_unix_ms");
+    s.last_run_complete_unix_ms = wire_clock::read_ms(j, "last_run_complete_unix_ms");
     return s;
 }
 
