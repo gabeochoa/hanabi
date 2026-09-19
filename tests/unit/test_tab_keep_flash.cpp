@@ -92,9 +92,9 @@ static void test_a_relight_during_the_fade_clears_the_fade_and_sweep_retires_it(
     CHECK(!s.is_lit("a") && !s.fading("a") && s.empty());
     s.refuse_close("b", true, 20.0, false);
     s.sweep(20.30);
-    CHECK(s.fading("b") && s.empty());
+    CHECK(s.fading("b") && !s.is_lit("b") && !s.empty());
     s.sweep(20.36);
-    CHECK(!s.fading("b"));
+    CHECK(!s.fading("b") && s.empty());
 }
 
 static void test_two_tabs_do_not_share_generation_or_fade() {

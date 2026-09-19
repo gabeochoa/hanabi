@@ -67,7 +67,11 @@ class Store {
             return Mark{true, true, it->second.rise.at(now)};
         }
         const auto fading = fading_.find(tabId);
-        if (fading == fading_.end() || reduceMotion) return Mark{false, !reduceMotion, 0.0f};
+        if (fading == fading_.end()) return Mark{false, !reduceMotion, 0.0f};
+        if (reduceMotion) {
+            fading_.erase(fading);
+            return Mark{false, false, 0.0f};
+        }
         return Mark{false, true, fading->second.at(now)};
     }
 
@@ -93,7 +97,7 @@ class Store {
     }
 
     bool is_lit(const std::string& tabId) const { return entries_.count(tabId) != 0; }
-    bool empty() const { return entries_.empty(); }
+    bool empty() const { return entries_.empty() && fading_.empty(); }
     bool fading(const std::string& tabId) const { return fading_.count(tabId) != 0; }
     std::uint64_t generation() const { return generation_; }
 
