@@ -362,7 +362,7 @@ static void test_notice_precedence_and_dismiss() {
     CHECK(n.visible_slot() == NoticeSlot::Attachment);
     n.command = "no compact call yet";
     CHECK(n.visible_slot() == NoticeSlot::Command);
-    n.outbox = "one message has not reached the server";
+    n.outbox = "one message remains in the outbox";
     CHECK(n.visible_slot() == NoticeSlot::Outbox);
     n.send = "nothing was created";
     CHECK(n.visible_slot() == NoticeSlot::Send);
@@ -386,24 +386,20 @@ static void test_outbox_sentence() {
     // Nothing held says nothing at all.
     CHECK(outbox_notice(0, 3).empty());
     const std::string one = outbox_notice(1, 0);
-    CHECK(one.find("1 message has not reached the server") !=
-          std::string::npos);
-    CHECK(one.find("still retrying") != std::string::npos);
+    CHECK(one == "1 message remains in the outbox");
     // No attempts yet is not "0 tries", which reads like a refusal to try.
     CHECK(one.find("0 tries") == std::string::npos);
     const std::string many = outbox_notice(3, 4);
-    CHECK(many.find("3 messages have not reached the server") !=
-          std::string::npos);
-    CHECK(many.find("4 tries so far") != std::string::npos);
-    CHECK(outbox_notice(2, 1).find("1 try so far") != std::string::npos);
-    // It never claims delivery, in any arm -- the outbox retries, it does not
-    // confirm, and a sentence that said otherwise would be the worst thing
-    // this row could say.
+    CHECK(many == "3 messages remain in the outbox \xc2\xb7 4 tries so far");
+    CHECK(outbox_notice(2, 1) == "2 messages remain in the outbox \xc2\xb7 1 try so far");
     for (std::size_t held = 1; held <= 3; ++held)
         for (int tries = 0; tries <= 3; ++tries) {
             const std::string text = outbox_notice(held, tries);
             CHECK(text.find("sent") == std::string::npos);
             CHECK(text.find("delivered") == std::string::npos);
+            CHECK(text.find("reached") == std::string::npos);
+            CHECK(text.find("retry") == std::string::npos);
+            CHECK(text.find("remain") != std::string::npos);
         }
 }
 

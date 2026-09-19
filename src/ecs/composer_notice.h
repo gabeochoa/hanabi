@@ -112,20 +112,17 @@ struct ComposerNotices {
     }
 };
 
-// What the outbox says while it holds a message. Kept beside the slot order so
-// the sentence and the rule that raises it cannot drift apart, and phrased so
-// it never claims delivery: the outbox retries, it does not confirm.
 inline std::string outbox_notice(std::size_t held, int attempts) {
     if (held == 0) return {};
     std::string out = held == 1
-                          ? std::string("1 message has not reached the server")
+                          ? std::string("1 message remains in the outbox")
                           : std::to_string(held) +
-                                " messages have not reached the server";
+                                " messages remain in the outbox";
     if (attempts > 0)
         out += attempts == 1 ? " \xc2\xb7 1 try so far"
                              : " \xc2\xb7 " + std::to_string(attempts) +
                                    " tries so far";
-    return out + " \xc2\xb7 still retrying";
+    return out;
 }
 
 }  // namespace ecs::model

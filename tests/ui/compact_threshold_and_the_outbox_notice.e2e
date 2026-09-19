@@ -47,5 +47,5 @@ type "held while the backend is away"
 wait_frames 6
 key ENTER
 wait_frames 60
-expect_text "has not reached the server"
-expect_text "still retrying"
+expect_text "1 message remains in the outbox"
+expect_no_text "still retrying"
