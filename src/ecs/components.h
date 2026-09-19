@@ -683,7 +683,7 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string viewerImagePath;
     std::string viewerImageName;
     long long viewerFocusBefore = -1;    // focus_id at open; restored at close
-    long long viewerOpenerEntity = -1;   // the image whose press opened it
+    long long viewerOpenerEntity = -1;
     long long viewerBackdropEntity = -1;  // the scrim's entity, once drawn
     bool artifactFetchPending = false;
 
