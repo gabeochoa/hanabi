@@ -28,6 +28,9 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
         case Command::CloseTab:
             app.requestCloseActiveTab = true;
             break;
+        case Command::CloseKeptTab:
+            app.requestCloseKeptTab = true;
+            break;
         case Command::ToggleSidebar:
             if (layout != nullptr) {
                 layout->sidebarCollapsed = !layout->sidebarCollapsed;
@@ -111,6 +114,7 @@ struct System : afterhours::System<> {
         if (app->shortcutRecording >= 0) return;
         for (const auto& item : hanabi::shortcuts::kDefinitions) {
             if (!Settings::get().get_shortcut_enabled(item.command)) continue;
+            if (!menubar_command_enabled(static_cast<int>(item.command))) continue;
             if (hanabi::keys::shortcut_pressed(
                     Settings::get().get_shortcut(item.command))) {
                 dispatch(item.command, *app, layout);

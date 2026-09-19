@@ -1,0 +1,38 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t6","pinned_tabs":["t6"],"theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
+require_thread t6
+wait_frames 12
+native_mode on
+wait_frames 4
+expect_tab t6 pinned
+expect_tab_keep_flash t6 resting
+assert_ui tab_pin w=10 h=12
+native_click_ui tab_close
+wait_frames 6
+expect_tab t6 pinned
+expect_open t6
+expect_tab_keep_flash t6 lit
+assert_ui tab_pin w=10 h=12
+wait 1
+expect_tab_keep_flash t6 resting
+native_key 13 w cmd
+wait_frames 6
+expect_tab t6 pinned
+expect_open t6
+expect_tab_keep_flash t6 lit
+wait 1
+expect_tab_keep_flash t6 resting
+native_right_click_ui tab_active
+wait_frames 8
+native_menu_expect open tab:t6
+native_menu_expect action close
+native_menu_expect disabled archive_close
+native_menu_inject dismiss
+wait_frames 8
+native_menu_expect closed
+expect_tab t6 pinned
+native_key 13 w cmd shift
+wait_frames 12
+expect_tab t6 absent
+expect_open t2
+expect_tab_keep_flash t6 resting

@@ -1,0 +1,67 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","pinned_tabs":["t6"],"theme":"dark"}
+require_thread t2
+wait_frames 12
+expect_tab t6 pinned
+expect_tab t2 kept
+expect_tab_keep_flash t6 resting
+assert_ui tab_t6 hidden=false
+assert_ui tab_pin w=10 h=12
+mouse_move 20 20
+wait_frames 4
+click_ui tab_close_t6
+wait_frames 4
+expect_tab t6 pinned
+expect_open t2
+expect_tab_keep_flash t6 lit
+assert_ui tab_t6 hidden=false
+assert_ui tab_pin w=10 h=12
+tab_keep_flash_advance 1
+wait_frames 2
+expect_tab_keep_flash t6 resting
+click_ui tab_t6
+wait_frames 12
+expect_open t6
+click_ui tab_close
+wait_frames 4
+expect_tab t6 pinned
+expect_open t6
+expect_tab_keep_flash t6 lit
+tab_keep_flash_advance 1
+wait_frames 2
+expect_tab_keep_flash t6 resting
+key CMD+W
+wait_frames 4
+expect_tab t6 pinned
+expect_open t6
+expect_tab_keep_flash t6 lit
+key CMD+W
+wait_frames 2
+expect_tab_keep_flash t6 lit
+tab_keep_flash_advance 1
+wait_frames 2
+expect_tab_keep_flash t6 resting
+right_click_ui tab_active
+wait_frames 10
+expect_text "Close Tab"
+click_ui tab_menu_close
+wait_frames 6
+expect_no_ui tab_menu
+expect_tab t6 pinned
+expect_open t6
+expect_tab_keep_flash t6 lit
+tab_keep_flash_advance 1
+wait_frames 2
+expect_tab_keep_flash t6 resting
+expect_tab t2 kept
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+key CMD+W
+wait_frames 8
+expect_tab t2 absent
+expect_open t6
+expect_tab_keep_flash t2 resting
+key CMD+SHIFT+W
+wait_frames 12
+expect_tab t6 absent
+expect_tab_keep_flash t6 resting

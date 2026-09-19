@@ -22,6 +22,7 @@
 #include <cstring>
 
 #include "menubar.h"
+#include "resize_drive.h"
 #include "settings.h"
 #include "shortcuts.h"
 
@@ -74,6 +75,15 @@ static NSString* const kGlyph = @"\u2726";
     (void)sender;
     [NSApp terminate:nil];
 }
+- (BOOL)validateMenuItem:(NSMenuItem*)item {
+    if (item.action != @selector(onCommand:)) return YES;
+    const int command = static_cast<int>(item.tag);
+    if (command == static_cast<int>(hanabi::shortcuts::Command::CloseKeptTab) &&
+        !hanabi_native_tab_host_is_key())
+        return NO;
+    return menubar_command_enabled(command) ? YES : NO;
+}
+
 - (void)onCommand:(id)sender {
     NSMenuItem* item = (NSMenuItem*)sender;
     const int command = static_cast<int>(item.tag);
@@ -87,6 +97,9 @@ static NSString* const kGlyph = @"\u2726";
         g_recorded_modifiers.store(shortcut.modifiers);
         return;
     }
+    if (command == static_cast<int>(hanabi::shortcuts::Command::CloseKeptTab) &&
+        !hanabi_native_tab_host_is_key())
+        return;
     g_command.store(command);
 }
 @end
@@ -314,6 +327,7 @@ static void install_main_menu() {
     [fileMenu addItem:command_item(hanabi::shortcuts::Command::NewTab)];
     [fileMenu addItem:command_item(hanabi::shortcuts::Command::ReopenClosedTab)];
     [fileMenu addItem:command_item(hanabi::shortcuts::Command::CloseTab)];
+    [fileMenu addItem:command_item(hanabi::shortcuts::Command::CloseKeptTab)];
     fileRoot.submenu = fileMenu;
     [g_main_menu addItem:fileRoot];
 
@@ -461,6 +475,18 @@ void menubar_install(void) {
         g_last_blocked = 0;
         NSLog(@"menubar: installed, title=%@", g_status_item.button.title);
     }
+}
+
+static std::array<std::atomic<int>, hanabi::shortcuts::kDefinitions.size()> g_command_enabled{};
+
+void menubar_set_command_enabled(int command, bool enabled) {
+    if (command < 0 || command >= static_cast<int>(g_command_enabled.size())) return;
+    g_command_enabled[static_cast<std::size_t>(command)].store(enabled ? 1 : 2);
+}
+
+bool menubar_command_enabled(int command) {
+    if (command < 0 || command >= static_cast<int>(g_command_enabled.size())) return false;
+    return g_command_enabled[static_cast<std::size_t>(command)].load() != 2;
 }
 
 void menubar_set_blocked(int n) {

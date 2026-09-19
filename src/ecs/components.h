@@ -806,6 +806,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // flag (mirrors requestOpenTab/requestToggleStar) — cleared on consume.
     bool requestNewTask = false;
     bool requestCloseActiveTab = false;
+    bool requestCloseKeptTab = false;
     bool requestReopenClosedTab = false;
     // 1..9 while a Cmd digit is waiting to be resolved against the strip, 0
     // otherwise. Resolved by TabBarSystem, which is the only thing that knows

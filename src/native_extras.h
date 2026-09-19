@@ -230,6 +230,7 @@ void native_open_url(const char* url);
 // Defined in sokol_impl.mm (macOS-only link). Lets the "System" theme resolve
 // to the real OS setting instead of always falling back to Dark (gap #16).
 bool macos_is_dark_mode(void);
+bool macos_reduce_motion(void);
 
 void macos_set_app_appearance(bool dark);
 
@@ -255,6 +256,13 @@ inline bool os_is_dark_mode() {
     return macos_is_dark_mode();
 #else
     return true;
+#endif
+}
+inline bool os_reduce_motion() {
+#if defined(__APPLE__)
+    return macos_reduce_motion();
+#else
+    return false;
 #endif
 }
 }  // namespace hanabi

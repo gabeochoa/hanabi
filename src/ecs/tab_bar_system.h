@@ -26,6 +26,11 @@
 #include "../util/capture_clock.h"
 #include "tab_colors.h"
 #include "tab_model.h"
+#include "tab_keep_flash.h"
+#include "ui_clock.h"
+#include "../menubar.h"
+#include "../resize_drive.h"
+#include "../shortcuts.h"
 #include "surface_tabs.h"
 #include "../keys.h"
 #include "ui_imports.h"
@@ -56,13 +61,18 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
         if (app.requestCloseActiveTab) {
             app.requestCloseActiveTab = false;
-            for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
-                auto opt = EntityHelper::getEntityForID(strip.tabOrder[i]);
-                if (opt.valid() && opt->has<ActiveTab>()) {
-                    close_tab(strip, app, strip.tabOrder[i], i, true);
-                    break;
-                }
-            }
+            if (const Tab* active = model::active_tab(strip))
+                model::request_close(strip, app, active->sessionId, model::CloseIntent::Aimed);
+        }
+        if (app.requestCloseKeptTab) {
+            app.requestCloseKeptTab = false;
+            if (const Tab* active = model::active_tab(strip); active != nullptr && hanabi_native_tab_host_is_key())
+                model::request_close(strip, app, active->sessionId, model::CloseIntent::Forced);
+        }
+        {
+            const Tab* active = model::active_tab(strip);
+            menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::CloseKeptTab),
+                                        active != nullptr && active->pinned && hanabi_native_tab_host_is_key());
         }
 
         // Reopen the last closed tab, serviced beside the close it undoes so
@@ -385,10 +395,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 if (afterhours::ui::is_mouse_inside(
                         ctx.mouse.pos,
                         RectangleType{hitX, tabY, hitR - hitX, tabH})) {
-                    const afterhours::EntityID tabId = strip.tabOrder[i];
-                    auto o = EntityHelper::getEntityForID(tabId);
-                    const bool wasActive = o.valid() && o->has<ActiveTab>();
-                    close_tab(strip, app, tabId, i, wasActive);
+                    auto o = EntityHelper::getEntityForID(strip.tabOrder[i]);
+                    if (o.valid() && o->has<Tab>())
+                        model::request_close(strip, app, o->get<Tab>().sessionId, model::CloseIntent::Aimed);
                     strip.clear_drag();  // a middle-press must not start a drag
                     break;
                 }
@@ -656,6 +665,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             // loaded (`backends/sokol/backend.h:403`). Straight through, then
             // -- one less thing that has to know what it is sitting on.
             if (tab.pinned) {
+                const hanabi::tab_keep_flash::Mark keepMark = hanabi::tab_keep_flash::store().mark(
+                    tab.sessionId, hanabi::ui_clock::now_seconds(), hanabi::ui_clock::reduce_motion());
                 auto pin =
                     div(ctx, mk(uiRoot, 960 + static_cast<int>(i)),
                         ComponentConfig{}
@@ -667,8 +678,20 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                             .with_transparent_bg()
                             .with_roundness(0.0f)
                             .with_render_layer(baseLayer + 1)
-                            .with_on_draw_fg([](RectangleType rc) {
-                                hanabi::glyph::pin(rc, tab_colors::pin_ink());
+                            .with_on_draw_fg([keepMark](RectangleType rc) {
+                                const float s = hanabi::tab_keep_flash::scale_for(keepMark);
+                                RectangleType drawn{rc.x + rc.width * (1.0f - s) * 0.5f,
+                                                    rc.y + rc.height * (1.0f - s) * 0.5f, rc.width * s,
+                                                    rc.height * s};
+                                const afterhours::Color rest = tab_colors::pin_ink();
+                                const afterhours::Color lit = theme::accent();
+                                const float p = keepMark.progress;
+                                afterhours::Color ink = rest;
+                                ink.r = static_cast<unsigned char>(rest.r + (lit.r - rest.r) * p);
+                                ink.g = static_cast<unsigned char>(rest.g + (lit.g - rest.g) * p);
+                                ink.b = static_cast<unsigned char>(rest.b + (lit.b - rest.b) * p);
+                                ink.a = static_cast<unsigned char>(255.0f * hanabi::tab_keep_flash::opacity_for(keepMark));
+                                hanabi::glyph::pin(drawn, ink);
                             })
                             .with_debug_name("tab_pin"));
                 hanabi::a11y::set_name(pin.ent(), "Pinned tab");
@@ -825,7 +848,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     hanabi::a11y::set_name(closeBtn.ent(), closeAccessible);
                     if (closeBtn) {
                         strip.clear_drag();
-                        close_tab(strip, app, tabId, i, isActive);
+                        model::request_close(strip, app, tab.sessionId, model::CloseIntent::Aimed);
                         return;
                     }
                 }  // closeX in-bounds
@@ -1088,15 +1111,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 return;
             }
             switch (actions[row]) {
-                case CloseTab: {
-                    for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
-                        if (strip.tabOrder[i] != tabEntity.id) continue;
-                        close_tab(strip, app, tabEntity.id, i,
-                                  tabEntity.has<ActiveTab>());
-                        break;
-                    }
+                case CloseTab:
+                    model::request_close(strip, app, keepId, model::CloseIntent::Aimed);
                     break;
-                }
                 case CloseOthers:
                     model::close_others(strip, app, keepId);
                     break;
@@ -1166,12 +1183,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestToggleArchive = keepId;
                     break;
                 case ArchiveClose: {
-                    if (tabEntity.get<Tab>().pinned) break;
-                    for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
-                        if (strip.tabOrder[i] != tabEntity.id) continue;
-                        close_tab(strip, app, tabEntity.id, i, tabEntity.has<ActiveTab>());
+                    if (model::request_close(strip, app, keepId, model::CloseIntent::Aimed) ==
+                        model::CloseOutcome::Refused)
                         break;
-                    }
                     app.requestSetArchiveId = keepId;
                     app.requestSetArchiveTo = true;
                     break;
@@ -1218,11 +1232,6 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         model::switch_to_tab(app, newTab);
     }
 
-    static void close_tab(TabStripComponent& strip, AppComponent& app,
-                          afterhours::EntityID tabId, size_t index,
-                          bool wasActive) {
-        model::close_tab(strip, app, tabId, index, wasActive);
-    }
 };
 
 // Consumes AppComponent::requestOpenTab (a sidebar/digest row click) and turns

@@ -31,6 +31,8 @@ void menubar_diagnostics(char* out, int cap);
 bool menubar_edit_binding(const char* selector, unsigned short* key_code,
                            unsigned long long* modifiers);
 void menubar_simulate_command(int command);
+void menubar_set_command_enabled(int command, bool enabled);
+bool menubar_command_enabled(int command);
 
 #ifdef __cplusplus
 }

@@ -758,6 +758,11 @@ extern "C" void hanabi_native_drag_resize(int dw, int dh, int steps) {
     post(NSEventTypeLeftMouseUp, NSMakePoint(corner.x + dw, corner.y - dh));
 }
 extern "C" int hanabi_native_has_window(void) { return the_window() != nil; }
+extern "C" int hanabi_native_tab_host_is_key(void) {
+    NSWindow* w = the_window();
+    if (w == nil) return NSApp == nil || [NSApp keyWindow] == nil;
+    return [NSApp keyWindow] == w;
+}
 
 namespace {
 struct Mod { unsigned bit; unsigned short code; NSEventModifierFlags flag; };

@@ -25,6 +25,8 @@
 #include "../util/format.h"
 #include "surface_tabs.h"
 #include "components.h"
+#include "tab_keep_flash.h"
+#include "ui_clock.h"
 
 namespace ecs::model {
 
@@ -382,15 +384,40 @@ inline void reconcile_panes_with_tabs(const TabStripComponent& strip,
     }
 }
 
-inline void close_tab(TabStripComponent& strip, AppComponent& app,
-                      afterhours::EntityID tabId, size_t index,
-                      bool wasActive) {
-    auto opt = afterhours::EntityHelper::getEntityForID(tabId);
-    if (opt.valid() && opt->has<Tab>())
-        app.note_tab_closed(opt->get<Tab>().sessionId);
-    if (index < strip.tabOrder.size())
-        strip.tabOrder.erase(strip.tabOrder.begin() + static_cast<long>(index));
-    if (opt.valid()) opt.asE().cleanup = true;
+enum class CloseIntent { Aimed, Forced };
+enum class CloseOutcome { Closed, Refused, Absent };
+
+inline const Tab* active_tab(const TabStripComponent& strip) {
+    for (const auto id : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(id);
+        if (opt.valid() && opt->has<ActiveTab>() && opt->has<Tab>()) return &opt->get<Tab>();
+    }
+    return nullptr;
+}
+
+inline CloseOutcome request_close(TabStripComponent& strip, AppComponent& app,
+                                  const std::string& sessionId, CloseIntent intent) {
+    size_t index = strip.tabOrder.size();
+    afterhours::OptEntity opt;
+    for (size_t i = 0; i < strip.tabOrder.size(); ++i) {
+        auto candidate = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        if (candidate.valid() && candidate->has<Tab>() && candidate->get<Tab>().sessionId == sessionId) {
+            index = i;
+            opt = candidate;
+            break;
+        }
+    }
+    if (index == strip.tabOrder.size()) return CloseOutcome::Absent;
+    const Tab& tab = opt->get<Tab>();
+    if (intent == CloseIntent::Aimed &&
+        hanabi::tab_keep_flash::store().refuse_close(sessionId, tab.pinned, hanabi::ui_clock::now_seconds(),
+                                                     hanabi::ui_clock::reduce_motion()))
+        return CloseOutcome::Refused;
+    const bool wasActive = opt->has<ActiveTab>();
+    hanabi::tab_keep_flash::store().forget(sessionId);
+    app.note_tab_closed(sessionId);
+    strip.tabOrder.erase(strip.tabOrder.begin() + static_cast<long>(index));
+    opt.asE().cleanup = true;
 
     std::string fallbackId;
     afterhours::Entity* fallback = nullptr;
@@ -404,6 +431,7 @@ inline void close_tab(TabStripComponent& strip, AppComponent& app,
     }
     if (wasActive && fallback != nullptr) switch_to_tab(app, *fallback);
     reconcile_panes_with_tabs(strip, app, fallbackId);
+    return CloseOutcome::Closed;
 }
 
 

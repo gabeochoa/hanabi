@@ -1,0 +1,24 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t6","pinned_tabs":["t6"],"theme":"dark"}
+require_thread t6
+wait_frames 12
+reduce_motion_override on
+expect_tab t6 pinned
+click_ui tab_close
+wait_frames 4
+expect_tab t6 pinned
+expect_open t6
+expect_tab_keep_flash t6 lit
+assert_ui tab_pin w=10 h=12
+tab_keep_flash_advance 0.3
+wait_frames 2
+expect_tab_keep_flash t6 lit
+tab_keep_flash_advance 0.35
+wait_frames 2
+expect_tab_keep_flash t6 resting
+reduce_motion_override clear
+click_ui tab_close
+wait_frames 4
+expect_tab_keep_flash t6 lit
+tab_keep_flash_advance 0.3
+wait_frames 2
+expect_tab_keep_flash t6 resting

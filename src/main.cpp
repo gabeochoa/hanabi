@@ -1746,8 +1746,12 @@ static int run_mem_ladder(afterhours::SystemManager& sm) {
         for (int guard = 0; guard < 4096; ++guard) {
             auto* strip = strip_now();
             if (strip == nullptr || strip->tabOrder.empty()) break;
-            ecs::model::close_tab(*strip, *app, strip->tabOrder.front(), 0,
-                                  true);
+            {
+                auto front = afterhours::EntityHelper::getEntityForID(strip->tabOrder.front());
+                if (!front.valid() || !front->has<ecs::Tab>()) break;
+                ecs::model::request_close(*strip, *app, front->get<ecs::Tab>().sessionId,
+                                          ecs::model::CloseIntent::Forced);
+            }
             pump(1);
         }
         pump(4);

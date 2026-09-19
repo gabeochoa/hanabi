@@ -77,6 +77,8 @@
 #include "../util/capture_clock.h"
 #include "../native_snooze_prompt.h"
 #include "snooze_store_expect.h"
+#include "tab_keep_flash.h"
+#include "ui_clock.h"
 #include "../resize_drive.h"
 #include "../test_hooks.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
@@ -3817,6 +3819,51 @@ struct HandleExpectTabStateCommand
     }
 };
 
+struct HandleTabKeepFlashCommands
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity& e,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("tab_keep_flash_advance")) {
+            if (!cmd.has_args(1)) {
+                cmd.fail("tab_keep_flash_advance requires <seconds>");
+                return;
+            }
+            hanabi::ui_clock::test_offset_seconds() += std::strtod(cmd.arg(0).c_str(), nullptr);
+            cmd.consume();
+            return;
+        }
+        if (cmd.is("reduce_motion_override")) {
+            if (!cmd.has_args(1) || (cmd.arg(0) != "on" && cmd.arg(0) != "off" && cmd.arg(0) != "clear")) {
+                cmd.fail("reduce_motion_override requires <on|off|clear>");
+                return;
+            }
+            if (cmd.arg(0) == "clear") hanabi::ui_clock::reduce_motion_override().reset();
+            else hanabi::ui_clock::reduce_motion_override() = cmd.arg(0) == "on";
+            cmd.consume();
+            return;
+        }
+        if (!cmd.is("expect_tab_keep_flash")) return;
+        if (!cmd.has_args(2) || (cmd.arg(1) != "lit" && cmd.arg(1) != "resting")) {
+            cmd.fail("expect_tab_keep_flash requires <session id> <lit|resting>");
+            return;
+        }
+        hanabi::tab_keep_flash::store().sweep(hanabi::ui_clock::now_seconds());
+        const bool lit = hanabi::tab_keep_flash::store().is_lit(cmd.arg(0));
+        if (lit == (cmd.arg(1) == "lit")) {
+            cmd.consume();
+            return;
+        }
+        if (within::budget_open(e.id, cmd)) {
+            cmd.retry();
+            return;
+        }
+        within::fail_terminal(cmd, std::format("expect_tab_keep_flash: '{}' is {}, expected {}", cmd.arg(0),
+                                               lit ? "lit" : "resting", cmd.arg(1)));
+    }
+};
+
 struct HandleExpectStarredCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -3952,11 +3999,8 @@ struct HandleDetachThreadCommand
             cmd.fail("detach_thread: no app / tab strip");
             return;
         }
-        for (std::size_t i = 0; i < strip->tabOrder.size(); ++i) {
-            auto o = afterhours::EntityHelper::getEntityForID(strip->tabOrder[i]);
-            if (!o.valid() || !o->has<ecs::Tab>() || o->get<ecs::Tab>().sessionId != cmd.arg(0)) continue;
-            const bool wasActive = o->has<ecs::ActiveTab>();
-            ecs::model::close_tab(*strip, *app, strip->tabOrder[i], i, wasActive);
+        if (ecs::model::request_close(*strip, *app, cmd.arg(0), ecs::model::CloseIntent::Forced) !=
+            ecs::model::CloseOutcome::Absent) {
             cmd.consume();
             return;
         }
@@ -4135,6 +4179,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleDumpTextOwnersCommand>());
     sm.register_update_system(std::make_unique<HandleDumpMessageMenuCommand>());
     sm.register_update_system(std::make_unique<HandleExpectTabStateCommand>());
+    sm.register_update_system(std::make_unique<HandleTabKeepFlashCommands>());
     sm.register_update_system(std::make_unique<HandleExpectStarredCommand>());
     sm.register_update_system(std::make_unique<HandleExpectLinkOpenedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMessageMenuLinkCommand>());

@@ -388,6 +388,12 @@ extern "C" bool macos_is_dark_mode(void) {
     }
 }
 
+extern "C" bool macos_reduce_motion(void) {
+    @autoreleasepool {
+        return [NSWorkspace sharedWorkspace].accessibilityDisplayShouldReduceMotion;
+    }
+}
+
 extern "C" void macos_set_app_appearance(bool dark) {
     if (NSApp == nil) return;
     @autoreleasepool {

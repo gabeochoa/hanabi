@@ -105,6 +105,7 @@ void hanabi_native_activate(void);
 // Whether there is a window at all: a script that drives native input in a
 // headless run has nothing to drive, and must fail rather than pass quietly.
 int hanabi_native_has_window(void);
+int hanabi_native_tab_host_is_key(void);
 // The modifier part of a chord, held and released on separate FRAMES: a
 // polled modifier read (keys.h cmd_down) only sees a modifier that is still
 // down when the frame runs, so posting press and release in one batch leaves
