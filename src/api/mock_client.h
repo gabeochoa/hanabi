@@ -1172,7 +1172,6 @@ class MockClient : public Client {
         return !(k && std::string_view(k) == "off");
     }
     Result<InboxStateRead> read_inbox_state() override {
-        outbound_calls().fetch_add(1);
         ++inbox_gets();
         InboxStateRead out;
         const char* k = std::getenv("HANABI_MOCK_INBOX_GET");
