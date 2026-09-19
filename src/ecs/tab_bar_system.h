@@ -679,10 +679,6 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                             .with_roundness(0.0f)
                             .with_render_layer(baseLayer + 1)
                             .with_on_draw_fg([keepMark](RectangleType rc) {
-                                const float s = hanabi::tab_keep_flash::scale_for(keepMark);
-                                RectangleType drawn{rc.x + rc.width * (1.0f - s) * 0.5f,
-                                                    rc.y + rc.height * (1.0f - s) * 0.5f, rc.width * s,
-                                                    rc.height * s};
                                 const afterhours::Color rest = tab_colors::pin_ink();
                                 const afterhours::Color lit = theme::accent();
                                 const float p = keepMark.progress;
@@ -691,7 +687,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                 ink.g = static_cast<unsigned char>(rest.g + (lit.g - rest.g) * p);
                                 ink.b = static_cast<unsigned char>(rest.b + (lit.b - rest.b) * p);
                                 ink.a = static_cast<unsigned char>(255.0f * hanabi::tab_keep_flash::opacity_for(keepMark));
-                                hanabi::glyph::pin(drawn, ink);
+                                hanabi::glyph::pin(rc, ink, hanabi::tab_keep_flash::scale_for(keepMark));
                             })
                             .with_debug_name("tab_pin"));
                 hanabi::a11y::set_name(pin.ent(), "Pinned tab");

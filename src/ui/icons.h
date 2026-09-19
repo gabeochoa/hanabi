@@ -26,6 +26,7 @@
 #include "icons_atlas.h"
 #include "../util/autorelease.h"
 #include "decode_to_fit.h"
+#include "pin_geometry.h"
 #include "theme.h"
 #include "viewport.h"
 
@@ -443,7 +444,7 @@ inline void filter_rules(RectangleType rect, theme::Color c, theme::Color bg) {
 // A pushpin, for a pinned tab. Roboto has no pin codepoint and a missing one
 // paints NOTHING (gap #48), so the mark is drawn: a round head, a shaft down
 // from it, and a short crossbar where the head meets the shaft.
-inline void pin(RectangleType rect, theme::Color c) {
+inline void pin(RectangleType rect, theme::Color c, float scale = 1.0f) {
     // Thumbtack in profile: flat cap, narrow shaft, wide flange, needle. A 6x10
     // mark hung from the rect's top-left.
     //
@@ -457,14 +458,9 @@ inline void pin(RectangleType rect, theme::Color c) {
     // What was here drew the shaft 2 wide and hung it off the cap's LEFT half
     // (x+1 of a 6-wide cap), so the mark leaned, and it had no taper. Four wide
     // and centred is both the reference's shape and a pushpin's.
-    const float u = viewport::px(1.0f);   // one logical pixel, in device px
-    const float x = rect.x + u;
-    const float y = rect.y + (rect.height - 10.0f * u) * 0.5f;
-    afterhours::draw_rectangle(RectangleType{x, y, 6 * u, 2 * u}, c);
-    afterhours::draw_rectangle(RectangleType{x + u, y + 2 * u, 4 * u, 3 * u}, c);
-    afterhours::draw_rectangle(RectangleType{x, y + 5 * u, 6 * u, 2 * u}, c);
-    afterhours::draw_rectangle(RectangleType{x + u, y + 7 * u, 4 * u, u}, c);
-    afterhours::draw_rectangle(RectangleType{x + 2 * u, y + 8 * u, 2 * u, 2 * u}, c);
+    const float u = viewport::px(1.0f);
+    for (const auto& b : pin_geometry::rects(pin_geometry::Box{rect.x, rect.y, rect.width, rect.height}, u, scale))
+        afterhours::draw_rectangle(RectangleType{b.x, b.y, b.w, b.h}, c);
 }
 
 }  // namespace hanabi::glyph
