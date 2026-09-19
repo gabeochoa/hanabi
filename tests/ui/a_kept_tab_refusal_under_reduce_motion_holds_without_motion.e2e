@@ -3,6 +3,9 @@ require_thread t6
 wait_frames 12
 reduce_motion_override on
 expect_tab t6 pinned
+hover_ui tab_active
+wait_frames 3
+assert_ui tab_close hidden=false
 click_ui tab_close
 wait_frames 4
 expect_tab t6 pinned
@@ -16,6 +19,8 @@ tab_keep_flash_advance 0.35
 wait_frames 2
 expect_tab_keep_flash t6 resting
 reduce_motion_override clear
+hover_ui tab_active
+wait_frames 3
 click_ui tab_close
 wait_frames 4
 expect_tab_keep_flash t6 lit

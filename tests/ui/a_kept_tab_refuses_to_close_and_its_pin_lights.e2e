@@ -6,8 +6,9 @@ expect_tab t2 kept
 expect_tab_keep_flash t6 resting
 assert_ui tab_t6 hidden=false
 assert_ui tab_pin w=10 h=12
-mouse_move 20 20
-wait_frames 4
+hover_ui tab_t6
+wait_frames 3
+assert_ui tab_close_t6 hidden=false
 click_ui tab_close_t6
 wait_frames 4
 expect_tab t6 pinned
@@ -21,6 +22,9 @@ expect_tab_keep_flash t6 resting
 click_ui tab_t6
 wait_frames 12
 expect_open t6
+hover_ui tab_active
+wait_frames 3
+assert_ui tab_close hidden=false
 click_ui tab_close
 wait_frames 4
 expect_tab t6 pinned

@@ -7,6 +7,10 @@ wait_frames 4
 expect_tab t6 pinned
 expect_tab_keep_flash t6 resting
 assert_ui tab_pin w=10 h=12
+native_click_ui tab_active
+wait_frames 4
+expect_open t6
+assert_ui tab_close hidden=false
 native_click_ui tab_close
 wait_frames 6
 expect_tab t6 pinned
@@ -31,7 +35,7 @@ native_menu_inject dismiss
 wait_frames 8
 native_menu_expect closed
 expect_tab t6 pinned
-native_key 13 w cmd shift
+native_key 13 W cmd shift
 wait_frames 12
 expect_tab t6 absent
 expect_open t2
