@@ -23,6 +23,7 @@ rc=0
 if /usr/bin/python3 scripts/branding.py --config resources/macos/branding.json check \
     --template resources/macos/Info.plist --output-dir "$BRANDING_DIR" --root .; then :; else rc=1; fi
 if /usr/bin/python3 tests/test_branding.py; then :; else rc=1; fi
+if /usr/bin/python3 tests/test_vocabulary.py; then :; else rc=1; fi
 for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/check_watchdogs.py \
            scripts/check_fixture_env.py scripts/check_gap_references.py scripts/check_div_routing.py \
            scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/check_theme_config.py \
