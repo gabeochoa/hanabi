@@ -1,6 +1,6 @@
 # SessionEvent wire tags, the platform's own list.
 # source: fbsource/fbcode/agentcloud/clients/rust/generated/src/models/session_event.rs
-#         (enum Type, serde renames), read at master on 2026-09-10.
+#         (enum Type, serde renames), read at master 11ff6299d794 on 2026-09-19.
 # rule: every tag here is either drawn by parse_page_frames or listed in
 #       is_silent_wire_event; a tag in neither draws as "unknown", and
 #       scripts/check_wire_event_vocabulary.py fails on it.
@@ -107,3 +107,7 @@ checkpoint_chunk
 options.harness_config_set
 options.harness_config_resolved
 task_progress
+voice_turn
+tool_run_requested
+element_emitted
+confinement_changed
