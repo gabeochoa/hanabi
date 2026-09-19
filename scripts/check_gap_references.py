@@ -811,14 +811,12 @@ def selftest_repo_wide() -> int:
 
 def main() -> int:
     if "--selftest" in sys.argv:
-        return selftest_entry_headings() or selftest_triage_parser() or selftest_repo_wide()
+        return (selftest() or selftest_entry_headings() or selftest_triage_parser()
+                or selftest_repo_wide())
     parser = argparse.ArgumentParser()
     parser.add_argument("--document", type=Path)
     parser.add_argument("--root", type=Path)
-    parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args()
-    if args.selftest:
-        return selftest()
     root = (args.root or Path(__file__).resolve().parent.parent).resolve()
     document = (args.document or root / "afterhours_gaps.md").resolve()
     text = document.read_text()
