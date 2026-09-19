@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace hanabi::native_snooze_prompt {
 
@@ -57,6 +58,7 @@ public:
 
     std::optional<Request> take_for_dispatch() {
         std::lock_guard<std::mutex> lock(mu_);
+        if (hold_dispatch_) return std::nullopt;
         if (!queued_.has_value() || dispatched_ != 0 || showing_ != 0) return std::nullopt;
         std::optional<Request> take = std::move(queued_);
         queued_.reset();
@@ -117,8 +119,19 @@ public:
         return showing_ == generation;
     }
 
+    void set_dispatch_hold_for_test(bool hold) {
+        std::lock_guard<std::mutex> lock(mu_);
+        hold_dispatch_ = hold;
+    }
+
+    bool dispatch_held_for_test() const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return hold_dispatch_;
+    }
+
 private:
     mutable std::mutex mu_;
+    bool hold_dispatch_ = false;
     std::uint64_t next_ = 1;
     std::optional<Request> queued_;
     std::uint64_t dispatched_ = 0;
@@ -142,6 +155,10 @@ Result show_or_refuse(Lifecycle& life, const Request& req, Permitted&& permitted
     return r;
 }
 
+inline bool hold_admitted(bool has_window, bool native_mode_on, std::string_view backend_label) {
+    return has_window && native_mode_on && backend_label == "mock";
+}
+
 bool available();
 std::uint64_t request(Request req);
 bool busy();
@@ -151,5 +168,7 @@ bool take_result(std::uint64_t generation, Result* out);
 void cancel(std::uint64_t generation);
 
 void inject_result_for_test(Result r);
+void set_dispatch_hold_for_test(bool hold);
+bool dispatch_held_for_test();
 
 }

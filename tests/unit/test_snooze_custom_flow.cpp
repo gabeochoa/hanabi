@@ -176,6 +176,54 @@ int main() {
         CHECK(store.entries().empty());
     }
 
+    {
+        np::Lifecycle l3;
+        CHECK(!l3.dispatch_held_for_test());
+        l3.set_dispatch_hold_for_test(true);
+        CHECK(l3.dispatch_held_for_test());
+        np::Request req;
+        req.scope = sc::scope_for("t6");
+        const std::uint64_t gen = l3.request(req);
+        CHECK(gen != 0 && l3.busy() && l3.current_generation() == gen);
+        for (int i = 0; i < 5; ++i) CHECK(!l3.take_for_dispatch());
+        CHECK(l3.busy() && l3.current_generation() == gen);
+        l3.inject_result_for_test(result(gen, np::Result::Kind::Set, later));
+        CHECK(!l3.busy());
+        np::Result got;
+        CHECK(l3.take_result(gen, &got) && got.kind == np::Result::Kind::Set && got.until_unix_sec == later);
+        CHECK(!l3.take_for_dispatch());
+        l3.set_dispatch_hold_for_test(false);
+        np::Request again;
+        again.scope = sc::scope_for("t2");
+        const std::uint64_t gen2 = l3.request(again);
+        CHECK(gen2 == gen + 1);
+        const auto take = l3.take_for_dispatch();
+        CHECK(take && take->generation == gen2);
+        CHECK(l3.begin_show(gen2));
+        l3.deliver(result(gen2, np::Result::Kind::Cancelled));
+        CHECK(l3.take_result(gen2, &got) && got.kind == np::Result::Kind::Cancelled);
+        l3.set_dispatch_hold_for_test(true);
+        np::Request third;
+        third.scope = sc::scope_for("t9");
+        const std::uint64_t gen3 = l3.request(third);
+        CHECK(!l3.take_for_dispatch());
+        l3.cancel(gen3);
+        CHECK(!l3.busy());
+        l3.set_dispatch_hold_for_test(false);
+        CHECK(!l3.take_for_dispatch());
+    }
+
+    {
+        CHECK(np::hold_admitted(true, true, "mock"));
+        CHECK(!np::hold_admitted(false, true, "mock"));
+        CHECK(!np::hold_admitted(true, false, "mock"));
+        CHECK(!np::hold_admitted(true, true, "http"));
+        CHECK(!np::hold_admitted(true, true, "agentcloud"));
+        CHECK(!np::hold_admitted(true, true, "none"));
+        CHECK(!np::hold_admitted(true, true, ""));
+        CHECK(!np::hold_admitted(false, false, "http"));
+    }
+
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

@@ -1,0 +1,41 @@
+# PRESENTATION BYPASSED; PLUMBING ONLY. Windowed Mac, native mode. The
+# e2e-only hold keeps the prompt request QUEUED (pump_after_frame never
+# dispatches runModal, so frames keep running and no NSAlert appears); the
+# typed result is injected and settled against the captured thread. This
+# proves the menu -> request -> result -> store plumbing; the NSAlert itself
+# (texts, field, refusal alert) is proven only by the owned-window gesture.
+# Row 18 for t6 = 16 Pin, 17 Mute, 18 Snooze; children 0-4 presets on the
+# pinned clock, 5 divider, 6 Custom.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+snooze_prompt_hold on
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject 18 6
+wait_frames 6
+native_menu_expect idle
+snooze_prompt_expect queued
+snooze_prompt_inject cancel
+wait_frames 8
+snooze_prompt_expect idle
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject 18 6
+wait_frames 6
+native_menu_expect idle
+snooze_prompt_expect queued
+snooze_prompt_inject set 1781542800
+wait_frames 12
+snooze_prompt_expect idle
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject dismiss
+wait_frames 8
+native_menu_expect idle
+snooze_prompt_hold off

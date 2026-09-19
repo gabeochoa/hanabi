@@ -973,6 +973,7 @@ struct HandleNativeModeCommand
             afterhours::testing::input_injector::detail::mouse = {};
         }
         native_mode_on() = on;
+        hanabi::native_snooze_prompt::set_dispatch_hold_for_test(false);
         // Leaving test mode also drops the injector's mouse override, so the
         // backend position -- the letterboxed one -- is what gets read.
         afterhours::testing::platform_input::set_test_mode(!on);
@@ -1983,10 +1984,41 @@ struct HandleSnoozePromptInjectCommand
                                  queued ? "queued" : "idle", cmd.arg(0)));
             return;
         }
+        if (cmd.is("snooze_prompt_hold")) {
+            if (!cmd.has_args(1) || (cmd.arg(0) != "on" && cmd.arg(0) != "off")) {
+                cmd.fail("snooze_prompt_hold requires <on|off>");
+                return;
+            }
+            const ecs::AppComponent* app = app_component();
+            const std::string backend = app ? app->backend_label : std::string("none");
+            if (!hanabi::native_snooze_prompt::hold_admitted(hanabi_native_has_window(), native_mode_on(),
+                                                             backend)) {
+                cmd.fail(std::format(
+                    "snooze_prompt_hold: only under native_mode on with the mock backend "
+                    "(window={}, native_mode={}, backend='{}'); the hold state is unchanged",
+                    hanabi_native_has_window() ? "yes" : "no", native_mode_on() ? "on" : "off", backend));
+                return;
+            }
+            if (cmd.arg(0) == "on" && hanabi::native_snooze_prompt::busy()) {
+                cmd.fail("snooze_prompt_hold on: a prompt is already queued or showing; hold before the request");
+                return;
+            }
+            hanabi::native_snooze_prompt::set_dispatch_hold_for_test(cmd.arg(0) == "on");
+            cmd.consume();
+            return;
+        }
         if (!cmd.is("snooze_prompt_inject")) return;
         if (!cmd.has_args(1)) {
             cmd.fail("snooze_prompt_inject requires <set <until_unix_sec>|cancel|quiet|refused>");
             return;
+        }
+        {
+            const ecs::AppComponent* app = app_component();
+            const std::string backend = app ? app->backend_label : std::string("none");
+            if (backend != "mock") {
+                cmd.fail(std::format("snooze_prompt_inject refuses a '{}' backend: only the offline mock", backend));
+                return;
+            }
         }
         const std::uint64_t gen = hanabi::native_snooze_prompt::current_generation();
         if (gen == 0) {

@@ -110,4 +110,8 @@ void cancel(std::uint64_t generation) { g_life.cancel(generation); }
 
 void inject_result_for_test(Result r) { g_life.inject_result_for_test(r); }
 
+void set_dispatch_hold_for_test(bool hold) { g_life.set_dispatch_hold_for_test(hold); }
+
+bool dispatch_held_for_test() { return g_life.dispatch_held_for_test(); }
+
 }
