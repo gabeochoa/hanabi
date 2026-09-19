@@ -107,8 +107,31 @@ static void test_select_all_and_perform_on_dispatch() {
     CHECK(g_reads == 0 && g_writes == 1);
 }
 
+static void test_ownership_table() {
+    using hanabi::EditVerb;
+    using ea::EditOwner;
+    const ea::Focus none{};
+    const ea::Focus composer{true, true, false};
+    const ea::Focus otherArea{false, true, false};
+    const ea::Focus input{false, false, true};
+    CHECK(ea::owner_for(EditVerb::Copy, none, false) == EditOwner::Transcript);
+    CHECK(ea::owner_for(EditVerb::Copy, none, true) == EditOwner::Transcript);
+    CHECK(ea::owner_for(EditVerb::Copy, input, false) == EditOwner::Field);
+    CHECK(ea::owner_for(EditVerb::Copy, composer, true) == EditOwner::Field);
+    for (const EditVerb v : {EditVerb::Undo, EditVerb::Redo, EditVerb::Cut, EditVerb::Paste, EditVerb::SelectAll}) {
+        CHECK(ea::owner_for(v, none, false) == EditOwner::None);
+        CHECK(ea::owner_for(v, input, false) == EditOwner::Field);
+        CHECK(ea::owner_for(v, otherArea, true) == EditOwner::Field);
+    }
+    CHECK(ea::owner_for(EditVerb::Paste, composer, true) == EditOwner::Image);
+    CHECK(ea::owner_for(EditVerb::Paste, composer, false) == EditOwner::Field);
+    CHECK(ea::owner_for(EditVerb::Paste, none, true) == EditOwner::None);
+    CHECK(ea::owner_for(EditVerb::Cut, composer, true) == EditOwner::Field);
+}
+
 int main() {
     std::printf("=== test_text_edit_actions ===\n");
+    test_ownership_table();
     test_copy_needs_a_selection_and_writes_it();
     test_cut_moves_the_selection_and_undo_brings_it_back();
     test_paste_replaces_a_selection_and_is_one_undo_step();

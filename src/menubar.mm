@@ -443,26 +443,11 @@ void menubar_install(void) {
 
 static std::array<std::atomic<int>, hanabi::shortcuts::kDefinitions.size()> g_command_enabled{};
 
-static constexpr std::size_t kEditVerbRing = 16;
-static std::array<std::atomic<int>, kEditVerbRing> g_edit_verbs{};
-static std::atomic<std::size_t> g_edit_head{0};
-static std::atomic<std::size_t> g_edit_tail{0};
+static hanabi::EditVerbQueue g_edit_verbs;
 
-void menubar_push_edit_verb(int verb) {
-    const std::size_t tail = g_edit_tail.load();
-    if (tail - g_edit_head.load() >= kEditVerbRing) return;
-    g_edit_verbs[tail % kEditVerbRing].store(verb);
-    g_edit_tail.store(tail + 1);
-}
+void menubar_push_edit_verb(int verb) { g_edit_verbs.push(verb); }
 
-bool menubar_take_edit_verb(int* verb) {
-    if (verb == nullptr) return false;
-    const std::size_t head = g_edit_head.load();
-    if (head == g_edit_tail.load()) return false;
-    *verb = g_edit_verbs[head % kEditVerbRing].load();
-    g_edit_head.store(head + 1);
-    return true;
-}
+bool menubar_take_edit_verb(int* verb) { return g_edit_verbs.take(verb); }
 
 void menubar_set_command_enabled(int command, bool enabled) {
     if (command < 0 || command >= static_cast<int>(g_command_enabled.size())) return;

@@ -41,6 +41,7 @@
 
 #include "../keys.h"
 #include "../menubar.h"
+#include "../shortcuts.h"
 #include "../native_extras.h"
 #include "../ui/text_select.h"
 #include "attachment_intake_system.h"
@@ -54,38 +55,37 @@ namespace ecs {
 namespace edit_actions {
 
 inline EditOwner perform(AppComponent& app, EditVerb verb) {
-    const Clipboard clip = app_clipboard();
-    if (verb == EditVerb::Paste && composer_field_focused()) {
-        char path[4096] = {};
-        if (native_take_clipboard_image(path, sizeof(path))) {
-            AttachmentIntakeSystem::add(app, path);
-            return EditOwner::Image;
-        }
+    auto* area = focused_text_area();
+    auto* field = area == nullptr ? focused_text_field() : nullptr;
+    const Focus focus{composer_field_focused(), area != nullptr, field != nullptr};
+    char path[4096] = {};
+    const bool image = verb == EditVerb::Paste && focus.composer && native_take_clipboard_image(path, sizeof(path));
+    const EditOwner owner = owner_for(verb, focus, image);
+    switch (owner) {
+        case EditOwner::Image: AttachmentIntakeSystem::add(app, path); break;
+        case EditOwner::Field:
+            if (area != nullptr) perform_on(*area, verb, app_clipboard());
+            else perform_on(*field, verb, app_clipboard());
+            break;
+        case EditOwner::Transcript: hanabi::text_select::copy(); break;
+        case EditOwner::None: break;
     }
-    if (auto* area = focused_text_area()) {
-        perform_on(*area, verb, clip);
-        return EditOwner::Field;
-    }
-    if (auto* field = focused_text_field()) {
-        perform_on(*field, verb, clip);
-        return EditOwner::Field;
-    }
-    if (verb == EditVerb::Copy) {
-        hanabi::text_select::copy();
-        return EditOwner::Transcript;
-    }
-    return EditOwner::None;
+    return owner;
 }
 
 inline bool chord_pressed(EditVerb verb) {
-    using namespace hanabi::keys;
-    if (!cmd_or_ctrl_down()) return false;
+    using hanabi::keys::shortcut_pressed;
+    using hanabi::shortcuts::CommandModifier;
+    using hanabi::shortcuts::Shortcut;
+    using hanabi::shortcuts::ShiftModifier;
     switch (verb) {
-        case EditVerb::Undo: return !shift_down() && pressed(kZ);
-        case EditVerb::Redo: return shift_down() && pressed(kZ);
-        case EditVerb::Cut: return pressed(kX);
-        case EditVerb::Copy: return pressed(kC);
-        case EditVerb::Paste: return pressed(kV);
+        case EditVerb::Undo: return shortcut_pressed(Shortcut{hanabi::keys::kZ, CommandModifier});
+        case EditVerb::Redo:
+            return shortcut_pressed(
+                Shortcut{hanabi::keys::kZ, static_cast<std::uint8_t>(CommandModifier | ShiftModifier)});
+        case EditVerb::Cut: return shortcut_pressed(Shortcut{hanabi::keys::kX, CommandModifier});
+        case EditVerb::Copy: return shortcut_pressed(Shortcut{hanabi::keys::kC, CommandModifier});
+        case EditVerb::Paste: return shortcut_pressed(Shortcut{hanabi::keys::kV, CommandModifier});
         case EditVerb::SelectAll: return false;
         case EditVerb::Count: break;
     }

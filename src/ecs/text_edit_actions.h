@@ -76,6 +76,19 @@ bool paste_text(State& s, const Clipboard& clip) {
     return true;
 }
 
+struct Focus {
+    bool composer = false;
+    bool area = false;
+    bool field = false;
+};
+
+inline EditOwner owner_for(EditVerb verb, Focus focus, bool imageOnPasteboard) {
+    if (verb == EditVerb::Paste && focus.composer && imageOnPasteboard) return EditOwner::Image;
+    if (focus.area || focus.field) return EditOwner::Field;
+    if (verb == EditVerb::Copy) return EditOwner::Transcript;
+    return EditOwner::None;
+}
+
 template <typename State>
 bool select_all(State& s) {
     s.selection_anchor = 0;

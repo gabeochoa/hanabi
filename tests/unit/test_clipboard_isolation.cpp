@@ -14,22 +14,24 @@ static int failures = 0;
 int main() {
     std::printf("=== test_clipboard_isolation ===\n");
     namespace cb = hanabi::clipboard;
+    afterhours::clipboard::MemoryProvider fake;
+    afterhours::clipboard::ScopedProvider scoped(fake);
     const auto before = cb::os_calls();
     for (int i = 0; i < 10; ++i) {
         cb::set_text("owned text");
-        (void)cb::get_text();
+        CHECK(cb::get_text() == "owned text");
     }
     if (cb::kIsolated) {
         CHECK(cb::os_calls().reads == before.reads && cb::os_calls().writes == before.writes);
-        CHECK(cb::get_text() == "owned text");
+        CHECK(fake.generation() == 0 && fake.get_text().empty());
 #ifdef AFTER_HOURS_ENABLE_E2E_TESTING
         CHECK(cb::test_probe().generation == 10);
         cb::reset_test_probe();
         CHECK(cb::get_text().empty() && cb::test_probe().generation == 0);
-        CHECK(cb::os_calls().reads == before.reads);
 #endif
     } else {
         CHECK(cb::os_calls().reads == before.reads + 10 && cb::os_calls().writes == before.writes + 10);
+        CHECK(fake.generation() == 10 && fake.get_text() == "owned text");
     }
     if (failures == 0) {
         std::printf("OK\n");

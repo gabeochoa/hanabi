@@ -23,7 +23,7 @@ expect_input_text composer_reply_input ""
 native_key 6 z cmd
 wait_frames 6
 expect_input_text composer_reply_input "hi"
-native_key 6 z cmd shift
+native_key 6 Z cmd shift
 wait_frames 6
 expect_input_text composer_reply_input ""
 set_clipboard pasted words

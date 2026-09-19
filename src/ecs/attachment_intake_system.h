@@ -66,24 +66,6 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
 
         char path[1024];
 
-        // A paste is a pull: the chord is the question and the pasteboard
-        // answers it on the spot, so there is nothing to latch. Asking every
-        // frame would allocate for nothing.
-        //
-        // GATED ON THE COMPOSER HAVING THE CARET. This used to test the chord
-        // globally and rely on native_take_clipboard_image answering false for
-        // text -- so a Cmd+V aimed at the search field, the palette or a rename
-        // box, with an image on the clipboard, staged that image onto a
-        // conversation the reader was not typing into. The reference client
-        // routes its paste through the text view itself for exactly this
-        // reason; this is the same rule at the one seam hanabi has.
-        // Ctrl is accepted as an alias of Cmd, the same bargain keys.h's own
-        // ctrl_down() records: the scripted harness cannot hold Super, so a
-        // chord that reads cmd_down() alone is unreachable from every test we
-        // can write (afterhours_gaps.md #49, #256). This path had exactly that
-        // shape -- the paste route was never once exercised by a test, and the
-        // focus gate below would have passed vacuously without this.
-
         // A drop is a push: whatever AppKit queued drains in one pass, so a
         // multi-image drop arrives as a multi-image drop.
         while (native_take_dropped_image(path, sizeof(path))) add(*app, path);
