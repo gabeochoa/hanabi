@@ -5,7 +5,7 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["r4","t2"],"active_tab":"r4","theme":"dark","archived":{"r4":true}}
 require_thread r4
 wait_frames 12
-right_click_ui tab_r4
+right_click_ui tab_active
 wait_frames 8
 expect_text "Unarchive"
 expect_no_ui tab_menu_archive_close
