@@ -31,6 +31,7 @@
 #include "composer_escape.h"
 #include "focus_routing.h"
 #include "inbox_sync_driver.h"
+#include "../ui/snooze_custom_flow.h"
 #include "transcript_cache.h"
 #include "transcript_ledger.h"
 
@@ -572,8 +573,13 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string requestToggleMute;
 
     hanabi::inbox_sync::Driver inbox;
+    std::string requestSnoozeCustom;
+    std::optional<hanabi::snooze_custom::Pending> snoozeCustomPending;
 
-    void on_client_replaced() { inbox.on_client_replaced(); }
+    void on_client_replaced() {
+        inbox.on_client_replaced();
+        requestSnoozeCustom.clear();
+    }
     [[nodiscard]] bool snooze_available() const { return inbox.available(client.get()); }
     [[nodiscard]] bool snooze_busy(const std::string& id) const { return inbox.busy(id); }
     [[nodiscard]] std::optional<hanabi::inbox_sync::Entry> snooze_of(const std::string& id) const {

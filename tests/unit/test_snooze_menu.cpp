@@ -39,7 +39,7 @@ int main() {
     CHECK(sm::leaf_id(42) == "snooze:42");
 
     {
-        const auto m = sm::item(std::nullopt, now, "row_menu_snooze", false, utc);
+        const auto m = sm::item(std::nullopt, now, "row_menu_snooze", false, false, utc);
         CHECK(m.label == "Snooze" && m.action_id == "snooze" && !m.disabled);
         const auto opts = sp::options(now, utc);
         CHECK(!opts.empty() && m.children.size() == opts.size());
@@ -51,16 +51,16 @@ int main() {
             const auto pick = sm::parse(m.children[i].action_id);
             CHECK(pick && pick->until && *pick->until == opts[i].until);
         }
-        const auto later = sm::item(std::nullopt, now + 3600, "row_menu_snooze", false, utc);
+        const auto later = sm::item(std::nullopt, now + 3600, "row_menu_snooze", false, false, utc);
         CHECK(later.children.front().action_id != m.children.front().action_id);
     }
     {
-        const auto m = sm::item(std::nullopt, now, "tab_menu_snooze", true, utc);
+        const auto m = sm::item(std::nullopt, now, "tab_menu_snooze", true, false, utc);
         CHECK(m.disabled);
         for (const auto& leaf : m.children) CHECK(leaf.disabled);
     }
     {
-        const auto m = sm::item(now + 7200, now, "row_menu_snooze", false, utc);
+        const auto m = sm::item(now + 7200, now, "row_menu_snooze", false, false, utc);
         CHECK(m.children.empty());
         CHECK(m.action_id == "unsnooze");
         CHECK(m.label == sp::snoozed_until_text(now + 7200, now, utc));

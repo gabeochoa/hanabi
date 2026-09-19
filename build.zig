@@ -94,6 +94,8 @@ const tests = [_]TestSpec{
     .{ .name = "test_agentcloud_hosts", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_agentcloud_hosts.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_inbox_sync_store", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_inbox_sync_store.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_inbox_sync_driver", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_inbox_sync_driver.cpp" }, .frameworks = &.{  } },
+    .{ .name = "test_snooze_parse", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_snooze_parse.cpp" }, .frameworks = &.{  } },
+    .{ .name = "test_snooze_custom_flow", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_snooze_custom_flow.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_snooze_menu", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_snooze_menu.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_inbox_state_client", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_inbox_state_client.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
     .{ .name = "test_artifact_policy", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_artifact_policy.cpp" }, .frameworks = &.{  } },
@@ -184,6 +186,8 @@ const run_by_default = [_][]const u8{
     "test_agentcloud_hosts",
     "test_inbox_sync_store",
     "test_inbox_sync_driver",
+    "test_snooze_parse",
+    "test_snooze_custom_flow",
     "test_snooze_menu",
     "test_inbox_state_client",
     "test_artifact_policy",
@@ -242,7 +246,7 @@ const app_sources = [_][]const u8{
 // Compiled on its own with the commit hash as a define; see build_stamp.h.
 const app_stamp_source = [_][]const u8{"src/build_stamp.cpp"};
 const app_objc_sources = [_][]const u8{
-    "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_capture_probe.mm", "src/native_extras.mm", "src/pointer_probe.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
+    "src/native_snooze_prompt.mm", "src/a11y_bridge.mm", "src/gpu_mem.mm", "src/menubar.mm", "src/native_capture_probe.mm", "src/native_extras.mm", "src/pointer_probe.mm", "src/resize_drive.mm", "src/sokol_impl.mm",
 };
 // The ObjC++ files compiled under ARC (native_menu.mm needs __weak).
 const app_arc_sources = [_][]const u8{ "src/native_menu.mm", "src/ws_socket.mm" };

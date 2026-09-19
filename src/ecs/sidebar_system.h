@@ -37,6 +37,7 @@
 #include "../util/ellipsize.h"
 #include "../util/format.h"
 #include "../ui/snooze_menu.h"
+#include "../native_snooze_prompt.h"
 #include "../util/capture_clock.h"
 #include "../util/prof.h"
 #include "../util/text_cache.h"
@@ -881,7 +882,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             items.push_back(hanabi::snooze_menu::to_menu_item<hanabi::surface::MenuItem, hanabi::surface::MenuLeaf>(hanabi::snooze_menu::item(
                 snoozed ? std::optional<std::int64_t>(snoozed->snoozed_until) : std::nullopt,
                 capture_clock::inbox_now(), "row_menu_snooze",
-                !app.snooze_available() || app.snooze_busy(target->id))));
+                !app.snooze_available() || app.snooze_busy(target->id),
+                hanabi::native_snooze_prompt::available())));
             actions.push_back(Action::Snooze);
         }
         divider("row_menu_divider_mute");
@@ -1025,7 +1027,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestToggleMute = targetId;
                     break;
                 case Action::Snooze:
-                    if (const auto pick = hanabi::snooze_menu::parse(pickedAction)) {
+                    if (pickedAction == hanabi::snooze_menu::kCustomId) {
+                        app.requestSnoozeCustom = targetId;
+                    } else if (const auto pick = hanabi::snooze_menu::parse(pickedAction)) {
                         hanabi::inbox_sync::SnoozeRequest req;
                         req.session_id = targetId;
                         req.until = pick->until;

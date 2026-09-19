@@ -22,6 +22,7 @@
 #include "../ui/link_detect.h"
 #include "../util/format.h"
 #include "../ui/snooze_menu.h"
+#include "../native_snooze_prompt.h"
 #include "../util/capture_clock.h"
 #include "tab_colors.h"
 #include "tab_model.h"
@@ -897,6 +898,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestToggleArchive = strip.menuSessionId;
                 } else if (action == "mute" || action == "unmute") {
                     app.requestToggleMute = strip.menuSessionId;
+                } else if (action == hanabi::snooze_menu::kCustomId) {
+                    app.requestSnoozeCustom = strip.menuSessionId;
                 } else if (const auto pick = hanabi::snooze_menu::parse(action)) {
                     hanabi::inbox_sync::SnoozeRequest req;
                     req.session_id = strip.menuSessionId;
@@ -1022,7 +1025,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 items.push_back(hanabi::snooze_menu::to_menu_item<hanabi::surface::MenuItem, hanabi::surface::MenuLeaf>(hanabi::snooze_menu::item(
                     snoozed ? std::optional<std::int64_t>(snoozed->snoozed_until) : std::nullopt,
                     capture_clock::inbox_now(), "tab_menu_snooze",
-                    !app.snooze_available() || app.snooze_busy(keepId))));
+                    !app.snooze_available() || app.snooze_busy(keepId),
+                    hanabi::native_snooze_prompt::available())));
                 actions.push_back(Snooze);
             }
             divider("tab_menu_divider_pin");
@@ -1149,7 +1153,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     app.requestToggleMute = keepId;
                     break;
                 case Snooze:
-                    if (const auto pick = hanabi::snooze_menu::parse(pickedAction)) {
+                    if (pickedAction == hanabi::snooze_menu::kCustomId) {
+                        app.requestSnoozeCustom = keepId;
+                    } else if (const auto pick = hanabi::snooze_menu::parse(pickedAction)) {
                         hanabi::inbox_sync::SnoozeRequest req;
                         req.session_id = keepId;
                         req.until = pick->until;

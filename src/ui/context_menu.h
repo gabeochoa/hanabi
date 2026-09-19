@@ -32,6 +32,15 @@ struct MenuLeaf {
     bool destructive = false;
     bool disabled = false;
     std::string action_id;
+    bool separator = false;
+
+    static MenuLeaf divider(std::string debug_name) {
+        MenuLeaf l;
+        l.debug_name = std::move(debug_name);
+        l.disabled = true;
+        l.separator = true;
+        return l;
+    }
 };
 
 struct MenuItem {
@@ -85,6 +94,10 @@ inline bool menu_row_enabled(std::size_t i, void* ctx) {
     const auto* items = static_cast<const std::vector<MenuItem>*>(ctx);
     return i < items->size() && !(*items)[i].disabled;
 }
+inline bool menu_leaf_enabled(std::size_t i, void* ctx) {
+    const auto* leaves = static_cast<const std::vector<MenuLeaf>*>(ctx);
+    return i < leaves->size() && !(*leaves)[i].disabled;
+}
 }  // namespace detail
 
 inline void apply_menu_keys(menu::Cursor& cursor, const MenuKeys& keys,
@@ -97,6 +110,8 @@ inline void apply_menu_keys(menu::Cursor& cursor, const MenuKeys& keys,
         shape.children_of_row = items[cursor.row].children.size();
         shape.row_has_children = !items[cursor.row].children.empty();
         shape.row_enabled = !items[cursor.row].disabled;
+        shape.child_enabled = &detail::menu_leaf_enabled;
+        shape.child_ctx = const_cast<std::vector<MenuLeaf>*>(&items[cursor.row].children);
     }
     const menu::Step step = menu::advance(
         cursor, keys.key, shape, &detail::menu_row_enabled,
@@ -257,7 +272,9 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
 
         MenuMetrics sub = metrics;
         sub.header_h = 0.0f;
-        const float subH = sub.height_for(item.children.size());
+        std::vector<bool> leafSeps(item.children.size());
+        for (std::size_t c = 0; c < item.children.size(); ++c) leafSeps[c] = item.children[c].separator;
+        const float subH = sub.height_for(item.children.size(), leafSeps);
         const Placed subAt = place_submenu(out.rect, metrics.row_y(at.y, k, seps),
                                            sub.width, subH, ctx.screen_width,
                                            ctx.screen_height);
@@ -285,6 +302,25 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
             ctx, mk(root, baseKey + 40 + static_cast<int>(k) * 8), subPanel);
         for (std::size_t c = 0; c < item.children.size(); ++c) {
             const MenuLeaf& leaf = item.children[c];
+            if (leaf.separator) {
+                hanabi::ui::div(
+                    ctx, mk(root, baseKey + 41 + static_cast<int>(k) * 8 + static_cast<int>(c)),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{pixels(sub.row_width()), pixels(sub.separator_h)})
+                        .with_absolute_position()
+                        .with_translate(sub.row_x(subAt.x), sub.row_y(subAt.y, c, leafSeps))
+                        .with_transparent_bg()
+                        .with_roundness(0.0f)
+                        .with_render_layer(layer + 3)
+                        .with_on_draw_fg([](RectangleType r) {
+                            const float y = r.y + r.height * 0.5f;
+                            afterhours::draw_rectangle(
+                                RectangleType{r.x + 6.0f, y, r.width - 12.0f, 1.0f},
+                                theme::border());
+                        })
+                        .with_debug_name(leaf.debug_name));
+                continue;
+            }
             const bool leafSelected =
                 cursor.row == k && cursor.in_submenu() && cursor.child == c;
             hanabi::control::State leafState;
@@ -298,7 +334,7 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
                                       layer + 3, leafBase);
             leafRow.with_label(leaf.label)
                 .with_absolute_position()
-                .with_translate(sub.row_x(subAt.x), sub.row_y(subAt.y, c))
+                .with_translate(sub.row_x(subAt.x), sub.row_y(subAt.y, c, leafSeps))
                 .with_font_size(theme::type::ROW)
                 .with_alignment(TextAlignment::Left)
                 .with_padding(Padding{.left = pixels(10)})
@@ -458,7 +494,7 @@ inline bool native_menu_open(NativeMenuOpen& open, std::string scope, const char
         hanabi::native_menu::Item it{m.label, m.debug_name, m.disabled, m.destructive,
                                      m.separator, {}};
         for (const MenuLeaf& c : m.children)
-            it.children.push_back({c.label, c.debug_name, c.disabled, c.destructive, false, {}});
+            it.children.push_back({c.label, c.debug_name, c.disabled, c.destructive, c.separator, {}});
         req.items.push_back(std::move(it));
     }
     req.content_x = contentX;

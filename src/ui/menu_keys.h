@@ -51,6 +51,8 @@ struct Shape {
     std::size_t children_of_row = 0;
     bool row_has_children = false;
     bool row_enabled = true;
+    bool (*child_enabled)(std::size_t, void*) = nullptr;
+    void* child_ctx = nullptr;
 };
 
 struct Step {
@@ -89,7 +91,7 @@ inline Step advance(Cursor cursor, Key key, const Shape& shape,
                 if (shape.children_of_row == 0) return out;
                 const std::size_t moved = next_enabled(
                     cursor.child, key == Key::Down ? 1 : -1,
-                    shape.children_of_row, nullptr, nullptr);
+                    shape.children_of_row, shape.child_enabled, shape.child_ctx);
                 if (moved == cursor.child) return out;
                 out.cursor.child = moved;
                 out.effect = Effect::Moved;

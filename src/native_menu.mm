@@ -239,8 +239,13 @@ NSMenu* build_menu(const Request& req, HanabiNativeMenuBridge* bridge) {
             it.target = nil;
             NSMenu* sub = [[NSMenu alloc] initWithTitle:it.title];
             sub.autoenablesItems = NO;
-            for (std::size_t c = 0; c < m.children.size(); ++c)
+            for (std::size_t c = 0; c < m.children.size(); ++c) {
+                if (m.children[c].separator) {
+                    [sub addItem:[NSMenuItem separatorItem]];
+                    continue;
+                }
                 [sub addItem:make_item(m.children[c], i, c, bridge)];
+            }
             it.submenu = sub;
         }
         [menu addItem:it];

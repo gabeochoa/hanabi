@@ -18,6 +18,7 @@
 #include "../api/disk_cache.h"
 #include "load_older_model.h"
 #include "../util/capture_clock.h"
+#include "../native_snooze_prompt.h"
 #include "surface_tabs.h"
 #include "transcript_reconcile.h"
 #include "pane_state.h"
@@ -152,7 +153,55 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         return true;
     }
 
+    static void drive_snooze_custom(AppComponent& app) {
+        if (!app.requestSnoozeCustom.empty()) {
+            const std::string id = app.requestSnoozeCustom;
+            app.requestSnoozeCustom.clear();
+            if (!app.snoozeCustomPending && app.snooze_available() && !app.snooze_busy(id) &&
+                app.find_summary(id) != nullptr && hanabi::native_snooze_prompt::available()) {
+                hanabi::native_snooze_prompt::Request req;
+                req.scope = hanabi::snooze_custom::scope_for(id);
+                req.debug_name = "snooze_custom_prompt";
+                const std::uint64_t gen = hanabi::native_snooze_prompt::request(std::move(req));
+                if (gen != 0) {
+                    hanabi::snooze_custom::Pending pending;
+                    pending.prompt_generation = gen;
+                    pending.client_generation = app.inbox.client_generation;
+                    pending.session_id = id;
+                    app.snoozeCustomPending = pending;
+                }
+            }
+        }
+        if (!app.snoozeCustomPending) return;
+        const hanabi::snooze_custom::Pending pending = *app.snoozeCustomPending;
+        if (pending.client_generation != app.inbox.client_generation) {
+            hanabi::native_snooze_prompt::cancel(pending.prompt_generation);
+            app.snoozeCustomPending.reset();
+            return;
+        }
+        hanabi::native_snooze_prompt::Result r;
+        if (!hanabi::native_snooze_prompt::take_result(pending.prompt_generation, &r)) return;
+        app.snoozeCustomPending.reset();
+        hanabi::snooze_custom::Gates g;
+        g.client_generation = app.inbox.client_generation;
+        g.session_known = app.find_summary(pending.session_id) != nullptr;
+        g.supports_inbox_state = app.client && app.client->supports_inbox_state();
+        g.synced = app.inbox.store.synced();
+        g.write_pending = app.snooze_busy(pending.session_id);
+        g.now_unix_sec = capture_clock::inbox_now();
+        const auto settled = hanabi::snooze_custom::settle(pending, r, g);
+        if (settled.verdict == hanabi::snooze_custom::Verdict::Set) {
+            hanabi::inbox_sync::SnoozeRequest set;
+            set.session_id = settled.session_id;
+            set.until = settled.until_unix_sec;
+            app.inbox.request = set;
+        } else if (settled.verdict == hanabi::snooze_custom::Verdict::Refused) {
+            app.raise_toast(settled.reason, "", AppComponent::ToastUndo::None);
+        }
+    }
+
     static void drive_inbox_state(AppComponent& app) {
+        drive_snooze_custom(app);
         app.inbox.drain(app.client, capture_clock::inbox_now(), [&app](const std::string& text) {
             app.raise_toast(text, "", AppComponent::ToastUndo::None);
         });

@@ -17,6 +17,7 @@ struct Leaf {
     std::string debug_name;
     bool disabled = false;
     std::string action_id;
+    bool separator = false;
 };
 
 struct Row {
@@ -30,6 +31,7 @@ struct Row {
 inline constexpr const char* kSetPrefix = "snooze:";
 inline constexpr const char* kClearId = "unsnooze";
 inline constexpr const char* kParentId = "snooze";
+inline constexpr const char* kCustomId = "snooze_custom";
 
 struct Pick {
     std::optional<std::int64_t> until;
@@ -49,7 +51,8 @@ inline std::optional<Pick> parse(std::string_view action_id) {
 }
 
 inline Row item(std::optional<std::int64_t> snoozed_until, std::int64_t now, const char* debug_name,
-                bool disabled, const snooze_presets::LocalCalendar& cal = {}) {
+                bool disabled, bool custom_available = false,
+                const snooze_presets::LocalCalendar& cal = {}) {
     Row m;
     m.debug_name = debug_name;
     m.disabled = disabled;
@@ -68,6 +71,19 @@ inline Row item(std::optional<std::int64_t> snoozed_until, std::int64_t now, con
         leaf.action_id = leaf_id(o.until);
         m.children.push_back(std::move(leaf));
     }
+    if (custom_available && !m.children.empty()) {
+        Leaf sep;
+        sep.debug_name = std::string(debug_name) + "_divider";
+        sep.disabled = true;
+        sep.separator = true;
+        m.children.push_back(std::move(sep));
+        Leaf custom;
+        custom.label = "Custom\xe2\x80\xa6";
+        custom.debug_name = std::string(debug_name) + "_custom";
+        custom.disabled = disabled;
+        custom.action_id = kCustomId;
+        m.children.push_back(std::move(custom));
+    }
     return m;
 }
 
@@ -84,6 +100,7 @@ MenuItemT to_menu_item(const Row& row) {
         leaf.debug_name = l.debug_name;
         leaf.disabled = l.disabled;
         leaf.action_id = l.action_id;
+        leaf.separator = l.separator;
         m.children.push_back(std::move(leaf));
     }
     return m;

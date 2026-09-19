@@ -74,6 +74,8 @@
 #include "../native_capture_probe.h"
 #include "capture_marker_system.h"
 #include "../native_menu.h"
+#include "../util/capture_clock.h"
+#include "../native_snooze_prompt.h"
 #include "../resize_drive.h"
 #include "../test_hooks.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
@@ -1951,6 +1953,72 @@ struct HandleNativeMenuInjectCommand
             if (cmd.args.size() >= 2) r.child = static_cast<std::size_t>(std::atoi(cmd.arg(1).c_str()));
         }
         hanabi::native_menu::inject_result_for_test(r);
+        cmd.consume();
+    }
+};
+
+struct HandleSnoozePromptInjectCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    static constexpr int kGiveUpFrame = 240;
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("snooze_prompt_expect")) {
+            if (!cmd.has_args(1)) {
+                cmd.fail("snooze_prompt_expect requires <queued|idle>");
+                return;
+            }
+            const bool queued = hanabi::native_snooze_prompt::busy();
+            const bool want = cmd.arg(0) == "queued";
+            if (queued == want) {
+                cmd.consume();
+                return;
+            }
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("snooze_prompt_expect: the prompt is {}, expected {}",
+                                 queued ? "queued" : "idle", cmd.arg(0)));
+            return;
+        }
+        if (!cmd.is("snooze_prompt_inject")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("snooze_prompt_inject requires <set <until_unix_sec>|cancel|quiet|refused>");
+            return;
+        }
+        const std::uint64_t gen = hanabi::native_snooze_prompt::current_generation();
+        if (gen == 0) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail("snooze_prompt_inject: no prompt is queued");
+            return;
+        }
+        hanabi::native_snooze_prompt::Result r;
+        r.generation = gen;
+        r.submitted_at_unix_sec = capture_clock::inbox_now();
+        const std::string& kind = cmd.arg(0);
+        if (kind == "set") {
+            if (!cmd.has_args(2)) {
+                cmd.fail("snooze_prompt_inject set requires <until_unix_sec>");
+                return;
+            }
+            r.kind = hanabi::native_snooze_prompt::Result::Kind::Set;
+            r.until_unix_sec = std::atoll(cmd.arg(1).c_str());
+        } else if (kind == "cancel") {
+            r.kind = hanabi::native_snooze_prompt::Result::Kind::Cancelled;
+        } else if (kind == "quiet") {
+            r.kind = hanabi::native_snooze_prompt::Result::Kind::Quiet;
+        } else if (kind == "refused") {
+            r.kind = hanabi::native_snooze_prompt::Result::Kind::Refused;
+        } else {
+            cmd.fail("snooze_prompt_inject: unknown kind '" + kind + "'");
+            return;
+        }
+        hanabi::native_snooze_prompt::inject_result_for_test(r);
         cmd.consume();
     }
 };
@@ -4023,6 +4091,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleCaptureReceiptCommand>());
     sm.register_update_system(std::make_unique<HandleCaptureMarkerCommand>());
     sm.register_update_system(std::make_unique<HandleNativeMenuInjectCommand>());
+    sm.register_update_system(std::make_unique<HandleSnoozePromptInjectCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRowsJoinCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRelCommand>());
     sm.register_update_system(std::make_unique<HandleDoubleClickWordCommand>());

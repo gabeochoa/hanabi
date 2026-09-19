@@ -1,0 +1,39 @@
+# Windowed Mac (native mode; a visible NSWindow makes the phrase prompt
+# executable): the row menu's Snooze submenu carries a divider and Custom…
+# last (row 18 for t6 = 16 Pin, 17 Mute, 18 Snooze; children 0-4 presets on
+# the pinned clock, 5 divider, 6 Custom). Picking Custom queues the native
+# prompt for THIS thread; the typed result is injected -- state only, no
+# NSAlert is driven -- and settled against the captured session: a cancel
+# writes nothing, a Set writes one snooze whose "Snoozed until" reads the
+# injected instant.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+require_thread t2
+wait_frames 10
+native_mode on
+wait_frames 4
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject 18 6
+wait_frames 6
+native_menu_expect idle
+snooze_prompt_expect queued
+snooze_prompt_inject cancel
+wait_frames 8
+snooze_prompt_expect idle
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject 18 6
+wait_frames 6
+native_menu_expect idle
+snooze_prompt_expect queued
+snooze_prompt_inject set 1781542800
+wait_frames 12
+snooze_prompt_expect idle
+native_right_click_text "SKU backfill — my name for it"
+wait_frames 6
+native_menu_expect busy session:t6
+native_menu_inject dismiss
+wait_frames 8
+native_menu_expect idle

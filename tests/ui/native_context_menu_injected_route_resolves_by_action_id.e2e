@@ -47,7 +47,7 @@ expect_no_text "Session archived"
 # 1 Open & Pin, 2 sep, 3 Open in Split, 4 sep, 5 Rename, 6 Fork, 7 sep,
 # 8 Copy Title, 9 Copy Weblink, 10 Copy Deeplink, 11 Copy Session ID,
 # 12 Open in Web, 13 sep, 14 Export to Clipboard (disabled: t6 is not
-# attached), 15 sep, 16 Pin, 17 Mute, 18 sep, 19 Archive); the intent
+# attached), 15 sep, 16 Pin, 17 Mute, 18 Snooze, 19 sep, 20 Archive); the intent
 # applies.
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6

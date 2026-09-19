@@ -3,6 +3,7 @@
 #include "build_stamp.h"
 #include "resize_drive.h"
 #include "native_menu.h"
+#include "native_snooze_prompt.h"
 #include "pointer_probe.h"
 #include "native_e2e_guard.h"
 #include "launch_policy.h"
@@ -862,6 +863,7 @@ static void app_frame_body() {
     // HERE, after rendering -- never popped up inside the frame. No-op when
     // nothing is queued (every headless frame).
     hanabi::native_menu::pump_after_frame();
+    hanabi::native_snooze_prompt::pump_after_frame();
     hanabi::pointer_probe::frame();
     if (hanabi::resize_drive::finished()) afterhours::graphics::request_quit();
 
