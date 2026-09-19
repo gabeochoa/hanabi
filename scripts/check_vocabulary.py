@@ -168,8 +168,8 @@ def scan_tree(root=ROOT):
 
 def main(argv):
     if "--tree" in argv:
-        return scan_tree()
-    return scan_delta()
+        return scan_tree(ROOT)
+    return scan_delta(ROOT)
 
 
 if __name__ == "__main__":
