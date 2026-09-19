@@ -454,7 +454,7 @@ static std::string element_frame(int seq, const char* instance, int revision,
            "\"title\":\"Shard health\",\"run\":1" + std::string(extra) + "}}}";
 }
 
-static void test_a_confinement_change_is_a_silent_options_fold() {
+static void test_a_confinement_change_is_a_silent_wire_event() {
     const std::string reply = "{\"type\":\"page\",\"frames\":[" +
         std::string(R"({"seq":1,"event":{"type":"user_input","text":"hi"}},)") +
         std::string(R"({"seq":2,"event":{"type":"confinement_changed","sandbox_preset":"none","internet":null}},)") +
@@ -2849,7 +2849,7 @@ int main() {
     test_the_serving_model_is_read_off_the_attach();
     test_a_fallback_frame_names_the_model_now_answering();
     test_the_node_roster_and_the_create_node_clause();
-    test_a_confinement_change_is_a_silent_options_fold();
+    test_a_confinement_change_is_a_silent_wire_event();
     test_a_voice_turn_is_an_unsupported_row_that_carries_none_of_its_payload();
     test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event();
     test_a_page_folds_every_revision_of_an_instance_into_one_row();
