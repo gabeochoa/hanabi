@@ -31,6 +31,7 @@ struct MenuLeaf {
     std::string debug_name;
     bool destructive = false;
     bool disabled = false;
+    std::string action_id;
 };
 
 struct MenuItem {
@@ -66,6 +67,9 @@ struct MenuItem {
 struct MenuResult {
     std::size_t activated = kNoMenuRow;
     std::size_t activated_child = kNoMenuRow;
+    // The picked element's stable id, when the caller gave it one: the
+    // leaf's for a child pick, else the row's. Empty = index-only identity.
+    std::string activated_action;
     bool dismissed = false;
     bool cancelled = false;
     Rect rect{};
@@ -237,7 +241,10 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
              .has_submenu = !item.children.empty(),
              .expanded = cursor.row == k && cursor.submenu_open,
              .parent = title});
-        if (hit && !item.disabled && item.children.empty()) out.activated = k;
+        if (hit && !item.disabled && item.children.empty()) {
+            out.activated = k;
+            out.activated_action = item.action_id;
+        }
         if (hit && !item.disabled && !item.children.empty()) {
             cursor.row = k;
             cursor.submenu_open = true;
@@ -313,6 +320,7 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
             if (leafHit && !leaf.disabled) {
                 out.activated = k;
                 out.activated_child = c;
+                out.activated_action = leaf.action_id.empty() ? item.action_id : leaf.action_id;
             }
         }
         if (hanabi::overlay::inside(subRect, ctx.mouse.pos.x, ctx.mouse.pos.y))
@@ -410,6 +418,7 @@ MenuResult native_menu_frame(Ctx& ctx, afterhours::Entity& root, int baseKey,
     }
     out.activated = r.row;
     out.activated_child = r.child;
+    out.activated_action = open.action_of(r.row, r.child);
     // A pick: the caller's action may set its own focus (rename opens a
     // modal, say) AFTER this returns, so the restore happens first and that
     // later request wins by ordering.
@@ -448,9 +457,13 @@ inline bool native_menu_open(NativeMenuOpen& open, std::string scope, const char
     open.scope = std::move(scope);
     open.action_ids.clear();
     open.disabled_rows.clear();
+    open.child_action_ids.clear();
     for (const MenuItem& m : items) {
         open.action_ids.push_back(m.action_id);
         open.disabled_rows.push_back(m.disabled);
+        std::vector<std::string> kids;
+        for (const MenuLeaf& c : m.children) kids.push_back(c.action_id);
+        open.child_action_ids.push_back(std::move(kids));
     }
     open.focus_before = focusBefore;
     open.eater_id = -1;

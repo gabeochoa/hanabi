@@ -108,6 +108,7 @@ struct Open {
     std::string scope;                     // "session:<id>" / "view:<id>" / "tab:<n>"
     std::vector<std::string> action_ids;   // snapshot, by row
     std::vector<bool> disabled_rows;       // snapshot, by row: what AppKit was told
+    std::vector<std::vector<std::string>> child_action_ids;  // snapshot, by row then child
     // The UI element that had keyboard focus when the menu opened (the
     // UI's own id; -1 = none). AppKit returning key status to the view does
     // not touch the UI's focus_id, and a press on the eater can move it
@@ -123,12 +124,22 @@ struct Open {
         scope.clear();
         action_ids.clear();
         disabled_rows.clear();
+        child_action_ids.clear();
         focus_before = -1;
         eater_id = -1;
     }
     const std::string& action_of(std::size_t row) const {
         static const std::string kNone;
         return row < action_ids.size() ? action_ids[row] : kNone;
+    }
+    // A child pick resolves to the leaf's id when the snapshot holds one;
+    // otherwise (no child, or a leaf given no id) to the row's, so a parent
+    // row picked as itself keeps today's behaviour.
+    const std::string& action_of(std::size_t row, std::size_t child) const {
+        if (child != kNoRow && row < child_action_ids.size() &&
+            child < child_action_ids[row].size() && !child_action_ids[row][child].empty())
+            return child_action_ids[row][child];
+        return action_of(row);
     }
 };
 
