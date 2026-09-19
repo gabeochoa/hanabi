@@ -41,11 +41,13 @@ expect_no_text "working on: compact the context"
 # The round ends: the running row comes down, the marker stands in its place,
 # and the reply the round preceded arrives after it.
 release_compaction
-expect_text "Earlier messages summarized"
+expect_text_drawn "Earlier messages summarized" within=120
 expect_no_text "Summarizing earlier messages"
 expect_text "working on: compact the context"
 
 # The marker opens like any other.
+assert_ui compaction_group hidden=false
+expect_text_drawn "Earlier messages summarized" within=30
 click_ui compaction_group
 wait_frames 8
 expect_text "Earlier messages are folded into this summary"
