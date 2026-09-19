@@ -9616,6 +9616,14 @@ avoided the cost by giving up the property; an app cannot.
 (`hanabi::minimap::group_marks`). That is the right fix for the rail on its own
 merits and it does nothing for the general case.
 
+**Hanabi reference.** `src/ui/minimap_marks.h::group_marks` is the bounding
+described above, still built and held by `tests/unit/test_minimap_marks.cpp`;
+the rail stopped calling it at c031a6d (2026-09-13). Today the rail names no
+per-mark element at all: `src/ecs/main_pane_system.h::sample_minimap_slots`
+fills `PaneState::minimapSlots` and one `button` named `"minimap_marks"` paints
+every slot from its `on_draw_fg`, so the per-frame `std::string` cost is one
+name, not N. `scripts/events_gate.sh` reads the `minimap.marks` gauge.
+
 **Minimal upstream fix.** `with_debug_name(std::string_view)` storing into an
 interned table, or an `(const char*, int)` overload that formats into a small
 fixed buffer. Either removes the allocation without removing the property.
@@ -9691,6 +9699,15 @@ parent's `on_draw_fg` means hand-rolling the hit test against the parent's rect
 the rail rather than by the thread. Real win (2,263 → 241 entities, 8.14 →
 3.52 ms), and it is a workaround — the remaining 241 still cost a full entity
 each.
+
+**Hanabi reference.** The grouping is `src/ui/minimap_marks.h::group_marks`
+(`tests/unit/test_minimap_marks.cpp`); the numbers above are from 222719c and
+are not re-measured here. Since c031a6d the rail is the "strip" this entry
+asks for, hand-rolled: `src/ecs/main_pane_system.h::sample_minimap_slots`
+computes the slots and a single `button` named `"minimap_marks"` draws them all
+in one `on_draw_fg` and hit-tests the click against its own rect, so the marks
+cost one entity, not 241. `tests/ui/split_controls_meet_the_hit_target.e2e`
+addresses that element.
 
 **Minimal upstream fix.** A "strip" primitive: one entity, a vector of
 (offset, extent, payload), one `on_draw_fg` per item and a hit test the library
@@ -10434,6 +10451,12 @@ cmd.fail(std::format("precondition not met: thread '{}' is not open with "
 It works, and every custom command in every app has to reinvent it, with a
 magic number that has to stay under a constant it does not own.
 
+**Hanabi reference.** `src/ecs/e2e_commands.h::kGiveUpFrame` (24) and the
+`cmd.frames_alive < kGiveUpFrame` test in each retrying handler there, starting
+with `require_thread`. `tests/harness/precondition_not_met.e2e` drives the
+give-up path and `scripts/harness_gate.sh` requires the words "precondition
+not met" in that run's log.
+
 **Minimal upstream fix.** Let a handler own its timeout message: either keep
 `cmd.error_message` if the handler already set one (the cleanup system would
 use it instead of composing), or a `cmd.fail_on_timeout("...")` that records
@@ -10480,6 +10503,12 @@ token directory per script, and a `HANABI_UI_SEED` that shuffles the order so
 an accidental dependence fails the suite rather than hiding in it
 (`scripts/run_ui_tests.sh`, `make uitest-shuffle`, `make uitest-alone`). ~120s
 for 105 scripts, and the per-script directories cost nothing measurable.
+
+**Hanabi reference.** `scripts/run_ui_tests.sh` — one process and one
+`ISO_HOME` under a suite temp root per script, `HANABI_UI_SEED` for the
+shuffle; `scripts/run_ui_tests_alone.sh` for one harness start per script. The
+`make` targets are now `zig build uitest-shuffle` and `zig build uitest-alone`
+in `build.zig`. The 105 and ~120s are the counts at the time of writing.
 
 **Minimal upstream fix.** Have the directory mode run `reset_test_state`'s
 body between scripts, and expose a `set_between_scripts(std::function<void()>)`
@@ -13251,6 +13280,15 @@ This is visible in Hanabi's model and effort pickers: the selection radio occupi
 ## Hanabi workaround
 
 `src/ecs/main_pane_system.h::render_model_popover` and `render_effort_popover` compensate the immediate renderer with `HasLabel::text_x_offset` after `button()` has applied its variant. `tests/ui/composer_model_picker.e2e` exercises the rows (the effort rows live in the same panel since the combined model panel; its own script retired); screenshot baselines `18j` and `18k` preserve the result.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h::render_model_popover` —
+each row calls `set_text_inset(Vector2Type{kLabelX, 0.0f})` and then sets
+`text_x_offset = kLabelX - 5.0f`, the five being the renderer's hard-coded
+margin; the effort and harness rows in the same panel do the same.
+`render_effort_popover` no longer exists as a symbol. Rows are driven by
+`tests/ui/composer_model_picker.e2e`; baselines
+`docs/screenshots/baselines/18j_model_picker_dark.png` and
+`docs/screenshots/baselines/18k_model_picker_light.png`.
 
 ## Minimal upstream fix
 
