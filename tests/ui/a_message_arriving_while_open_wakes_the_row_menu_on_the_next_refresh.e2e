@@ -1,16 +1,3 @@
-# A message that lands AFTER the snooze wakes the row menu while the app is
-# open: the catalog is re-read after a Stop (interrupt -> list refresh), and
-# the refreshed row carries a later message clock. Poll 1 seeds t9 with a
-# message BEFORE its snooze (parked); poll 2, the refresh the Stop causes,
-# seeds a message 30 s after it (woke). The tab menu has no row clocks and
-# reads "Snoozed until 1:00 PM" throughout. Runner clock 12:00Z, TZ=UTC;
-# snoozed at 11:59Z until 13:00Z. Each menu is held 32 frames for the
-# assertion's retry window before the Escape that closes it. The seed's
-# poll numbers assume one catalog read at launch; the first assertion is
-# what would catch a second one.
-# t9 is active for the Stop (the composer's slot belongs to the open thread);
-# the tab menu is read after switching to t2, because the active tab is named
-# tab_active and only an inactive tab carries tab_<id>.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t9","theme":"dark"}
 # env: HANABI_MOCK_SNOOZES=t9:1781528400:1781524740 HANABI_MOCK_ROW_CLOCKS=t9:1781524700000,t9:1781524770000@2
 require_thread t9

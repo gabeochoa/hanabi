@@ -1,15 +1,3 @@
-# The reference wakes a snoozed thread early when a message lands after the
-# snooze was set -- but only where the caller holds the row's clocks: the
-# sidebar row menu. The tab menu has no row and stays due-only. Both seeds
-# are one thread, t6: snoozed until 13:00Z at 11:59Z (runner clock 12:00Z),
-# a message at 11:59:30Z, so the row menu reads Snooze again while the tab
-# menu still reads "Snoozed until 1:00 PM". t7 is snoozed with no message
-# after it and reads "Snoozed until 1:00 PM" in both. Assertions do not block
-# the next command and retry for MAX_FRAMES=30, so each menu is held open for
-# 32 frames before the Escape that would close it.
-# t2 is the active tab and t6 the inactive one: the active tab is named
-# tab_active, only an inactive tab carries tab_<id>, and the tab menu here
-# is t6's.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_MOCK_SNOOZES=t6:1781528400:1781524740,t7:1781528400:1781524740 HANABI_MOCK_ROW_CLOCKS=t6:1781524770000
 require_thread t2
