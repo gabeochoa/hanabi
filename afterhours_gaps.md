@@ -12345,7 +12345,22 @@ CLASS: FOOTGUN
 
 ---
 
-### #449 — The drag overlay copies flat label/color only, so a composite tab loses its affordances
+### #449 — FIXED at 55e43da: The drag overlay copies flat label/color only, so a composite tab loses its affordances
+
+**Closed by upstream `5a874e9`** "Preserve subtree visuals and geometry in drag
+previews" (in the d90db15..55e43da range): `create_or_update_drag_overlay`
+(`systems.h`) no longer copies `HasLabel`/`HasColor` onto a fresh entity; the
+overlay carries `HasDragPreview{source}` and the renderer draws the dragged
+entity's whole subtree at the overlay's offset (`rendering.h`), so children,
+icons and nested divs travel with the drag. Upstream's `tests/drag_preview_test.cpp`
+covers it. hanabi's tab strip does not use the library's drag group -- it
+repositions the original composite (`auto render_x =` in
+`src/ecs/tab_bar_system.h`) -- so nothing here changes for hanabi; the
+workaround is now a choice, not a necessity. The text below is the record as filed.
+
+---
+
+#### As filed — The drag overlay copies flat label/color only, so a composite tab loses its affordances
 
 **What was wanted.** A dragged tab should remain the same tab: title, pin,
 close affordance, active accent, and hover/focus visuals.
@@ -13240,7 +13255,41 @@ CLASS: TESTING / MISSING
 **Hanabi references.** `src/ecs/sidebar_system.h::render_subagent_sidebar` is the bounded, open-only panel; `src/ecs/tab_model.h::close_all` owns pane-safe tab teardown; `src/util/notify_events.h::native_event` owns muted native-notification suppression; and `tests/ui/sidebar_subagents.e2e`, `tests/ui/tab_close_all.e2e`, and `tests/ui/session_btw_fork.e2e` are the live UI evidence. `vendor/afterhours` remains unchanged.
 
 **Remaining measured cost.** Closed panel: zero child-session requests and zero child-row builds; the persistent toggle itself adds six steady-state allocations per frame (`home20` 811 → 817). Open panel: one catalog request capped at 2,000 child summaries, one O(n) status/filter pass, and 29 of 410 matching child rows built in the 2,000-session stress fixture. Close-all is O(open tabs); fork is one capability read plus one control-lane request for `/btw`, or one control-lane request for a bare fork.
-# Afterhours gap #590 — button variants drop per-widget text inset
+# Afterhours gap #590 — FIXED at 55e43da: button variants drop per-widget text inset
+
+**Closed by upstream `c5cfd35`** "Provide cohesive native UI defaults and
+consistent text spacing" (in the d90db15..55e43da range). The first half this
+entry asked for -- `ComponentConfig::apply_overrides` copying a set
+`text_inset` -- was already in the old pin (`8d4a280`, 2026-09-06, an ancestor
+of d90db15; `component_config.h` is not in the range), so the entry was
+half-stale as filed. `c5cfd35` closes the other half: `draw_text_in_rect`
+positions with the inset it is handed instead of `text_inset_for(rect)`, and
+`RenderBatched` insets `label_rect` by the label's own inset before it queues
+the text (`rendering.h`). hanabi's compensation -- `HasLabel::text_x_offset = inset - 5`
+beside every `set_text_inset` in the model, effort and harness popover rows,
+the ask card's single-line options and the plan steps -- was what the batched
+path lost (it placed ink at `text_x_offset` plus the THEME's 5, never the
+label's inset), and at the new pin it doubled: the 17 scenes drawing those rows
+moved 900-6,600 px each, labels ~25 px right and the harness chip's word past
+its box. The five offsets are removed and those scenes differ from master's
+captures only where every scene does (below); `text_x_offset` alone (no
+per-label inset) is unchanged by the range and stays where it is used for
+that. Two pin-wide residues, the whole of what the range moves on screen at
+af6d4a1's sources: (1) a label slot narrower than 12.5 px used to get
+`min(5, 0.4 x width)` and now gets 5, so a one-digit sidebar count draws 1 px
+further right -- 29-87 px per scene in the sidebar's count column, 116 of 158
+scenes, 42 byte-identical; (2) the inset is `theme.text_inset * ui_scale`
+(`resolve_text_inset`) on every path now, where the immediate path used the
+unscaled 5, so at `HANABI_UI_SCALE=2` every label sits 5 px further right
+(measured on 03_transcript_dark: 75,537 px differ, text rows match at a +5
+shift, chrome rows at 0). That is the zoom rule
+(`ui_scale_is_a_zoom_not_a_bigger_canvas.e2e`) applied to the inset, and it
+moves every 2x parity score (`HANABI_SHOOT_2X`) by that shift; nothing in
+`tests/ui` pins the old value. The text below is the record as filed.
+
+---
+
+## As filed — button variants drop per-widget text inset
 
 ## Observation
 
@@ -13261,7 +13310,26 @@ CLASS: FOOTGUN
 
 ---
 
-### #374 — `set_window_size` destroys the headless render target mid-pass, so a resize aborts the process
+### #374 — FIXED at 55e43da: `set_window_size` destroys the headless render target mid-pass, so a resize aborts the process
+
+**Closed by upstream `a9b1ba0`** "Defer headless Metal resize until the next
+frame" (in the d90db15..55e43da range): `set_window_size` on the headless
+backend now calls `metal_detail::request_headless_resize`, which only records
+the size, and `begin_frame` calls `apply_headless_resize`, which refuses while
+`g_pass_active` and otherwise builds the replacement target before unloading
+the old one (`backends/sokol/backend.h`). Nothing is freed with a pass open,
+which is the whole defect. Upstream's `tests/sokol_resize_test.cpp` covers it.
+One difference from hanabi's stand-in remains: upstream moves the REPORTED
+size (`g_headless_w/h`) at the next frame boundary too, so a frame that asks
+for a resize still lays out at the old size; hanabi's `src/util/gfx_resize.h`
+moves the resolution in the asking frame and the target at the boundary, and
+`sidebar_width_is_responsive.e2e` asserts the same-frame layout. The stand-in
+stays for that reason, not for the abort; `scripts/check_resize_deferral.py`
+still guards it. The text below is the record as filed.
+
+---
+
+#### As filed — `set_window_size` destroys the headless render target mid-pass, so a resize aborts the process
 
 **What was wanted.** Resize a headless window from a scripted test, the way
 `tests/ui/sidebar_width_is_responsive.e2e` does, without the process dying.

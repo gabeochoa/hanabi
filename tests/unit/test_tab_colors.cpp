@@ -56,12 +56,16 @@ static bool apart(Color got, int r, int g, int b, int tol = kTol) {
     return false;
 }
 
-// Sampled off docs/visual-parity/ref/01_home.png, over the solid interior of
-// each pin rather than at its brightest pixel — the first tab's is at x296..301
-// y45..50 and the second's at x520..525, and the outer column of either is a
-// third of a covered pixel, which is what makes a peak sample lie.
-static const int kRefPinOnInactive[3] = {107, 107, 127};
-static const int kRefPinOnActive[3] = {109, 111, 127};
+// The reference's declared `Chrome.mutedText`, #8B9BA5, which theme.h binds to
+// text_secondary (b4a65fa), at the reference's `.opacity(0.7)` over each tab's fill:
+// headerBg #171F2A under the inactive tab, the selected fill under the active
+// one. Before b4a65fa these were sampled off docs/visual-parity/ref/01_home.png
+// ((107,107,127) and (109,111,127)); the declared token lands within the
+// harness tolerance of both samples on red and blue and eleven above on green,
+// so the samples are kept here as the record and the token is the target.
+static const int kRefMutedText[3] = {139, 155, 165};
+static const int kRefPinOnInactive[3] = {104, 118, 128};
+static const int kRefPinOnActive[3] = {105, 125, 139};
 
 static void test_the_pin_matches_the_reference_on_an_inactive_tab() {
     std::printf("test_the_pin_matches_the_reference_on_an_inactive_tab\n");
@@ -133,12 +137,11 @@ static void test_the_close_mark_does_not_follow_the_title_colour() {
     const Color ink = ecs::tab_colors::close_ink();
     const Color titled = ecs::tab_colors::tab_text_act();
     CHECK(apart(ink, titled.r, titled.g, titled.b));
-    // And it is Puffin's `Chrome.mutedText` to within the harness's own
-    // tolerance -- (140,140,166) against hanabi's neutral (142,142,154), which
-    // is nine units of blue and the whole of the palette's violet cast. Swept
-    // analytically over this strip's three drawn marks it is worth ZERO diff
-    // pixels; see FRICTION_LOG.md, `## The tab strip, round four`.
-    CHECK(within(ink, 140, 140, 166));
+    // And it is the reference's `Chrome.mutedText`, the declared #8B9BA5 that
+    // theme.h binds to text_secondary since b4a65fa; the capture-sampled
+    // (140,140,166) it was measured against before sits within the harness
+    // tolerance of the token on red and blue only.
+    CHECK(within(ink, kRefMutedText[0], kRefMutedText[1], kRefMutedText[2]));
 }
 
 // Light mode has no measured reference — there is no light Puffin capture — so

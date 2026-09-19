@@ -30,9 +30,9 @@ that do not exist, and `make source-checks` runs it.
 | Distinct numeric gap numbers | **259** (several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
 | **Rows in the triage table (§6)** | **270** rows, **270** unique identifiers — includes index-only ids with no detailed entry |
-| Standalone live asks | **150** (152 less the ten fixed at 1ac6db2, less #593 fixed at d90db15, plus #594–#601) |
-| Live but subsumed into a family canonical | **56** (§3) |
-| Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
+| Standalone live asks | **147** (152 less the ten fixed at 1ac6db2, less #593 fixed at d90db15, less #374 and #590 fixed at 55e43da, plus #594–#601; the previous line's 150 did not evaluate either, 152 - 10 - 1 + 8 = 149) |
+| Live but subsumed into a family canonical | **55** (§3; #449 fixed at 55e43da) |
+| Already fixed upstream | **41** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table; #593 at d90db15; #374, #449 and #590 at 55e43da) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
 | hanabi/platform-owned, not afterhours' | **26** |
 | **Rows explicitly marked wrong** | **5** (§2) |
@@ -103,6 +103,41 @@ Observed, no pin needed: `RevealKeyboardFocus` (`a738f48`, registered by the
 standard set) scrolls a keyboard-focused child into view unless the focus came
 from the pointer; no script in `tests/ui` changed under it. `Modal` (`e876803`)
 is unused by hanabi; nothing else in the range moved a pin.
+
+At pin **55e43da** (2026-09-15, range d90db15..55e43da, 14 commits, 42 files):
+**#374** closed (`a9b1ba0` defers the headless target swap to `begin_frame`,
+outside any pass), **#449** closed (`5a874e9`: the drag overlay renders the
+dragged subtree through `HasDragPreview`) and **#590** closed (`c5cfd35`: a
+button variant keeps its `text_inset` and both renderers place ink by it), all
+kept in place under `FIXED at 55e43da` (#590's `apply_overrides` half was
+already in d90db15 via `8d4a280`; `c5cfd35` closes the rendering half). #590's
+closure is the one that moved pixels: hanabi's five `text_x_offset = inset - 5`
+compensations doubled up and are removed (17 scenes back to the pin-wide
+residue only). hanabi's stand-ins stay: `src/util/gfx_resize.h` moves the resolution
+in the asking frame where upstream moves it at the boundary, and the tab strip
+never used the library's drag group. **#305** still open: `TextLayoutCache::
+rebuild` re-wraps unconditionally per call (`text_layout.h`); the proof patch
+drifted with `d24c5a4` and no longer applies. **#136/#420/#112** unchanged
+(nothing in the range touches `with_fit_content`, `virtual_list`'s prefix or
+the accessible name). Behaviour the range changes that hanabi met, each run at
+the pin against the same suite at d90db15: `c5cfd35` restyles the library's
+own `text_input` label and field (a `Theme::Usage::None` label, a `Secondary`
+field with a control border) -- hanabi's fields are `edged_text_input` wraps
+with a transparent-bg field, so no baseline moved; `3daec65` clears
+`render_cmds` in `BeginUIContextManager` and moves the toast layout to the
+render pass, and `72d46eb` drops a `HasTexture` the config no longer names --
+neither moved a scene. `c5cfd35` also makes `draw_text_in_rect` honour the
+inset it is passed (the theme's 5 px) where it read `text_inset_for(rect)` =
+min(5, 0.4 x width) before, so a plain label in a box narrower than 12.5 px
+insets 5 instead of 0.4 x width: hanabi's one-digit sidebar counts ("1" in a
+slot of ceil(text) + kTextInset) draw one pixel further right -- 29-87 px per
+scene in the sidebar's count column (x264..268 at the default width, x204..208
+narrow, x154..158 tiny), 116 of 158 scenes, 42 byte-identical, nothing else at
+ui_scale 1 (compared pairwise, d90db15 binary against 55e43da binary at
+af6d4a1's sources). At ui_scale 2 the same commit scales the inset
+(`resolve_text_inset`: `theme.text_inset * ui_scale`, where the immediate
+path used the unscaled 5), so every label sits 5 px further right in a
+`HANABI_UI_SCALE=2` capture; see #590.
 
 Ten more at pin **1ac6db2** (2026-09-12, range 9ff9079..1ac6db2, 68 commits), each
 read in the pinned source and, where hanabi could see it, measured. These are
@@ -368,7 +403,9 @@ contrast edges independently; let a widget carry its own ring offset the way
 default in both renderers; `tests/vendor_probes/focus_ring_contrast_probe.cpp`
 proves three outlines by default and one with contrast disabled.
 
-### 9. #374 — a resize tears down the render target mid-pass and aborts the process
+### 9. #374 — CLOSED at 55e43da (`a9b1ba0`): the headless target swap waits for `begin_frame`
+
+Upstream now records the request in `set_window_size` and applies it in `begin_frame` with no pass open. hanabi keeps `src/util/gfx_resize.h` for the same-frame resolution move its resize scripts assert. The text below is the record as filed.
 
 `window_manager::set_window_size` destroys and recreates the headless render
 target inline, and every caller reaches it from inside an open pass, so a
@@ -470,7 +507,7 @@ to fix.
 | **Glyph atlas** | **#350** | #353 | Upstream `bdea3b9` reports that the atlas filled, and `AFTERHOURS_FONT_ATLAS_SIZE` sets the ceiling. What survives: no per-measurement completeness (#350), so `measure_text` still returns a plausible wrong number, and no substitute glyph (#353), so the character is simply absent from the screen. |
 | **e2e runner determinism** | **#223** | #39, #40, #259, #380, #381, #457 | The SCRIPT deadline is still seconds fed by the host's `dt` (#223), the verdict is not observed on the last command, custom commands lose quoted arguments (#457), a handler cannot own its own timeout message (#380), and the directory mode runs a whole suite in one process with no reset between scripts (#381). The truncated-evidence and unregistered-`dump_ui` members landed upstream in `2caf525`; `wait_frames`-in-seconds landed in `f607faa`. |
 | **Pointer buttons and scroll axes** | **#405** | #30b, #406, #407, #408, #445, #446 | The facade has a two-axis wheel but a horizontal-only view accepts X only; wheel lifetime, scroll assertions, nested hit-testing, and middle-button state each diverge between real input and the scripted model. #445 is the button form, #446 the axis-policy form. |
-| **Drag interaction** | **#287** | AN-12, #447, #448, #449 | A raw drag primitive exists, but there is no candidate threshold or nested-control exclusion, scrolled/clipped hit tests use raw rects, and the overlay can copy only a flat label/color. Hanabi carries the complete composite-tab gesture outside the primitive. |
+| **Drag interaction** | **#287** | AN-12, #447, #448, #449 | A raw drag primitive exists, but there is no candidate threshold or nested-control exclusion, scrolled/clipped hit tests use raw rects (#449's flat overlay is fixed at 55e43da). Hanabi carries the complete composite-tab gesture outside the primitive. |
 
 **Exact duplicates**, as opposed to families — the same finding written twice:
 
@@ -796,7 +833,7 @@ correction narrows them rather than closing them.
 | 339 | `imm::divider` and `hsplit` already exist | NOT A GAP | — | — | neg |
 | 340 | Styled text re-wraps and re-allocates on the RENDER path, per frame | — | — | — | fixed at 1ac6db2 (`b9844c2`); entry kept in place |
 | 341 | What a second pane costs (hanabi's own accounting) | PERF | — | — | app |
-| 374 | `set_window_size` tears down the render target mid-pass, aborting the process | BLOCKING | HIGH | XS | **live — top 10** |
+| 374 | `set_window_size` tears down the render target mid-pass, aborting the process | — | — | — | fixed at 55e43da (`a9b1ba0` defers the swap to `begin_frame`); entry kept in place, hanabi's same-frame resolution move stays |
 | 375 | A focused `text_input`'s border loses its top edge to the field's own clip | VISUAL | MED | S | **live — top 10** |
 | 380 | A custom command cannot own its timeout message | TEDIOUS | MED | XS | dup→#223 |
 | 381 | The directory mode runs a suite in one process with no reset | MISSING | HIGH | S | dup→#223 |
@@ -879,7 +916,7 @@ correction narrows them rather than closing them.
 | 587 | No frame-safe mailbox for background completions | MISSING | HIGH | M | live |
 | 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
 | 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
-| 590 | Button variants drop per-widget text inset | FOOTGUN | HIGH | XS | app workaround |
+| 590 | Button variants drop per-widget text inset | — | — | — | fixed at 55e43da (`c5cfd35`); hanabi's `text_x_offset` compensations removed |
 | 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited | MISSING | MED | XS | live (re-tested 1ac6db2) · extends #223; app workaround: latch + `release_compaction` |
 | 592 | Every click on a `HasClickListener` moves keyboard focus to it; no activate-without-focus | FOOTGUN | HIGH | XS | live (re-tested 1ac6db2) · app workaround (refocus) |
 | 593 | `System<>`'s six overrides lack `override`; a consumer compiling the library as user code gets 18 warnings per TU | SHARP EDGE | LOW | XS | fixed at d90db15 (`f923254`, proven on pristine headers); proposal retired |

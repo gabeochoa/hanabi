@@ -49,12 +49,9 @@ inline afterhours::Color tab_text() { return theme::text_secondary(); }
 // The pin's ink, before it is composited over whichever tab carries it.
 //
 // 70% alpha, which is Puffin's `.opacity(0.7)` on `pin.fill`, over
-// text_secondary standing in for its `mutedText`. hanabi's greys are neutral
-// where Puffin's carry a violet cast -- (142,142,154) against (140,140,166) --
-// so the composite lands within tolerance on red and green and nine short on
-// blue. Nine is inside the comparison's twelve; closing it would mean an
-// eleventh palette token, and the same nine-unit shortfall shows up on every
-// muted mark in the app, so it is a palette observation and not a pin one.
+// text_secondary, which since b4a65fa IS the reference's declared
+// `Chrome.mutedText` (#8B9BA5), so the composite is the reference's recipe
+// and not a stand-in for it.
 inline afterhours::Color pin_ink() {
     afterhours::Color c = theme::text_secondary();
     c.a = 179;  // 0.7 * 255

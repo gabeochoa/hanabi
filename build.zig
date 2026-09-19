@@ -124,7 +124,7 @@ const tests = [_]TestSpec{
     .{ .name = "test_agentcloud_real", .kind = .unit, .arc = true, .srcs = &.{ "tests/e2e/test_agentcloud_real.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
 };
 
-// The 72 the default `test` step runs, in the makefile's order: UNIT_TEST_EXES
+// The 82 the default `test` step runs, in the makefile's order: UNIT_TEST_EXES
 // then test_e2e and test_perf. test_real, test_agentcloud_real and
 // test_agentcloud_local are reached by their own steps.
 const run_by_default = [_][]const u8{
@@ -365,9 +365,9 @@ pub fn build(b: *std.Build) void {
         one.dependOn(&r.step);
     }
 
-    // The 72 in one summary line, in order, through the runner the makefile's
+    // The 82 in one summary line, in order, through the runner the makefile's
     // RUN_TESTS macro became.
-    const unit = b.step("unit", "Build and run the unit + e2e + perf test executables (72), with a pass/fail summary");
+    const unit = b.step("unit", "Build and run the unit + e2e + perf test executables (82), with a pass/fail summary");
     {
         var argv = std.ArrayList([]const u8).empty;
         argv.append(b.allocator, "bash") catch @panic("oom");
@@ -386,7 +386,7 @@ pub fn build(b: *std.Build) void {
         const e2e = b.step("e2e", "Build and run test_e2e alone, with the summary line");
         const r = command(b, &.{ "bash", "scripts/run_unit_tests.sh", "output/tests/test_e2e" }, installed.get("test_e2e").?);
         e2e.dependOn(&r.step);
-        const ue = b.step("unit-e2e", "The 72 less test_perf");
+        const ue = b.step("unit-e2e", "The 82 less test_perf");
         var argv = std.ArrayList([]const u8).empty;
         argv.appendSlice(b.allocator, &.{ "bash", "scripts/run_unit_tests.sh" }) catch @panic("oom");
         for (run_by_default) |n| if (!std.mem.eql(u8, n, "test_perf")) argv.append(b.allocator, b.fmt("output/tests/{s}", .{n})) catch @panic("oom");

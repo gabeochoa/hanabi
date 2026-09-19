@@ -1,7 +1,7 @@
 # Vendored afterhours patches (proven in hanabi, ready for the maintainer)
 
 `vendor/afterhours` is the pinned afterhours submodule
-(`d90db15a5f9c0e745a3302339d653829a4aa7c59`). This directory contains both
+(`55e43da3df77bf8d213b605d4245ad0e5c562613`). This directory contains both
 older Hanabi-proven fixes and proof patches that are applied only to temporary
 vendor copies by `make verify-vendor-patches`. The verifier checks the base,
 checks and applies each patch independently, compiles focused probes, and
@@ -31,11 +31,11 @@ If you only want the diff applied to the working tree (no commit), use:
     git apply --check ../../vendor_patches/<file>.patch # dry-run: verify it applies
 
 Every patch states its pinned base in the commit message. The proof-patch set
-below applies independently to `d90db15`; the older patches retain their own
+below applies independently to `d90db15`, the pin it was written against; the older patches retain their own
 bases. After a patch lands upstream, bump Hanabi's submodule pointer and remove
 the corresponding patch here.
 
-## Proof patches at d90db15: dormant
+## Proof patches at 55e43da: dormant
 
 Nothing here is applied anywhere any more -- not to the submodule, not to a
 scratch export: the project's rule is that the library is never edited by us,
@@ -43,15 +43,17 @@ proposals go upstream as gap entries. `PATCHES` in
 `scripts/verify_vendor_patches.py` is empty; the script still checks the pin
 and that hanabi's stand-ins for the pin's gaps are present.
 
-State of the proposals at d90db15: `593-system-override.patch` is **gone: it
+State of the proposals at 55e43da (checked with `git apply --check` against the pin): `593-system-override.patch` is **gone: it
 landed upstream** (`f923254` marks `System<>`'s overrides `override`; proven
 by reading the diff and by compiling `src/core/system.h` as user code under
 `-Werror=inconsistent-missing-override`, which is green on the pristine pin).
 `265` no longer applies (`a738f48` rewrote the focus paint into
 `draw_focus_paint` / `collect_focus_paint`); the behaviour it asks for is still
 absent upstream -- afterhours_gaps.md #265 carries the drift as evidence. `266`
-still applies but is not exercised. `22`, `25`, `30` no longer apply either;
-`305` does. None of that is a claim about hanabi's binary, which builds against
+still applies but is not exercised. `22`, `25`, `30` no longer apply either, and
+`305` stopped applying at 55e43da (`d24c5a4` rewrote the wheel-scroll path in
+`text_area.h` around its hunks; the per-frame re-wrap it asks about is still
+there). None of that is a claim about hanabi's binary, which builds against
 the unpatched pin.
 
 `210-reject-unsamplable-textures.patch` and `255-word-editing-capability.patch`

@@ -14,8 +14,8 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
-BASE = "d90db15a5f9c0e745a3302339d653829a4aa7c59"
-PIN = "d90db15a5f9c0e745a3302339d653829a4aa7c59"
+BASE = "55e43da3df77bf8d213b605d4245ad0e5c562613"
+PIN = "55e43da3df77bf8d213b605d4245ad0e5c562613"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 # 210 and 255 are gone: both landed upstream between 9ff9079 and 1ac6db2
 # (865c4e6 checks the sampler and sizes its pool; 7208d0c exposes
@@ -25,7 +25,8 @@ CXX = shlex.split(os.environ.get("CXX", "clang++"))
 # d90db15: f923254 marks System<>'s overrides `override`, which is the patch
 # (the probe's `-Werror=inconsistent-missing-override` compile is green on
 # the pin now, so the gate's red half could not be kept honest either).
-# At d90db15 the proof patches are DORMANT: the project's rule is that the
+# At 55e43da (14 commits past d90db15, none touching the focus paint or the
+# disabled label) the proof patches stay DORMANT: the project's rule is that the
 # library is never edited here, not even in a scratch copy, so nothing applies
 # them and this gate applies none. 265's hunks drifted with a738f48 (the focus
 # paint moved into draw_focus_paint / collect_focus_paint; the behaviour it

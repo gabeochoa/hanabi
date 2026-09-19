@@ -48,8 +48,8 @@ presence" feature: a small icon in the system menu bar whose title/badge reflect
 - Only touch: src/menubar.mm (new), src/menubar.h (new), src/main.cpp (install +
   per-frame flag poll), src/ecs/components.h (maybe: requestNewTask flag). Do NOT
   touch other agents' files.
-- Build must stay 0-warning: `make -j4` AND `make -j4 HANABI_TLS=1`.
-- `make test` must stay 3/3 + perf gate PASS.
+- Build must stay 0-warning: `zig build` AND `zig build -Dtls=true`.
+- `zig build test` must stay 3/3 + perf gate PASS.
 
 ## Verification
 - Headless screenshot path is unaffected (menu-bar only installs in windowed run;

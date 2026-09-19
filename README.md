@@ -136,7 +136,7 @@ Options: `-Dtls=false` for an HTTP-only build with no OpenSSL dependency
 (`-Dtls=true` requires it), `-Dopt=0` for an unoptimised app, `-Dapp-name=`
 `-Dbundle-id=` `-Dexecutable-name=` `-Durl-scheme=` for an alternate identity.
 `make <target>` still works: the makefile is a forwarder to the step of the
-same name (`zig build test` runs `zig build test`).
+same name (`make test` runs `zig build test`).
 
 ## macOS app bundle
 

@@ -4844,7 +4844,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (cap.ent().has<afterhours::ui::HasLabel>()) {
                 cap.ent().get<afterhours::ui::HasLabel>().set_text_inset(
                     Vector2Type{6.0f + glyphRoom, 0.0f});
-                cap.ent().get<afterhours::ui::HasLabel>().text_x_offset = 1.0f + glyphRoom;
             }
         };
 
@@ -4935,7 +4934,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name(name));
             row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
                 Vector2Type{kLabelX, 0.0f});
-            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = kLabelX - 5.0f;
             // The keyboard reaches a row: it is a focusable button in the
             // panel's subtree (focus inside the panel keeps it open), Tab walks
             // it, Enter presses it; a row that cannot act loses its listener
@@ -5096,7 +5094,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     })
                     .with_debug_name("harness_row"));
             row.ent().get<afterhours::ui::HasLabel>().set_text_inset(Vector2Type{kLabelX, 0.0f});
-            row.ent().get<afterhours::ui::HasLabel>().text_x_offset = kLabelX - 5.0f;
             hanabi::a11y::set_name(row.ent(), "Harness: " + harnessName +
                                                   (harnessKnown ? ", locked" : ""));
             div(ctx, mk(col, key++),
@@ -6123,7 +6120,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (optLines <= 1 && row.ent().has<afterhours::ui::HasLabel>()) {
                     auto& label = row.ent().get<afterhours::ui::HasLabel>();
                     label.set_text_inset(Vector2Type{26.0f, 0.0f});
-                    label.text_x_offset = 21.0f;
                 }
                 if (optLines > 1) {
                     auto wrapCol = div(ctx, mk(row.ent(), 1),
@@ -7153,7 +7149,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("plan_step_" + std::to_string(i)));
                 row.ent().get<afterhours::ui::HasLabel>().set_text_inset(
                     Vector2Type{28.0f, 0.0f});
-                row.ent().get<afterhours::ui::HasLabel>().text_x_offset = 23.0f;
             }
         }
     }

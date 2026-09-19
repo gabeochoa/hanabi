@@ -275,7 +275,7 @@ ENTRY GATES (all must be true before starting):
       feature work mid-flight that this refactor would collide with.
 - [ ] Perf phases (P launch, X switch/RAM) are green — we have a recorded pre-refactor
       baseline (FirstFrame ms, cached-switch ms, peak RSS) to compare against.
-- [ ] make test is green and screenshots match the mocks (this is the "known-good"
+- [ ] zig build test is green and screenshots match the mocks (this is the "known-good"
       baseline the refactor must not disturb).
 - [ ] A pre-refactor screenshot set is captured and saved as the comparison baseline.
 
@@ -306,8 +306,8 @@ Scope:
 - Split any oversized system headers; consistent naming; remove dead code.
 
 EXIT GATES (all must hold — this is what proves it stayed a pure refactor):
-- [x] make -j4 builds clean with 0 warnings.
-- [x] make test green (e2e + perf suite) throughout.
+- [x] zig build builds clean with 0 warnings.
+- [x] zig build test green (e2e + perf suite) throughout.
 - [x] Screenshots UNCHANGED vs the pre-refactor baseline (pixel diff = 0, md5 match) —
       a pure refactor changes no pixels. Verified after each slice.
 - [x] Perf gate still green: FirstFrame ms, cached-switch ms, and peak RSS all within
@@ -345,7 +345,7 @@ ENTRY GATES:
 - [ ] Env-config path works: HANABI_BACKEND selects mock vs http;
       HANABI_API_BASE_URL / HANABI_TOKEN supply base URL + bearer at runtime (nothing
       baked into the repo).
-- [ ] make test green with the mock backend (default) — the known-good baseline.
+- [ ] zig build test green with the mock backend (default) — the known-good baseline.
 
 Scope — VERIFY the adapter maps onto the Navi API with no backend work:
 - LIST: sessions list maps to the sessions endpoint, including `has_more` pagination.
@@ -427,7 +427,7 @@ receive + store a token, and refresh it before it expires.
 ENTRY GATES:
 - [ ] Phase API adapter works against a real backend (DONE — verified live).
 - [ ] Config file + env config path in place (DONE).
-- [ ] make test green with mock default.
+- [ ] zig build test green with mock default.
 
 Scope:
 - LOGIN: add an adapter/auth method that runs the device-code exchange:
@@ -459,8 +459,8 @@ EXIT GATES:
       live 401→auto-refresh retry wiring is DEFERRED (spec-optional): the state
       machine reads/stores `refresh_token`, but a 401 currently re-runs the flow
       rather than transparently refreshing. Tracked as the one remaining AUTH item.
-- [x] Mock stays zero-config default; make test green; no token ever logged.
-      (DONE — no-auth path byte-for-byte unchanged; `make test` 4/4 incl. new
+- [x] Mock stays zero-config default; zig build test green; no token ever logged.
+      (DONE — no-auth path byte-for-byte unchanged; `zig build test` 4/4 incl. new
       `test_auth`; token never logged.)
 - [x] No real auth endpoint / token / company name committed; vendor untouched.
       (DONE — all endpoints/fields via HANABI_AUTH_* config with generic
@@ -491,7 +491,7 @@ composer functional on BOTH paths, config-driven and mock-first.
   prevents double-send. `HANABI_REPLY_DEMO`/`HANABI_SEND_DEMO` headless affordances.
 - **Test**: `tests/unit/test_send.cpp` (5th suite) proves kickoff + reply on the
   MOCK with no network, and asserts the reply carries no company name.
-- Gates: both builds 0-warn; `make test` 5/5; perf PASS. 0 vendor edits; no leaks.
+- Gates: both builds 0-warn; `zig build test` 5/5; perf PASS. 0 vendor edits; no leaks.
 - Deferred: SSE token-by-token streaming (this phase uses a synchronous
   POST-returns-message shape; the `send_message → Message` seam is unchanged when
   SSE lands — only the transport underneath swaps).
@@ -517,7 +517,7 @@ token-by-token, mock-first and config-driven. Additive seam — `send_message`
 - **Test**: `tests/unit/test_stream.cpp` (6th suite) proves chunks reassemble
   across multiple ticks (strictly-increasing buffer) → final message exact,
   deterministic, no network, asserts no company name; + SSE parser fixtures.
-- Gates: both builds 0-warn; `make test` 6/6; perf PASS. 0 vendor edits; no leaks.
+- Gates: both builds 0-warn; `zig build test` 6/6; perf PASS. 0 vendor edits; no leaks.
 - Deferred: the http SSE transport is wired + the parser fully unit-tested, but
   not exercised against a live endpoint (none exists / none should). Final-frame
   id/created_at mapping from a `done` event is a small follow-up if a real

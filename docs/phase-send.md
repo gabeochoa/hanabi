@@ -74,13 +74,13 @@ through the async loader. It turns hanabi from browse-only into interactive.
 - No `git add -A`; stage only the listed files. Commit to branch `wt/phase-send`.
   Do NOT push, do NOT merge, do NOT touch the main worktree
   (/Users/gabeochoa/projects/hanabi).
-- Foreground commands on cli:aspen time out at 5s (30s hard cap). Run make /
-  make test in BACKGROUND (`( make -j4 >/tmp/send_b.log 2>&1; echo DONE=$? >>/tmp/send_b.log ) &`)
+- Foreground commands on cli:aspen time out at 5s (30s hard cap). Run zig build /
+  zig build test in BACKGROUND (`( zig build >/tmp/send_b.log 2>&1; echo DONE=$? >>/tmp/send_b.log ) &`)
   and poll the log. NEVER foreground a build.
 
 ## Gates (all green on final commit)
-- `make -j4` and `make -j4 HANABI_TLS=1` → 0 warnings, 0 errors.
-- `make test` → ALL pass (existing 4 + your new send test), perf gate PASS. The
+- `zig build` and `zig build -Dtls=true` → 0 warnings, 0 errors.
+- `zig build test` → ALL pass (existing 4 + your new send test), perf gate PASS. The
   gate is best-of-6 now; if it still FAILs, the box is under load — re-run it
   isolated (`bash scripts/measure_launch.sh`) and report the isolated number.
 - The send test must prove the mock path end-to-end WITHOUT network.

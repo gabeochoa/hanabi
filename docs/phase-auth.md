@@ -72,13 +72,13 @@ defaults, exactly like the existing field_* mapping.
 - No `git add -A`; stage only the files listed above.
 - Commit to branch `wt/phase-auth`. Do NOT push, do NOT merge, do NOT touch the
   main worktree at /Users/gabeochoa/projects/hanabi.
-- Foreground commands on cli:aspen time out at 5s (30s hard cap). Run make/make test
+- Foreground commands on cli:aspen time out at 5s (30s hard cap). Run zig build / zig build test
   in BACKGROUND (`... >/tmp/auth_x.log 2>&1; echo DONE=$? >>/tmp/auth_x.log &`) and
   poll the log. Never foreground a build.
 
 ## Gates (all green on final commit)
-- `make -j4` and `make -j4 HANABI_TLS=1` → 0 warnings, 0 errors.
-- `make test` → all pass (existing 3 + your new auth test), perf gate PASS. If
+- `zig build` and `zig build -Dtls=true` → 0 warnings, 0 errors.
+- `zig build test` → all pass (existing 3 + your new auth test), perf gate PASS. If
   FirstFrame is 245-255ms, re-run once (box jitter, best-of-3); report both numbers.
 - The new auth test must prove the FULL state machine on a FAKE transport (no real
   network): request→pending×N→success→token; plus expired + failure paths.

@@ -85,12 +85,12 @@ Add a streaming send that reports incremental chunks. Keep it PURE + testable:
   streaming is not used. Do NOT remove send_message.
 - No git add -A; stage only listed files. Commit to branch `wt/phase-stream`.
   Do NOT push, do NOT merge, do NOT touch the main worktree.
-- Foreground commands on cli:aspen time out at 5s (30s hard cap). Run make /
-  make test in BACKGROUND and poll the log. NEVER foreground a build.
+- Foreground commands on cli:aspen time out at 5s (30s hard cap). Run zig build /
+  zig build test in BACKGROUND and poll the log. NEVER foreground a build.
 
 ## Gates (all green on final commit)
-- `make -j4` and `make -j4 HANABI_TLS=1` → 0 warnings, 0 errors.
-- `make test` → ALL pass (existing 5 + your new stream test), perf gate PASS
+- `zig build` and `zig build -Dtls=true` → 0 warnings, 0 errors.
+- `zig build test` → ALL pass (existing 5 + your new stream test), perf gate PASS
   (best-of-6; if it FAILs, re-run isolated `bash scripts/measure_launch.sh` and
   report the isolated number — the box is often under load).
 - The stream test proves the mock path delivers chunks across multiple ticks and
