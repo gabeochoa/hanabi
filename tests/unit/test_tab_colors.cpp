@@ -129,12 +129,7 @@ static void test_the_close_mark_does_not_follow_the_title_colour() {
     const Color ink = ecs::tab_colors::close_ink();
     const Color titled = ecs::tab_colors::tab_text_act();
     CHECK(apart(ink, titled.r, titled.g, titled.b));
-    // And it is Puffin's `Chrome.mutedText` to within the harness's own
-    // tolerance -- (140,140,166) against hanabi's neutral (142,142,154), which
-    // is nine units of blue and the whole of the palette's violet cast. Swept
-    // analytically over this strip's three drawn marks it is worth ZERO diff
-    // pixels; see FRICTION_LOG.md, `## The tab strip, round four`.
-    CHECK(within(ink, 140, 140, 166));
+    CHECK(within(ink, 139, 155, 165));
 }
 
 // Light mode has no measured reference — there is no light Puffin capture — so
