@@ -1,0 +1,48 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t9","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_MOCK_SNOOZES=t9:1781528400:1781524740 HANABI_MOCK_ROW_CLOCKS=t9:1781524700000,t9:1781524770000@2
+require_thread t9
+wait_frames 20
+native_mode on
+wait_frames 4
+assert_ui tab_t2 hidden=false
+expect_backend_state t9 running
+native_right_click_ui chat_row_id_t9
+wait_frames 8
+native_menu_expect open session:t9
+native_menu_expect action unsnooze
+native_menu_expect no_action snooze
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+native_menu_expect idle
+expect_open t9
+expect_input_text composer_reply_input ""
+click_ui composer_send
+wait_frames 16
+expect_backend_state t9 ready
+native_right_click_ui chat_row_id_t9
+wait_frames 8
+native_menu_expect open session:t9
+native_menu_expect action snooze
+native_menu_expect no_action unsnooze
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+native_menu_expect idle
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+assert_ui tab_t9 hidden=false
+native_right_click_ui tab_t9
+wait_frames 8
+native_menu_expect open tab:t9
+native_menu_expect action unsnooze
+native_menu_expect no_action snooze
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+native_menu_expect idle
+expect_open t2

@@ -1,0 +1,43 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1 HANABI_MOCK_SNOOZES=t6:1781528400:1781524740,t7:1781528400:1781524740 HANABI_MOCK_ROW_CLOCKS=t6:1781524770000
+require_thread t2
+wait_frames 20
+native_mode on
+wait_frames 4
+assert_ui tab_t6 hidden=false
+expect_text "SKU backfill — my name for it"
+expect_text "coordinating 3 shard workers"
+native_right_click_ui chat_row_id_t6
+wait_frames 8
+native_menu_expect open session:t6
+native_menu_expect action snooze
+native_menu_expect no_action unsnooze
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+native_menu_expect idle
+expect_open t2
+native_right_click_ui chat_row_id_t7
+wait_frames 8
+native_menu_expect open session:t7
+native_menu_expect action unsnooze
+native_menu_expect no_action snooze
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+native_menu_expect idle
+expect_open t2
+native_right_click_ui tab_t6
+wait_frames 8
+native_menu_expect open tab:t6
+native_menu_expect action unsnooze
+native_menu_expect no_action snooze
+native_menu_expect frames_driven>=4
+native_key 53
+wait_frames 12
+native_menu_expect closed
+native_menu_expect idle
+expect_open t2
+assert_ui tab_t6 hidden=false
