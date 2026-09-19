@@ -23,6 +23,7 @@
 #include "../api/auth.h"
 #include "../api/client.h"
 #include "../api/outbox.h"
+#include "../api/wire_clock.h"
 #include "../settings.h"
 #include "../search/find_memo.h"
 #include "../native_menu.h"
@@ -1776,8 +1777,28 @@ struct AppComponent : public afterhours::BaseComponent {
     }
 
     void replace_sessions(std::vector<api::SessionSummary> replacement) {
+        carry_held_clocks(replacement, sessions);
         sessions = std::move(replacement);
         mark_session_catalog_changed();
+    }
+
+    static void carry_held_clocks(std::vector<api::SessionSummary>& fresh,
+                                  const std::vector<api::SessionSummary>& held) {
+        for (api::SessionSummary& row : fresh) {
+            if (row.last_event_unix_ms) continue;
+            const api::SessionSummary* was = nullptr;
+            for (const api::SessionSummary& h : held)
+                if (h.id == row.id) {
+                    was = &h;
+                    break;
+                }
+            if (was == nullptr) continue;
+            const api::wire_clock::Clocks heldClocks{was->last_event_unix_ms, was->last_run_complete_unix_ms};
+            const api::wire_clock::Clocks carried = api::wire_clock::carry_held(
+                {row.last_event_unix_ms, row.last_run_complete_unix_ms}, &heldClocks);
+            row.last_event_unix_ms = carried.event_ms;
+            row.last_run_complete_unix_ms = carried.run_complete_ms;
+        }
     }
 
     // Apply a settled title everywhere it shows: the session list (sidebar
