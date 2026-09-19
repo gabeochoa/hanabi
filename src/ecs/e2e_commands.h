@@ -1961,7 +1961,7 @@ struct HandleNativeMenuInjectCommand
 
 struct HandleSnoozePromptInjectCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
-    static constexpr int kGiveUpFrame = 240;
+    static constexpr int kGiveUpFrame = afterhours::testing::PendingE2ECommand::MAX_FRAMES;
     void for_each_with(afterhours::Entity&,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
