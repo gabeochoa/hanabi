@@ -8,10 +8,14 @@
 # assertion's retry window before the Escape that closes it. The seed's
 # poll numbers assume one catalog read at launch; the first assertion is
 # what would catch a second one.
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark"}
+# t9 is active for the Stop (the composer's slot belongs to the open thread);
+# the tab menu is read after switching to t2, because the active tab is named
+# tab_active and only an inactive tab carries tab_<id>.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t9","theme":"dark"}
 # env: HANABI_MOCK_SNOOZES=t9:1781528400:1781524740 HANABI_MOCK_ROW_CLOCKS=t9:1781524700000,t9:1781524770000@2
 require_thread t9
 wait_frames 20
+assert_ui tab_t2 hidden=false
 expect_backend_state t9 running
 right_click_ui chat_row_id_t9
 wait_frames 8
@@ -30,6 +34,10 @@ expect_no_text "Snoozed until"
 wait_frames 32
 key ESCAPE
 wait_frames 4
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+assert_ui tab_t9 hidden=false
 right_click_ui tab_t9
 wait_frames 8
 expect_text "Snoozed until 1:00 PM"

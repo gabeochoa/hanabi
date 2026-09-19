@@ -7,11 +7,14 @@
 # after it and reads "Snoozed until 1:00 PM" in both. Assertions do not block
 # the next command and retry for MAX_FRAMES=30, so each menu is held open for
 # 32 frames before the Escape that would close it.
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t6"],"active_tab":"t6","theme":"dark"}
+# t2 is the active tab and t6 the inactive one: the active tab is named
+# tab_active, only an inactive tab carries tab_<id>, and the tab menu here
+# is t6's.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_MOCK_SNOOZES=t6:1781528400:1781524740,t7:1781528400:1781524740 HANABI_MOCK_ROW_CLOCKS=t6:1781524770000
-require_thread t6
-require_thread t7
+require_thread t2
 wait_frames 20
+assert_ui tab_t6 hidden=false
 expect_text "SKU backfill — my name for it"
 expect_text "coordinating 3 shard workers"
 right_click_ui chat_row_id_t6
