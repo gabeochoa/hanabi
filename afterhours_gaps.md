@@ -14291,14 +14291,26 @@ toolchain, not by content.
 tests/unit/test_tab_colors.cpp` on Linux (after a `mach-o/dyld.h` stub for
 `util/prof.h`): the six errors above.
 
-**Workaround.** None in the repo, deliberately: the vendor tree is pinned and
-unpatched. A development-only overlay (a COPY of vendor/ with the three
-`#ifdef _WIN32` guards flipped, outside the repo) compiles and the unit runs;
-its result is an author signal about hanabi's own code, never a verification of
-the dependency — acceptance is the Mac build against the unchanged pin.
+**Workaround.** None, and none is admitted: the vendor tree is the unchanged
+pin (d90db15) and current work allows no Afterhours overlay of any kind.
+HISTORICAL, excluded: one development-only overlay (a copy of vendor/ with the
+three `#ifdef _WIN32` guards flipped, outside the repo) was used once on a
+Linux node on 2026-09-19 to run `test_tab_colors`; that result was recorded as
+qualified author evidence only and was never acceptance. The accepted path is
+the Mac build against the unchanged pin (C7a, 84/84 on stock d90db15).
 
 **Ask.** Make the `if constexpr` arm unconditional (or guard the in-class form
 with `__clang__` instead of `!_WIN32`): same semantics, standard C++17, one
 diff of three preprocessor lines.
+
+**Hanabi reference.** `src/ui/theme.h` :14 → `src/util/atlas_guard.h` → the
+library's `core/system.h` (the include chain every ECS-touching unit shares);
+`src/util/prof.h` :30 (`<mach-o/dyld.h>`, the second Mac-only edge a Linux
+compile meets first). Units that cannot be compiled on GCC for this reason:
+`tests/unit/test_tab_colors.cpp`, `tests/unit/test_data.cpp` and every unit
+through the ECS headers; the std-only units compile. The build graph that
+names them: `build.zig` (`run_by_default`), checked by
+`scripts/check_build_graph.py`. Verification of these units happens on the
+Mac against the unchanged pin only.
 
 CLASS: PORTABILITY (compiles on clang only)
