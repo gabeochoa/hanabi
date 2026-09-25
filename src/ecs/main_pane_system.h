@@ -842,6 +842,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static double text_zoom() { return Settings::get().get_text_scale(); }
     static float zoomed(float px) { return std::round(px * static_cast<float>(text_zoom())); }
     static float composer_line_h() { return zoomed(kComposerLineHPt); }
+    static std::string zoom_key() {
+        return text_zoom() == 1.0 ? std::string() : "|z" + std::to_string(text_zoom());
+    }
 
     static constexpr size_t kComposerMaxRows = 6;
     // The outlined box at ONE row. Every reference measurement in the composer
@@ -10302,7 +10305,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                           bool rich) {
         const std::string key =
             (m.id.empty() ? ("i" + std::to_string(index)) : m.id) +
-            (rich ? "|r" : "|f");
+            (rich ? "|r" : "|f") + zoom_key();
         const std::size_t staleWas =
             hanabi::prof::enabled() ? render_cache().stale() : 0;
         if (!isLive) {
@@ -10630,7 +10633,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // thread. Live messages skip the memo: their text changes per frame,
         // which is the one case where recomputing is the correct answer.
         const std::string hugKey =
-            (m.id.empty() ? ("i" + std::to_string(index)) : m.id) + "|hug";
+            (m.id.empty() ? ("i" + std::to_string(index)) : m.id) + "|hug" + zoom_key();
         if (!isLive) {
             if (const auto w = render_cache().hug(hugKey, maxTextW,
                                                   text_wrap_width(maxTextW),
