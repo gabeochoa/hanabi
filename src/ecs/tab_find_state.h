@@ -1,16 +1,45 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 
 namespace hanabi::tab_find {
 
+struct MatchKey {
+    std::string msg;
+    std::size_t line = 0;
+    std::size_t off = 0;
+    bool empty() const { return msg.empty(); }
+    bool operator==(const MatchKey&) const = default;
+};
+
 struct Entry {
     bool open = false;
     std::string query;
-    int index = 0;
+    MatchKey current;
     bool operator==(const Entry&) const = default;
 };
+
+template <typename Matches, typename IdOf>
+int resolve(const Matches& matches, MatchKey& current, int index, IdOf&& idOf) {
+    const int n = static_cast<int>(matches.size());
+    if (n == 0) {
+        current = {};
+        return 0;
+    }
+    if (!current.empty()) {
+        for (int i = 0; i < n; ++i) {
+            const auto& m = matches[static_cast<std::size_t>(i)];
+            if (m.line == current.line && m.off == current.off && idOf(m.msg) == current.msg) return i;
+        }
+        index = 0;
+    }
+    if (index < 0 || index >= n) index = 0;
+    const auto& m = matches[static_cast<std::size_t>(index)];
+    current = MatchKey{idOf(m.msg), m.line, m.off};
+    return index;
+}
 
 inline bool worth_keeping(const Entry& e) { return e.open || !e.query.empty(); }
 
@@ -35,15 +64,15 @@ class Store {
 struct PaneFind {
     bool open = false;
     std::string query;
-    int index = 0;
+    MatchKey match;
     std::string syncedId;
     Entry synced;
 
-    Entry current() const { return Entry{open, query, index}; }
+    Entry current() const { return Entry{open, query, match}; }
     void adopt(const Entry& e) {
         open = e.open;
         query = e.query;
-        index = e.index;
+        match = e.current;
         synced = e;
     }
 };
@@ -73,16 +102,16 @@ inline void sync(Store& store, PaneFind& pane, const std::string& shownId) {
 
 inline void close_bar(PaneFind& pane) {
     pane.open = false;
-    pane.index = 0;
+    pane.match = {};
 }
 
 template <typename Pane>
 void sync_pane(Store& store, Pane& p, const std::string& shownId) {
-    PaneFind view{p.findOpen, p.findQuery, p.findIndex, p.findSyncedId, p.findSynced};
+    PaneFind view{p.findOpen, p.findQuery, p.findCurrent, p.findSyncedId, p.findSynced};
     sync(store, view, shownId);
     p.findOpen = view.open;
     p.findQuery = view.query;
-    p.findIndex = view.index;
+    p.findCurrent = view.match;
     p.findSyncedId = view.syncedId;
     p.findSynced = view.synced;
 }

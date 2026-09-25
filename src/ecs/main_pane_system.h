@@ -136,6 +136,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app->pane().findOpen ? app->pane() : app->other_pane();
             target.findOpen = false;
             target.findIndex = 0;
+            target.findCurrent = {};
             app->refocusComposer = true;
         }
         if (app->pane().findOpen && app->requestFindStep != 0) {
@@ -3538,6 +3539,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (s == hanabi::find_nav::Step::None || pane.findCount <= 0) return;
         pane.findIndex =
             hanabi::find_nav::advance(pane.findIndex, pane.findCount, s);
+        pane.findCurrent = {};
         pane.findScrollPending = true;
     }
 
@@ -3669,6 +3671,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (close) {
             pane.findOpen = false;
             pane.findIndex = 0;
+            pane.findCurrent = {};
             app.refocusComposer = true;
         }
 
@@ -3921,8 +3924,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::prof::Scope _pfind("find.collect");
             matches = &collect_matches(pane, *pane.openSession, findQ, colW,
                                        app.findFoldVersion);
-            if (pane.findIndex >= static_cast<int>(matches->size()))
-                pane.findIndex = 0;
+            pane.findIndex = hanabi::tab_find::resolve(
+                *matches, pane.findCurrent, pane.findIndex, [&](int i) -> std::string {
+                    if (i < 0 || i >= n) return "i" + std::to_string(i);
+                    const api::Message& m = msgs[static_cast<std::size_t>(i)];
+                    if (!m.id.empty()) return m.id;
+                    if (!m.local_id.empty()) return "local:" + m.local_id;
+                    return "i" + std::to_string(i);
+                });
         }
         pane.findCount = static_cast<int>(matches->size());
 

@@ -968,6 +968,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             closed.findOpen = false;
             closed.findQuery.clear();
             closed.findIndex = 0;
+            closed.findCurrent = {};
             closed.findSyncedId.clear();
             closed.findSynced = {};
             // ...and reopening must actually re-open it, so the pane asks for

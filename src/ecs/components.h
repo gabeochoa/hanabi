@@ -348,6 +348,7 @@ struct Pane {
     // cannot see.
     std::string findQuery;
     int findIndex = 0;    // which match is current, 0-based
+    hanabi::tab_find::MatchKey findCurrent;
     std::string findSyncedId;
     hanabi::tab_find::Entry findSynced;
     bool findFocusPending = false;
