@@ -1,0 +1,36 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_E2E_WINDOWED=1
+require_thread t2
+wait_frames 16
+native_mode on
+wait_frames 4
+native_key 3 f cmd
+wait_frames 12
+expect_focused find_input
+native_key 37 l
+native_key 14 e
+native_key 2 d
+native_key 5 g
+native_key 14 e
+native_key 15 r
+wait_frames 12
+expect_input_text find_input "ledger"
+expect_text "1 of 3"
+native_click_ui tab_t6
+wait_frames 16
+expect_open t6
+expect_no_ui find_bar
+native_click_ui tab_t2
+wait_frames 16
+expect_open t2
+assert_ui find_bar hidden=false
+expect_input_text find_input "ledger"
+expect_text "1 of 3"
+native_key 53 -
+wait_frames 8
+expect_no_ui find_bar
+native_key 3 f cmd
+wait_frames 12
+expect_focused find_input
+expect_input_text find_input "ledger"
+expect_text "1 of 3"

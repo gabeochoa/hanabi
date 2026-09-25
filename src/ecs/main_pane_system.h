@@ -94,6 +94,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!layout || !app) return;
         app->focusBeforeLastPress = app->focusAtFrameStart;
         app->focusAtFrameStart = static_cast<long long>(ctx.focus_id);
+        for (Pane& p : app->panes) hanabi::tab_find::sync_pane(app->findStates, p, p.selectedId);
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const auto& r = layout->main;
@@ -134,7 +135,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             Pane& target =
                 app->pane().findOpen ? app->pane() : app->other_pane();
             target.findOpen = false;
-            target.findQuery.clear();
+            target.findIndex = 0;
             app->refocusComposer = true;
         }
         if (app->pane().findOpen && app->requestFindStep != 0) {
@@ -3580,10 +3581,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // than the content box it sits in and afterhours warns every frame
         // (and warns is the good case — it also re-solves the layout). The
         // inset comes from the bar's padding instead.
-        hanabi::ui::edged_text_input(
+        auto findField = hanabi::ui::edged_text_input(
             ctx, mk(bar.ent(), 1), pane.findQuery,
             hanabi::surface::field(kInputW, 9, 28.0f), "find_input",
             28.0f * hanabi::surface::kFieldFontRatio);
+        if (pane.findFocusPending) {
+            pane.findFocusPending = false;
+            ctx.set_focus(focusable_field(findField.ent()), afterhours::ui::FocusSource::Grab);
+        }
 
         // "3 of 12", or "no matches" once something has been typed.
         std::string tally;
@@ -3663,7 +3668,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("find_close"));
         if (close) {
             pane.findOpen = false;
-            pane.findQuery.clear();
+            pane.findIndex = 0;
             app.refocusComposer = true;
         }
 

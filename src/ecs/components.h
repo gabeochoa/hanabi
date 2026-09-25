@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <afterhours/src/core/base_component.h>
+#include "tab_find_state.h"
 #include "../api/auth.h"
 #include "../api/client.h"
 #include "../api/outbox.h"
@@ -347,6 +348,9 @@ struct Pane {
     // cannot see.
     std::string findQuery;
     int findIndex = 0;    // which match is current, 0-based
+    std::string findSyncedId;
+    hanabi::tab_find::Entry findSynced;
+    bool findFocusPending = false;
     int findCount = 0;    // matches on the last rendered frame (for "3 of 12")
     // Set when the current match changes; the transcript scrolls it into view
     // on the next frame it lays out, then clears this.
@@ -833,6 +837,7 @@ struct AppComponent : public afterhours::BaseComponent {
         return id;
     }
     int requestFindStep = 0;
+    hanabi::tab_find::Store findStates;
     // Optional text a welcome-screen suggestion chip seeds into the new-task
     // composer draft (consumed once by render_composer). Empty = no seed.
     std::string welcomeSeed;

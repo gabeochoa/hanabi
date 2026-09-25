@@ -1,0 +1,73 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 16
+key CTRL+F
+wait_frames 12
+expect_focused find_input
+type "ledger"
+wait_frames 12
+expect_input_text find_input "ledger"
+expect_text "1 of 3"
+click_ui find_next
+wait_frames 6
+expect_text "2 of 3"
+click_ui tab_t6
+wait_frames 16
+expect_open t6
+expect_no_ui find_bar
+key CTRL+F
+wait_frames 12
+expect_focused find_input
+expect_input_text find_input ""
+type "sku"
+wait_frames 12
+expect_input_text find_input "sku"
+click_ui tab_t2
+wait_frames 16
+expect_open t2
+assert_ui find_bar hidden=false
+expect_input_text find_input "ledger"
+expect_text "2 of 3"
+key ESCAPE
+wait_frames 8
+expect_no_ui find_bar
+expect_no_text "2 of 3"
+key CTRL+F
+wait_frames 12
+expect_focused find_input
+expect_input_text find_input "ledger"
+expect_text "1 of 3"
+key CTRL+F
+wait_frames 8
+assert_ui find_bar hidden=false
+expect_input_text find_input "ledger"
+click_ui tab_t6
+wait_frames 16
+assert_ui find_bar hidden=false
+expect_input_text find_input "sku"
+click_ui find_close
+wait_frames 8
+expect_no_ui find_bar
+click_ui tab_t2
+wait_frames 12
+click_ui tab_t6
+wait_frames 12
+expect_no_ui find_bar
+key CTRL+F
+wait_frames 12
+expect_input_text find_input "sku"
+key ESCAPE
+wait_frames 8
+right_click_ui tab_active
+wait_frames 10
+click_ui tab_menu_close
+wait_frames 16
+expect_tab t6 absent
+expect_open t2
+key CMD+SHIFT+T
+wait_frames 20
+expect_open t6
+expect_no_ui find_bar
+key CTRL+F
+wait_frames 12
+expect_input_text find_input ""

@@ -967,6 +967,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             closed.requestOpenId.clear();
             closed.findOpen = false;
             closed.findQuery.clear();
+            closed.findIndex = 0;
+            closed.findSyncedId.clear();
+            closed.findSynced = {};
             // ...and reopening must actually re-open it, so the pane asks for
             // its thread again rather than sitting empty.
             if (!closed.selectedId.empty())

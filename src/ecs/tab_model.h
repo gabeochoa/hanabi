@@ -357,9 +357,6 @@ inline void reset_pane_to(Pane& pane, const std::string& sessionId) {
     pane.requestLoadOlder = false;
     pane.loadingOlder = false;
     pane.anchorPending.clear();
-    pane.findOpen = false;
-    pane.findQuery.clear();
-    pane.findIndex = 0;
     pane.findCount = 0;
     pane.findScrollPending = false;
 }
@@ -421,6 +418,7 @@ inline CloseOutcome request_close(TabStripComponent& strip, AppComponent& app,
         return CloseOutcome::Refused;
     const bool wasActive = opt->has<ActiveTab>();
     hanabi::tab_keep_flash::store().forget(sessionId);
+    app.findStates.forget(sessionId);
     app.note_tab_closed(sessionId);
     strip.tabOrder.erase(strip.tabOrder.begin() + static_cast<long>(index));
     opt.asE().cleanup = true;
@@ -512,6 +510,7 @@ inline void close_bulk(TabStripComponent& strip, AppComponent& app,
         if (opt.valid() && opt->has<Tab>()) {
             app.note_tab_closed(opt->get<Tab>().sessionId);
             hanabi::tab_keep_flash::store().forget(opt->get<Tab>().sessionId);
+            app.findStates.forget(opt->get<Tab>().sessionId);
         }
         if (opt.valid()) opt.asE().cleanup = true;
         strip.tabOrder.erase(std::remove(strip.tabOrder.begin(), strip.tabOrder.end(), id),
@@ -624,7 +623,10 @@ inline bool set_thread_pinned(AppComponent& app, TabStripComponent* strip,
 inline void close_all(TabStripComponent& strip, AppComponent& app) {
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
-        if (opt.valid() && opt->has<Tab>()) hanabi::tab_keep_flash::store().forget(opt->get<Tab>().sessionId);
+        if (opt.valid() && opt->has<Tab>()) {
+            hanabi::tab_keep_flash::store().forget(opt->get<Tab>().sessionId);
+            app.findStates.forget(opt->get<Tab>().sessionId);
+        }
         if (opt.valid()) opt.asE().cleanup = true;
     }
     strip.tabOrder.clear();
