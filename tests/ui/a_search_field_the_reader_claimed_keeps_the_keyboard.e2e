@@ -15,9 +15,7 @@
 # and the search field is claimed while that surface is up. The find bar is that
 # surface because it is the one an ordinary chord raises WITHOUT covering the
 # sidebar -- a modal sheet swallows the click that would reach the search field,
-# so it cannot state this case at all. Closing the surface is the moment under
-# test: the composer is entitled to its caret back only when nothing else is
-# holding one.
+# so it cannot state this case at all.
 #
 # The last arm is the counter-case in the same run. A click on the composer IS a
 # claim and the newest claim wins, so the draft grows again -- and the query
@@ -47,10 +45,17 @@ expect_input_text sb_search_text "abc"
 expect_input_text composer_reply_input "mine"
 
 key CTRL+F
-wait_frames 20
-type "def"
 wait_frames 16
-expect_input_text sb_search_text "abcdef"
+expect_focused find_input
+type "def"
+wait_frames 12
+expect_input_text find_input "def"
+expect_input_text sb_search_text "abc"
+expect_input_text composer_reply_input "mine"
+click_ui find_close
+wait_frames 16
+expect_no_ui find_bar
+expect_input_text sb_search_text "abc"
 expect_input_text composer_reply_input "mine"
 
 click_ui composer_reply_input
@@ -58,4 +63,4 @@ wait_frames 12
 type " again"
 wait_frames 14
 expect_input_text composer_reply_input "mine again"
-expect_input_text sb_search_text "abcdef"
+expect_input_text sb_search_text "abc"

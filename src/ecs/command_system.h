@@ -6,7 +6,6 @@
 #include "../menubar.h"
 #include "../settings.h"
 #include "components.h"
-#include "keyboard_focus.h"
 #include "surface_tabs.h"
 #include "ui_imports.h"
 
@@ -61,7 +60,7 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
         case Command::FindInThread:
             if (app.pane().openSession) {
                 app.pane().findOpen = true;
-                app.pane().findFocusPending = !any_text_field_focused() || composer_field_focused();
+                app.pane().findFocusPending = true;
             }
             break;
         case Command::FindNext:
