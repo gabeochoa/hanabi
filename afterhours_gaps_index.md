@@ -26,10 +26,10 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **277** (recount at 7fd3276 + #603) |
-| Distinct numeric gap numbers | **272** (271 at 7fd3276 + #603; several numbers are used twice, #31 three times — §5) |
+| Numbered headings parsed by the reference checker | **278** (recount at 7fd3276 + #603 + #605; the number 604 is unused) |
+| Distinct numeric gap numbers | **273** (271 at 7fd3276 + #603 + #605; several numbers are used twice, #31 three times — §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **275** rows, **275** unique identifiers — includes index-only ids with no detailed entry |
+| **Rows in the triage table (§6)** | **276** rows, **276** unique identifiers — includes index-only ids with no detailed entry |
 | Standalone live asks | not recounted; see §6 verdicts |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
@@ -893,6 +893,7 @@ correction narrows them rather than closing them.
 | 601 | The UI plugin has no notion of an external tracker owning the pointer: while a native menu (NSMenu) tracks, hot/active are last frame's and a press underneath still registers | MISSING | HIGH | M | live · app-side adapter (`surface::native_menu_frame`) |
 | 602 | `core/system.h` in-class explicit specializations of `HasAllComponents<>` / `CallWithComponents<>` / `CallWithChildComponents<>` do not compile under GCC (clang extension; conforming `if constexpr` arm exists only under `_WIN32`) | PORTABILITY | MED | XS | live · no workaround admitted (Mac build against the pin) |
 | 603 | `find_component_center` returns the centre of a clipped or scrolled-out target; a by-name native click cannot be trusted until the target is revealed (C16 palette capture) | TESTING / MISSING | HIGH | S | live · workaround measured on the owned window (reveal via app navigation, then click) |
+| 605 | The label wrap memo's key (`wrap_memo::key_for`) hashes runs and width but not the font, so a label re-drawn at another size keeps the old line breaks and its ink overflows (C28 zoom 1.3 capture; C29 wraps inside) | UI / WRONG | MED | XS | live · app calls the memo's public `clear()` on a text-scale change (118cb7f); face-switch path not covered; the number 604 is unused |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

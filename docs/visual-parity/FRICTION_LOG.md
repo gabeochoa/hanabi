@@ -4513,3 +4513,119 @@ zero scripts from a stale runner directory and its bank is kept; the corrected
 run is the 31. The native accessibility Edit proof and the pin paint
 measurement remain C22 evidence; the palette capture is C24; the three were
 never captured together on C24.
+
+## Find per tab, Cmd+Q confirmation and text zoom, ported from 0.8.2 source (2026-09-25)
+
+Reference: the delivered 0.8.2.79048 source at 7fec2be8 (TabFindState.swift,
+QuitConfirmation.swift, TextZoom in Models.swift, the View menu in
+AppDelegate.swift). The delivered R99.1 installer (served package
+1097625173009387, image sha256
+985d37bb377a3061a70792106185ee342d0c4f6d7b4777006a24aadceddeb2cd) is
+code-signed (codesign --verify --deep --strict passes) and Gatekeeper's
+execute assessment rejects it as an unnotarized Developer ID build (spctl exit
+3); it was never launched, no bypass was attempted, and nothing below is a
+visual comparison against a running reference. Hanabi source tip e1b6de2 on
+a43c65c; Afterhours d90db15 unchanged.
+
+What was absent in a43, from the source and one C25 owned-window capture: the
+find bar's state lived on the pane, not the tab, and a tab click
+(switch_to_tab) never reset the pane, so the bar and its query bled across
+tabs (the C25 capture shows t6 selected under t2's bar reading "no matches");
+only reconcile, a new thread and close-all reset it. Escape and the bar's x
+cleared the query, and Cmd+F toggled the bar shut. The first find commit's
+message says the state was "cleared on every tab switch"; that was an
+overbroad reading of reset_pane_to and the commit is immutable, so this
+paragraph is the correction. There was no confirmation on Cmd+Q (both Quit
+items called terminate: directly); there was no text zoom, only the
+whole-chrome ui_scale test hook.
+
+**App-port mistakes caught in source review, fixed before the zoom cut was
+built (not library gaps).** The first zoom scope set theme::type's point scale
+to the zoom factor and reset it to 1.0 on exit; that scale is the font
+system's conversion from points to the selected face's pixel height (1.17185
+for the bundled face), so every role outside the transcript would have lost
+the face factor after the first frame and the transcript would have been zoom
+times 1.0. The composer's field took the raw point size times the zoom,
+dropping the same factor at zoom 1.0. A quarter-step tolerance gated the
+ledger invalidation and the font scope while the pitch arithmetic used the
+exact factor, so a fractional stored scale such as 1.01 could skip the font
+scale and the invalidation even though the pitch math saw it (whether the
+rounded pixel pitches change at 1.01 is a separate question). Zero and
+negative stored scales read as 1.0 where the reference clamps a present value
+into the range. Zoom In lacked the Cmd+Shift+= alias the reference gets from
+AppKit's "+" equivalent. All five are corrected in 6f1d90a, 7d62926 and
+e1b6de2 with units at a non-1 face base. The mistake itself is ours.
+
+**Not a library gap, and nearly filed as one.** Afterhours d90db15 already
+gives a subtree its own theme: ThemeScopeT (plugins/ui/context.h :532-551,
+vendor e67b160) saves the context's and the defaults' theme, installs one for
+the extent, and restores both, and Theme.font_sizing with with_font_tier
+resolves default sizes against the in-scope theme at build. It did nothing
+for the zoom because the transcript does not use it: 103 of the 108
+with_font_size calls in main_pane_system pass explicit pixels from hanabi's
+own theme::type roles and none go through the library's tiers, so a scoped
+theme scales nothing there. That is hanabi design debt (app-owned roles
+beside a library that has tiers and a scope), which is why the zoom is an
+app-managed scope over those roles rather than a ThemeScopeT. A #604 filed
+for the "missing" scope was withdrawn before review closed; the counts in the
+index are unchanged from a43.
+
+**Design calls that differ from a literal port, and why.** The current find
+match is kept as a stable key (message id, line, offset) resolved against the
+fresh match list each frame, because the reference's currentRow is a row id
+and an ordinal would have drifted when a message arrived above the match. A
+pane writes its find entry only when it changed since its last sync, so a
+pane that has not changed never overwrites a sibling on the same session; a
+pane whose current match vanished re-keys to the first match and does write,
+as the reference's store-on-change does when currentRow moves. Cmd+F always aims the find field; the
+one script that used Cmd+F as a close gesture was rewritten for what still
+holds (typing in find grows neither the sidebar's query nor the draft) and
+renamed. Zoom In's menu row carries "+" only while it is on its shipped
+binding; rebound, it shows the bound chord and the alias is off.
+
+**C27 (e1b6de2) results, and what they taught.** 412 of 416 headless scripts
+passed. Three failures were stale contracts: the General pane gained a fifth
+focusable (the confirm-quit switch) and the shortcuts sheet three rows, and
+the scripts now assert the added control in order. The fourth was a real app
+bug in the zoom cut, confirmed by the owned-window images: glyphs grew while
+the purple user bubble kept its height, the text wrapped below it and an
+assistant body ran past the right edge. TranscriptRenderCache bakes each
+message's wrapped lines, hug width and height at the metrics of the frame
+that measured them, and its key carried none of those metrics; the ledger
+epoch the zoom already invalidated is a different memo. The key now carries
+the effective body font and line pitches, one mechanism covering height,
+width and natural advance across thread slots, split panes and eviction
+(2d64e5d). The same review found the composer oracle was mine (the text field
+is 21 px plus an 8.44 px pad, 29; the 46 px box is its wrapper) and that
+markdown heading sizes were raw constants outside every role. Wrapping itself
+was never stale: measure and draw both run inside the transcript's scope.
+
+**C28 (2d64e5d), and the second memo.** The full UI suite passed, 417
+headless and 33 native, including the zoom script's 1.3 wrap step, the split
+script and the native find script that aims the field on Cmd+F as an injected
+AppKit key event. The owned-window image at 1.3 still showed the third
+assistant message drawn past the right edge while its bubble ended inside the
+window: the library's label wrap memo keys line breaks by run text, weight,
+colour and width and not by font (gap #605), so the 1.0 breaks were redrawn
+at 1.3. The user turn escaped only because its hug width changed its key, not
+because plain labels rewrap on every draw; the commit message of 118cb7f says
+the latter and is immutable, so this sentence is the correction. The fix is
+the memo's own public clear() from the scale-change guard, one line
+(118cb7f). Geometry assertions cannot see ink overflow, which is why 450
+green tests missed it and an image caught it.
+
+**C29 (118cb7f), pixels decoded.** At 1.3 the third assistant message is on
+three lines inside its bubble, brightest ink x max 1910 against the measured
+bubble edge at x 1983 (C28: x max 2199, 1,349 bright pixels past the edge;
+C29: zero), the
+user turn on two lines, contained. At 1.0 the image differs from the
+pre-batch C25 build in 132 pixels inside a 4 by 33 box at the composer caret
+and nowhere else: every chrome, transcript and composer glyph pixel is
+identical, so the zoom changes nothing until it is used. Evidence:
+PARENT-PIXEL-CHECK-v2.json (sha256
+f5d0d3cc3451c17eb1797faa5bb012cfc800e20e2a600839c3de6b5ffa10489a) with its
+compare script, identical-image and one-pixel controls passing. The full C29 suite and the
+Cmd+Q alert paths (ask, Cancel keeps the draft, Don't ask again persists only
+on Quit) are pending and not claimed here. This is parity with
+the pinned source contracts, not with a running reference: the reference was
+never launched.

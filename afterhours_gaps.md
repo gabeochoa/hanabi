@@ -14338,3 +14338,18 @@ CLASS: PORTABILITY (compiles on clang only)
 **Workaround (measured on the owned window, 2026-09-19).** Reveal the target through the app's own navigation before the by-name click — the settings search reveals the palette row — and assert a painted fact about it first. With that in place the C16 capture shows "Palette · Dark" painted, then "Palette · Light" and the whole window light after the press: the by-name click reached the control once the control was on screen. No generic native scroll exists in the DSL; the reveal is per-surface.
 
 CLASS: TESTING / MISSING
+
+### #605 — the label wrap memo's key omits the font: `wrap_memo::key_for(runs, max_width)` hashes run text, weight, colour and width, so a label wrapped at one font size is redrawn at another with the old line breaks
+
+**Class:** UI rendering (`plugins/ui/text_selection.h` :96-108 `key_for`, :139 "the key cannot see the font"; both label wrap sites read it, `plugins/ui/rendering.h` :1004 styled and :2405 plain; LRU of 512 entries, d90db15). The memo has a public `clear()` and no caller in the library or, before this batch, in the app.
+
+**Measured (C28 and C29 owned-window captures, 2026-09-25).** With the transcript's own measure cache already keyed by the effective metrics, zooming the text to 1.3 grew every glyph and re-measured every row, and the third assistant message still drew past the right edge of the window: its bubble ended near x 1980 while its ink ran past 2200. Its runs and width were unchanged from the 1.0 frame, so the memo returned the 1.0 line breaks. The user turn in the same capture wrapped correctly only because its hug width had changed, which changed its key; plain labels take the same memo. With the workaround below, the C29 capture at 1.3 has the same message on three lines inside its bubble (brightest ink x max 1910 against the measured bubble edge at x 1983; C28 had x max 2199 with 1,349 bright pixels past the edge, C29 zero), the user turn on two, and the 1.0 capture differing from the pre-batch build only in the composer caret (132 pixels in a 4 by 33 box), every chrome, transcript and composer glyph pixel identical. Pixel evidence: the parent's PARENT-PIXEL-CHECK-v2.json (sha256 f5d0d3cc3451c17eb1797faa5bb012cfc800e20e2a600839c3de6b5ffa10489a) with its compare script and controls.
+
+**Cost.** Any change to the font that leaves text and width alone -- a text zoom, a face or weight switch -- draws stale line breaks until the entry is evicted; geometry assertions cannot see it because the component rects are right and only the ink overflows.
+
+**Ask.** Fold the font name and size (and letter spacing) into `key_for`, or clear the memo when the active font or a label's font size changes.
+
+**Workaround (118cb7f; C29 capture).** The app calls `detail::wrap_memo::clear()` from the same per-frame guard that dirties the transcript ledgers when the text scale changes, before either pane draws; the memo refills at the new size on the next draw. The face-switch path (`fonts::apply`) has the same exposure and is not addressed in this batch. The number 604 is left unused: a draft under it (a missing subtree-scoped theme) was withdrawn before review closed because the library has `ThemeScopeT`.
+
+CLASS: UI / WRONG
+
