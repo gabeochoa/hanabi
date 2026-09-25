@@ -45,7 +45,8 @@ static void test_escape_keeps_the_query_and_drops_the_row() {
     pane.query = "ledger";
     pane.match = tf::MatchKey{"m3", 0, 0};
     tf::sync(store, pane, "a");
-    tf::close_bar(pane);
+    pane.open = false;
+    pane.match = {};
     CHECK(!pane.open && pane.query == "ledger" && pane.match.empty());
     tf::sync(store, pane, "a");
     CHECK(store.entry("a") != nullptr && !store.entry("a")->open && store.entry("a")->query == "ledger");

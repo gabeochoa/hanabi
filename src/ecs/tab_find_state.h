@@ -100,11 +100,6 @@ inline void sync(Store& store, PaneFind& pane, const std::string& shownId) {
     }
 }
 
-inline void close_bar(PaneFind& pane) {
-    pane.open = false;
-    pane.match = {};
-}
-
 template <typename Pane>
 void sync_pane(Store& store, Pane& p, const std::string& shownId) {
     PaneFind view{p.findOpen, p.findQuery, p.findCurrent, p.findSyncedId, p.findSynced};
