@@ -5,8 +5,8 @@ resize 600 500
 wait_frames 8
 assert_ui shortcuts_panel x=24 y=24 w=552 h=452
 assert_ui shortcuts_cols x=48 y=96 w=504 h=360
-assert_ui shortcuts_commands x=48 y=96 w=504 h=812
-assert_ui shortcuts_reference x=48 y=908 w=504 h=454
+assert_ui shortcuts_commands x=48 y=96 w=504 h=914
+assert_ui shortcuts_reference x=48 y=1010 w=504 h=454
 expect_text "CUSTOMIZABLE COMMANDS"
 # The customizable list is what the reference sits under in one column, so
 # every command added to it pushes the reference further down and the reach

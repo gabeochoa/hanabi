@@ -12,6 +12,9 @@ shift_tab
 wait_frames 6
 shift_tab
 wait_frames 6
+expect_focused settings_new_line_value
+shift_tab
+wait_frames 6
 expect_focused settings_send_key_row
 expect_text "Shift+Return  ·  Cmd+Return also sends"
 
