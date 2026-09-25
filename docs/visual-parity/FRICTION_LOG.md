@@ -4624,8 +4624,14 @@ and nowhere else: every chrome, transcript and composer glyph pixel is
 identical, so the zoom changes nothing until it is used. Evidence:
 PARENT-PIXEL-CHECK-v2.json (sha256
 f5d0d3cc3451c17eb1797faa5bb012cfc800e20e2a600839c3de6b5ffa10489a) with its
-compare script, identical-image and one-pixel controls passing. The full C29 suite and the
-Cmd+Q alert paths (ask, Cancel keeps the draft, Don't ask again persists only
-on Quit) are pending and not claimed here. This is parity with
-the pinned source contracts, not with a running reference: the reference was
-never launched.
+compare script, identical-image and one-pixel controls passing.
+
+**C29 Cmd+Q, five arms on the owned window (runtime lane; the parent's
+witness read pending).** Cmd+Q asks, Cancel twice leaves the app and the
+draft as they were; the suppression box ticked with Cancel leaves the setting
+on; ticked with Quit it persists off and the app exits; with the setting off,
+Cmd+Q exits without the alert, as does Quit from the menu with it on. The two
+exiting arms end the process, which the harness records as exit 1 by design;
+that qualification is part of the result. The full C29 suite is still
+running and is not claimed here. This is parity with the pinned source
+contracts, not with a running reference: the reference was never launched.
