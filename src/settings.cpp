@@ -78,6 +78,7 @@ bool Settings::load_save_file() {
         highlight_choice_ = j.value("theme_highlight", highlight_choice_);
         settings_pane_ = j.value("settings_pane", settings_pane_);
         restore_tabs_ = j.value("restore_tabs", restore_tabs_);
+        confirm_quit_ = j.value("confirm_quit", confirm_quit_);
         jump_to_latest_ = j.value("jump_to_latest", jump_to_latest_);
         show_minimap_ = j.value("show_minimap", show_minimap_);
         minimap_hidden_marks_ =
@@ -271,6 +272,7 @@ void Settings::write_save_file() {
     j["theme_highlight"] = highlight_choice_;
     j["settings_pane"] = settings_pane_;
     j["restore_tabs"] = restore_tabs_;
+    j["confirm_quit"] = confirm_quit_;
     j["jump_to_latest"] = jump_to_latest_;
     j["show_minimap"] = show_minimap_;
     j["minimap_hidden_marks"] = minimap_hidden_marks_;
@@ -454,6 +456,13 @@ bool Settings::get_restore_tabs() const { return restore_tabs_; }
 void Settings::set_restore_tabs(bool on) {
     if (on == restore_tabs_) return;
     restore_tabs_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_confirm_quit() const { return confirm_quit_; }
+void Settings::set_confirm_quit(bool on) {
+    if (on == confirm_quit_) return;
+    confirm_quit_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

@@ -274,6 +274,20 @@ static void test_shelf_fold_round_trips() {
 }
 
 // --- Effort level: the ladder, and the settings round-trip ----------------
+static void test_confirm_quit_round_trips() {
+    std::printf("test_confirm_quit_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    CHECK(s.get_confirm_quit());
+    s.set_confirm_quit(false);
+    CHECK(!s.get_confirm_quit());
+    s.load_save_file();
+    CHECK(!s.get_confirm_quit());
+    s.set_confirm_quit(true);
+    s.load_save_file();
+    CHECK(s.get_confirm_quit());
+}
+
 static void test_effort_round_trips() {
     std::printf("test_effort_round_trips\n");
     isolate_settings();
@@ -845,6 +859,7 @@ int main() {
     test_mock_settings_write();
     test_settings_write_config_gate();
     test_shelf_fold_round_trips();
+    test_confirm_quit_round_trips();
     test_effort_round_trips();
     test_send_key_round_trips();
     test_shortcuts_round_trip_and_reset();

@@ -20,11 +20,13 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 #include "menubar.h"
 #include "resize_drive.h"
 #include "settings.h"
 #include "edit_verbs.h"
+#include "quit_confirmation.h"
 #include "shortcuts.h"
 
 // ---- action flags: set on the main thread by menu items, drained by C++ ----
@@ -74,6 +76,7 @@ static NSString* const kGlyph = @"\u2726";
 }
 - (void)onQuit:(id)sender {
     (void)sender;
+    if (!menubar_confirm_quit_if_asked()) return;
     [NSApp terminate:nil];
 }
 - (BOOL)validateMenuItem:(NSMenuItem*)item {
@@ -281,7 +284,7 @@ static void install_main_menu() {
     [appMenu addItem:item(@"Show All", @selector(unhideAllApplications:), @"", nil)];
     [appMenu addItem:[NSMenuItem separatorItem]];
     [appMenu addItem:item([NSString stringWithFormat:@"Quit %@", appName],
-                          @selector(terminate:), @"q", nil)];
+                          @selector(onQuit:), @"q", g_target)];
     appRoot.submenu = appMenu;
     [g_main_menu addItem:appRoot];
 
@@ -448,6 +451,31 @@ static hanabi::EditVerbQueue g_edit_verbs;
 void menubar_push_edit_verb(int verb) { g_edit_verbs.push(verb); }
 
 bool menubar_take_edit_verb(int* verb) { return g_edit_verbs.take(verb); }
+
+bool menubar_confirm_quit_if_asked(void) {
+    namespace qc = hanabi::quit_confirmation;
+    NSEvent* event = [NSApp currentEvent];
+    const bool keyDown = event != nil && event.type == NSEventTypeKeyDown;
+    const bool commandDown = event != nil && (event.modifierFlags & NSEventModifierFlagCommand) != 0;
+    std::string chars;
+    if (keyDown && event.charactersIgnoringModifiers != nil)
+        chars = event.charactersIgnoringModifiers.UTF8String;
+    const qc::Invocation invocation = qc::invocation(keyDown, commandDown, chars);
+    if (!qc::should_ask(Settings::get().get_confirm_quit(), invocation)) return true;
+    NSAlert* alert = [[[NSAlert alloc] init] autorelease];
+    alert.messageText = [NSString stringWithUTF8String:qc::title(product_branding::kAppName).c_str()];
+    alert.informativeText = [NSString stringWithUTF8String:qc::body(product_branding::kAppName).c_str()];
+    [alert addButtonWithTitle:[NSString stringWithUTF8String:std::string(qc::kQuitButton).c_str()]];
+    [alert addButtonWithTitle:[NSString stringWithUTF8String:std::string(qc::kCancelButton).c_str()]];
+    alert.showsSuppressionButton = YES;
+    alert.suppressionButton.title = [NSString stringWithUTF8String:std::string(qc::kSuppressionTitle).c_str()];
+    const NSModalResponse response = [alert runModal];
+    const qc::Answer answer =
+        qc::answer_for_button(static_cast<int>(response - NSAlertFirstButtonReturn));
+    if (qc::should_disable(answer, alert.suppressionButton.state == NSControlStateValueOn))
+        Settings::get().set_confirm_quit(false);
+    return answer == qc::Answer::Quit;
+}
 
 void menubar_set_command_enabled(int command, bool enabled) {
     if (command < 0 || command >= static_cast<int>(g_command_enabled.size())) return;

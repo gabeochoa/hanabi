@@ -1219,6 +1219,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (id == "send_key") render_send_key_row(ctx, parent, app);
         else if (id == "new_line") render_new_line_row(ctx, parent, app);
         else if (id == "restore_tabs") render_restore_tabs_row(ctx, parent, app);
+        else if (id == "confirm_quit") render_confirm_quit_row(ctx, parent, app);
         else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
         else if (id == "theme_rotate") render_theme_rotate_row(ctx, parent, app);
         else if (id == "transcript_width") render_transcript_width_row(ctx, parent, app);
@@ -3335,6 +3336,16 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const bool on = Settings::get().get_restore_tabs();
         real_switch(ctx, parent, 155, on, "settings_restore_tabs",
                     [](bool v) { Settings::get().set_restore_tabs(v); });
+    }
+
+    void render_confirm_quit_row(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 198, "Ask before quitting with Cmd+Q",
+                 "settings_confirm_quit");
+        const bool on = Settings::get().get_confirm_quit();
+        real_switch(ctx, parent, 199, on, "settings_confirm_quit",
+                    [](bool v) { Settings::get().set_confirm_quit(v); });
     }
 
     void render_jump_latest_row(UIContext<InputAction>& ctx, Entity& parent,

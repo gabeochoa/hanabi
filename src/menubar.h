@@ -32,6 +32,7 @@ bool menubar_edit_binding(const char* selector, unsigned short* key_code,
                            unsigned long long* modifiers);
 void menubar_simulate_command(int command);
 void menubar_set_command_enabled(int command, bool enabled);
+bool menubar_confirm_quit_if_asked(void);
 void menubar_push_edit_verb(int verb);
 bool menubar_take_edit_verb(int* verb);
 bool menubar_command_enabled(int command);

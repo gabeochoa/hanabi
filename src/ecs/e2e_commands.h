@@ -3367,6 +3367,30 @@ struct HandleExpectFontFaceCommand
 // (home, blocked, ...); a saved view by its own id, which a script knows
 // only through `sb_view_<id>` markers -- so for one made in the script, the
 // name alone may be given as `*=Name`.
+struct HandleExpectConfirmQuitCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity& e,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_confirm_quit")) return;
+        if (!cmd.has_args(1) || (cmd.arg(0) != "on" && cmd.arg(0) != "off")) {
+            cmd.fail("expect_confirm_quit requires <on|off>");
+            return;
+        }
+        const bool on = Settings::get().get_confirm_quit();
+        if (on == (cmd.arg(0) == "on")) {
+            cmd.consume();
+            return;
+        }
+        if (within::budget_open(e.id, cmd)) {
+            cmd.retry();
+            return;
+        }
+        within::fail_terminal(cmd, std::format("expect_confirm_quit: the setting is {}, expected {}",
+                                               on ? "on" : "off", cmd.arg(0)));
+    }
+};
+
 struct HandleExpectSavedViewsCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     static std::string joined(const hanabi::views::Store& store) {
@@ -4218,6 +4242,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectAccessCommand>());
     sm.register_update_system(std::make_unique<HandleReleaseHaltObserveCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());

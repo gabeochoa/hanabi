@@ -155,13 +155,16 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 42> kRows{{
+inline constexpr std::array<Row, 43> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
      "return enter newline break paragraph shift", Origin::Readout},
     {"restore_tabs", Pane::General, "Restore open tabs on restart",
      "restore reopen relaunch startup launch windows tabs session",
+     Origin::Device},
+    {"confirm_quit", Pane::General, "Ask before quitting with Cmd+Q",
+     "quit confirm ask exit close command q prompt accidental",
      Origin::Device},
     {"timestamps", Pane::General, "Show timestamps",
      "time clock when sent stamp date", Origin::Device},

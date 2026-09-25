@@ -1,0 +1,25 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+click_ui sb_settings
+wait_frames 8
+expect_focused settings_search
+type "quit"
+wait_frames 8
+expect_text "Ask before quitting with Cmd+Q"
+click_ui settings_result_0
+wait_frames 10
+expect_text "Restore open tabs on restart"
+expect_text "Ask before quitting with Cmd+Q"
+assert_ui settings_confirm_quit hidden=false
+expect_confirm_quit on
+click_ui settings_confirm_quit
+wait_frames 8
+expect_confirm_quit off
+reload_settings
+wait_frames 8
+expect_confirm_quit off
+click_ui settings_confirm_quit
+wait_frames 8
+expect_confirm_quit on
+reload_settings
+wait_frames 8
+expect_confirm_quit on
