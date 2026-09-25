@@ -596,7 +596,10 @@ inline float CHIP = CHIP_PT;
 inline float MICRO = MICRO_PT;
 inline float NANO = NANO_PT;
 constexpr auto EMPHASIS = afterhours::colors::FontWeight::SemiBold;
+inline float g_point_scale = 1.0f;
+inline float point_scale() { return g_point_scale; }
 inline void set_point_scale(float scale) {
+    g_point_scale = scale;
     H1 = H1_PT * scale;
     SPOTLIGHT = SPOTLIGHT_PT * scale;
     LG = LG_PT * scale;

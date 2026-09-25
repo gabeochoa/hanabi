@@ -841,14 +841,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static double text_zoom() { return Settings::get().get_text_scale(); }
     static float zoomed(float px) { return std::round(px * static_cast<float>(text_zoom())); }
     static float composer_line_h() { return zoomed(kComposerLineHPt); }
-    struct TypeZoomScope {
-        TypeZoomScope() {
-            if (text_zoom() != 1.0) theme::type::set_point_scale(static_cast<float>(text_zoom()));
-        }
-        ~TypeZoomScope() { theme::type::set_point_scale(1.0f); }
-        TypeZoomScope(const TypeZoomScope&) = delete;
-        TypeZoomScope& operator=(const TypeZoomScope&) = delete;
-    };
+
     static constexpr size_t kComposerMaxRows = 6;
     // The outlined box at ONE row. Every reference measurement in the composer
     // band below is written against it (the box is y=884..930 on
@@ -3745,7 +3738,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            AppComponent& app, Pane& pane, float paneW,
                            float paneH) {
         const PaneBuildScope building(pane);
-        const TypeZoomScope zoomScope;
+        const hanabi::text_zoom::PointScaleScope zoomScope(
+            theme::type::point_scale(), text_zoom(), theme::type::set_point_scale);
         // No transcript header. Puffin's pane begins at the first message: the
         // tab strip is the only thing above the transcript, and the thread's
         // identity lives in the tab caption. hanabi used to derive a display
@@ -8660,7 +8654,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(zoomed(theme::type::BODY_PT))
+                .with_font_size(theme::type::BODY * static_cast<float>(text_zoom()))
                 .with_alignment(TextAlignment::Left)
                 .with_corner_radius(7.0f)
                 .with_debug_name(cname("composer_reply_input")));

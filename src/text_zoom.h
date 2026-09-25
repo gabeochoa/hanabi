@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <functional>
 
 namespace hanabi::text_zoom {
 
@@ -25,5 +26,20 @@ inline double sanitize(double stored) {
 inline double zoomed_in(double from) { return snap(sanitize(from) + kStep); }
 
 inline double zoomed_out(double from) { return snap(sanitize(from) - kStep); }
+
+class PointScaleScope {
+   public:
+    PointScaleScope(float current, double zoom, std::function<void(float)> set)
+        : prev_(current), set_(std::move(set)) {
+        if (zoom != 1.0) set_(prev_ * static_cast<float>(zoom));
+    }
+    ~PointScaleScope() { set_(prev_); }
+    PointScaleScope(const PointScaleScope&) = delete;
+    PointScaleScope& operator=(const PointScaleScope&) = delete;
+
+   private:
+    float prev_;
+    std::function<void(float)> set_;
+};
 
 }

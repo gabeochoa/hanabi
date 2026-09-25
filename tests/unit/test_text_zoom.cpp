@@ -57,6 +57,35 @@ int main() {
     CHECK(near(tz::zoomed_in(0.0), 0.8));
     CHECK(near(tz::snap(1.04), 1.0) && near(tz::snap(1.06), 1.1));
     CHECK(near(tz::snap(0.1), 0.7) && near(tz::snap(5.0), 2.0));
+    {
+        float face = 1.17185f;
+        float body = 13.0f * face;
+        const auto set = [&](float s) {
+            face = s;
+            body = 13.0f * s;
+        };
+        {
+            tz::PointScaleScope scope(face, 1.3, set);
+            CHECK(std::fabs(face - 1.17185f * 1.3f) < 1e-5f);
+            CHECK(std::fabs(body - 13.0f * 1.17185f * 1.3f) < 1e-4f);
+        }
+        CHECK(std::fabs(face - 1.17185f) < 1e-6f);
+        CHECK(std::fabs(body - 13.0f * 1.17185f) < 1e-5f);
+        int sets = 0;
+        {
+            tz::PointScaleScope idle(face, 1.0, [&](float s) {
+                ++sets;
+                face = s;
+            });
+            CHECK(sets == 0);
+        }
+        CHECK(sets == 1 && std::fabs(face - 1.17185f) < 1e-6f);
+        {
+            tz::PointScaleScope tiny(face, 1.01, set);
+            CHECK(std::fabs(face - 1.17185f * 1.01f) < 1e-5f);
+        }
+        CHECK(std::fabs(face - 1.17185f) < 1e-6f);
+    }
     if (failures == 0) {
         std::printf("OK\n");
         return 0;
