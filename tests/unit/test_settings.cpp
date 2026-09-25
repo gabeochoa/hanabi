@@ -288,6 +288,23 @@ static void test_confirm_quit_round_trips() {
     CHECK(s.get_confirm_quit());
 }
 
+static void test_text_scale_round_trips() {
+    std::printf("test_text_scale_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    CHECK(s.get_text_scale() == 1.0);
+    s.set_text_scale(1.3);
+    CHECK(std::fabs(s.get_text_scale() - 1.3) < 1e-9);
+    s.load_save_file();
+    CHECK(std::fabs(s.get_text_scale() - 1.3) < 1e-9);
+    s.set_text_scale(7.0);
+    CHECK(s.get_text_scale() == 2.0);
+    s.set_text_scale(0.0);
+    CHECK(s.get_text_scale() == 1.0);
+    s.set_text_scale(-1.0);
+    CHECK(s.get_text_scale() == 1.0);
+}
+
 static void test_effort_round_trips() {
     std::printf("test_effort_round_trips\n");
     isolate_settings();
@@ -860,6 +877,7 @@ int main() {
     test_settings_write_config_gate();
     test_shelf_fold_round_trips();
     test_confirm_quit_round_trips();
+    test_text_scale_round_trips();
     test_effort_round_trips();
     test_send_key_round_trips();
     test_shortcuts_round_trip_and_reset();

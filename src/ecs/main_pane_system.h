@@ -68,6 +68,7 @@
 #include "../keys.h"
 #include "../settings.h"
 #include "line_draw_state.h"
+#include "../text_zoom.h"
 #include "text_edit_actions.h"
 #include "ui_imports.h"
 #include "../ui/context_menu.h"
@@ -95,6 +96,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         app->focusBeforeLastPress = app->focusAtFrameStart;
         app->focusAtFrameStart = static_cast<long long>(ctx.focus_id);
         for (Pane& p : app->panes) hanabi::tab_find::sync_pane(app->findStates, p, p.selectedId);
+        if (!hanabi::text_zoom::same(text_zoom(), lastTextZoom_)) {
+            lastTextZoom_ = text_zoom();
+            model::transcript_ledgers().mark_all_dirty();
+        }
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
         const auto& r = layout->main;
@@ -832,7 +837,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kContentInset = 24.0f;
     // The composer's growth, in one place because three sizes are derived from
     // it: the strip's reserved height, the outlined box and the field.
-    static constexpr float kComposerLineH = 21.0f;
+    static constexpr float kComposerLineHPt = 21.0f;
+    static double text_zoom() { return Settings::get().get_text_scale(); }
+    static float zoomed(float px) { return std::round(px * static_cast<float>(text_zoom())); }
+    static float composer_line_h() { return zoomed(kComposerLineHPt); }
+    struct TypeZoomScope {
+        TypeZoomScope() {
+            if (!hanabi::text_zoom::same(text_zoom(), 1.0)) theme::type::set_point_scale(static_cast<float>(text_zoom()));
+        }
+        ~TypeZoomScope() { theme::type::set_point_scale(1.0f); }
+        TypeZoomScope(const TypeZoomScope&) = delete;
+        TypeZoomScope& operator=(const TypeZoomScope&) = delete;
+    };
     static constexpr size_t kComposerMaxRows = 6;
     // The outlined box at ONE row. Every reference measurement in the composer
     // band below is written against it (the box is y=884..930 on
@@ -843,12 +859,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr size_t composer_rows_clamped(size_t rows) {
         return rows < 1 ? 1 : rows > kComposerMaxRows ? kComposerMaxRows : rows;
     }
-    static constexpr float composer_box_h(size_t rows) {
-        return kComposerBoxH1 +
-               static_cast<float>(composer_rows_clamped(rows) - 1) *
-                   kComposerLineH;
+    static float composer_box_h(size_t rows) {
+        return kComposerBoxH1 - kComposerLineHPt +
+               static_cast<float>(composer_rows_clamped(rows)) *
+                   composer_line_h();
     }
-    static constexpr float composer_extra_h(size_t rows) {
+    static float composer_extra_h(size_t rows) {
         return composer_box_h(rows) - kComposerBoxH1;
     }
 
@@ -881,7 +897,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
     static float composer_field_h(size_t rows) {
         return static_cast<float>(composer_rows_clamped(rows)) *
-                   kComposerLineH +
+                   composer_line_h() +
                composer_field_pad();
     }
     static float wrap_width(float paneW) {
@@ -1497,6 +1513,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // box; one per pane, because two composers with one count grew each
     // other's field.
     std::array<size_t, 2> composerRows_ = {1, 1};
+    double lastTextZoom_ = 1.0;
     // Whether each pane's field had the caret last frame (the caret-follow
     // rule acts on the rising edge).
     std::array<bool, 2> composerFocusedLast_ = {false, false};
@@ -3728,6 +3745,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            AppComponent& app, Pane& pane, float paneW,
                            float paneH) {
         const PaneBuildScope building(pane);
+        const TypeZoomScope zoomScope;
         // No transcript header. Puffin's pane begins at the first message: the
         // tab strip is the only thing above the transcript, and the thread's
         // identity lives in the tab caption. hanabi used to derive a display
@@ -4096,7 +4114,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 float lines = std::max(hard, std::ceil(chars * 6.5f / textW) + hard * 0.5f);
                 if (lines < 1.0f) lines = 1.0f;
                 c.estimate = kTurnGapTop + kTurnGapBot + kBubblePadTop + kBubblePadBot +
-                             lines * kLinePitch + (c.showAuthor ? kAuthorH + kAuthorGap : 0.0f);
+                             lines * line_pitch() + (c.showAuthor ? kAuthorH + kAuthorGap : 0.0f);
             }
             c.showAuthor = (i == 0) ||
                            (msgs[i - 1].role != api::Role::Assistant &&
@@ -4286,8 +4304,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (scroll.ent().has<afterhours::ui::HasScrollView>() &&
             !any_text_field_focused()) {
             auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-            const float page = std::max(40.0f, viewH - 2.0f * kLinePitch);
-            const float step = 3.0f * kLinePitch;
+            const float page = std::max(40.0f, viewH - 2.0f * line_pitch());
+            const float step = 3.0f * line_pitch();
             float delta = 0.0f;
             bool jumpTop = false, jumpEnd = false;
             if (hanabi::keys::pressed(hanabi::keys::kPageUp)) delta -= page;
@@ -8630,7 +8648,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto inputRes = afterhours::ui::imm::text_area(
             ctx, composerEp, replyDraft,
             ComponentConfig{}
-                .with_line_height(pixels(kComposerLineH))
+                .with_line_height(pixels(composer_line_h()))
                 .with_max_lines(kComposerMaxRows)
                 // Enter stays ARMED while a create runs, deliberately. The
                 // router refuses it and SAYS SO (the reference's own sentence
@@ -8642,7 +8660,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{percent(1.0f), pixels(kFieldH)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_primary())
-                .with_font_size(theme::type::BODY)
+                .with_font_size(zoomed(theme::type::BODY_PT))
                 .with_alignment(TextAlignment::Left)
                 .with_corner_radius(7.0f)
                 .with_debug_name(cname("composer_reply_input")));
@@ -9660,7 +9678,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // afterhours exposes its own wrapper now (ui::wrap_text), so the count is
     // measured with the same function and the same font the renderer draws
     // with -- they agree by construction rather than by calibration.
-    static constexpr float kLinePitch = 16.0f;  // px per wrapped line
+    static constexpr float kLinePitchPt = 16.0f;  // px per wrapped line
+    static float line_pitch() { return zoomed(kLinePitchPt); }
     // Blank-line (paragraph / list-item gap) height. This is the vertical space
     // between paragraphs and numbered-list items in an assistant turn. Was
     // kLinePitch*0.5 (8px) which stacked into a loose, airy feed vs navi web's
@@ -9872,7 +9891,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static float body_text_h(int lines) {
         if (lines < 1) lines = 1;
-        return static_cast<float>(lines) * kLinePitch + 2.0f * kBodyPad;
+        return static_cast<float>(lines) * line_pitch() + 2.0f * kBodyPad;
     }
 
     // A markdown code-fence line: ``` or ```lang (trimmed of trailing space).
@@ -9923,7 +9942,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Puffin too -- prose is `scaledFont(size: 13)` laid out by SwiftUI and
     // code is an `NSFont.monospacedSystemFont` inside an AttributedString --
     // so they have no reason to share a number here either.
-    static constexpr float kCodeLinePitch = 21.0f;
+    static constexpr float kCodeLinePitchPt = 21.0f;
+    static float code_line_pitch() { return zoomed(kCodeLinePitchPt); }
     // Air ABOVE the block and INSIDE its top, and none at all below.
     //
     // Measured, not derived: prose ink ends at y176 in the reference, the
@@ -9943,7 +9963,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static float code_block_h(int nLines, bool labelled = true) {
         if (nLines < 1) nLines = 1;
         return kCodeVMarginTop + (labelled ? kCodeBarH : kCodeBarBareH) +
-               (static_cast<float>(nLines) * kCodeLinePitch + kCodePadVTop +
+               (static_cast<float>(nLines) * code_line_pitch() + kCodePadVTop +
                 kCodePadVBot) +
                kCodeVMarginBot;
     }
@@ -10257,7 +10277,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 h += kBlankPitch;
             } else {
                 // Measured, not divided: must mirror render_rich_body below.
-                h += static_cast<float>(count_lines(vis, textW)) * kLinePitch;
+                h += static_cast<float>(count_lines(vis, textW)) * line_pitch();
             }
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -10273,7 +10293,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // as one line and the bubble clipped. Measuring with the wrapper itself
     // cannot drift from it again.
     static float flat_body_h(const std::string& body, float textW) {
-        return static_cast<float>(count_lines(body, textW)) * kLinePitch +
+        return static_cast<float>(count_lines(body, textW)) * line_pitch() +
                2.0f * kBodyPad;
     }
 
@@ -11071,7 +11091,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_label(shown)
                     .with_size(ComponentSize{
                         lastLine ? pixels(chipW) : percent(1.0f),
-                        pixels(kCodeLinePitch)})
+                        pixels(code_line_pitch())})
                     .with_custom_background(theme::code_bg())
                     .with_custom_text_color(theme::text_primary())
                     .with_font("mono", theme::type::MD)
@@ -11213,7 +11233,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label("Thinking\xe2\x80\xa6")
                 // kLinePitch, so the placeholder's text box is the box the
                 // line it stands in for will have.
-                .with_size(ComponentSize{children(), pixels(kLinePitch)})
+                .with_size(ComponentSize{children(), pixels(line_pitch())})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::BODY)
@@ -11226,7 +11246,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(row.ent(), 3),
             ComponentConfig{}
                 .with_label(timer)
-                .with_size(ComponentSize{children(), pixels(kLinePitch)})
+                .with_size(ComponentSize{children(), pixels(line_pitch())})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_faint())
                 .with_font_size(theme::type::SM)
@@ -11413,7 +11433,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // Mirrors rich_body_h's measure exactly -- same function,
                 // same width, so the spacers cannot drift from the render.
                 segLines = count_lines(ip.visible, textW);
-                segH = static_cast<float>(segLines) * kLinePitch;
+                segH = static_cast<float>(segLines) * line_pitch();
             }
             const float segTop = y;
             const float segBot = y + segH;
@@ -12702,7 +12722,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string key = m.id.empty() ? "" : m.id;
         if (!tool_is_open(app, key, m)) return 0.0f;
         return static_cast<float>(tool_out_lines(m, kToolOutLines).size()) *
-                   kLinePitch +
+                   line_pitch() +
                12.0f;  // + panel pad
     }
     // The space that panel takes in the column: its box plus its own bottom
@@ -13105,7 +13125,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static float sub_out_box_h(const api::Message& m) {
         int n = sub_out_lines(m);
         if (n <= 0) return 0.0f;
-        return static_cast<float>(n) * (kLinePitch - 2.0f) + 8.0f + 4.0f;
+        return static_cast<float>(n) * (line_pitch() - 2.0f) + 8.0f + 4.0f;
     }
     // The space that panel takes in the column: its box PLUS its own bottom
     // margin. Mirrored in tool_pile_height so the virtualization spacers line
@@ -13150,7 +13170,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_label(line.empty() ? " "
                                              : fmtutil::ellipsize(line, 90))
                     .with_size(ComponentSize{percent(1.0f),
-                                             pixels(kLinePitch - 2.0f)})
+                                             pixels(line_pitch() - 2.0f)})
                     .with_custom_text_color(
                         isDiff ? diff_line_fg(kind) : theme::text_faint())
                     .with_font("mono", theme::type::MICRO)
@@ -13405,7 +13425,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string prov = api::elements::provenance(m.element);
         const int lines = ask_wrap_lines(element_body(m), element_text_w(colW));
         return event_row_height() + (prov.empty() ? 0.0f : kElementProvenanceH) +
-               kElementBodyGap + static_cast<float>(lines) * kLinePitch +
+               kElementBodyGap + static_cast<float>(lines) * line_pitch() +
                kThinkingPadBot;
     }
 
@@ -13472,7 +13492,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("element_body"));
         render_ask_wrapped(ctx, body.ent(), 1, body_text,
-                           ask_wrap_lines(body_text, textW), textW, kLinePitch,
+                           ask_wrap_lines(body_text, textW), textW, line_pitch(),
                            theme::text_primary(), "element_line",
                            true);
     }
@@ -14154,7 +14174,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 auto cfg = ComponentConfig{}
                         .with_label(ln.empty() ? " " : ln)
                         .with_size(ComponentSize{percent(1.0f),
-                                                 pixels(kLinePitch)})
+                                                 pixels(line_pitch())})
                         .with_custom_text_color(diff_line_fg(kind))
                         .with_font("mono", theme::type::SM)
                         .with_alignment(TextAlignment::Left)

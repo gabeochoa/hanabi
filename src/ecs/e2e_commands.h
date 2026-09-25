@@ -1193,6 +1193,7 @@ struct HandleNativeKeyCommand
             else if (a == "ctrl") mods |= 2u;
             else if (a == "alt") mods |= 4u;
             else if (a == "cmd") mods |= 8u;
+            else if (a == "minus") chars = "-";
             else chars = a == "-" ? std::string() : a;
         }
         // Three frames, because a modifier is STATE: the app polls "is Cmd

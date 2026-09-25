@@ -5,6 +5,7 @@
 #include "../keys.h"
 #include "../menubar.h"
 #include "../settings.h"
+#include "../text_zoom.h"
 #include "components.h"
 #include "surface_tabs.h"
 #include "ui_imports.h"
@@ -73,6 +74,15 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
             app.sessionSearchOpen = !app.sessionSearchOpen;
             app.sessionSearchQuery.clear();
             app.sessionSearchIndex = 0;
+            break;
+        case Command::ZoomIn:
+            Settings::get().set_text_scale(hanabi::text_zoom::zoomed_in(Settings::get().get_text_scale()));
+            break;
+        case Command::ZoomOut:
+            Settings::get().set_text_scale(hanabi::text_zoom::zoomed_out(Settings::get().get_text_scale()));
+            break;
+        case Command::ZoomActual:
+            Settings::get().set_text_scale(hanabi::text_zoom::kDefault);
             break;
         case Command::SelectTab1:
         case Command::SelectTab2:

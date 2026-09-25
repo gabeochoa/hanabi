@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "text_zoom.h"
 #include "util/acknowledged.h"
 #include <branding.h>
 
@@ -79,6 +80,7 @@ bool Settings::load_save_file() {
         settings_pane_ = j.value("settings_pane", settings_pane_);
         restore_tabs_ = j.value("restore_tabs", restore_tabs_);
         confirm_quit_ = j.value("confirm_quit", confirm_quit_);
+        text_scale_ = hanabi::text_zoom::sanitize(j.value("text_scale", text_scale_));
         jump_to_latest_ = j.value("jump_to_latest", jump_to_latest_);
         show_minimap_ = j.value("show_minimap", show_minimap_);
         minimap_hidden_marks_ =
@@ -273,6 +275,7 @@ void Settings::write_save_file() {
     j["settings_pane"] = settings_pane_;
     j["restore_tabs"] = restore_tabs_;
     j["confirm_quit"] = confirm_quit_;
+    j["text_scale"] = text_scale_;
     j["jump_to_latest"] = jump_to_latest_;
     j["show_minimap"] = show_minimap_;
     j["minimap_hidden_marks"] = minimap_hidden_marks_;
@@ -463,6 +466,14 @@ bool Settings::get_confirm_quit() const { return confirm_quit_; }
 void Settings::set_confirm_quit(bool on) {
     if (on == confirm_quit_) return;
     confirm_quit_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+double Settings::get_text_scale() const { return text_scale_; }
+void Settings::set_text_scale(double scale) {
+    const double next = hanabi::text_zoom::sanitize(scale);
+    if (hanabi::text_zoom::same(next, text_scale_)) return;
+    text_scale_ = next;
     if (auto_save_enabled) write_save_file();
 }
 

@@ -324,6 +324,10 @@ static void install_main_menu() {
     [viewMenu addItem:[NSMenuItem separatorItem]];
     [viewMenu addItem:command_item(hanabi::shortcuts::Command::ToggleSidebar)];
     [viewMenu addItem:command_item(hanabi::shortcuts::Command::ToggleSplit)];
+    [viewMenu addItem:[NSMenuItem separatorItem]];
+    [viewMenu addItem:command_item(hanabi::shortcuts::Command::ZoomIn)];
+    [viewMenu addItem:command_item(hanabi::shortcuts::Command::ZoomOut)];
+    [viewMenu addItem:command_item(hanabi::shortcuts::Command::ZoomActual)];
     viewRoot.submenu = viewMenu;
     [g_main_menu addItem:viewRoot];
 
