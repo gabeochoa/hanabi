@@ -5,30 +5,35 @@ wait_frames 16
 native_mode on
 wait_frames 4
 assert_ui user_bubble h=35
-assert_ui composer_reply_input h=46
+assert_ui composer_reply_input h=29
+assert_ui composer_input_wrap h=46
 assert_ui sidebar w=280
 assert_ui tab_active h=33
 native_key 24 = cmd
 wait_frames 12
 assert_ui user_bubble h=37
-assert_ui composer_reply_input h=48
+assert_ui composer_reply_input h=31
+assert_ui composer_input_wrap h=48
 assert_ui sidebar w=280
 assert_ui tab_active h=33
 native_key 29 0 cmd
 wait_frames 12
 assert_ui user_bubble h=35
-assert_ui composer_reply_input h=46
+assert_ui composer_reply_input h=29
+assert_ui composer_input_wrap h=46
 native_key 24 + cmd shift
 wait_frames 12
 assert_ui user_bubble h=37
-assert_ui composer_reply_input h=48
+assert_ui composer_reply_input h=31
+assert_ui composer_input_wrap h=48
 native_key 29 0 cmd
 wait_frames 12
 assert_ui user_bubble h=35
 native_key 27 minus cmd
 wait_frames 12
 assert_ui user_bubble h=33
-assert_ui composer_reply_input h=44
+assert_ui composer_reply_input h=27
+assert_ui composer_input_wrap h=44
 assert_ui sidebar w=280
 assert_ui tab_active h=33
 native_key 29 0 cmd

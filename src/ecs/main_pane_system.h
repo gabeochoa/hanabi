@@ -99,6 +99,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (text_zoom() != lastTextZoom_) {
             lastTextZoom_ = text_zoom();
             model::transcript_ledgers().mark_all_dirty();
+            render_cache().clear();
         }
 
         Entity& uiRoot = ui_imm::getUIRootEntity();

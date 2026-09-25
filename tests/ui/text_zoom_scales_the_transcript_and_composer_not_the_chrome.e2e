@@ -4,46 +4,55 @@ wait_frames 16
 expect_text "Reconcile this cycle's Stars payouts"
 assert_ui user_bubble h=35
 assert_ui user_avatar w=20 h=20
-assert_ui composer_reply_input h=46
+assert_ui composer_reply_input h=29
+assert_ui composer_input_wrap h=46
 assert_ui sidebar w=280
 assert_ui tab_active h=33
 key CTRL+=
 wait_frames 12
 assert_ui user_bubble h=37
-assert_ui composer_reply_input h=48
+assert_ui composer_reply_input h=31
+assert_ui composer_input_wrap h=48
 assert_ui user_avatar w=20 h=20
 assert_ui sidebar w=280
 assert_ui tab_active h=33
 key CTRL+=
 wait_frames 12
 assert_ui user_bubble h=38
-assert_ui composer_reply_input h=50
+assert_ui composer_reply_input h=33
+assert_ui composer_input_wrap h=50
 key CTRL+0
 wait_frames 12
 assert_ui user_bubble h=35
-assert_ui composer_reply_input h=46
+assert_ui composer_reply_input h=29
+assert_ui composer_input_wrap h=46
 key CTRL+SHIFT+=
 wait_frames 12
 assert_ui user_bubble h=37
-assert_ui composer_reply_input h=48
+assert_ui composer_reply_input h=31
+assert_ui composer_input_wrap h=48
 key CTRL+0
 wait_frames 12
 assert_ui user_bubble h=35
 key CTRL+SHIFT+-
 wait_frames 12
 assert_ui user_bubble h=35
-assert_ui composer_reply_input h=46
+assert_ui composer_reply_input h=29
+assert_ui composer_input_wrap h=46
 key CTRL+-
 wait_frames 12
 assert_ui user_bubble h=33
-assert_ui composer_reply_input h=44
+assert_ui composer_reply_input h=27
+assert_ui composer_input_wrap h=44
 assert_ui sidebar w=280
 assert_ui tab_active h=33
 reload_settings
 wait_frames 12
 assert_ui user_bubble h=33
-assert_ui composer_reply_input h=44
+assert_ui composer_reply_input h=27
+assert_ui composer_input_wrap h=44
 key CTRL+0
 wait_frames 12
 assert_ui user_bubble h=35
-assert_ui composer_reply_input h=46
+assert_ui composer_reply_input h=29
+assert_ui composer_input_wrap h=46
