@@ -4635,7 +4635,16 @@ on; ticked with Quit it persists off and the app exits; with the setting off,
 Cmd+Q exits without the alert, as does Quit from the menu with it on. The
 three terminal arms (ticked Quit, setting off, explicit menu Quit) end the
 process, which the harness records as exit 1 by design, while the two Cancel
-arms exit 0; that qualification is part of the result. The full C29 suite is
-still running and is not claimed here. These three ported behaviours are
-validated against the pinned source contracts, not against a running
-reference: the reference was never launched.
+arms exit 0; that qualification is part of the result.
+
+**C29 full suite.** 449 of 450: 417 of 417 headless and 32 of 33 native. The
+one red, native_context_menu_survives_the_release_that_opened_it, reported
+the quick right-click's menu idle instead of open in its second phase; the
+original record is preserved, the same fixture passed in isolation on C29 and
+on the C28 baseline, and the cause is unexplained (timing is the hypothesis,
+not a finding), so this is neither a proven regression nor a green 450. Two
+records carry the report-only EOF-unobserved qualifier
+(native_a_message_arriving_while_open_wakes_the_row_menu_on_the_next_refresh,
+native_row_menu_read_only_viewer_has_no_halt_rows). These three ported
+behaviours are validated against the pinned source contracts, not against a
+running reference: the reference was never launched.
