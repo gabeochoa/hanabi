@@ -21,13 +21,15 @@ int main() {
     std::printf("=== test_text_zoom ===\n");
     CHECK(tz::kDefault == 1.0 && tz::kMin == 0.7 && tz::kMax == 2.0 && tz::kStep == 0.1);
     CHECK(near(tz::sanitize(1.0), 1.0));
-    CHECK(near(tz::sanitize(0.0), 1.0));
-    CHECK(near(tz::sanitize(-3.0), 1.0));
+    CHECK(near(tz::sanitize(0.0), 0.7));
+    CHECK(near(tz::sanitize(-3.0), 0.7));
     CHECK(near(tz::sanitize(std::numeric_limits<double>::quiet_NaN()), 1.0));
     CHECK(near(tz::sanitize(std::numeric_limits<double>::infinity()), 1.0));
     CHECK(near(tz::sanitize(0.2), 0.7));
     CHECK(near(tz::sanitize(9.0), 2.0));
     CHECK(near(tz::sanitize(1.35), 1.35));
+    CHECK(tz::sanitize(1.01) != tz::sanitize(1.0));
+    CHECK(near(tz::sanitize(1.01), 1.01));
 
     double s = 1.0;
     for (int i = 0; i < 3; ++i) s = tz::zoomed_in(s);
@@ -52,10 +54,9 @@ int main() {
         CHECK(on_grid(walk));
     }
     CHECK(near(walk, tz::kMax));
-    CHECK(near(tz::zoomed_in(0.0), 1.1));
+    CHECK(near(tz::zoomed_in(0.0), 0.8));
     CHECK(near(tz::snap(1.04), 1.0) && near(tz::snap(1.06), 1.1));
     CHECK(near(tz::snap(0.1), 0.7) && near(tz::snap(5.0), 2.0));
-    CHECK(tz::same(1.0, 1.0000000001) && !tz::same(1.0, 1.1));
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

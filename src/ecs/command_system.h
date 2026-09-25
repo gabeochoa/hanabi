@@ -125,8 +125,10 @@ struct System : afterhours::System<> {
         for (const auto& item : hanabi::shortcuts::kDefinitions) {
             if (!Settings::get().get_shortcut_enabled(item.command)) continue;
             if (!menubar_command_enabled(static_cast<int>(item.command))) continue;
-            if (hanabi::keys::shortcut_pressed(
-                    Settings::get().get_shortcut(item.command))) {
+            const auto bound = Settings::get().get_shortcut(item.command);
+            const auto alias = hanabi::shortcuts::shifted_alias(item.command, bound);
+            if (hanabi::keys::shortcut_pressed(bound) ||
+                (alias && hanabi::keys::shortcut_pressed(*alias))) {
                 dispatch(item.command, *app, layout);
                 break;
             }

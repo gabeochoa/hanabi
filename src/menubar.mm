@@ -44,6 +44,8 @@ static int g_last_blocked = -1;          // change-guard for menubar_set_blocked
 static NSMenu* g_main_menu = nil;
 static std::array<NSMenuItem*, hanabi::shortcuts::kDefinitions.size()>
     g_command_items{};
+static std::array<NSMenuItem*, hanabi::shortcuts::kDefinitions.size()>
+    g_command_alias_items{};
 static NSResponder* g_edit_bridge = nil;
 struct StandardMenuBinding {
     NSMenuItem* item = nil;
@@ -206,6 +208,15 @@ static NSMenuItem* command_item(hanabi::shortcuts::Command command) {
     return result;
 }
 
+static NSMenuItem* command_alias_item(hanabi::shortcuts::Command command) {
+    NSMenuItem* primary = g_command_items[hanabi::shortcuts::index(command)];
+    NSMenuItem* result = command_item(command);
+    g_command_items[hanabi::shortcuts::index(command)] = primary;
+    g_command_alias_items[hanabi::shortcuts::index(command)] = result;
+    result.alternate = YES;
+    return result;
+}
+
 void menubar_refresh_shortcuts(void) {
     if (g_main_menu == nil) return;
     const bool recording = g_recording_command.load() >= 0;
@@ -213,12 +224,14 @@ void menubar_refresh_shortcuts(void) {
         NSMenuItem* menuItem =
             g_command_items[hanabi::shortcuts::index(def.command)];
         if (menuItem == nil) continue;
-        if (recording) {
+        NSMenuItem* aliasItem =
+            g_command_alias_items[hanabi::shortcuts::index(def.command)];
+        if (recording || !Settings::get().get_shortcut_enabled(def.command)) {
             menuItem.keyEquivalent = @"";
-            continue;
-        }
-        if (!Settings::get().get_shortcut_enabled(def.command)) {
-            menuItem.keyEquivalent = @"";
+            if (aliasItem != nil) {
+                aliasItem.keyEquivalent = @"";
+                aliasItem.hidden = YES;
+            }
             continue;
         }
         const auto shortcut = Settings::get().get_shortcut(def.command);
@@ -228,6 +241,17 @@ void menubar_refresh_shortcuts(void) {
             [NSString stringWithUTF8String:equivalent.c_str()];
         menuItem.keyEquivalentModifierMask =
             native_modifiers(shortcut.modifiers);
+        if (aliasItem == nil) continue;
+        const auto alias = hanabi::shortcuts::shifted_alias(def.command, shortcut);
+        if (!alias) {
+            aliasItem.keyEquivalent = @"";
+            aliasItem.hidden = YES;
+            continue;
+        }
+        aliasItem.hidden = NO;
+        aliasItem.keyEquivalent = @"+";
+        aliasItem.keyEquivalentModifierMask = native_modifiers(
+            static_cast<std::uint8_t>(alias->modifiers & ~hanabi::shortcuts::ShiftModifier));
     }
 }
 
@@ -326,6 +350,7 @@ static void install_main_menu() {
     [viewMenu addItem:command_item(hanabi::shortcuts::Command::ToggleSplit)];
     [viewMenu addItem:[NSMenuItem separatorItem]];
     [viewMenu addItem:command_item(hanabi::shortcuts::Command::ZoomIn)];
+    [viewMenu addItem:command_alias_item(hanabi::shortcuts::Command::ZoomIn)];
     [viewMenu addItem:command_item(hanabi::shortcuts::Command::ZoomOut)];
     [viewMenu addItem:command_item(hanabi::shortcuts::Command::ZoomActual)];
     viewRoot.submenu = viewMenu;

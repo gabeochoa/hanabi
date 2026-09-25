@@ -141,6 +141,25 @@ static void test_tab_chords_clear_the_reserved_list() {
     CHECK(!shot.ok);
 }
 
+static void test_zoom_in_alone_takes_a_shifted_alias_on_its_default_binding() {
+    using namespace hanabi::shortcuts;
+    using namespace afterhours::keys;
+    const Shortcut dflt = definition(Command::ZoomIn).shortcut;
+    CHECK(dflt == (Shortcut{EQUAL, CommandModifier}));
+    const auto alias = shifted_alias(Command::ZoomIn, dflt);
+    CHECK(alias.has_value());
+    CHECK(alias && *alias == (Shortcut{EQUAL, static_cast<std::uint8_t>(CommandModifier | ShiftModifier)}));
+    CHECK(!shifted_alias(Command::ZoomIn, Shortcut{EQUAL, static_cast<std::uint8_t>(CommandModifier | OptionModifier)}));
+    CHECK(!shifted_alias(Command::ZoomIn, Shortcut{P, CommandModifier}));
+    CHECK(!shifted_alias(Command::ZoomOut, definition(Command::ZoomOut).shortcut));
+    CHECK(!shifted_alias(Command::ZoomActual, definition(Command::ZoomActual).shortcut));
+    for (const auto& item : kDefinitions)
+        if (item.command != Command::ZoomIn) CHECK(!shifted_alias(item.command, item.shortcut));
+    CHECK(definition(Command::ZoomOut).shortcut == (Shortcut{MINUS, CommandModifier}));
+    CHECK(definition(Command::ZoomActual).shortcut == (Shortcut{ZERO, CommandModifier}));
+    CHECK(tab_slot_for(Command::ZoomActual) == 0);
+}
+
 int main() {
     test_defaults_are_unique_and_valid();
     test_serialization_round_trips();
@@ -150,6 +169,7 @@ int main() {
     test_tab_slots_name_their_position();
     test_tab_index_for_slot_covers_short_strips();
     test_tab_chords_clear_the_reserved_list();
+    test_zoom_in_alone_takes_a_shifted_alias_on_its_default_binding();
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

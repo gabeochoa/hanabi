@@ -18,6 +18,13 @@ native_key 29 0 cmd
 wait_frames 12
 assert_ui user_bubble h=35
 assert_ui composer_reply_input h=46
+native_key 24 + cmd shift
+wait_frames 12
+assert_ui user_bubble h=37
+assert_ui composer_reply_input h=48
+native_key 29 0 cmd
+wait_frames 12
+assert_ui user_bubble h=35
 native_key 27 minus cmd
 wait_frames 12
 assert_ui user_bubble h=33

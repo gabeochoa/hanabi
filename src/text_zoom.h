@@ -18,14 +18,12 @@ inline double clamp(double scale) {
 inline double snap(double scale) { return clamp(std::round(scale / kStep) * kStep); }
 
 inline double sanitize(double stored) {
-    if (!std::isfinite(stored) || stored <= 0.0) return kDefault;
+    if (!std::isfinite(stored)) return kDefault;
     return clamp(stored);
 }
 
 inline double zoomed_in(double from) { return snap(sanitize(from) + kStep); }
 
 inline double zoomed_out(double from) { return snap(sanitize(from) - kStep); }
-
-inline bool same(double a, double b) { return std::fabs(a - b) < kStep * 0.25; }
 
 }

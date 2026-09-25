@@ -472,7 +472,7 @@ void Settings::set_confirm_quit(bool on) {
 double Settings::get_text_scale() const { return text_scale_; }
 void Settings::set_text_scale(double scale) {
     const double next = hanabi::text_zoom::sanitize(scale);
-    if (hanabi::text_zoom::same(next, text_scale_)) return;
+    if (next == text_scale_) return;
     text_scale_ = next;
     if (auto_save_enabled) write_save_file();
 }

@@ -96,7 +96,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         app->focusBeforeLastPress = app->focusAtFrameStart;
         app->focusAtFrameStart = static_cast<long long>(ctx.focus_id);
         for (Pane& p : app->panes) hanabi::tab_find::sync_pane(app->findStates, p, p.selectedId);
-        if (!hanabi::text_zoom::same(text_zoom(), lastTextZoom_)) {
+        if (text_zoom() != lastTextZoom_) {
             lastTextZoom_ = text_zoom();
             model::transcript_ledgers().mark_all_dirty();
         }
@@ -843,7 +843,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static float composer_line_h() { return zoomed(kComposerLineHPt); }
     struct TypeZoomScope {
         TypeZoomScope() {
-            if (!hanabi::text_zoom::same(text_zoom(), 1.0)) theme::type::set_point_scale(static_cast<float>(text_zoom()));
+            if (text_zoom() != 1.0) theme::type::set_point_scale(static_cast<float>(text_zoom()));
         }
         ~TypeZoomScope() { theme::type::set_point_scale(1.0f); }
         TypeZoomScope(const TypeZoomScope&) = delete;

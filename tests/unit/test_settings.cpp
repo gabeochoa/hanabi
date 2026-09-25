@@ -300,9 +300,11 @@ static void test_text_scale_round_trips() {
     s.set_text_scale(7.0);
     CHECK(s.get_text_scale() == 2.0);
     s.set_text_scale(0.0);
-    CHECK(s.get_text_scale() == 1.0);
+    CHECK(s.get_text_scale() == 0.7);
     s.set_text_scale(-1.0);
-    CHECK(s.get_text_scale() == 1.0);
+    CHECK(s.get_text_scale() == 0.7);
+    s.set_text_scale(1.02);
+    CHECK(std::fabs(s.get_text_scale() - 1.02) < 1e-9);
 }
 
 static void test_effort_round_trips() {

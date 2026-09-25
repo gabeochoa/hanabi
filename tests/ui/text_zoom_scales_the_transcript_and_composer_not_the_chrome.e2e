@@ -22,6 +22,17 @@ key CTRL+0
 wait_frames 12
 assert_ui user_bubble h=35
 assert_ui composer_reply_input h=46
+key CTRL+SHIFT+=
+wait_frames 12
+assert_ui user_bubble h=37
+assert_ui composer_reply_input h=48
+key CTRL+0
+wait_frames 12
+assert_ui user_bubble h=35
+key CTRL+SHIFT+-
+wait_frames 12
+assert_ui user_bubble h=35
+assert_ui composer_reply_input h=46
 key CTRL+-
 wait_frames 12
 assert_ui user_bubble h=33

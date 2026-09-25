@@ -258,6 +258,12 @@ inline constexpr const Definition& definition(Command command) {
     return kDefinitions[index(command)];
 }
 
+inline constexpr std::optional<Shortcut> shifted_alias(Command command, Shortcut bound) {
+    if (command != Command::ZoomIn) return std::nullopt;
+    if (!(bound == definition(command).shortcut)) return std::nullopt;
+    return Shortcut{bound.key, static_cast<std::uint8_t>(bound.modifiers | ShiftModifier)};
+}
+
 inline constexpr Bindings defaults() {
     Bindings out{};
     for (const auto& item : kDefinitions)
