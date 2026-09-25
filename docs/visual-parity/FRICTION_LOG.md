@@ -4524,7 +4524,7 @@ AppDelegate.swift). The delivered R99.1 installer (served package
 code-signed (codesign --verify --deep --strict passes) and Gatekeeper's
 execute assessment rejects it as an unnotarized Developer ID build (spctl exit
 3); it was never launched, no bypass was attempted, and nothing below is a
-visual comparison against a running reference. Hanabi source tip e1b6de2 on
+visual comparison against a running reference. Hanabi source tip 118cb7f on
 a43c65c; Afterhours d90db15 unchanged.
 
 What was absent in a43, from the source and one C25 owned-window capture: the
@@ -4567,8 +4567,8 @@ own theme::type roles and none go through the library's tiers, so a scoped
 theme scales nothing there. That is hanabi design debt (app-owned roles
 beside a library that has tiers and a scope), which is why the zoom is an
 app-managed scope over those roles rather than a ThemeScopeT. A #604 filed
-for the "missing" scope was withdrawn before review closed; the counts in the
-index are unchanged from a43.
+for the "missing" scope was withdrawn before review closed and added nothing
+to the index counts; #605 below adds one.
 
 **Design calls that differ from a literal port, and why.** The current find
 match is kept as a stable key (message id, line, offset) resolved against the
@@ -4597,15 +4597,17 @@ the effective body font and line pitches, one mechanism covering height,
 width and natural advance across thread slots, split panes and eviction
 (2d64e5d). The same review found the composer oracle was mine (the text field
 is 21 px plus an 8.44 px pad, 29; the 46 px box is its wrapper) and that
-markdown heading sizes were raw constants outside every role. Wrapping itself
-was never stale: measure and draw both run inside the transcript's scope.
+markdown heading sizes were raw constants outside every role. Hanabi's own
+measurement wrapped at the scaled font, since measure and draw both run inside
+the transcript's scope; the library's downstream draw memo stayed stale, which
+is the next paragraph.
 
 **C28 (2d64e5d), and the second memo.** The full UI suite passed, 417
 headless and 33 native, including the zoom script's 1.3 wrap step, the split
 script and the native find script that aims the field on Cmd+F as an injected
 AppKit key event. The owned-window image at 1.3 still showed the third
-assistant message drawn past the right edge while its bubble ended inside the
-window: the library's label wrap memo keys line breaks by run text, weight,
+assistant message drawn to the right edge of the window while its bubble
+ended well inside it: the library's label wrap memo keys line breaks by run text, weight,
 colour and width and not by font (gap #605), so the 1.0 breaks were redrawn
 at 1.3. The user turn escaped only because its hug width changed its key, not
 because plain labels rewrap on every draw; the commit message of 118cb7f says
@@ -4630,8 +4632,10 @@ compare script, identical-image and one-pixel controls passing.
 witness read pending).** Cmd+Q asks, Cancel twice leaves the app and the
 draft as they were; the suppression box ticked with Cancel leaves the setting
 on; ticked with Quit it persists off and the app exits; with the setting off,
-Cmd+Q exits without the alert, as does Quit from the menu with it on. The two
-exiting arms end the process, which the harness records as exit 1 by design;
-that qualification is part of the result. The full C29 suite is still
-running and is not claimed here. This is parity with the pinned source
-contracts, not with a running reference: the reference was never launched.
+Cmd+Q exits without the alert, as does Quit from the menu with it on. The
+three terminal arms (ticked Quit, setting off, explicit menu Quit) end the
+process, which the harness records as exit 1 by design, while the two Cancel
+arms exit 0; that qualification is part of the result. The full C29 suite is
+still running and is not claimed here. These three ported behaviours are
+validated against the pinned source contracts, not against a running
+reference: the reference was never launched.
