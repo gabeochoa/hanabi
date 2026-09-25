@@ -99,7 +99,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (text_zoom() != lastTextZoom_) {
             lastTextZoom_ = text_zoom();
             model::transcript_ledgers().mark_all_dirty();
-            render_cache().clear();
         }
 
         Entity& uiRoot = ui_imm::getUIRootEntity();
@@ -843,7 +842,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static float zoomed(float px) { return std::round(px * static_cast<float>(text_zoom())); }
     static float composer_line_h() { return zoomed(kComposerLineHPt); }
     static std::string zoom_key() {
-        return text_zoom() == 1.0 ? std::string() : "|z" + std::to_string(text_zoom());
+        if (text_zoom() == 1.0) return std::string();
+        return "|z" + std::to_string(theme::type::BODY) + "/" + std::to_string(line_pitch()) + "/" +
+               std::to_string(code_line_pitch());
     }
 
     static constexpr size_t kComposerMaxRows = 6;
@@ -10103,7 +10104,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static float heading_font(int level) {
         if (level < 1) level = 1;
         if (level > 4) level = 4;
-        return kHeadingFont[level - 1];
+        return kHeadingFont[level - 1] * static_cast<float>(text_zoom());
     }
     // Line pitch as arithmetic on the font size rather than a font measurement:
     // measure and render must agree even on the first frame, before the font

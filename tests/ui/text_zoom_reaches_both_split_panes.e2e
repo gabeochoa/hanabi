@@ -1,0 +1,17 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t2","t6"],"split_focused_pane":0,"theme":"dark"}
+require_thread t2
+wait_frames 16
+expect_text "Reconcile this cycle's Stars payouts"
+assert_ui composer_reply_input h=29
+assert_ui composer_reply_input_other h=29
+assert_ui sidebar w=280
+key CTRL+=
+wait_frames 12
+assert_ui composer_reply_input h=31
+assert_ui composer_reply_input_other h=31
+assert_ui sidebar w=280
+assert_ui tab_active h=33
+key CTRL+0
+wait_frames 12
+assert_ui composer_reply_input h=29
+assert_ui composer_reply_input_other h=29

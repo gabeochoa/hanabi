@@ -16,6 +16,12 @@ assert_ui composer_reply_input h=31
 assert_ui composer_input_wrap h=48
 assert_ui sidebar w=280
 assert_ui tab_active h=33
+native_key 24 = cmd
+native_key 24 = cmd
+wait_frames 12
+assert_ui user_bubble h=61
+expect_ui_rel user_bubble inside user_row
+expect_ui_rel user_bubble right_edge user_row
 native_key 29 0 cmd
 wait_frames 12
 assert_ui user_bubble h=35

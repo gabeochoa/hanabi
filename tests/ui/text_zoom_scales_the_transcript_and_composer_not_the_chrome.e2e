@@ -1,4 +1,4 @@
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
 require_thread t2
 wait_frames 16
 expect_text "Reconcile this cycle's Stars payouts"
@@ -21,6 +21,21 @@ wait_frames 12
 assert_ui user_bubble h=38
 assert_ui composer_reply_input h=33
 assert_ui composer_input_wrap h=50
+key CTRL+=
+wait_frames 12
+assert_ui user_bubble h=61
+expect_ui_rel user_bubble inside user_row
+expect_ui_rel user_bubble right_edge user_row
+assert_ui composer_reply_input h=35
+assert_ui composer_input_wrap h=52
+click_ui tab_t6
+wait_frames 16
+expect_open t6
+click_ui tab_t2
+wait_frames 16
+expect_open t2
+assert_ui user_bubble h=61
+expect_ui_rel user_bubble inside user_row
 key CTRL+0
 wait_frames 12
 assert_ui user_bubble h=35
