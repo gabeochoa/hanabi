@@ -1837,7 +1837,13 @@ is still no way to ask. The workaround below stays for that reason.
   Every other gap announced itself. This one produces a screenshot that looks
   fine until you know what should have been there.
 
-### #49 — A scripted test cannot press Cmd (the Super modifier is parsed, never held)
+### #49 — FIXED at c1d0e0b: A scripted test cannot press Cmd (the Super modifier is parsed, never held)
+
+**Closed by upstream `be4c507`** ("Inject actual Cmd and Super modifiers in E2E chords", in the d90db15..c1d0e0b range; hanabi vendor 60b0b92 = c1d0e0b + #607): `key_codes.h` now maps `CMD+` to `KeyCombo::super` and the E2E key handler holds and releases `LEFT_SUPER` (`command_handlers.h` :87/:114/:125), so a script's `key CMD+K` reaches `cmd_down()` as a real Command chord; `CTRL+` still injects Ctrl, so hanabi's E2E Ctrl alias keeps working. Evidence on the new pin: C35, headless 420/420 including the seventy `key CMD+` lines, native 33/33 including the native chord fixtures (2026-09-26). The filed text stays below under `As filed`.
+
+---
+
+#### As filed — A scripted test cannot press Cmd (the Super modifier is parsed, never held)
 
 - **What I was trying to build.** A test for the app's keyboard shortcuts. On
   macOS every one of them is a Cmd chord: Cmd+B folds the sidebar, Cmd+, opens
@@ -8445,7 +8451,13 @@ decides not to warn.
 
 ---
 
-### #256 — correction to #49: `CMD+` in a script means Ctrl, and `SUPER+` is dropped
+### #256 — FIXED at c1d0e0b: correction to #49: `CMD+` in a script means Ctrl, and `SUPER+` is dropped
+
+**Closed by upstream `be4c507`** with #49: `CMD+` now means Super and is held for the chord; the `SUPER+` spelling is no longer a recognised prefix at all (the modifier table lists `CTRL+`, `CMD+`, `SHIFT+`, `ALT+`/`OPTION+` after case-folding), so a script says `CMD+` and gets Command. Same C35 evidence as #49. The filed text stays below under `As filed`.
+
+---
+
+#### As filed — correction to #49: `CMD+` in a script means Ctrl, and `SUPER+` is dropped
 
 **What #49 says.** That `HandleKeyCommand` parses a Super modifier and never
 holds it, so "there is no spelling of a Cmd chord that works, and the whole
@@ -14338,6 +14350,8 @@ CLASS: PORTABILITY (compiles on clang only)
 **Ask.** Intersect the rect with every clipping ancestor and the viewport; return `nullopt` (and let the command fail with "target is clipped/off-screen") when the visible remainder is empty or the centre falls outside it. Optionally expose the visible rect so a `scroll_until_visible <name>` verb can be written.
 
 **Workaround (measured on the owned window, 2026-09-19).** Reveal the target through the app's own navigation before the by-name click — the settings search reveals the palette row — and assert a painted fact about it first. With that in place the C16 capture shows "Palette · Dark" painted, then "Palette · Light" and the whole window light after the press: the by-name click reached the control once the control was on screen. No generic native scroll exists in the DSL; the reveal is per-surface.
+
+**Re-checked at c1d0e0b (2026-09-26).** Upstream reworked `find_component_center` (`ui_commands.h`, -36/+5 in the range) and made E2E text visibility clip-aware (67270e0: `expect_text` keeps partial visibility, `expect_text_fully_visible` is new). On the new pin the palette and settings fixtures that first showed this pass headless and native (C35 453/453), which is consistent with the rework but is not a measurement of a clipped target being clicked by name; the entry stays open until that specific case is re-captured.
 
 CLASS: TESTING / MISSING
 

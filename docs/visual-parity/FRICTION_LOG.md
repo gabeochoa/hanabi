@@ -4651,8 +4651,8 @@ running reference: the reference was never launched.
 
 ## Afterhours bump to upstream main, line spacing and sidebar hysteresis, from the 0.8.3 audit (2026-09-26)
 
-Draft on batch2 65382cb; the C34 and native numbers below are filled in
-from the runtime lane's records and say so where they are still owed.
+Written on batch2; the runtime numbers below are the runtime lane's C35
+and native records (2026-09-26). One paragraph is still owed and says so.
 
 ### The vendor bump and what it cost
 
@@ -4732,6 +4732,11 @@ rhythms and stay fixed. The render-cache key carries the effective pitch
 and the percent, and the per-frame metrics guard that dirties the ledgers
 and clears the wrap memo on a zoom change fires on a spacing change too.
 
+[PENDING: the line-spacing capture paragraph — what the owned-window PNGs
+at 80 %, 100 % and 130 % show against the reference — is written once the
+parent has read the images; nothing about the visual result is asserted
+here until then.]
+
 Two deliberate divergences. The reference draws a numeric field with
 arrows; the library has no numeric spin box, and its `stepper()` walks a
 string list modulo its length (`imm_components.h` :51-57, `prev_index` /
@@ -4798,6 +4803,15 @@ backend; the headless script that remains,
 `the_headless_sidebar_keeps_its_startup_order_after_a_send`, pins the
 premise so the next person does not spend three runs rediscovering it.
 
+C35 (app 65382cb with the premise script; vendor 60b0b92): headless
+420/420, native 33/33, 453/453; units 108/108 by default plus the three
+run on demand; the Boulder binding pass as the parent recorded it. Two
+native records carry the report-only EOF-unobserved qualifier
+(native_a_message_after_the_snooze_wakes_the_row_menu_but_not_the_tab_menu,
+native_split_tabs_and_sends_stay_in_their_pane). With the chord fixtures
+green headless and native on the new pin, #49 and #256 are closed in the
+ledger against be4c507; #603 is re-checked, not closed.
+
 ### Audited, not ported
 
 S6 and S12 from the 0.8.3 list were audited and deliberately left: S6
@@ -4812,8 +4826,9 @@ them.
 
 #605 (wrap memo blind to the font: still present at c1d0e0b, the guard
 stays), #305 (re-read at c1d0e0b: not landed), #603 (find_component_center
-and clips: `ui_commands.h` shrank in the range; a runtime re-check rides
-the native phase), #49 / #256 (held for the native Cmd results).
+and clips: `ui_commands.h` reworked in the range; fixtures green on C35,
+the clipped-target click itself not re-captured, so the entry stays open),
+#49 / #256 (closed at c1d0e0b against be4c507 on the C35 chord evidence).
 
 ### New gaps
 

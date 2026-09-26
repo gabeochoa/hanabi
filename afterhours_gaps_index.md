@@ -666,7 +666,7 @@ correction narrows them rather than closing them.
 | 45 | Widget callbacks outlive their frame; no imm `on_submit` | — | MED | S | live |
 | 46 | The focus ring fans out at the corners | — | MED | S | dup→#83; `ffd62d8` squares the ring on a square element |
 | 48 | A missing codepoint draws nothing, with no query | — | HIGH | S | live |
-| 49 | A script cannot press Cmd | — | — | — | wrong |
+| 49 | A script cannot press Cmd | — | — | — | fixed at c1d0e0b (`be4c507` real Super injection; C35 chord fixtures green); entry kept in place |
 | 50 | Graphics-layer key reads bypass the injector | — | MED | S | live |
 | 51 | No way to ask where a piece of text landed | — | HIGH | M | live |
 | 52 | Selection across elements needs a document order | — | — | — | neg |
@@ -764,7 +764,7 @@ correction narrows them rather than closing them.
 | 240 | Coloured runs are first-class | NOT A GAP | — | — | neg |
 | 241 | `imm::mk` hashes the SOURCE LOCATION | NOT A GAP | — | — | neg |
 | 255 | A feature is opted into by ENUMERATOR NAME, silently | FOOTGUN | — | — | fixed at 1ac6db2 (`7208d0c`); hanabi static_asserts its names |
-| 256 | Correction to #49: `CMD+` means Ctrl, `SUPER+` is dropped | FOOTGUN | MED | XS | live |
+| 256 | Correction to #49: `CMD+` means Ctrl, `SUPER+` is dropped | FOOTGUN | MED | XS | fixed at c1d0e0b (`be4c507`); entry kept in place |
 | 257 | No action for delete-to-line-start | MISSING | MED | S | live |
 | 258 | `expect_input_text` cannot see a multiline field | WORKAROUND | HIGH | XS | live |
 | 259 | The script parser is line-based; no `\n` escape | TEDIOUS | MED | XS | live |
@@ -892,7 +892,7 @@ correction narrows them rather than closing them.
 | 600 | `imm::popover` drops the caller's debug name: the panel is always "popover_panel" | SHARP EDGE | MED | XS | live |
 | 601 | The UI plugin has no notion of an external tracker owning the pointer: while a native menu (NSMenu) tracks, hot/active are last frame's and a press underneath still registers | MISSING | HIGH | M | live · app-side adapter (`surface::native_menu_frame`) |
 | 602 | `core/system.h` in-class explicit specializations of `HasAllComponents<>` / `CallWithComponents<>` / `CallWithChildComponents<>` do not compile under GCC (clang extension; conforming `if constexpr` arm exists only under `_WIN32`) | PORTABILITY | MED | XS | live · no workaround admitted (Mac build against the pin) |
-| 603 | `find_component_center` returns the centre of a clipped or scrolled-out target; a by-name native click cannot be trusted until the target is revealed (C16 palette capture) | TESTING / MISSING | HIGH | S | live · workaround measured on the owned window (reveal via app navigation, then click) |
+| 603 | `find_component_center` returns the centre of a clipped or scrolled-out target; a by-name native click cannot be trusted until the target is revealed (C16 palette capture) | TESTING / MISSING | HIGH | S | live · workaround measured on the owned window (reveal via app navigation, then click); re-checked at c1d0e0b: upstream rework, fixtures green, clipped-target case not re-captured |
 | 605 | The label wrap memo's key (`wrap_memo::key_for`) hashes runs and width but not the font, so a label re-drawn at another size keeps the old line breaks and its ink overflows (C28 zoom 1.3 capture; C29 wraps inside) | UI / WRONG | MED | XS | live · app calls the memo's public `clear()` on a text-scale change (118cb7f); face-switch path not covered; the number 604 is unused |
 | 606 | A wrapped label has no line-height or leading control: only `text_area` takes `with_line_height`; label rows advance by the `"Ag"` measure (batch 2 line-spacing port, c1d0e0b) | UI / MISSING | MED | S | live |
 | 607 | Upstream main does not compile for a Metal consumer: four unqualified `begin`/`end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL` (809bdd1..c1d0e0b; build30); `graphics::` breaks the none backend (build31); the `afterhours::` wrapper form is portable (60b0b92) | BUILD / WRONG | HIGH | XS | live - local vendor commit, upstream submission pending |
