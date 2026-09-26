@@ -4779,7 +4779,24 @@ reply's live event asks for a list refresh), so the script now clicks the
 field, types, sends and waits, with `expect_backend_message` as the
 premise, and a ninety-frame pause between the two sends keeps the stamps
 in different seconds so the base sort really would reorder and the hold
-is what prevents it. C34: owed.
+is what prevents it. C34: the sends landed and the rows still did not
+move, and this time the reason is the harness, not the script. The app
+re-reads the catalogue only at startup, on sign-in and when a live event
+arrives for the selected thread (`loader_system.h` :2369); it has no
+periodic list poll. The mock client has no live subscription at all, so
+after a send nothing asks for the list again, and the sidebar keeps its
+startup order for the whole run. The one per-poll knob the harness has,
+`HANABI_MOCK_ROW_CLOCKS`, moves a row's event and run-complete clocks
+(`wire_clock.h` :78), not `updated_at`, which is the key the sort reads.
+So the headless harness cannot make a sidebar row overtake another: no
+arrival driver, no catalogue packet, no re-poll. That is a testing gap of
+hanabi's own harness (not the library's) and is recorded here rather than
+in the ledger. The visible hold is therefore proved by the unit suite
+(nine groups, including the after-window release and two streams busy
+past a minute) and is a candidate for the native capture against a live
+backend; the headless script that remains,
+`the_headless_sidebar_keeps_its_startup_order_after_a_send`, pins the
+premise so the next person does not spend three runs rediscovering it.
 
 ### Audited, not ported
 
