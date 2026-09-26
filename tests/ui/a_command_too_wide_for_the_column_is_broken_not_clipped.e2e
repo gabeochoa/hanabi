@@ -34,7 +34,7 @@ expect_text "The agent needs approval  ·  bash"
 # reference face a glyph later), and the join does not care.
 # The rows draw the approval INPUT as journaled -- the command inside its
 # JSON object -- so that is the text they must reassemble to.
-expect_ui_rows_join ask_approval_input '{"command":"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace"}'
+expect_ui_rows_join ask_approval_input "{\"command\":\"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace\"}"
 # More than one row broke inside a token: the first path argument alone is
 # wider than the column, so at least three rows exist before "--force".
 assert_ui ask_approval_input_2 hidden=false

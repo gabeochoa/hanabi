@@ -29,7 +29,7 @@ expect_text "bash may write"
 # rows, whatever the face made of the break points.
 # The rows draw the approval INPUT as journaled -- the command inside its
 # JSON object -- so that is the text they must reassemble to.
-expect_ui_rows_join ask_approval_input '{"command":"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace"}'
+expect_ui_rows_join ask_approval_input "{\"command\":\"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace\"}"
 
 # Nothing was cut to make it fit. The pre-fix build ended its last row with an
 # ellipsis right here, and that ellipsis was the whole defect: it is what a

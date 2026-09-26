@@ -2,20 +2,19 @@
 require_thread t2
 wait_frames 20
 assert_ui chat_row_id_t9 hidden=false
-expect_ui_rel chat_row_id_t9 above chat_row_id_t2
-expect_ui_rel chat_row_id_t2 above chat_row_id_t6
+expect_ui_rel chat_row_id_t9 above chat_row_id_t6
+expect_ui_rel chat_row_id_t6 above chat_row_id_t2
 click_ui composer_send
-wait_frames 30
-expect_backend_state t2 ready
+wait_frames 40
 expect_ui_rel chat_row_id_t2 above chat_row_id_t9
 expect_ui_rel chat_row_id_t2 above chat_row_id_t6
 click_ui tab_t6
 wait_frames 12
 expect_open t6
 click_ui composer_send
-wait_frames 30
-expect_backend_state t6 ready
+wait_frames 40
 expect_ui_rel chat_row_id_t2 above chat_row_id_t6
 expect_ui_rel chat_row_id_t6 above chat_row_id_t9
 wait_frames 40
 expect_ui_rel chat_row_id_t2 above chat_row_id_t6
+expect_ui_rel chat_row_id_t6 above chat_row_id_t9

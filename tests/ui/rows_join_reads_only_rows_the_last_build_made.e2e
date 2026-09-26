@@ -14,7 +14,7 @@ require_thread t2
 expect_text "The agent needs approval  ·  bash"
 # The rows draw the approval INPUT as journaled -- the command inside its
 # JSON object -- so that is the text they must reassemble to.
-expect_ui_rows_join ask_approval_input '{"command":"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace"}'
+expect_ui_rows_join ask_approval_input "{\"command\":\"./scripts/release_batch.sh --force --cycle=2026-09 --ledger=/var/finance/payouts/2026-09/ledger.csv --out=/var/finance/payouts/2026-09/settled.csv --notify=payout-owner@example.test --skip-reconcile-check --allow-outside-workspace\"}"
 click_ui ask_submit
 # The submit settles over a few frames (the other approval scripts wait 20
 # before asserting the card is gone); 20 is still far inside the 90-frame

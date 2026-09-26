@@ -1272,29 +1272,8 @@ struct HandleDoubleClickWordCommand
             // a quote to the token that closes it (a word can be all digits,
             // so the quotes, not a digit test, decide where the text ends).
             // Then the word; then an optional all-digit <nth>.
-            std::string needle;
-            size_t after = 0;
-            const std::string& t0 = cmd.arg(0);
-            const char q = (!t0.empty() && (t0.front() == '"' || t0.front() == '\'')) ? t0.front() : 0;
-            if (q != 0) {
-                size_t i = 0;
-                for (; i < cmd.args.size(); ++i) {
-                    if (!needle.empty()) needle.push_back(' ');
-                    needle += cmd.arg(i);
-                    const std::string& t = cmd.arg(i);
-                    const bool closes = t.size() >= (i == 0 ? 2u : 1u) && t.back() == q;
-                    if (closes) break;
-                }
-                if (i >= cmd.args.size()) {
-                    cmd.fail("double_click_word: the quoted line text never closes");
-                    return;
-                }
-                needle = needle.substr(1, needle.size() - 2);
-                after = i + 1;
-            } else {
-                needle = t0;
-                after = 1;
-            }
+            const std::string needle = cmd.arg(0);
+            const size_t after = 1;
             if (after >= cmd.args.size()) {
                 cmd.fail("double_click_word requires \"<line substring>\" <word> [nth]");
                 return;
@@ -1575,7 +1554,13 @@ struct HandleExpectUiRowsJoinCommand
             const std::string tail = n.substr(prefix.size());
             if (tail.empty() || !std::all_of(tail.begin(), tail.end(), ::isdigit)) continue;
             ++named;
-            if (!built_last_frame(e->id)) continue;
+            if (!built_last_frame(e->id)) {
+                for (const auto& [hash, rec] : afterhours::ui::imm::existing_ui_elements)
+                    if (rec.id == e->id)
+                        std::fprintf(stderr, "[expect_ui_rows_join] %s last_built_frame=%zu ui_build_frame=%zu\n",
+                                     n.c_str(), rec.last_built_frame, afterhours::ui::imm::ui_build_frame);
+                continue;
+            }
             const auto r = afterhours::testing::ui_commands::get_screen_rect(*e);
             rows.push_back({r.y, r.x, e->get<afterhours::ui::HasLabel>().label});
         }
@@ -2474,23 +2459,7 @@ inline bool text_entry_parent(const afterhours::ui::UIComponent& uic) {
 
 inline std::vector<std::string> rejoin_quoted(
     const std::vector<std::string>& raw) {
-    std::vector<std::string> out;
-    for (std::size_t i = 0; i < raw.size(); ++i) {
-        std::string piece = raw[i];
-        const std::size_t quote = piece.find('"');
-        if (quote != std::string::npos &&
-            piece.find('"', quote + 1) == std::string::npos) {
-            while (++i < raw.size()) {
-                piece += " " + raw[i];
-                if (raw[i].find('"') != std::string::npos) break;
-            }
-        }
-        std::string cleaned;
-        for (char c : piece)
-            if (c != '"') cleaned += c;
-        out.push_back(cleaned);
-    }
-    return out;
+    return raw;
 }
 
 struct HandleA11yPressCommand
@@ -2589,11 +2558,11 @@ struct HandleExpectA11yCommand
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
         if (cmd.is_consumed() || !cmd.is("expect_a11y")) return;
-        if (!cmd.has_args(2)) {
-            cmd.fail("expect_a11y requires <name> <prop>=<value> [...]");
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_a11y requires <name> [<prop>=<value> ...]");
             return;
         }
-        std::vector<std::string> args = rejoin_quoted(cmd.args);
+        const std::vector<std::string>& args = cmd.args;
         const std::string name = args[0];
         char spoken[512] = {};
         native_a11y_describe(name.c_str(), spoken, sizeof(spoken));

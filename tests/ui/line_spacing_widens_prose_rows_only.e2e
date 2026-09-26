@@ -17,23 +17,28 @@ type "line spacing"
 wait_frames 8
 expect_text "Line spacing"
 click_ui settings_result_0
-wait_frames 10
+wait_frames 8
 expect_text "Font weight"
 expect_text "100%"
 assert_ui settings_line_spacing_value hidden=false
 click_ui settings_line_spacing_up
-wait_frames 6
+wait_frames 4
 expect_text "105%"
 click_ui settings_line_spacing_up
+wait_frames 4
+click_ui settings_line_spacing_up
+wait_frames 4
+expect_text "115%"
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -400
 wait_frames 6
 click_ui settings_line_spacing_up
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_up
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_up
-wait_frames 6
-click_ui settings_line_spacing_up
-wait_frames 6
+wait_frames 4
 expect_text "130%"
 click_ui tab_t2
 wait_frames 16
@@ -46,30 +51,39 @@ wait_frames 16
 assert_ui code_block h=48
 click_ui sb_settings
 wait_frames 10
+expect_focused settings_search
+type "line spacing"
+wait_frames 8
+click_ui settings_result_0
+wait_frames 8
 expect_text "130%"
-click_ui settings_line_spacing_down
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -400
 wait_frames 6
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
+click_ui settings_line_spacing_down
+wait_frames 4
 expect_text "80%"
 click_ui settings_line_spacing_down
-wait_frames 6
+wait_frames 4
 expect_text "80%"
 click_ui tab_t2
 wait_frames 16
@@ -79,4 +93,9 @@ wait_frames 12
 assert_ui user_bubble h=32
 click_ui sb_settings
 wait_frames 10
+expect_focused settings_search
+type "line spacing"
+wait_frames 8
+click_ui settings_result_0
+wait_frames 8
 expect_text "80%"
