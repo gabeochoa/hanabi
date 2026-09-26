@@ -9866,6 +9866,8 @@ CLASS: PERFORMANCE
 
 ---
 
+**Re-read at c1d0e0b (2026-09-26).** Not landed. `text_area.h` :231 still calls `layout_cache.rebuild(...)` unconditionally every frame; `text_area_state.h` :56 gained `needs_layout_rebuild(version)` but nothing calls it. The five text_input commits between d90db15 and c1d0e0b (d24c5a4, efa6ca0, c5cfd35, 6931c61, ae46465) touch scrolling, carets, defaults and font tiers. The proof patch no longer applies (3-way conflict in `text_area_state.h`); the gap stands.
+
 ### #306 — `text_area` knows how many rows it wraps to and will not tell the caller, so an app that draws the BOX around the field has to read the widget's private-by-convention state
 
 **What happens.** `with_auto_grow()` makes the FIELD's height follow its
@@ -14351,5 +14353,32 @@ CLASS: TESTING / MISSING
 
 **Workaround (118cb7f; C29 capture).** The app calls `detail::wrap_memo::clear()` from the same per-frame guard that dirties the transcript ledgers when the text scale changes, before either pane draws; the memo refills at the new size on the next draw. The face-switch path (`fonts::apply`) has the same exposure and is not addressed in this batch. The number 604 is left unused: a draft under it (a missing subtree-scoped theme) was withdrawn before review closed because the library has `ThemeScopeT`.
 
+**Re-read at upstream main c1d0e0b (2026-09-23; hanabi vendor 60b0b92 = c1d0e0b + the #607 fix).** `key_for` is unchanged (`text_selection.h` :96-108) and the "cannot see the font" note is still there (:138); the app's `clear()` guard stays.
+
 CLASS: UI / WRONG
 
+### #606 — a wrapped label has no line-height or leading control: only `text_area` takes `with_line_height`, and a label's row pitch is whatever `measure_text("Ag")` says
+
+**Class:** UI / MISSING (`plugins/ui/component_config.h` :193 `text_area_line_height`, :432 `with_line_height` writes only that field; `plugins/ui/rendering.h` :889/:894 and :1104/:1111 derive a wrapped label's `line_h` from `measure_text(font, "Ag", font_size, spacing).y`, with no config input). Read at upstream main c1d0e0b and unchanged from d90db15.
+
+**Measured cost (batch 2, 2026-09-26).** The reference client offers a line-spacing setting (80..200 %) that changes the leading of prose without changing the glyph size. Hanabi cannot express that on a label: there is no leading, no line-height multiple and no per-line advance on `ComponentConfig` for labels, and the styled and plain wrap paths both size their rows from the "Ag" measure. The app therefore emits one label per wrapped line and does the pitch arithmetic itself (`main_pane_system.h` `line_pitch()` = round(16 * zoom * percent / 100)), keeps its own render-cache key for the effective pitch, and clears the library's wrap memo when the pitch changes (#605). That is the port; it is also why a spacing change cannot reach any label the app does not lay out line by line (the composer's `text_area` gets `with_line_height`; the sidebar and settings labels are single-line and unaffected by design).
+
+**Ask.** A `with_line_height(Size)` (or a leading multiple) honoured by the label wrap paths, so a multi-line label's rows advance by the configured height instead of the face's "Ag" measure. The `text_area` field already exists; the label paths would read the same value.
+
+CLASS: UI / MISSING
+
+### #607 — upstream main does not compile for a Metal consumer: four unqualified `begin_shader_mode` / `end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL`
+
+**Class:** BUILD / WRONG (`plugins/ui/render_primitives.h` :721 and :726, `plugins/ui/rendering.h` :1941 and :1944, all from upstream 809bdd1 "Shader scope per widget", 2026-09-20; unchanged through main c1d0e0b, 2026-09-23).
+
+**What happens.** The four sites call `begin_shader_mode(...)` / `end_shader_mode()` with no namespace. Two functions of those names are visible from `namespace afterhours::ui`: `afterhours::graphics::begin_shader_mode` (`graphics.h` :99-102) and the backend drawing helper `afterhours::begin_shader_mode` declared by every backend's `drawing_helpers.h` (none :144-145, raylib :397-398, sokol :558-559). Under raylib the call resolves because `ShaderType` is `raylib::Shader` there and argument-dependent lookup does not pull in the second candidate; under `AFTER_HOURS_USE_METAL` the argument is `afterhours::graphics::ShaderType`, both candidates are found, and the header fails to compile (hanabi build30, 2026-09-26: "call to begin_shader_mode is ambiguous"). `effects.h` :122/:126, the other caller, is already written `graphics::begin_shader_mode`.
+
+**Two fixes, one of them wrong.** Qualifying the four sites with `graphics::` mends Metal but breaks the no-backend ("none") configuration: hanabi's bare unit translation units compile the ui plugin with `AFTER_HOURS_USE_METAL` defined and no `graphics.h` in scope for those sites, and the `graphics::` name is undeclared there (build31). Qualifying with the wrapper namespace, `afterhours::begin_shader_mode` / `afterhours::end_shader_mode`, compiles in all three configurations: every backend declares the wrapper at namespace `afterhours` scope, and a qualified-id disables argument-dependent lookup so the Metal ambiguity cannot arise. Four lines change, no behaviour does.
+
+**Cost.** A consumer on the Metal backend cannot take any upstream commit at or after 809bdd1 without a local change to the library, which is the situation hanabi's "the library is never edited by us" rule exists to avoid.
+
+**Workaround (batch 2).** Hanabi's vendor gitlink points at a local vendor commit, 60b0b92 on top of upstream main c1d0e0b, carrying exactly the wrapper qualification (an earlier cut, 27a4d4e, carried the `graphics::` form and is superseded; both are banked). The fix has not been submitted upstream: that submission is pending the user's authorization.
+
+**Ask.** Qualify the four calls with `afterhours::` (or route them through `graphics::` and include `graphics.h` where the ui plugin is compiled without a backend), and add a Metal build to the library's own checks so a plugin that compiles under raylib is not taken as compiling everywhere.
+
+CLASS: BUILD / WRONG

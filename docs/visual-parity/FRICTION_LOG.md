@@ -4648,3 +4648,158 @@ records carry the report-only EOF-unobserved qualifier
 native_row_menu_read_only_viewer_has_no_halt_rows). These three ported
 behaviours are validated against the pinned source contracts, not against a
 running reference: the reference was never launched.
+
+## Afterhours bump to upstream main, line spacing and sidebar hysteresis, from the 0.8.3 audit (2026-09-26)
+
+Draft on batch2 65382cb; the C34 and native numbers below are filled in
+from the runtime lane's records and say so where they are still owed.
+
+### The vendor bump and what it cost
+
+The library's upstream is the public GitHub repository
+`gabeochoa/afterhours` (`.gitmodules`); the devservers cannot reach it
+(DNS fails, the forward proxy answers 403), the user's Macs can. Main was
+read at c1d0e0b (2026-09-23), 81 commits past the pin d90db15 (2026-09-13):
+27 files of animation and effects (a new `plugins/animation/` with springs,
+timelines, `Track<T>`, presets, trigger blocks, OKLab colour tracks,
+per-unit text motion, a particle emitter, shader scopes and a blur pass
+with a Metal path; the old animation API removed, which hanabi never
+called), 24 of rendering (uniform border widths, font-free checkbox marks,
+text outlines from glyph coverage, image tint, draw_quad, coalesced clip
+scopes, virtual lists under zoom), 47 of tests and e2e, 10 of a new
+terminal and command-picker plugin, 39 of docs. Every header and symbol
+hanabi uses still exists; `ComponentConfig`'s builders hanabi calls kept
+their signatures (`with_font` gained an overload). None of hanabi's six
+vendor proof patches landed: #266 still applies cleanly (so the behaviour
+is still absent); the styled-span wrap patch (numbered 22 in
+`vendor_patches/`), #25, #30 and #265 were already non-applying at
+d90db15, and #305 now conflicts too while its rebuild is still
+unconditional (`text_area.h` :231). #605's font-blind wrap memo is
+unchanged.
+
+The bump did not build. Upstream 809bdd1 left four shader-mode calls in the
+ui plugin unqualified; raylib resolves them, Metal finds two candidates
+(build30). The obvious `graphics::` qualification then broke the
+no-backend unit configuration (build31). The portable form names the
+wrapper, `afterhours::begin_shader_mode`, which every backend declares.
+That is gap #607, and it is the first time hanabi's vendor gitlink points
+at a local commit (60b0b92 = c1d0e0b + the four lines) rather than an
+upstream one; the change is tracked as its own vendor commit, banked with
+its diff, never folded into the app, and its upstream submission is
+pending the user's authorization. The earlier `graphics::` cut (27a4d4e)
+is kept in the banks as the record of the wrong turn.
+
+### A silent change to the script language
+
+197d54e made `ScriptArguments` the tokenizer for every command, not just
+the library's own: a double-quoted group is one argument with its quotes
+removed, `\"` and `\\` are the escapes, single quotes are ordinary bytes,
+and a parse error clears the line's arguments. Before, an unlisted
+command's line was split on whitespace with the quotes left in, and
+several hanabi handlers undid that split themselves. Nothing in the commit
+names the consumer-facing change; it surfaced as three red fixtures on C32
+(two `expect_ui_rows_join` lines and one `expect_a11y`) whose JSON was
+single-quoted or whose quoted name had counted on arriving as three
+tokens. The handlers now take arguments as delivered (`rejoin_quoted` is
+an identity, `double_click_word` reads its first argument as the line
+text, `expect_a11y` with a name alone is a presence check), the scripts
+pass JSON double-quoted with escaped inner quotes, and the remaining
+joiners are identities on a clean token. A fourth red,
+`rows_join_reads_only_rows_the_last_build_made`, carried the same
+single-quoted JSON: on C33, with the quoting fixed, it passes, and its new
+diagnostic line shows the build-ledger gate doing its job in the negative
+arm (stale rows stamped at frame 56 against a build frame of 80 after the
+submit). The vendor's build stamp (`entity_management.h`) is byte-identical
+across the bump; that red was the tokenizer, not the stamp.
+
+Also in the same range: `CMD+` in a script now injects a real Super
+modifier (be4c507) where it used to become Ctrl, and `CTRL+` still injects
+Ctrl, so hanabi's E2E alias keeps working while the seventy `key CMD+`
+lines exercise the real chord path. Whether that closes #49 and #256 is a
+question for the native phase; the ledger holds those entries until the
+native Cmd fixtures have run on the new pin.
+
+### Line spacing: a percent on the prose pitch
+
+The reference stores an integer percent, default 100, clamped to 80..200,
+stepped by 5, and applies it to the leading of prose. The library offers
+no leading for labels (#606: only `text_area` takes `with_line_height`,
+and a wrapped label's rows advance by the face's "Ag" measure), so the
+port is the app's own pitch arithmetic: `line_pitch()` becomes
+round(16 * zoom * percent / 100) and nothing else moves; the code fence's
+21 px rows and the composer's 21 px rows are the reference's fixed
+rhythms and stay fixed. The render-cache key carries the effective pitch
+and the percent, and the per-frame metrics guard that dirties the ledgers
+and clears the wrap memo on a zoom change fires on a spacing change too.
+
+Two deliberate divergences. The reference draws a numeric field with
+arrows; the library has no numeric spin box, and its `stepper()` walks a
+string list modulo its length (`imm_components.h` :51-57, `prev_index` /
+`next_index`), so 200 % would step to 80 %. A bounded percent must not
+wrap, so the row is a minus, a readout and a plus built from the settings
+pane's own button and div primitives, with the arrows disabled at the
+bounds; the minus is the ASCII hyphen-minus after a double-encoded U+2212
+was caught in review before it drew. And hanabi has no settings export or
+import surface, so there is no `line_spacing` key to add there.
+
+### Sidebar hysteresis
+
+A row active within the last minute keeps its place when another row's
+activity overtakes it, and gives it up once it has been quiet for a
+minute. The rule lives in a std-only header with unit tests: per folder,
+the rank each row was drawn at; a row that is recently active and
+remembered with a better rank than the newest-first sort just gave it
+keeps its remembered slot, the overtakers queue behind, a row the sort
+would promote is never held back, and the hold has no clock of its own,
+so two streams that stay busy for minutes keep their order. The sidebar
+applies it to the visible head of each catch-all folder after the sort
+and before the manual row order, with the capture clock as its time, and
+a counter of order changes rides in the visible-rows cache key so a hold
+that expires on the clock alone repaints.
+
+Sub-agent rows are not covered, and the 0.8.3 bullet that names them is
+scoped accordingly: `child_rows.h` keeps children in the catalogue's own
+order (`ChildIndex::sync` builds by iteration, no sort), so there is no
+newest-first ordering for a hold to protect against, and adding one would
+be a behaviour change on its own.
+
+### What the C32 to C34 reds actually were
+
+C32: the line-spacing script found, revealed and stepped its row (105 %
+passed) and then lost the plus below the fold when the pane's 30-frame
+reveal hold released and the scroll snapped back; the fixture now steps
+inside the window and scrolls the pane with the pointer over it, as the
+font-picker script does. The hysteresis script had its premises backwards
+(t9 above t6 above t2 at start) and asserted a backend state a send does
+not produce. C33: everything green but the hysteresis script, whose rows
+never moved because `composer_send` on an empty composer does nothing
+(`hasText` gates it); the script sent nothing. The mock does move a sent
+thread (it stamps `updated_at = now + 1` and lists newest-first, and the
+reply's live event asks for a list refresh), so the script now clicks the
+field, types, sends and waits, with `expect_backend_message` as the
+premise, and a ninety-frame pause between the two sends keeps the stamps
+in different seconds so the base sort really would reorder and the hold
+is what prevents it. C34: owed.
+
+### Audited, not ported
+
+S6 and S12 from the 0.8.3 list were audited and deliberately left: S6
+because the wire field the reference reads for it is a choice hanabi has
+not made yet (the parent's audit holds it pending that decision), S12
+because it is tooling ahead of the client's own surface and ranked below
+the ported items. Neither is a gap in the library; both stay on the audit
+table as "not yet" with those reasons, so the next pass does not re-derive
+them.
+
+### Cited, not re-filed
+
+#605 (wrap memo blind to the font: still present at c1d0e0b, the guard
+stays), #305 (re-read at c1d0e0b: not landed), #603 (find_component_center
+and clips: `ui_commands.h` shrank in the range; a runtime re-check rides
+the native phase), #49 / #256 (held for the native Cmd results).
+
+### New gaps
+
+#606 (no line-height for wrapped labels), #607 (upstream main unbuildable
+for Metal consumers since 809bdd1; the portable wrapper qualification and
+the local vendor commit that carries it).

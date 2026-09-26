@@ -26,10 +26,10 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **278** (recount at 7fd3276 + #603 + #605; the number 604 is unused) |
-| Distinct numeric gap numbers | **273** (271 at 7fd3276 + #603 + #605; several numbers are used twice, #31 three times - §5) |
+| Numbered headings parsed by the reference checker | **280** (recount at 7fd3276 + #603 + #605 + #606 + #607; the number 604 is unused) |
+| Distinct numeric gap numbers | **275** (271 at 7fd3276 + #603 + #605 + #606 + #607; several numbers are used twice, #31 three times - §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **276** rows, **276** unique identifiers - includes index-only ids with no detailed entry |
+| **Rows in the triage table (§6)** | **278** rows, **278** unique identifiers - includes index-only ids with no detailed entry |
 | Standalone live asks | not recounted; see §6 verdicts |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
@@ -785,7 +785,7 @@ correction narrows them rather than closing them.
 | 325 | `with_debug_name` takes a `std::string` | PERF | MED | XS | dup→#181 |
 | 326 | `virtual_list` handles UNIFORM row heights only | MISSING | — | — | fixed at 1ac6db2 (`4a439b4`); see #420 for what is left |
 | 327 | No draw-only element; a decorative mark costs an Entity | MISSING | HIGH | M | live |
-| 305 | `text_area` re-wraps EVERY FRAME and bypasses `TextMeasureCache` | PERF | HIGH | XS | **live — patch proven** |
+| 305 | `text_area` re-wraps EVERY FRAME and bypasses `TextMeasureCache` | PERF | HIGH | XS | **live — patch proven; re-read at c1d0e0b: not landed, patch no longer applies** |
 | 306 | `with_auto_grow` knows the row count and will not return it | MISSING | MED | XS | live |
 | 307 | `HasTextAreaState::line_index` moves no caret; a stale one is invisible | NOT A GAP | — | — | neg |
 | 308 | `assert_ui` can assert geometry and text, nothing about colour | MISSING | HIGH | S | live |
@@ -894,6 +894,8 @@ correction narrows them rather than closing them.
 | 602 | `core/system.h` in-class explicit specializations of `HasAllComponents<>` / `CallWithComponents<>` / `CallWithChildComponents<>` do not compile under GCC (clang extension; conforming `if constexpr` arm exists only under `_WIN32`) | PORTABILITY | MED | XS | live · no workaround admitted (Mac build against the pin) |
 | 603 | `find_component_center` returns the centre of a clipped or scrolled-out target; a by-name native click cannot be trusted until the target is revealed (C16 palette capture) | TESTING / MISSING | HIGH | S | live · workaround measured on the owned window (reveal via app navigation, then click) |
 | 605 | The label wrap memo's key (`wrap_memo::key_for`) hashes runs and width but not the font, so a label re-drawn at another size keeps the old line breaks and its ink overflows (C28 zoom 1.3 capture; C29 wraps inside) | UI / WRONG | MED | XS | live · app calls the memo's public `clear()` on a text-scale change (118cb7f); face-switch path not covered; the number 604 is unused |
+| 606 | A wrapped label has no line-height or leading control: only `text_area` takes `with_line_height`; label rows advance by the `"Ag"` measure (batch 2 line-spacing port, c1d0e0b) | UI / MISSING | MED | S | live |
+| 607 | Upstream main does not compile for a Metal consumer: four unqualified `begin`/`end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL` (809bdd1..c1d0e0b; build30); `graphics::` breaks the none backend (build31); the `afterhours::` wrapper form is portable (60b0b92) | BUILD / WRONG | HIGH | XS | live - local vendor commit, upstream submission pending |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 
