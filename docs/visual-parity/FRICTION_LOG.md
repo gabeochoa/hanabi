@@ -4743,7 +4743,9 @@ the new app at 100 %: their prose line centres are pixel-identical
 does not know, and the new build at its default drawing exactly what the
 old one drew. AFTER_160 puts the same three lines at 520 / 574 / 625.5:
 pitches of 54 and 51.5 device px against 34 and 32 at 100 %, a measured
-ratio of 1.6, which is round(16 * 1.6) = 26 pt on the prose pitch. The
+ratio of 1.6, consistent with round(16 * 1.6) = 26 pt on the prose pitch
+(the measured pitches include sub-pixel glyph-ink offsets, so they are
+read as a ratio, not as the pitch itself). The
 chrome, the sidebar and the single-line bubble are visually unchanged
 between AFTER_100 and AFTER_160, as the port intends: only wrapped prose
 moves. The Appearance shot shows the Typeface section's "Line spacing"
