@@ -60,6 +60,7 @@
 #include "tab_model.h"
 #include "sidebar_footer_status.h"
 #include "child_rows.h"
+#include "sidebar_hysteresis.h"
 #include "settings_system.h"
 #include "../ui/transcript_copy.h"
 #include "../keys.h"
@@ -2574,6 +2575,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // Group-membership scratch reused sequentially across groups. render_folder
     // consumes it synchronously before the next group recollects it.
     std::vector<const api::SessionSummary*> members_;
+    std::unordered_map<std::string, hanabi::sidebar_hysteresis::Memory> hysteresis_;
     // The catch-all split into the reference's two sections. Scratch, reused
     // every frame like members_, so the split costs no allocation.
     std::vector<const api::SessionSummary*> pinnedMembers_;
@@ -3317,6 +3319,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                   members.end(), newestFirst);
             else
                 std::sort(members.begin(), members.end(), newestFirst);
+            std::vector<const api::SessionSummary*> head(
+                members.begin(), members.begin() + std::min(limit, total));
+            hanabi::sidebar_hysteresis::apply(
+                head, hysteresis_[key], capture_clock::inbox_now(),
+                [](const api::SessionSummary* s) { return s->id; },
+                [](const api::SessionSummary* s) { return s->updated_at; });
+            std::copy(head.begin(), head.end(), members.begin());
         }
         // The rows the user has hand-arranged rise to the top of the group in
         // the order they were left in; everything else keeps the activity order
