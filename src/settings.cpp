@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "text_zoom.h"
+#include "line_spacing.h"
 #include "util/acknowledged.h"
 #include <branding.h>
 
@@ -81,6 +82,7 @@ bool Settings::load_save_file() {
         restore_tabs_ = j.value("restore_tabs", restore_tabs_);
         confirm_quit_ = j.value("confirm_quit", confirm_quit_);
         text_scale_ = hanabi::text_zoom::sanitize(j.value("text_scale", text_scale_));
+        line_spacing_ = hanabi::line_spacing::clamp(j.value("line_spacing", line_spacing_));
         jump_to_latest_ = j.value("jump_to_latest", jump_to_latest_);
         show_minimap_ = j.value("show_minimap", show_minimap_);
         minimap_hidden_marks_ =
@@ -276,6 +278,7 @@ void Settings::write_save_file() {
     j["restore_tabs"] = restore_tabs_;
     j["confirm_quit"] = confirm_quit_;
     j["text_scale"] = text_scale_;
+    j["line_spacing"] = line_spacing_;
     j["jump_to_latest"] = jump_to_latest_;
     j["show_minimap"] = show_minimap_;
     j["minimap_hidden_marks"] = minimap_hidden_marks_;
@@ -474,6 +477,14 @@ void Settings::set_text_scale(double scale) {
     const double next = hanabi::text_zoom::sanitize(scale);
     if (next == text_scale_) return;
     text_scale_ = next;
+    if (auto_save_enabled) write_save_file();
+}
+
+int Settings::get_line_spacing() const { return line_spacing_; }
+void Settings::set_line_spacing(int percent) {
+    const int next = hanabi::line_spacing::clamp(percent);
+    if (next == line_spacing_) return;
+    line_spacing_ = next;
     if (auto_save_enabled) write_save_file();
 }
 

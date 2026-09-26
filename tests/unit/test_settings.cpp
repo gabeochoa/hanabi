@@ -307,6 +307,24 @@ static void test_text_scale_round_trips() {
     CHECK(std::fabs(s.get_text_scale() - 1.02) < 1e-9);
 }
 
+static void test_line_spacing_round_trips() {
+    std::printf("test_line_spacing_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    CHECK(s.get_line_spacing() == 100);
+    s.set_line_spacing(130);
+    CHECK(s.get_line_spacing() == 130);
+    s.load_save_file();
+    CHECK(s.get_line_spacing() == 130);
+    s.set_line_spacing(20);
+    CHECK(s.get_line_spacing() == 80);
+    s.set_line_spacing(900);
+    CHECK(s.get_line_spacing() == 200);
+    s.set_line_spacing(100);
+    s.load_save_file();
+    CHECK(s.get_line_spacing() == 100);
+}
+
 static void test_effort_round_trips() {
     std::printf("test_effort_round_trips\n");
     isolate_settings();
@@ -880,6 +898,7 @@ int main() {
     test_shelf_fold_round_trips();
     test_confirm_quit_round_trips();
     test_text_scale_round_trips();
+    test_line_spacing_round_trips();
     test_effort_round_trips();
     test_send_key_round_trips();
     test_shortcuts_round_trip_and_reset();

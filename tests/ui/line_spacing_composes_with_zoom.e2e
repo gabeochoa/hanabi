@@ -1,0 +1,13 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","line_spacing":130}
+require_thread t2
+wait_frames 16
+assert_ui user_bubble h=40
+assert_ui composer_reply_input h=29
+key CTRL+=
+wait_frames 12
+assert_ui user_bubble h=42
+assert_ui composer_reply_input h=31
+key CTRL+0
+wait_frames 12
+assert_ui user_bubble h=40
+assert_ui composer_reply_input h=29

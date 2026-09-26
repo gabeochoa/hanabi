@@ -155,7 +155,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 43> kRows{{
+inline constexpr std::array<Row, 44> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -190,6 +190,9 @@ inline constexpr std::array<Row, 43> kRows{{
      "typeface family text letters serif mono", Origin::Device, "Typeface"},
     {"font_weight", Pane::Appearance, "Font weight",
      "bold regular light emphasis heavier thinner", Origin::Device, "Typeface"},
+    {"line_spacing", Pane::Appearance, "Line spacing",
+     "line spacing height leading gap dense airy loose tight percent lines",
+     Origin::Device, "Typeface"},
     {"palette", Pane::Appearance, "Palette",
      "palette theme dark light system named preview appearance colour color "
      "mode night",

@@ -162,6 +162,8 @@ struct Settings {
     void set_confirm_quit(bool on);
     double get_text_scale() const;
     void set_text_scale(double scale);
+    int get_line_spacing() const;
+    void set_line_spacing(int percent);
     void set_restore_tabs(bool on);  // auto-persists
     bool get_jump_to_latest() const;
     void set_jump_to_latest(bool on);  // auto-persists
@@ -503,6 +505,7 @@ struct Settings {
     bool restore_tabs_ = true;
     bool confirm_quit_ = true;
     double text_scale_ = 1.0;
+    int line_spacing_ = 100;
     bool jump_to_latest_ = true;
     bool show_minimap_ = true;
     std::string minimap_hidden_marks_;

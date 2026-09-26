@@ -68,6 +68,7 @@
 #include "../keys.h"
 #include "../settings.h"
 #include "line_draw_state.h"
+#include "../line_spacing.h"
 #include "../text_zoom.h"
 #include "text_edit_actions.h"
 #include "ui_imports.h"
@@ -96,8 +97,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         app->focusBeforeLastPress = app->focusAtFrameStart;
         app->focusAtFrameStart = static_cast<long long>(ctx.focus_id);
         for (Pane& p : app->panes) hanabi::tab_find::sync_pane(app->findStates, p, p.selectedId);
-        if (text_zoom() != lastTextZoom_) {
+        if (text_zoom() != lastTextZoom_ || Settings::get().get_line_spacing() != lastLineSpacing_) {
             lastTextZoom_ = text_zoom();
+            lastLineSpacing_ = Settings::get().get_line_spacing();
             model::transcript_ledgers().mark_all_dirty();
             afterhours::ui::detail::wrap_memo::clear();
         }
@@ -841,11 +843,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kComposerLineHPt = 21.0f;
     static double text_zoom() { return Settings::get().get_text_scale(); }
     static float zoomed(float px) { return std::round(px * static_cast<float>(text_zoom())); }
+    static float spacing_factor() { return hanabi::line_spacing::factor(Settings::get().get_line_spacing()); }
     static float composer_line_h() { return zoomed(kComposerLineHPt); }
     static std::string zoom_key() {
-        if (text_zoom() == 1.0) return std::string();
+        if (text_zoom() == 1.0 && Settings::get().get_line_spacing() == hanabi::line_spacing::kDefault)
+            return std::string();
         return "|z" + std::to_string(theme::type::BODY) + "/" + std::to_string(line_pitch()) + "/" +
-               std::to_string(code_line_pitch());
+               std::to_string(code_line_pitch()) + "/" + std::to_string(Settings::get().get_line_spacing());
     }
 
     static constexpr size_t kComposerMaxRows = 6;
@@ -1513,6 +1517,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // other's field.
     std::array<size_t, 2> composerRows_ = {1, 1};
     double lastTextZoom_ = 1.0;
+    int lastLineSpacing_ = hanabi::line_spacing::kDefault;
     // Whether each pane's field had the caret last frame (the caret-follow
     // rule acts on the rising edge).
     std::array<bool, 2> composerFocusedLast_ = {false, false};
@@ -9679,7 +9684,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // measured with the same function and the same font the renderer draws
     // with -- they agree by construction rather than by calibration.
     static constexpr float kLinePitchPt = 16.0f;  // px per wrapped line
-    static float line_pitch() { return zoomed(kLinePitchPt); }
+    static float line_pitch() { return std::round(kLinePitchPt * static_cast<float>(text_zoom()) * spacing_factor()); }
     // Blank-line (paragraph / list-item gap) height. This is the vertical space
     // between paragraphs and numbered-list items in an assistant turn. Was
     // kLinePitch*0.5 (8px) which stacked into a loose, airy feed vs navi web's

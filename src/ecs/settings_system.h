@@ -66,6 +66,7 @@
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/settings_catalog.h"
+#include "../line_spacing.h"
 #include "../ui/minimap_marks.h"
 #include "../ui/model_menu.h"
 #include "../ui/effort_menu.h"
@@ -1227,6 +1228,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "disclosure_chips") render_disclosure_chips_row(ctx, parent, app);
         else if (id == "font") render_font_row(ctx, parent, app);
         else if (id == "font_weight") render_font_weight_row(ctx, parent, app);
+        else if (id == "line_spacing") render_line_spacing_row(ctx, parent, app);
         else if (id == "palette") render_palette_row(ctx, parent, app);
         else if (id == "user_font") render_user_font_row(ctx, parent, app);
         else if (id == "assistant_font")
@@ -3021,6 +3023,84 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         {"11pm-7am", 23 * 60, 7 * 60},
         {"6pm-9am", 18 * 60, 9 * 60},
     }};
+
+    void render_line_spacing_row(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 240, "Line spacing", "settings_line_spacing");
+        const int percent = Settings::get().get_line_spacing();
+        real_stepper(ctx, parent, 241, std::to_string(percent) + "%",
+                     percent > hanabi::line_spacing::kMin,
+                     percent < hanabi::line_spacing::kMax, "settings_line_spacing",
+                     [](int dir) {
+                         auto& s = Settings::get();
+                         s.set_line_spacing(dir < 0 ? hanabi::line_spacing::stepped_down(s.get_line_spacing())
+                                                    : hanabi::line_spacing::stepped_up(s.get_line_spacing()));
+                     });
+    }
+
+    template <typename Fn>
+    void real_stepper(UIContext<InputAction>& ctx, Entity& parent, int baseId,
+                      const std::string& readout, bool canDown, bool canUp,
+                      const std::string& dbg, Fn onStep) {
+        auto row = div(ctx, mk(parent, baseId),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::FlexEnd)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_row"));
+        anchor_control(row.ent());
+        constexpr float kBtnW = hanabi::control::kMinHitTarget;
+        constexpr float kH = hanabi::control::kMinHitTarget;
+        constexpr float kGroupPad = 2.0f;
+        const float readW = std::ceil(theme::text_px(readout.c_str(), theme::type::SM)) + 16.0f;
+        auto group = div(ctx, mk(row.ent(), 90),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(kBtnW * 2.0f + readW + kGroupPad * 2.0f), pixels(kH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.right = pixels(kGroupPad), .left = pixels(kGroupPad)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_corner_radius(7.0f)
+                .with_debug_name(dbg + "_group"));
+        const auto step_button = [&](int id, const char* glyph, bool enabled, const std::string& name) {
+            auto btn = button(ctx, mk(group.ent(), id),
+                ComponentConfig{}
+                    .with_label(glyph)
+                    .with_size(ComponentSize{pixels(kBtnW), pixels(kH)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(enabled ? theme::hover_bg() : theme::panel_bg_2())
+                    .with_custom_text_color(enabled ? theme::text_primary() : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_disabled(!enabled)
+                    .with_corner_radius(5.0f)
+                    .with_debug_name(name));
+            return enabled && btn;
+        };
+        if (step_button(1, "â", canDown, dbg + "_down")) onStep(-1);
+        div(ctx, mk(group.ent(), 2),
+            ComponentConfig{}
+                .with_label(readout)
+                .with_size(ComponentSize{pixels(readW), pixels(kH)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.0f)
+                .with_debug_name(dbg + "_value"));
+        if (step_button(3, "+", canUp, dbg + "_up")) onStep(1);
+        if (rowActivate_ && canUp) onStep(1);
+    }
 
     void render_quiet_hours_row(UIContext<InputAction>& ctx, Entity& parent,
                                 AppComponent& app) {

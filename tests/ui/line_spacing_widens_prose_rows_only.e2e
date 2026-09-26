@@ -1,0 +1,82 @@
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["r9","t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 16
+expect_text "Reconcile this cycle's Stars payouts"
+assert_ui user_bubble h=35
+assert_ui sidebar w=280
+assert_ui tab_active h=33
+click_ui tab_r9
+wait_frames 16
+expect_open r9
+assert_ui code_block hidden=false
+assert_ui code_block h=48
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+type "line spacing"
+wait_frames 8
+expect_text "Line spacing"
+click_ui settings_result_0
+wait_frames 10
+expect_text "Font weight"
+expect_text "100%"
+assert_ui settings_line_spacing_value hidden=false
+click_ui settings_line_spacing_up
+wait_frames 6
+expect_text "105%"
+click_ui settings_line_spacing_up
+wait_frames 6
+click_ui settings_line_spacing_up
+wait_frames 6
+click_ui settings_line_spacing_up
+wait_frames 6
+click_ui settings_line_spacing_up
+wait_frames 6
+click_ui settings_line_spacing_up
+wait_frames 6
+expect_text "130%"
+click_ui tab_t2
+wait_frames 16
+expect_open t2
+assert_ui user_bubble h=40
+assert_ui sidebar w=280
+assert_ui tab_active h=33
+click_ui tab_r9
+wait_frames 16
+assert_ui code_block h=48
+click_ui sb_settings
+wait_frames 10
+expect_text "130%"
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+click_ui settings_line_spacing_down
+wait_frames 6
+expect_text "80%"
+click_ui settings_line_spacing_down
+wait_frames 6
+expect_text "80%"
+click_ui tab_t2
+wait_frames 16
+assert_ui user_bubble h=32
+reload_settings
+wait_frames 12
+assert_ui user_bubble h=32
+click_ui sb_settings
+wait_frames 10
+expect_text "80%"
