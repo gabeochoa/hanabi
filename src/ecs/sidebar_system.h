@@ -3343,7 +3343,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // parents are open -- never per frame.
         const VisibleKey vk{key, buckets_.rebuilds(), app.subagentCatalogRevision,
                             app.expandedRevision, app.rowOrderRevision, limit,
-                            static_cast<int>(members.size()), q};
+                            static_cast<int>(members.size()), q,
+                            hysteresis_[key].reorders};
         // One cache per folder: PINNED and RECENTS both draw every frame,
         // and a single slot would rebuild on every alternation.
         VisibleCache& vc = visibleByFolder_[key];
@@ -3369,11 +3370,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         int limit = -1;
         int members = -1;
         std::string query;
+        std::uint64_t hysteresisRev = 0;
         bool operator==(const VisibleKey& o) const {
             return folder == o.folder && bucketsRev == o.bucketsRev &&
                    subagentRev == o.subagentRev && expandedRev == o.expandedRev &&
                    orderRev == o.orderRev && limit == o.limit &&
-                   members == o.members && query == o.query;
+                   members == o.members && query == o.query &&
+                   hysteresisRev == o.hysteresisRev;
         }
     };
     struct VisibleCache {

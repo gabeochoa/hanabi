@@ -3087,7 +3087,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name(name));
             return enabled && btn;
         };
-        if (step_button(1, "â", canDown, dbg + "_down")) onStep(-1);
+        if (step_button(1, "-", canDown, dbg + "_down")) onStep(-1);
         div(ctx, mk(group.ent(), 2),
             ComponentConfig{}
                 .with_label(readout)

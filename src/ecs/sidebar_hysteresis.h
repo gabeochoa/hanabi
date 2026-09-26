@@ -13,7 +13,7 @@ inline constexpr std::int64_t kWindowSeconds = 60;
 
 struct Memory {
     std::unordered_map<std::string, std::size_t> rank;
-    std::unordered_map<std::string, std::int64_t> heldSince;
+    std::uint64_t reorders = 0;
 };
 
 inline bool recently_active(std::int64_t updatedAt, std::int64_t now) {
@@ -23,19 +23,16 @@ inline bool recently_active(std::int64_t updatedAt, std::int64_t now) {
 }
 
 template <typename Row, typename IdOf, typename UpdatedOf>
-void apply(std::vector<Row>& rows, Memory& memory, std::int64_t now, IdOf&& idOf, UpdatedOf&& updatedOf) {
+bool apply(std::vector<Row>& rows, Memory& memory, std::int64_t now, IdOf&& idOf, UpdatedOf&& updatedOf) {
     const std::size_t n = rows.size();
     std::vector<Row> out;
     out.reserve(n);
     std::vector<bool> placed(n, false);
     std::vector<std::pair<std::size_t, std::size_t>> pinned;
     for (std::size_t i = 0; i < n; ++i) {
-        const std::string id = idOf(rows[i]);
         if (!recently_active(updatedOf(rows[i]), now)) continue;
-        const auto rank = memory.rank.find(id);
-        const auto since = memory.heldSince.find(id);
-        if (rank == memory.rank.end() || since == memory.heldSince.end()) continue;
-        if (now - since->second >= kWindowSeconds) continue;
+        const auto rank = memory.rank.find(idOf(rows[i]));
+        if (rank == memory.rank.end()) continue;
         if (rank->second >= n || rank->second >= i) continue;
         pinned.emplace_back(rank->second, i);
     }
@@ -61,19 +58,22 @@ void apply(std::vector<Row>& rows, Memory& memory, std::int64_t now, IdOf&& idOf
         out.push_back(rows[cursor]);
         placed[cursor] = true;
     }
-    rows = std::move(out);
 
-    Memory next;
-    next.rank.reserve(rows.size());
-    for (std::size_t i = 0; i < rows.size(); ++i) {
-        const std::string id = idOf(rows[i]);
-        next.rank.emplace(id, i);
-        if (recently_active(updatedOf(rows[i]), now)) {
-            const auto since = memory.heldSince.find(id);
-            next.heldSince.emplace(id, since != memory.heldSince.end() ? since->second : now);
+    bool changed = out.size() != memory.rank.size();
+    std::unordered_map<std::string, std::size_t> next;
+    next.reserve(out.size());
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const std::string id = idOf(out[i]);
+        next.emplace(id, i);
+        if (!changed) {
+            const auto was = memory.rank.find(id);
+            changed = was == memory.rank.end() || was->second != i;
         }
     }
-    memory = std::move(next);
+    rows = std::move(out);
+    memory.rank = std::move(next);
+    if (changed) ++memory.reorders;
+    return changed;
 }
 
 }
