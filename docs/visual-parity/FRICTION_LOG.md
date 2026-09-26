@@ -4652,7 +4652,8 @@ running reference: the reference was never launched.
 ## Afterhours bump to upstream main, line spacing and sidebar hysteresis, from the 0.8.3 audit (2026-09-26)
 
 Written on batch2; the runtime numbers below are the runtime lane's C35
-and native records (2026-09-26). One paragraph is still owed and says so.
+and native records and the parent's pixel read of the line-spacing
+captures (2026-09-26).
 
 ### The vendor bump and what it cost
 
@@ -4732,10 +4733,31 @@ rhythms and stay fixed. The render-cache key carries the effective pitch
 and the percent, and the per-frame metrics guard that dirties the ledgers
 and clears the wrap memo on a zoom change fires on a spacing change too.
 
-[PENDING: the line-spacing capture paragraph — what the owned-window PNGs
-at 80 %, 100 % and 130 % show against the reference — is written once the
-parent has read the images; nothing about the visual result is asserted
-here until then.]
+What the owned-window captures show (three arms, all as expected;
+controller pin parent-verified 090e9d28; parent pixel check
+PARENT-PIXEL-CHECK-LSP.json, sha 78ec0ae3..., Boulder
+hz-proof-tools/lsp-pixel-evidence/, in the courier). The BEFORE arm ran
+the C29 app with `line_spacing` seeded to 160 and the AFTER_100 arm ran
+the new app at 100 %: their prose line centres are pixel-identical
+(491 / 525 / 557 device px), which is the old build ignoring a key it
+does not know, and the new build at its default drawing exactly what the
+old one drew. AFTER_160 puts the same three lines at 520 / 574 / 625.5:
+pitches of 54 and 51.5 device px against 34 and 32 at 100 %, a measured
+ratio of 1.6, which is round(16 * 1.6) = 26 pt on the prose pitch. The
+chrome, the sidebar and the single-line bubble are visually unchanged
+between AFTER_100 and AFTER_160, as the port intends: only wrapped prose
+moves. The Appearance shot shows the Typeface section's "Line spacing"
+row as a minus, a "160%" readout and a plus, marked "This Mac". No
+reference image exists for this setting: the claim is the contract's
+arithmetic on our own pixels, not parity.
+
+Disclosure. The first after_100 / after_160 attempts stopped on a staging
+error: the C35 working copy on the capture Mac still contained a `vendor/`
+directory, which the harness rejects; it was moved out and the arms
+re-run, with the stop roots preserved. The native 33/33 had run earlier
+against that same working copy; the app reads no vendor sources at
+runtime, so those results stand, and the record says which copy they ran
+from.
 
 Two deliberate divergences. The reference draws a numeric field with
 arrows; the library has no numeric spin box, and its `stepper()` walks a
