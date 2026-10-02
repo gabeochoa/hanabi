@@ -13924,7 +13924,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     append("unavailable: the image could not be decoded");
                 break;
         }
-        div(ctx, mk(wrap.ent(), 1),
+        auto head = div(ctx, mk(wrap.ent(), 1),
             ComponentConfig{}
                 .with_styled_label(
                     {{std::string("artifact   "), theme::link()},
@@ -13940,6 +13940,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
                 .with_debug_name("artifact_head"));
+        // Cmd+click opens the artifact on the WEB app's own page for it, at
+        // this row's version (Puffin 0.8.9). Only Cmd: a plain click keeps
+        // doing what it did (an image opens full size from its picture), and
+        // with no web base configured there is nowhere to send it.
+        if (app.pane().openSession) {
+            const std::string webUrl = model::artifact_web_url_for(
+                app.webBaseUrl, app.pane().openSession->summary.id,
+                m.artifact.id, m.artifact.version);
+            if (!webUrl.empty()) {
+                Entity& headEnt = head.ent();
+                headEnt.addComponentIfMissing<afterhours::ui::HasClickListener>(
+                    [](Entity&) {});
+                if (headEnt.get<afterhours::ui::HasClickListener>().down &&
+                    hanabi::keys::cmd_or_ctrl_down())
+                    hanabi::links::open(webUrl);
+            }
+        }
 
         if (m.artifact.hidden) return;
         if (m.artifact.is_image() && !m.image_path.empty() &&

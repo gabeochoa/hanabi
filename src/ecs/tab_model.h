@@ -657,6 +657,22 @@ inline std::string web_url_for(const std::string& configured, const std::string&
     if (base.empty()) return {};
     return base + "/" + sessionId;
 }
+// The web app's own PAGE for an artifact: the session with the artifact
+// docked beside its transcript, at the version the row names (the
+// reference's ArtifactContent.webAppDockURL -- `?dock=artifact:<id>[:<v>]`,
+// the address the web app's own artifact links use). Not the content proxy,
+// which serves the bytes as a download. "" when no web base is configured.
+inline std::string artifact_web_url_for(const std::string& configured,
+                                        const std::string& sessionId,
+                                        const std::string& artifactId,
+                                        const std::string& version) {
+    if (artifactId.empty()) return {};
+    const std::string session = web_url_for(configured, sessionId);
+    if (session.empty()) return {};
+    std::string dock = "artifact:" + artifactId;
+    if (!version.empty()) dock += ":" + version;
+    return session + "?dock=" + dock;
+}
 inline std::string deep_link_for(const std::string& sessionId) {
     return std::string(product_branding::kUrlScheme) + "://thread/" + sessionId;
 }

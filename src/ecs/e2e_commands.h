@@ -3087,6 +3087,8 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //   expect_mock_created_at_calls <n>          the mock has been asked for
 //                                             <n> creation times
 //   refresh_list                              ask for the catalogue again
+//   hold_modifier ctrl|shift|alt              keep a modifier down (no press)
+//   release_modifier ctrl|shift|alt           let it go
 inline api::OutgoingMessage forced_surface_message(const std::string& sessionId,
                                                    std::string text, int pane) {
     api::OutgoingMessage m;
@@ -3260,6 +3262,36 @@ struct HandleExpectOutboxAttachmentCommand
 // expect_mock_created_at_calls <n>: the app has asked the mock for <n>
 // creation times since launch (Client::session_created_at). Settles on the
 // exact count, so a walk that re-asks for a time it already holds fails.
+// hold_modifier ctrl|shift|alt / release_modifier ...: keep a modifier down
+// across the commands that follow (a Cmd/Ctrl-click), without a press. The
+// harness's own `key` chords release theirs after two frames, and a click
+// cannot carry one (afterhours_gaps.md #49: CMD+ in a script is Ctrl, which
+// hanabi::keys::cmd_or_ctrl_down() takes as Cmd's alias).
+struct HandleHoldModifierCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        const bool hold = cmd.is("hold_modifier");
+        if (cmd.is_consumed() || (!hold && !cmd.is("release_modifier"))) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("hold_modifier/release_modifier requires ctrl, shift or alt");
+            return;
+        }
+        int key = -1;
+        if (cmd.arg(0) == "ctrl") key = afterhours::keys::LEFT_CONTROL;
+        else if (cmd.arg(0) == "shift") key = afterhours::keys::LEFT_SHIFT;
+        else if (cmd.arg(0) == "alt") key = afterhours::keys::LEFT_ALT;
+        if (key < 0) {
+            cmd.fail("unknown modifier: " + cmd.arg(0));
+            return;
+        }
+        if (hold) afterhours::testing::input_injector::set_key_held(key);
+        else afterhours::testing::input_injector::set_key_up(key);
+        cmd.consume();
+    }
+};
+
 // refresh_list: ask for the catalogue again, the way a create or a stop does.
 struct HandleRefreshListCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
@@ -4265,6 +4297,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreatedAtCallsCommand>());
     sm.register_update_system(std::make_unique<HandleRefreshListCommand>());
+    sm.register_update_system(std::make_unique<HandleHoldModifierCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCachedCommand>());
     sm.register_update_system(std::make_unique<HandleDetachThreadCommand>());
