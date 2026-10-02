@@ -360,6 +360,7 @@ static void install_main_menu() {
     NSMenuItem* helpRoot = item(@"Help", nil, @"", nil);
     NSMenu* helpMenu = [[[NSMenu alloc] initWithTitle:@"Help"] autorelease];
     [helpMenu addItem:command_item(hanabi::shortcuts::Command::OpenShortcuts)];
+    [helpMenu addItem:command_item(hanabi::shortcuts::Command::ReportBug)];
     helpRoot.submenu = helpMenu;
     [g_main_menu addItem:helpRoot];
     [NSApp setHelpMenu:helpMenu];

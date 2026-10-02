@@ -1,0 +1,36 @@
+# `/knot <what needs doing>` in a thread's composer files a Knots issue as the
+# person at the keyboard, linked to the thread the way the web capture links
+# one (`sessionId` in the metadata, a `Session:` line in the description). It
+# is filed by the fake runner -- a scripted run never runs the real CLI -- and
+# the composer says which knot it became, with a Copy for its link. A refusal
+# hands the command back.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+click_ui composer_reply_input
+wait_frames 6
+type "/kn"
+wait_frames 8
+assert_ui slash_command_0 text="/knot <task>"
+
+key CMD+A
+type "/knot the reconcile batch should retry once"
+wait_frames 6
+key ENTER
+wait_frames 30
+expect_text "Filed kt-mock1."
+expect_toast_holds "Filed kt-mock1"
+expect_mock_knot_arg Session: t2
+expect_mock_knot_arg sessionId
+expect_mock_knot_arg the reconcile batch should retry once
+expect_input_text composer_reply_input ""
+
+# Nothing after the verb: the command stays and says what is missing.
+type "/knot"
+wait_frames 4
+key ESCAPE
+wait_frames 4
+key ENTER
+wait_frames 10
+expect_text "Type what needs doing after /knot."

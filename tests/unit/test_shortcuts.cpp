@@ -246,11 +246,13 @@ static void test_archive_current_conversation_ships_without_a_key() {
     CHECK(!validate(Command::ArchiveCurrentConversation, Shortcut{E, 0}, bindings).ok);
     CHECK(!validate(Command::ArchiveCurrentConversation, Shortcut{W, CommandModifier},
                     bindings).ok);
-    // Exactly one command ships unassigned.
+    // Exactly two commands ship unassigned: Archive Current Conversation and
+    // Report a Bug, both as the reference ships them.
     int unassigned = 0;
     for (const auto& item : kDefinitions)
         if (unassigned_by_default(item.command)) ++unassigned;
-    CHECK(unassigned == 1);
+    CHECK(unassigned == 2);
+    CHECK(unassigned_by_default(Command::ReportBug));
 }
 
 int main() {

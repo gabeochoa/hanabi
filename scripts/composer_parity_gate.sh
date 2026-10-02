@@ -37,7 +37,8 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # failure even when the path is right -- "why is this allowed" has to survive
 # the person who added it.
 COMPOSER_FIELDS="src/ecs/main_pane_system.h|the one composer; every New Thread entry point reaches this field
-src/ecs/settings_system.h|Settings > Memory's file editor: edits a memory file, sends nothing, starts nothing"
+src/ecs/settings_system.h|Settings > Memory's file editor: edits a memory file, sends nothing, starts nothing
+src/ecs/bug_report_system.h|Help > Report a Bug's text: files a Knots issue, sends nothing to an agent"
 
 STAGE_CALLERS="src/ecs/attachment_intake_system.h|the one intake: picker, paste and drop all drain here
 src/ecs/main_pane_system.h|HANABI_ATTACH_DEMO, a screenshot hook that stages a fixture and never runs unset
@@ -148,6 +149,9 @@ escapeIn.attachments.push_back(staged.name);
 EOF
     cat > "$dir/src/ecs/settings_system.h" <<'EOF'
 afterhours::ui::imm::text_area(ctx, mk(box.ent(), 1), m.draft, cfg);
+EOF
+    cat > "$dir/src/ecs/bug_report_system.h" <<'EOF'
+afterhours::ui::imm::text_area(ctx, mk(box.ent(), 1), app->bugReportText, cfg);
 EOF
     cat > "$dir/src/ecs/components.h" <<'EOF'
 void request_kickoff(api::OutgoingMessage message) { requestKickoff = std::move(message); }

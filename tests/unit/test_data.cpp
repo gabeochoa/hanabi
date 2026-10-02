@@ -811,7 +811,8 @@ static void test_slash_parsing() {
     CHECK(sl::find("rename") == nullptr);
     for (const auto& c : sl::all())
         CHECK(c.runnable == (c.name == "new" || c.name == "model" ||
-                             c.name == "effort" || c.name == "btw"));
+                             c.name == "effort" || c.name == "btw" ||
+                             c.name == "knot"));
 
     CHECK(sl::btw_title("why?") == "BTW: why?");
     CHECK(sl::btw_title("  why   now?  ") == "BTW: why now?");

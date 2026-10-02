@@ -54,7 +54,8 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
         Entity& uiRoot = ui_imm::getUIRootEntity();
         if (app->escape == EscapeIntent::CloseArtifactViewer ||
             app->paletteOpen || app->sessionSearchOpen || app->renameOpen ||
-            app->showShortcuts || app->showAuth || !app->requestOpenTab.empty() ||
+            app->showShortcuts || app->showBugReport || app->showAuth ||
+            !app->requestOpenTab.empty() ||
             app->requestNewThread) {
             app->escape = EscapeIntent::None;
             close(*app, ctx);

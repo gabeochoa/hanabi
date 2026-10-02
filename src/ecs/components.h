@@ -25,6 +25,7 @@
 #include "../api/session_catalog.h"
 #include "../api/client.h"
 #include "memory_page.h"
+#include "../api/knots_reporter.h"
 #include "../api/outbox.h"
 #include "../api/wire_clock.h"
 #include "../settings.h"
@@ -78,6 +79,7 @@ enum class EscapeIntent {
     CloseRename,
     CancelShortcutRecording,
     CloseShortcuts,
+    CloseBugReport,
     CloseSettings,
     CloseFind,
     CloseSlashMenu,
@@ -1823,6 +1825,31 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string forkRestoreDraft;
     std::string forkRestoreSessionId;
     std::future<api::Result<api::CreateOutcome>> forkFuture;
+    // `/knot <what needs doing>` (knots_system.h): the request, the filing in
+    // flight, and -- on a refusal -- the command handed back to its composer.
+    std::string requestKnotText;
+    std::string requestKnotSession;
+    int requestKnotPane = 0;
+    bool knotPending = false;
+    std::string knotText;
+    std::string knotSession;
+    int knotPane = 0;
+    std::future<api::Result<api::knots::Filed>> knotFuture;
+    std::string knotRestoreDraft;
+    std::string knotRestoreSessionId;
+    std::string knotError;
+    std::string lastKnotUrl;  // the last knot filed, for scripted tests
+    // Help > Report a Bug (bug_report_system.h): the sheet, its text, which
+    // board, the window capture taken as it opened, and the filing.
+    bool showBugReport = false;
+    std::string bugReportText;
+    bool bugReportBackend = false;  // false = this app's board
+    bool bugReportAttach = true;
+    std::string bugReportCapture;   // "" = none taken
+    std::string bugReportSurface = "menu";
+    std::string bugReportError;
+    bool bugReportPending = false;
+    std::future<api::Result<api::knots::Filed>> bugReportFuture;
 
     std::uint64_t sessionCatalogRevision = 1;
 
@@ -2298,7 +2325,7 @@ inline bool overlay_up(const AppComponent& app) {
     // Settings is a click, the same as from any other tab -- and keyboard
     // owners behind it are not covering anything the reader cannot see.
     return app.renameOpen || app.showShortcuts || app.showAuth ||
-           app.paletteOpen || !app.viewerImagePath.empty();
+           app.paletteOpen || !app.viewerImagePath.empty() || app.showBugReport;
 }
 
 inline bool composer_strip_surface_up(const AppComponent& app) {

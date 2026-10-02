@@ -7,6 +7,7 @@
 #include "../settings.h"
 #include "../text_zoom.h"
 #include "components.h"
+#include "bug_report_open.h"
 #include "surface_tabs.h"
 #include "thread_model.h"
 #include "ui_imports.h"
@@ -135,6 +136,9 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
             // this re-checks so a stale chord cannot unarchive one.
             if (const auto id = archivable_on_screen(app); !id.empty())
                 app.requestToggleArchive = id;
+            break;
+        case Command::ReportBug:
+            open_bug_report(app, "menu");
             break;
         case Command::Count:
             break;

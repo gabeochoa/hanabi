@@ -51,6 +51,8 @@ enum class Command : int {
     // File > Archive Current Conversation (the reference's 0.8.3). Unassigned by
     // default, like the reference: the user picks its key in Settings.
     ArchiveCurrentConversation,
+    // Help > Report a Bug (the reference's 0.8.9 bug report). Unassigned.
+    ReportBug,
     Count,
 };
 
@@ -302,12 +304,19 @@ inline constexpr std::array<Definition,
          "File",
          {},
          true},
+        {Command::ReportBug,
+         "report_bug",
+         "Report a Bug\xe2\x80\xa6",
+         "Help",
+         {},
+         true},
     }};
 
 // The commands that ship with NO key. Every other default must be non-empty
 // and unique; these are empty on purpose until the user records one.
 inline constexpr bool unassigned_by_default(Command command) {
-    return command == Command::ArchiveCurrentConversation;
+    return command == Command::ArchiveCurrentConversation ||
+           command == Command::ReportBug;
 }
 
 using Bindings = std::array<Shortcut, kDefinitions.size()>;

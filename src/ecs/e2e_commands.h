@@ -70,6 +70,8 @@
 #include "../api/attachments.h"
 #include "../api/disk_cache.h"
 #include "../api/mock_client.h"
+#include "../api/knots_runner.h"
+#include "bug_report_open.h"
 #include "../build_stamp.h"
 #include "../native_capture_probe.h"
 #include "capture_marker_system.h"
@@ -3088,6 +3090,8 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //                                             <n> creation times
 //   refresh_list                              ask for the catalogue again
 //   hold_modifier ctrl|shift|alt              keep a modifier down (no press)
+//   expect_mock_knot_arg <text...>            the last knot create carries it
+//   open_bug_report                           Help > Report a Bug
 //   release_modifier ctrl|shift|alt           let it go
 inline api::OutgoingMessage forced_surface_message(const std::string& sessionId,
                                                    std::string text, int pane) {
@@ -3288,6 +3292,51 @@ struct HandleHoldModifierCommand
         }
         if (hold) afterhours::testing::input_injector::set_key_held(key);
         else afterhours::testing::input_injector::set_key_up(key);
+        cmd.consume();
+    }
+};
+
+// expect_mock_knot_arg <text...>: the last `meta knots.issue create` the fake
+// runner was asked for carries an argument containing <text>.
+struct HandleExpectMockKnotArgCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_knot_arg")) return;
+        const std::string want = joined_args(cmd, 0);
+        const auto& calls = api::knots::MockRunner::calls();
+        for (auto it = calls.rbegin(); it != calls.rend(); ++it) {
+            if (it->size() < 2 || (*it)[1] != "create") continue;
+            for (const auto& a : *it)
+                if (a.find(want) != std::string::npos) {
+                    cmd.consume();
+                    return;
+                }
+            break;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail("expect_mock_knot_arg: the last create carries no argument containing '" + want +
+                 "' (" + std::to_string(calls.size()) + " call(s))");
+    }
+};
+
+// open_bug_report: Help > Report a Bug, as the menu row does.
+struct HandleOpenBugReportCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("open_bug_report")) return;
+        auto* app = ecs::find_singleton<ecs::AppComponent>();
+        if (app == nullptr) {
+            cmd.fail("open_bug_report: no app");
+            return;
+        }
+        ecs::open_bug_report(*app, "menu");
         cmd.consume();
     }
 };
@@ -4298,6 +4347,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectMockCreatedAtCallsCommand>());
     sm.register_update_system(std::make_unique<HandleRefreshListCommand>());
     sm.register_update_system(std::make_unique<HandleHoldModifierCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectMockKnotArgCommand>());
+    sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCachedCommand>());
     sm.register_update_system(std::make_unique<HandleDetachThreadCommand>());

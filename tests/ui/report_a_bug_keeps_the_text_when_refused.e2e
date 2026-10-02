@@ -1,0 +1,20 @@
+# A bug report Knots refuses keeps the sheet open and every word in it, with
+# the refusal said plainly. Escape closes the sheet.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_KNOTS=fail
+
+require_thread t2
+open_bug_report
+wait_frames 10
+click_ui bug_report_text
+type "keep me"
+wait_frames 4
+click_ui bug_report_send
+wait_frames 40
+expect_text "Knots refused it"
+assert_ui bug_report_panel hidden=false
+expect_text "keep me"
+key ESCAPE
+wait_frames 8
+expect_no_ui bug_report_panel

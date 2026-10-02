@@ -1,0 +1,32 @@
+# Help > Report a Bug (the reference's 0.8.9): a sheet that files a Knots
+# issue as the person at the keyboard. It shows what will be sent -- the text,
+# which board, whether the window capture rides along, the context lines --
+# and the capture, uploaded first, travels as a link in the description. The
+# fake runner answers; a scripted run never runs the real CLI.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+open_bug_report
+wait_frames 10
+expect_text "Report a bug"
+expect_text "Files to gabeochoa/manager."
+expect_text "Filed from: menu"
+# Nothing typed: Send does nothing.
+click_ui bug_report_send
+wait_frames 6
+assert_ui bug_report_panel hidden=false
+
+click_ui bug_report_text
+type "The sidebar flickers"
+wait_frames 6
+click_ui bug_report_board_backend
+wait_frames 6
+expect_text "Files to agentcloud/client."
+click_ui bug_report_send
+wait_frames 40
+expect_no_ui bug_report_panel
+expect_toast_holds "Filed kt-mock1"
+expect_mock_knot_arg Screenshot: [hanabi-window.png](https://www.internalfb.com/F1000001)
+expect_mock_knot_arg agentcloud/client
+expect_mock_knot_arg The sidebar flickers

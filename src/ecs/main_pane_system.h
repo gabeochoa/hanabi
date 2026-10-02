@@ -9695,6 +9695,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     break;
             }
         }
+        // A refused /knot comes back to the composer it was typed in.
+        if (!app.knotRestoreSessionId.empty() && app.knotRestoreSessionId == openId) {
+            set_field(app.knotRestoreDraft);
+            app.knotRestoreDraft.clear();
+            app.knotRestoreSessionId.clear();
+            app.knotError.clear();
+        }
         if (app.forkRestoreSessionId == openId && !app.forkError.empty()) {
             set_field(app.forkRestoreDraft);
             app.slashNotice = app.forkError;
@@ -9743,6 +9750,35 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.modelPopoverOpen = true;
                 app.composerPopoverPane = target.pane_index;
                 app.slashNotice.clear();
+                set_target_field(target, "");
+                return;
+            }
+            if (cmd->name == "knot") {
+                if (p.args.empty()) {
+                    app.slashNotice = "Type what needs doing after /knot.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (target.session_id.empty()) {
+                    app.slashNotice = "Open a thread to link the knot to, or file it from the web.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (app.knotPending || !app.requestKnotText.empty()) {
+                    app.slashNotice = "A knot is already being filed.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                // Filed as the person at the keyboard, linked to this thread
+                // (knots_system.h); nothing is sent to the agent.
+                app.requestKnotText = p.args;
+                app.requestKnotSession = target.session_id;
+                app.requestKnotPane = target.pane_index;
+                app.slashNotice = "Filing the knot\xe2\x80\xa6";
+                app.slashNoticePane = target.pane_index;
                 set_target_field(target, "");
                 return;
             }

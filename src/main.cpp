@@ -88,6 +88,8 @@
 #include "ecs/rename_modal_system.h"
 #include "ecs/artifact_fetch_system.h"
 #include "ecs/memory_system.h"
+#include "ecs/knots_system.h"
+#include "ecs/bug_report_system.h"
 #include "ecs/artifact_viewer_system.h"
 #include "ecs/capture_marker_system.h"
 #include "ecs/toast_system.h"
@@ -229,6 +231,16 @@ static void setup_app_state() {
 
     app.client = api::make_client(cfg);
     app.backend_label = app.client ? app.client->backend_label() : "none";
+    // The Knots filer runs the real `meta` only against a real backend in a
+    // shipping build. The mock backend and every scripted run file into a
+    // fake (api/knots_runner.h) -- a real run would file a real issue under
+    // a real name.
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    api::knots::runner_override() = api::knots::MockRunner::run;
+#else
+    if (cfg.backend == "mock" || app.backend_label == "mock")
+        api::knots::runner_override() = api::knots::MockRunner::run;
+#endif
     app.webBaseUrl = cfg.web_base_url;  // "Copy URL" base (host-neutral if empty)
     app.trackerBaseUrl = cfg.tracker_base_url;  // empty => ids stay prose
     app.configuredContextBudget = cfg.context_budget_tokens;
@@ -439,6 +451,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::LoaderSystem>());
     sm.register_update_system(std::make_unique<ecs::ArtifactFetchSystem>());
     sm.register_update_system(std::make_unique<ecs::MemorySystem>());
+    sm.register_update_system(std::make_unique<ecs::KnotsSystem>());
     sm.register_update_system(std::make_unique<ecs::LayoutSystem>());
 
     // Ahead of every UI-creating system: a rotation lands the new palette
@@ -476,6 +489,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::TabBarSystem>());
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
     sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
+    sm.register_update_system(std::make_unique<ecs::BugReportSystem>());
     sm.register_update_system(std::make_unique<ecs::NewThreadSystem>());
     sm.register_update_system(std::make_unique<ecs::PaletteSystem>());
     sm.register_update_system(std::make_unique<ecs::SessionSearchSystem>());
@@ -1402,6 +1416,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "effort") app->modelPopoverOpen = true;  // one panel now
         else if (os == "plan") app->planPopoverOpen = true;
         else if (os == "changes") app->changesPopoverOpen = true;
+        else if (os == "bug_report") ecs::open_bug_report(*app, "menu");
         else if (os == "context") app->contextPopoverOpen = true;
         else if (os == "nodes") app->nodePopoverOpen = true;
         else if (os == "slash") {
