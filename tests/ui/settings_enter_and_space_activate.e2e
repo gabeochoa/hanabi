@@ -4,6 +4,10 @@ click_ui sb_settings
 wait_frames 10
 expect_focused settings_search
 
+# Backwards through General: Sort threads by, Timestamps, Ask before
+# quitting, Restore tabs, then New line.
+shift_tab
+wait_frames 6
 shift_tab
 wait_frames 6
 shift_tab

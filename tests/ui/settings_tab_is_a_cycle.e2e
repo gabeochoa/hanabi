@@ -34,11 +34,17 @@ expect_focused settings_confirm_quit_track
 key TAB
 wait_frames 6
 expect_focused settings_timestamps_track
+key TAB
+wait_frames 6
+expect_focused settings_sort_order_row
 
 key TAB
 wait_frames 6
 expect_focused settings_search
 
+shift_tab
+wait_frames 6
+expect_focused settings_sort_order_row
 shift_tab
 wait_frames 6
 expect_focused settings_timestamps_track

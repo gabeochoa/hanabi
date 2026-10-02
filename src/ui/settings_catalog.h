@@ -155,7 +155,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 45> kRows{{
+inline constexpr std::array<Row, 46> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -168,6 +168,9 @@ inline constexpr std::array<Row, 45> kRows{{
      Origin::Device},
     {"timestamps", Pane::General, "Show timestamps",
      "time clock when sent stamp date", Origin::Device},
+    {"sort_order", Pane::General, "Sort threads by",
+     "sort order sidebar oldest newest created recent activity queue",
+     Origin::Device},
 
     // Appearance, in the reference's order of sections: Reading width,
     // Typeface, Theme, then hanabi's own rows under the sections they fit.

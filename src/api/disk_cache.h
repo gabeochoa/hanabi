@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "types.h"
@@ -46,6 +47,12 @@ std::string cache_dir();
 // never a correctness dependency); a missing/corrupt file loads as nullopt.
 void save_sessions(const std::vector<SessionSummary>& sessions);
 std::optional<std::vector<SessionSummary>> load_sessions();
+
+// --- Creation times (id -> unix seconds) ----------------------------------
+// The sidebar's Oldest-first order learns these one session at a time; they
+// never change, so they are kept across launches. Best effort like the rest.
+void save_created_at(const std::unordered_map<std::string, std::int64_t>& times);
+std::unordered_map<std::string, std::int64_t> load_created_at();
 
 // --- Transcripts (one file per session id) ------------------------------
 void save_transcript(const Session& session);

@@ -439,6 +439,18 @@ struct AppComponent : public afterhours::BaseComponent {
     // Async fetches in flight (polled by the loader system).
     std::future<api::Result<std::vector<api::SessionSummary>>> listFuture;
     bool listPending = false;
+    // Creation times for the sidebar's Oldest-first order (created_at_walk.h).
+    // `createdAt` is every answer learned, loaded once from disk on a real
+    // backend; `createdAtRefused` is what the server could not answer this
+    // run (not retried until relaunch); the revision moves whenever a row's
+    // creation time does, so the sidebar's cached order re-sorts.
+    std::unordered_map<std::string, std::int64_t> createdAt;
+    bool createdAtLoaded = false;
+    std::unordered_set<std::string> createdAtRefused;
+    std::uint64_t createdAtRevision = 1;
+    using CreatedAtAnswers = std::vector<std::pair<std::string, std::int64_t>>;
+    std::future<CreatedAtAnswers> createdAtFuture;
+    bool createdAtPending = false;
 
     // --- Live events (SSE) — MULTI-thread background subscriptions --------
     // When the backend supports_events(), the loader keeps a POOL of live

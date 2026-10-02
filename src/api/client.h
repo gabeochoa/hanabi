@@ -706,6 +706,17 @@ class Client {
 
     virtual bool supports_subagents() const { return false; }
 
+    // When a session was created, in unix seconds, for the sidebar's
+    // Oldest-first order. Its own call because the catalog row does not carry
+    // it (agentcloud's `list` reply has no creation time; the reference reads
+    // one off a separate catalog walk). The answer never changes, so a caller
+    // asks once per session and keeps it.
+    virtual bool supports_created_at() const { return false; }
+    virtual Result<int64_t> session_created_at(const std::string& id) {
+        (void)id;
+        return Result<int64_t>::failure("creation time not supported");
+    }
+
     // Continue an OPEN session: send a user prompt into `session_id` and return
     // the assistant reply. Default impl reports the backend doesn't support
     // replies, so adapters opt in incrementally (mirrors create_session). The

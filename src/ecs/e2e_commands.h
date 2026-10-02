@@ -3084,6 +3084,8 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //                                             for <id>
 //   expect_mock_outbound_calls <n>            the mock has been asked to
 //                                             send/steer/create <n> times
+//   expect_mock_created_at_calls <n>          the mock has been asked for
+//                                             <n> creation times
 inline api::OutgoingMessage forced_surface_message(const std::string& sessionId,
                                                    std::string text, int pane) {
     api::OutgoingMessage m;
@@ -3251,6 +3253,34 @@ struct HandleExpectOutboxAttachmentCommand
         }
         cmd.fail(std::format("outbox for '{}' has no attachment named '{}'",
                              cmd.arg(0), cmd.arg(1)));
+    }
+};
+
+// expect_mock_created_at_calls <n>: the app has asked the mock for <n>
+// creation times since launch (Client::session_created_at). Settles on the
+// exact count, so a walk that re-asks for a time it already holds fails.
+struct HandleExpectMockCreatedAtCallsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_created_at_calls")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_mock_created_at_calls requires <n>");
+            return;
+        }
+        const int have = api::MockClient::created_at_calls().load();
+        const int want = std::atoi(cmd.arg(0).c_str());
+        if (have == want) {
+            cmd.consume();
+            return;
+        }
+        if (have < want && cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("mock backend saw {} creation-time read(s), expected {}",
+                             have, want));
     }
 };
 
@@ -4215,6 +4245,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectMockCreatedAtCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCachedCommand>());
     sm.register_update_system(std::make_unique<HandleDetachThreadCommand>());

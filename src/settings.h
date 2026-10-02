@@ -381,6 +381,14 @@ struct Settings {
     bool get_find_newest_first() const;
     void set_find_newest_first(bool on);
 
+    // The order inside every sidebar section (the reference's Sort by,
+    // Puffin 0.8.9): false = recent activity, the order the list always
+    // had; true = oldest CREATED first, unknown creation times last. Stored
+    // as "activity" / "oldest" so a third order has somewhere to go.
+    // Auto-persists.
+    bool get_sort_oldest_first() const;
+    void set_sort_oldest_first(bool on);
+
     // Appearance · Context: the context meter's caption carries the full
     // accounting (lifetime totals, cache split, last call, last compaction,
     // sub-agent rollup) when on; off, how full the window is. Default off.
@@ -553,6 +561,7 @@ struct Settings {
     bool notification_sound_ = true;
     bool show_timestamps_ = true;
     bool find_newest_first_ = false;
+    bool sort_oldest_first_ = false;
     bool context_detail_ = false;
     bool disclosure_chips_open_ = false;
     std::string transcript_width_ = "comfortable";

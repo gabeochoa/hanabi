@@ -88,12 +88,13 @@ static void test_every_pane_has_a_row_unless_it_says_otherwise() {
 
 static void test_rows_in_returns_catalogue_order() {
     const auto general = cat::rows_in(Pane::General);
-    CHECK(general.size() == 5);
+    CHECK(general.size() == 6);
     CHECK(std::string_view(general[0]->id) == "send_key");
     CHECK(std::string_view(general[1]->id) == "new_line");
     CHECK(std::string_view(general[2]->id) == "restore_tabs");
     CHECK(std::string_view(general[3]->id) == "confirm_quit");
     CHECK(std::string_view(general[4]->id) == "timestamps");
+    CHECK(std::string_view(general[5]->id) == "sort_order");
 }
 
 static void test_every_origin_says_something() {

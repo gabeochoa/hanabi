@@ -398,6 +398,11 @@ struct SessionSummary {
     std::string title;
     // Unix epoch seconds of the most recent activity. 0 means "unknown".
     int64_t updated_at = 0;
+    // Unix epoch seconds the session was CREATED. 0 means "unknown", which is
+    // the usual answer: the agentcloud `list` row carries no creation time,
+    // so this is learned per session (Client::session_created_at) and kept in
+    // a client-side store. Read by the sidebar's Oldest-first order only.
+    int64_t created_at = 0;
     // "active" | "idle" | "archived" | "" (unknown). Kept as a free string so
     // the adapter can pass through whatever the backend reports.
     std::string status;

@@ -3294,7 +3294,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // where it is defined -- the short version is that partial_sort
             // leaves the tail arbitrary, so a partition could only order the
             // starred rows it found there by nothing.
-            const auto newestFirst = model::sidebar_before;
+            // Settings > General > Sort threads by: Oldest first swaps the
+            // comparator and nothing else -- the pin still lifts, the prefix
+            // argument below holds for any total order.
+            const bool oldest = Settings::get().get_sort_oldest_first();
+            const auto newestFirst = oldest ? model::sidebar_oldest_before
+                                            : model::sidebar_before;
             // Sort only as far as the rows that will be drawn. The list is
             // capped at roughly two viewports, so at a 2000-session catalog a
             // full sort ordered 2000 rows to show forty of them, every frame.
@@ -3319,13 +3324,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                   members.end(), newestFirst);
             else
                 std::sort(members.begin(), members.end(), newestFirst);
-            std::vector<const api::SessionSummary*> head(
-                members.begin(), members.begin() + std::min(limit, total));
-            hanabi::sidebar_hysteresis::apply(
-                head, hysteresis_[key], capture_clock::inbox_now(),
-                [](const api::SessionSummary* s) { return s->id; },
-                [](const api::SessionSummary* s) { return s->updated_at; });
-            std::copy(head.begin(), head.end(), members.begin());
+            // Hysteresis holds a row against ACTIVITY overtaking it; creation
+            // order has no overtaking, so it has nothing to hold.
+            if (!oldest) {
+                std::vector<const api::SessionSummary*> head(
+                    members.begin(), members.begin() + std::min(limit, total));
+                hanabi::sidebar_hysteresis::apply(
+                    head, hysteresis_[key], capture_clock::inbox_now(),
+                    [](const api::SessionSummary* s) { return s->id; },
+                    [](const api::SessionSummary* s) { return s->updated_at; });
+                std::copy(head.begin(), head.end(), members.begin());
+            }
+        } else if (Settings::get().get_sort_oldest_first()) {
+            // A named folder keeps the catalog's activity order by default;
+            // the reference's Sort by applies to every section, so Oldest
+            // first orders it too.
+            std::sort(members.begin(), members.end(), model::sidebar_oldest_before);
         }
         // The rows the user has hand-arranged rise to the top of the group in
         // the order they were left in; everything else keeps the activity order
@@ -3344,7 +3358,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const VisibleKey vk{key, buckets_.rebuilds(), app.subagentCatalogRevision,
                             app.expandedRevision, app.rowOrderRevision, limit,
                             static_cast<int>(members.size()), q,
-                            hysteresis_[key].reorders};
+                            hysteresis_[key].reorders,
+                            Settings::get().get_sort_oldest_first(),
+                            app.createdAtRevision};
         // One cache per folder: PINNED and RECENTS both draw every frame,
         // and a single slot would rebuild on every alternation.
         VisibleCache& vc = visibleByFolder_[key];
@@ -3371,12 +3387,17 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         int members = -1;
         std::string query;
         std::uint64_t hysteresisRev = 0;
+        // The order the members were sorted in, and the creation times that
+        // order reads: either moving re-sorts the drawn list.
+        bool oldestFirst = false;
+        std::uint64_t createdAtRev = 0;
         bool operator==(const VisibleKey& o) const {
             return folder == o.folder && bucketsRev == o.bucketsRev &&
                    subagentRev == o.subagentRev && expandedRev == o.expandedRev &&
                    orderRev == o.orderRev && limit == o.limit &&
                    members == o.members && query == o.query &&
-                   hysteresisRev == o.hysteresisRev;
+                   hysteresisRev == o.hysteresisRev &&
+                   oldestFirst == o.oldestFirst && createdAtRev == o.createdAtRev;
         }
     };
     struct VisibleCache {

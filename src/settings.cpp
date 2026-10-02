@@ -103,6 +103,8 @@ bool Settings::load_save_file() {
             j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
         find_newest_first_ = j.value("find_newest_first", find_newest_first_);
+        sort_oldest_first_ =
+            j.value("session_sort_order", std::string("activity")) == "oldest";
         context_detail_ = j.value("context_detail", context_detail_);
         disclosure_chips_open_ =
             j.value("disclosure_chips_open", disclosure_chips_open_);
@@ -297,6 +299,7 @@ void Settings::write_save_file() {
     j["notification_sound"] = notification_sound_;
     j["show_timestamps"] = show_timestamps_;
     j["find_newest_first"] = find_newest_first_;
+    j["session_sort_order"] = sort_oldest_first_ ? "oldest" : "activity";
     j["context_detail"] = context_detail_;
     j["disclosure_chips_open"] = disclosure_chips_open_;
     j["transcript_width"] = transcript_width_;
@@ -822,6 +825,13 @@ bool Settings::get_find_newest_first() const { return find_newest_first_; }
 void Settings::set_find_newest_first(bool on) {
     if (on == find_newest_first_) return;
     find_newest_first_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_sort_oldest_first() const { return sort_oldest_first_; }
+void Settings::set_sort_oldest_first(bool on) {
+    if (on == sort_oldest_first_) return;
+    sort_oldest_first_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

@@ -1210,13 +1210,13 @@ says why), VERIFY.
 | D30 | 0.8.8 | Picture artifacts fit the preview | `artifact_viewer_system.h` scales by min(1, box/natural) | MATCHED |
 | D31 | 0.8.8 | Scrolling back loads older messages when asked | `load_older_model.h` | MATCHED (not re-run) |
 | D32 | 0.8.9 | Cmd+click an artifact opens it on the web | not found | MISSING |
-| D33 | 0.8.9 | Sidebar sort: Oldest first | activity order plus manual drag order; no sort setting | MISSING |
+| D33 | 0.8.9 | Sidebar sort: Oldest first | activity order only at 9b664d0. Now: Settings > General "Sort threads by" Recent activity / Oldest first; oldest created first, unknown last, id tie-break, pin still lifts, every section; creation times learned per session (attach + the seq-1 frame's `created_at_unix_ms`, since the `list` row carries none) while the order is chosen, kept on disk; `tests/ui/sidebar_sort_oldest_first.e2e` (lead lane, 2026-10-02). Deviation: the reference puts it in the sidebar list-options menu; Hanabi's filter glyph is a one-state toggle, so the choice lives in Settings | MATCHED |
 | D34 | 0.8.9 | Files-changed chip and panel | none | MISSING |
 | D35 | 0.8.9 | Saved templates in the / menu | `/` lists new/model/effort/btw/compact only | MISSING |
 | D36 | 0.8.9 | Bug-report window captures the window | no bug-report flow | MISSING |
 | D37 | 0.8.9 | Companion unified diff | no Companion surface (artifact viewer only) | MISSING (large) |
 | D38 | 0.8.9 | Companion task Comments page | no Companion surface | MISSING (large) |
-| D39 | 0.8.9 | `/knot` in the composer | not in the `/` menu | MISSING |
+| D39 | 0.8.9 | `/knot` in the composer | not in the `/` menu. Blocked: the reference files through its in-app Knots reporter (`KnotsReporter.fileJoiningIfNeeded`, D122768093), and Hanabi has no Knots client or credential path (D36 needs the same) | MISSING (needs a Knots client) |
 | D40 | 0.8.9 fix | Credential-refused images retry | `inline_image.h` marks a failed load `tried` and never retries | VERIFY (likely MISSING for remote images) |
 | D41 | 0.8.9 fix | An unreadable file does not block a message | intake shows the staging error and stages nothing; send not re-run | VERIFY (likely MATCHED) |
 | D42 | 0.8.9 fix | A queued message is not sent while it is being edited | sends queue, but a queued message cannot be edited (0.8.4 queued edit absent) | N/A until queued edit exists |

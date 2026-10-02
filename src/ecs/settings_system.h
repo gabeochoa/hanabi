@@ -1222,6 +1222,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "restore_tabs") render_restore_tabs_row(ctx, parent, app);
         else if (id == "confirm_quit") render_confirm_quit_row(ctx, parent, app);
         else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
+        else if (id == "sort_order") render_sort_order_row(ctx, parent, app);
         else if (id == "theme_rotate") render_theme_rotate_row(ctx, parent, app);
         else if (id == "transcript_width") render_transcript_width_row(ctx, parent, app);
         else if (id == "context_detail") render_context_detail_row(ctx, parent, app);
@@ -2878,6 +2879,19 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     // Timestamps on transcript rows: Off / On. Local to this machine, so it
     // persists without going near the sync-dirty flag.
+    // The order inside every sidebar section. Oldest first needs creation
+    // times the catalog does not carry; choosing it starts the walk that
+    // learns them (loader_system), and rows not reached yet sit last.
+    void render_sort_order_row(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 602, "Sort threads by", "settings_sort_order_label");
+        const bool oldest = Settings::get().get_sort_oldest_first();
+        real_segmented(ctx, parent, 603, {"Recent activity", "Oldest first"},
+                       oldest ? 1 : 0, "settings_sort_order",
+                       [](int i) { Settings::get().set_sort_oldest_first(i == 1); });
+    }
+
     // Find: where a fresh Cmd+F lands. Off (the default) is the oldest match
     // and Cmd+G walks newer; on is the newest match and Cmd+G walks older.
     void render_find_newest_row(UIContext<InputAction>& ctx, Entity& parent,

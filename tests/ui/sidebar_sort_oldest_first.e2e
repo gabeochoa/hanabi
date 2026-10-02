@@ -1,0 +1,66 @@
+# Settings > General > "Sort threads by": Oldest first (Puffin 0.8.9). The
+# catalog carries no creation time, so choosing it starts a walk that asks
+# for each session's once (Client::session_created_at); rows it cannot answer
+# for sit LAST; every answer is kept, so switching back and forth never asks
+# again. Recent activity, the default, never walks at all.
+#
+# The mock's creation order is the REVERSE of its fixture order, which is
+# roughly activity order, so the two sorts are told apart by t7/t6: t7 is
+# busier, t6 is older. t8 is a session the "server" has no creation time for.
+#
+# env: HANABI_MOCK_CREATED_AT_UNKNOWN=t8
+# settings: {"window_width":1100,"window_height":1500,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 20
+# Default: recent activity, and no creation time asked for.
+expect_ui_rel chat_row_id_t7 above chat_row_id_t6
+expect_ui_rel chat_row_id_t8 above chat_row_id_t6
+expect_mock_created_at_calls 0
+
+# Choose Oldest first in Settings, then come back to the list.
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+type "sort threads"
+wait_frames 8
+expect_text "Sort threads by"
+click_ui settings_result_0
+wait_frames 8
+click_ui settings_sort_order_1
+wait_frames 30
+key CMD+W
+wait_frames 20
+
+# Oldest first: the older t6 above the busier t7, and t8, whose creation time
+# is unknown, below every row that has one.
+expect_ui_rel chat_row_id_t6 above chat_row_id_t7
+expect_ui_rel chat_row_id_r5 above chat_row_id_t8
+expect_ui_rel chat_row_id_t7 above chat_row_id_t8
+expect_mock_created_at_calls 20
+
+# Back to Recent activity: the old order, and no new asks...
+click_ui sb_settings
+wait_frames 10
+type "sort threads"
+wait_frames 8
+click_ui settings_result_0
+wait_frames 8
+click_ui settings_sort_order_0
+wait_frames 10
+key CMD+W
+wait_frames 20
+expect_ui_rel chat_row_id_t7 above chat_row_id_t6
+# ...and Oldest first again sorts from what is already known, asking nothing
+# (t8 stays refused for this run rather than being re-asked every pass).
+click_ui sb_settings
+wait_frames 10
+type "sort threads"
+wait_frames 8
+click_ui settings_result_0
+wait_frames 8
+click_ui settings_sort_order_1
+wait_frames 10
+key CMD+W
+wait_frames 20
+expect_ui_rel chat_row_id_t6 above chat_row_id_t7
+expect_mock_created_at_calls 20

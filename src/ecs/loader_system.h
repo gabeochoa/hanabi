@@ -17,6 +17,7 @@
 #include "../api/create_outcome.h"
 #include "../api/disk_cache.h"
 #include "load_older_model.h"
+#include "created_at_walk.h"
 #include "../util/capture_clock.h"
 #include "../native_snooze_prompt.h"
 #include "surface_tabs.h"
@@ -62,6 +63,65 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
     static void apply_local_overlays(std::vector<api::SessionSummary>& out) {
         for (auto& s : out) apply_local_overlay(s);
+    }
+
+    // Creation times learned in earlier launches and this one, laid over a
+    // catalog that arrives without them (created_at_walk.h).
+    static void apply_created_at(AppComponent& app,
+                                 std::vector<api::SessionSummary>& out) {
+        if (!app.createdAtLoaded) {
+            app.createdAtLoaded = true;
+            if (disk_cache_enabled(app))
+                for (auto& [id, secs] : api::disk_cache::load_created_at())
+                    app.createdAt.emplace(id, secs);
+        }
+        hanabi::created_at::apply(app.createdAt, out);
+    }
+
+    // The walk that learns them: while the sidebar is sorted Oldest first,
+    // ask about the next few sessions with no known creation time, one step
+    // at a time, until every row has one or the server has said it cannot
+    // answer. Choosing Recent activity stops it; nothing it learned is lost.
+    static void walk_created_at(AppComponent& app) {
+        if (app.createdAtPending && app.createdAtFuture.valid() &&
+            app.createdAtFuture.wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready) {
+            const AppComponent::CreatedAtAnswers answers = app.createdAtFuture.get();
+            app.createdAtPending = false;
+            bool learned = false;
+            for (const auto& [id, secs] : answers) {
+                if (secs <= 0) {
+                    app.createdAtRefused.insert(id);
+                    continue;
+                }
+                app.createdAt[id] = secs;
+                learned = true;
+            }
+            if (learned) {
+                hanabi::created_at::apply(app.createdAt, app.sessions);
+                ++app.createdAtRevision;
+                if (disk_cache_enabled(app))
+                    api::disk_cache::save_created_at(app.createdAt);
+            }
+        }
+        if (app.createdAtPending || !app.liveListSeen || !app.client) return;
+        if (!Settings::get().get_sort_oldest_first()) return;
+        if (!app.client->supports_created_at()) return;
+        std::vector<std::string> batch = hanabi::created_at::next_batch(
+            app.sessions, app.createdAt, app.createdAtRefused);
+        if (batch.empty()) return;
+        std::shared_ptr<api::Client> c = app.client;
+        app.createdAtPending = true;
+        app.createdAtFuture = std::async(
+            std::launch::async, [c, batch = std::move(batch)] {
+                AppComponent::CreatedAtAnswers out;
+                out.reserve(batch.size());
+                for (const std::string& id : batch) {
+                    const auto r = c->session_created_at(id);
+                    out.emplace_back(id, r.ok ? r.value : 0);
+                }
+                return out;
+            });
     }
 
     // Every route a transcript reaches a pane by -- LRU hit, cached disk read,
@@ -795,6 +855,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     cached && !cached->empty()) {
                     auto sessions = std::move(*cached);
                     apply_local_overlays(sessions);
+                    apply_created_at(app, sessions);
                     app.seed_attach_brakes_from(sessions);
                     app.overlay_attach_brakes(sessions);
                     app.overlay_attach_refusals(sessions);
@@ -819,6 +880,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.listPending = false;
                 if (r.ok) {
                     apply_local_overlays(r.value);
+                    apply_created_at(app, r.value);
                     app.overlay_attach_brakes(r.value);
                     app.overlay_attach_refusals(r.value);
                     app.replace_sessions(std::move(r.value));
@@ -925,6 +987,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.subagentListError = r.error;
             }
         }
+
+        // --- Creation times, for the sidebar's Oldest-first order ---
+        walk_created_at(app);
 
         // --- Transcripts: every pane that is showing ---
         for (size_t i = 0; i < app.active_pane_count(); ++i)

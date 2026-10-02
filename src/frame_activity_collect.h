@@ -82,8 +82,10 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
     s.pending_future =
         s.pending_future || app.listPending || app.kickoffPending ||
         app.steerPending || app.sendPending || app.streamCollecting ||
-        app.authBeginPending || app.renamePending || app.settingsPending;
+        app.authBeginPending || app.renamePending || app.settingsPending ||
+        app.createdAtPending;
     s.async_ready = s.async_ready || frame_future_ready(app.listFuture) ||
+                    frame_future_ready(app.createdAtFuture) ||
                     frame_future_ready(app.kickoffFuture) ||
                     frame_future_ready(app.steerFuture) ||
                     frame_future_ready(app.sendFuture) ||

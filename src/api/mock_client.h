@@ -99,6 +99,10 @@ class MockClient : public Client {
     // summary-row keys.
     static SessionSummary catalog_row(SessionSummary s) {
         s.replies_paused = false;
+        // The live `list` row carries no creation time; neither does this
+        // one, so the app learns it the way it must against a server --
+        // through session_created_at, below.
+        s.created_at = 0;
         apply_seeded_row_clocks(s);
         // bz6 exists to be a STALE row beside a fresher attach: its freeze is
         // deliberately withheld from the catalog so the only way the UI can
@@ -491,6 +495,40 @@ class MockClient : public Client {
     }
 
     bool supports_subagents() const override { return true; }
+
+    // Creation time, asked per session. Seed rows were created an hour apart,
+    // sixty days back, in REVERSE fixture order: the fixture is written
+    // roughly newest activity first, so Oldest first turns the list over and
+    // a test can tell the two orders apart. A thread created or forked this run was created when its
+    // first row was written. HANABI_MOCK_CREATED_AT_UNKNOWN names ids
+    // (comma-separated) the "server" cannot answer for.
+    bool supports_created_at() const override { return true; }
+    // How many creation times the app has asked for: a read, so not an
+    // outbound_calls() entry. Read by `expect_mock_created_at_calls`.
+    static std::atomic<int>& created_at_calls() {
+        static std::atomic<int> n{0};
+        return n;
+    }
+    Result<int64_t> session_created_at(const std::string& id) override {
+        created_at_calls().fetch_add(1);
+        if (const char* unknown = std::getenv("HANABI_MOCK_CREATED_AT_UNKNOWN");
+            unknown != nullptr && *unknown != '\0') {
+            const std::string list = std::string(",") + unknown + ",";
+            if (list.find("," + id + ",") != std::string::npos)
+                return Result<int64_t>::failure("no creation time for " + id);
+        }
+        const SeedPtr seedRef = seed_ptr();
+        const auto& seeds = *seedRef;
+        for (std::size_t i = 0; i < seeds.size(); ++i)
+            if (seeds[i].summary.id == id)
+                return Result<int64_t>::success(
+                    days_ago(60) +
+                    static_cast<int64_t>(seeds.size() - 1 - i) * 3600);
+        for (const auto& s : created_)
+            if (s.summary.id == id)
+                return Result<int64_t>::success(s.summary.updated_at);
+        return Result<int64_t>::failure("no such session " + id);
+    }
 
     Result<std::vector<SessionSummary>> list_subagents(
         std::size_t limit) override {

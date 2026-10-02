@@ -2177,6 +2177,78 @@ void AgentcloudClient::resolve_child_questions(
     }
 }
 
+// A session's creation time is the wall-clock stamp on its FIRST journal row
+// (seq 1, SessionCreated): `list` rows carry no creation time, and every
+// durable frame carries `created_at_unix_ms`. So: attach, ask for one frame
+// below seq 2, read its stamp. One attach per session, asked once -- the
+// caller keeps the answer, since a creation time never changes.
+Result<int64_t> AgentcloudClient::session_created_at(const std::string& id) {
+    const auto fail = [](const std::string& why) {
+        return Result<int64_t>::failure(why);
+    };
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer {
+        ws_conn* c;
+        ~Closer() { ws_close(c); }
+    } closer{conn};
+
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded()) {
+        auth_.invalidate();
+        return fail("no hello for " + id + " (" + q.why_closed() + ")");
+    }
+    if (str_or(hello, "type", "") == "error")
+        return fail("attach refused: " + str_or(hello, "message", "(no message)"));
+
+    const json page_env = {
+        {"sub", 1},
+        {"payload", {{"cmd", "page"}, {"before", 2}, {"limit", 1}}}};
+    const std::string page_wire = page_env.dump();
+    if (!ws_send_text(conn, page_wire.data(), page_wire.size()))
+        return fail("socket closed before page was sent");
+    const json page = q.wait_for_type("page", kReplyTimeoutSecs);
+    if (page.is_discarded())
+        return fail("no page for " + id + " (" + q.why_closed() + ")");
+    if (str_or(page, "type", "") == "error")
+        return fail("page refused: " + str_or(page, "message", "(no message)"));
+    if (!page.contains("frames") || !page["frames"].is_array() ||
+        page["frames"].empty())
+        return fail("no first row for " + id);
+    const json& first = page["frames"].front();
+    // Only the session's own first row says when it was created; a journal
+    // whose seq 1 is gone answers nothing rather than a later row's time.
+    if (int_or(first, "seq", 0) != 1)
+        return fail("first row of " + id + " is not seq 1");
+    const int64_t ms = int_or(first, "created_at_unix_ms", 0);
+    if (ms <= 0) return fail("first row of " + id + " carries no time");
+    return Result<int64_t>::success(ms / 1000);
+}
+
 std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
                                               Session* out, std::string* error,
                                               bool* refused,

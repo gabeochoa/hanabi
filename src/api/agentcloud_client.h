@@ -114,6 +114,9 @@ class AgentcloudClient : public Client {
     Result<std::vector<SessionSummary>> list_subagents(
         std::size_t limit) override;
 
+    bool supports_created_at() const override { return ready(); }
+    Result<int64_t> session_created_at(const std::string& id) override;
+
     void send_message_streaming(const std::string& session_id,
                                 const std::string& prompt,
                                 const StreamSink& sink) override;

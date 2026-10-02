@@ -156,6 +156,7 @@ json to_json(const SessionSummary& s) {
     json out{{"id", s.id},
                 {"title", s.title},
                 {"updated_at", s.updated_at},
+                {"created_at", s.created_at},
                 {"status", s.status},
                 {"preview", s.preview},
                 {"state", static_cast<int>(s.state)},
@@ -177,6 +178,7 @@ SessionSummary summary_from_json(const json& j) {
     s.id = j.value("id", "");
     s.title = j.value("title", "");
     s.updated_at = j.value("updated_at", (int64_t)0);
+    s.created_at = j.value("created_at", (int64_t)0);
     s.status = j.value("status", "");
     s.preview = j.value("preview", "");
     s.state = static_cast<ThreadState>(
@@ -605,6 +607,37 @@ std::optional<std::vector<SessionSummary>> load_sessions() {
     } catch (...) {
         return std::nullopt;
     }
+}
+
+// ---- creation times --------------------------------------------------------
+// One small map, id -> unix seconds, kept apart from sessions.json because a
+// list refresh rewrites that file from rows that carry no creation time.
+void save_created_at(const std::unordered_map<std::string, std::int64_t>& times) {
+    if (!ensure_dir(cache_dir())) return;
+    json obj = json::object();
+    for (const auto& [id, secs] : times)
+        if (secs > 0) obj[id] = secs;
+    json doc{{"version", 1}, {"created_at", std::move(obj)}};
+    write_file((fs::path(cache_dir()) / "created_at.json").string(), doc.dump());
+}
+
+std::unordered_map<std::string, std::int64_t> load_created_at() {
+    std::unordered_map<std::string, std::int64_t> out;
+    const std::string dir = cache_dir();
+    if (dir.empty()) return out;
+    std::ifstream in(fs::path(dir) / "created_at.json");
+    if (!in.good()) return out;
+    try {
+        json doc;
+        in >> doc;
+        if (!doc.contains("created_at") || !doc["created_at"].is_object()) return out;
+        for (const auto& [id, v] : doc["created_at"].items())
+            if (v.is_number_integer() && v.get<std::int64_t>() > 0)
+                out[id] = v.get<std::int64_t>();
+    } catch (...) {
+        out.clear();
+    }
+    return out;
 }
 
 // ---- transcripts ---------------------------------------------------------
