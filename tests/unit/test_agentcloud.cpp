@@ -2305,6 +2305,33 @@ static void test_attachment_message_contract() {
     std::filesystem::remove_all(dir);
 }
 
+static void test_an_unreadable_file_does_not_hold_the_message() {
+    std::printf("an unreadable file does not hold the message\n");
+    const auto dir = std::filesystem::temp_directory_path() / "hanabi-attachment-gone";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "kept.png", std::ios::binary) << "abc";
+    std::ofstream(dir / "gone.md", std::ios::binary) << "# hi\n";
+    auto kept = api::attachments::stage((dir / "kept.png").string());
+    auto gone = api::attachments::stage((dir / "gone.md").string());
+    CHECK(kept.ok && gone.ok);
+    if (!kept.ok || !gone.ok) return;
+    std::filesystem::remove(dir / "gone.md");  // staged, then deleted before the send
+    api::OutgoingMessage message = api::attachments::outgoing(
+        "read these", {kept.value, gone.value}, api::OutgoingTarget{1, "s", "s"});
+    const auto encoded = api::agentcloud::message_request_json(message, "after_tool_round");
+    CHECK(encoded.ok);
+    if (encoded.ok) {
+        const auto input = nlohmann::json::parse(encoded.value)["messages"][0];
+        CHECK(input["attachments"].size() == 1);
+        CHECK(input["attachments"][0]["name"] == "kept.png");
+        const std::string text = input["text"];
+        CHECK(text.rfind("read these\n\n[gone.md could not be read from ", 0) == 0);
+        CHECK(text.find("when this was sent]") != std::string::npos);
+    }
+    std::filesystem::remove_all(dir);
+}
+
 static void test_attachment_staging_limits() {
     const auto dir = std::filesystem::temp_directory_path() /
                      "hanabi-attachment-limits";
@@ -2965,6 +2992,7 @@ int main() {
     test_only_a_rename_frame_touches_the_title();
     test_fork_wire_contract_and_child_catalog();
     test_attachment_message_contract();
+    test_an_unreadable_file_does_not_hold_the_message();
     test_attachment_staging_limits();
     test_attachment_response_contract();
     test_user_input_attachment_handles_are_preserved();

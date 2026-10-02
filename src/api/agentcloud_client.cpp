@@ -632,15 +632,33 @@ Result<std::string> message_request_json(const OutgoingMessage& message,
     const auto valid = attachments::validate_message(message);
     if (!valid.ok) return Result<std::string>::failure(valid.error);
     json files = json::array();
+    // A FILE THAT CAN NO LONGER BE READ DOES NOT HOLD THE MESSAGE (the
+    // reference's 0.8.9). Staged, then moved, deleted or emptied before the
+    // send: the words still go, and the file goes as a line naming it and
+    // where it was, so the agent -- and the reader, in the sent bubble -- can
+    // see what was meant to be attached. Over the size cap is still a refusal:
+    // that file is readable, and sending it would be wrong, not impossible.
+    std::string mentions;
     for (const Attachment& attachment : message.attachments) {
         auto encoded = attachments::read_base64(attachment);
-        if (!encoded.ok) return Result<std::string>::failure(encoded.error);
+        if (!encoded.ok) {
+            const bool unreadable =
+                encoded.error.find("no longer available") != std::string::npos ||
+                encoded.error.find("empty or unreadable") != std::string::npos;
+            if (!unreadable) return Result<std::string>::failure(encoded.error);
+            if (!mentions.empty()) mentions += "\n";
+            mentions += "[" + attachment.name + " could not be read from " +
+                        attachment.path + " when this was sent]";
+            continue;
+        }
         files.push_back({{"media_type", attachment.media_type},
                          {"name", attachment.name},
                          {"data", std::move(encoded.value)}});
     }
+    std::string text = message.text;
+    if (!mentions.empty()) text += (text.empty() ? "" : "\n\n") + mentions;
     const std::string body =
-        json{{"messages", json::array({json{{"text", message.text},
+        json{{"messages", json::array({json{{"text", text},
                                              {"apply", apply},
                                              {"attachments", std::move(files)}}})}}
             .dump();
