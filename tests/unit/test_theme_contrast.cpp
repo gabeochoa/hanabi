@@ -114,6 +114,16 @@ static void check_mode(theme::Mode mode, const char* name) {
     if (same(selected, sidebar)) ++failures;
     check_direct((std::string(name) + " selected primary").c_str(),
                  theme::text_primary(), selected);
+    // The raised hairline: 3:1 on panel_bg_2 (non-text contrast), where the
+    // window hairline `border` measures ~1.05:1 under the reference palette.
+    {
+        const double raised = contrast(theme::border_raised(), theme::panel_bg_2());
+        const double window = contrast(theme::border(), theme::panel_bg_2());
+        std::printf("%s raised hairline %.2f:1 (border on raised %.2f:1)\n", name,
+                    raised, window);
+        if (raised < 3.0) ++failures;
+        if (raised > 3.6) ++failures;  // the lightest step that clears, not louder
+    }
     if (theme::chrome::ROW < theme::chrome::HIT) ++failures;
     if (theme::chrome::RADIUS > theme::chrome::ROW * 0.25f) ++failures;
 }

@@ -1654,7 +1654,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_custom_background(onCursor
                                             ? theme::hover_over(theme::chrome::raised())
                                             : theme::chrome::raised())
-                .with_border(onCursor ? theme::accent() : theme::chrome::divider(),
+                .with_border(onCursor ? theme::accent() : theme::border_raised(),
                              pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_over(theme::chrome::raised()))
                 .with_cursor(afterhours::ui::CursorType::Pointer)
@@ -1783,18 +1783,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_padding(Padding{.top = pixels(11), .right = pixels(16),
                                       .bottom = pixels(11), .left = pixels(16)})
                 .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
+                .with_border(theme::border_raised(), pixels(1.0f))
                 .with_roundness(theme::layout::ROUNDNESS_BOX)
                 .with_debug_name("skeleton_card"));
         // Title bar (~55% width). Use a clearly-visible raised tone (border
         // level, composited over the card) — the old hover_bg-over-panel wash
         // was near-invisible on the card (~#37 on #2a2a31), so the skeleton read
-        // as a broken page rather than "loading" (critique #10). border() is a
-        // distinct step above panel_bg_2 in both themes.
+        // as a broken page rather than "loading" (critique #10). The bars take
+        // the raised hairline, which clears 3:1 on panel_bg_2 by construction;
+        // border() under the reference palette is ~1.05:1 there and the bars
+        // vanished again.
         div(ctx, mk(card.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(0.55f), pixels(12)})
-                .with_custom_background(theme::border())
+                .with_custom_background(theme::border_raised())
                 .with_margin(Margin{.bottom = pixels(8)})
                 .with_roundness(0.4f)
                 .with_debug_name("skeleton_title"));
@@ -1802,8 +1804,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(card.ent(), 2),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(0.30f), pixels(10)})
-                .with_custom_background(theme::over(theme::border(),
-                                                    theme::panel_bg_2()))
+                .with_custom_background(theme::over(
+                    theme::Color{theme::border_raised().r, theme::border_raised().g,
+                                 theme::border_raised().b, 160},
+                    theme::panel_bg_2()))
                 .with_roundness(0.4f)
                 .with_debug_name("skeleton_meta"));
     }
@@ -5385,8 +5389,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static bool ask_theme_is_dark() { return theme::is_dark(); }
 
+    // A disabled action keeps its SHAPE: the raised hairline, halved toward
+    // the card. Halving the window hairline (#262F38) gave an edge the same
+    // colour as the card under the reference palette, so a disabled pair --
+    // the unanswerable-backend card's Approve/Deny -- drew no buttons at all.
     static theme::Color ask_disabled_border() {
-        const theme::Color c = theme::border();
+        const theme::Color c = theme::border_raised();
         const theme::Color bg = theme::panel_bg_2();
         const auto mix = [](unsigned char a, unsigned char b) {
             return static_cast<unsigned char>((static_cast<int>(a) + b) / 2);
@@ -6171,7 +6179,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kFieldH)})
-                        .with_border(theme::border(), pixels(1.0f))
+                        .with_border(theme::border_raised(), pixels(1.0f))
                         .with_corner_radius(6.0f)
                         .with_disabled(!inputLive),
                     "ask_text_" + q.key, theme::type::SM);
@@ -6280,7 +6288,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     ComponentConfig{}
                         .with_size(ComponentSize{percent(1.0f),
                                                  pixels(hanabi::ask::kFieldH)})
-                        .with_border(theme::border(), pixels(1.0f))
+                        .with_border(theme::border_raised(), pixels(1.0f))
                         .with_corner_radius(6.0f)
                         .with_disabled(!inputLive),
                     "ask_other_" + q.key, theme::type::SM);
@@ -6365,7 +6373,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                              pixels(28)})
                     .with_margin(Margin{.left = pixels(kAskActionGap)})
                     .with_transparent_bg()
-                    .with_border(theme::border(), pixels(1.0f))
+                    .with_border(theme::border_raised(), pixels(1.0f))
                     .with_custom_hover_bg(
                         theme::hover_over(theme::panel_bg_2()))
                     .with_custom_text_color(ask_enabled_action_ink())
@@ -6410,7 +6418,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_border((busy || !answerable || !inputLive || expired ||
                               tooShort)
                                  ? ask_disabled_border()
-                                 : theme::border(),
+                                 : theme::border_raised(),
                              pixels(1.0f))
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
                 .with_custom_text_color(

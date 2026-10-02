@@ -55,12 +55,28 @@ history at 70b7208.
    - the loading skeleton cards (23): the placeholder bars are barely
      visible inside them;
    - Home cards (01, 08-13, 48): border gone, cards are fill-only.
-   A fix is a design call (a hairline pre-blended over panel_bg_2, or a
-   separate `border_raised` token), so it is recorded, not made.
+   **Fixed after review (coordinator call, 2026-10-02), for owner review:**
+   `theme::border_raised()` = mutedText blended over panel_bg_2 just far
+   enough for 3:1 (3.03:1 dark, 3.02:1 light; test_theme_contrast holds it
+   to 3.0-3.6) now draws those outlines and the skeleton bars; `border`
+   itself is unchanged everywhere else. 34 screens re-captured. The same
+   pass found the light-theme Decline/Deny label at 4.26:1 rendered (mutedText
+   on the card) under ask_contrast_gate's 4.5 bar; enabled unfilled ask
+   actions now take the primary ink in both themes, as dark already did; and a
+   DISABLED action's outline (the window hairline halved toward the card)
+   was the card's own colour, so the unanswerable-backend card's
+   Approve/Deny drew no buttons at all -- it now halves the raised hairline.
+   ask_contrast_gate is green again (it had been red since the re-capture).
 2. **Model chip disagreement.** The same mock account shows "Opus 5" on an
-   open thread and "Server default" on New Thread (13, 17, 23, 74). It may
-   be right (no thread has chosen yet), but the earlier captures showed the
-   same "Server default (High)" in both places; worth one look.
+   open thread and "Server default" on New Thread (13, 17, 23, 74). Left as
+   is, because Hanabi cannot know what "Server default" will resolve to: an
+   open thread's chip reads the model its attach reported serving, but a
+   create with no model pin sends no `options.llm` and no harness, and the
+   server then picks the harness (not on the wire) and applies the user's
+   server-side preference and that harness's default. The model menu marks a
+   default per HARNESS, never which harness a create gets, so "Server
+   default (Opus 5)" would be a guess on any account with more than one
+   harness.
 
 Nothing else read as broken: no clipped text, no overlapping widgets, no
 blank panes beyond the ones the scene intends.

@@ -491,9 +491,12 @@ inline Color ask_action_disabled_ink() {
     return is_dark() ? Color{150, 150, 162, 255} : Color{72, 72, 82, 255};
 }
 
-inline Color ask_action_enabled_ink() {
-    return is_dark() ? t.text_primary : t.text_secondary;
-}
+// An enabled unfilled ask action (Decline, Deny, Next) reads as text on the
+// card, so it takes the primary ink in both themes. The light theme used
+// mutedText, which is 4.9:1 as a flat colour on the card but renders at
+// 4.26:1 at the label's size (antialiased strokes never reach full ink) --
+// under the 4.5 bar scripts/ask_contrast_gate.py holds every enabled label to.
+inline Color ask_action_enabled_ink() { return t.text_primary; }
 
 inline Color ask_caveat_ink() { return t.text_secondary; }
 inline Color empty_state_text() { return t.empty_state_text; }
@@ -679,6 +682,44 @@ inline double contrast_ratio(Color a, Color b) {
     const double la = relative_luminance(a);
     const double lb = relative_luminance(b);
     return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+// The hairline for a RAISED surface (panel_bg_2: the ask card, Home's cards,
+// the loading skeleton). `border` is the reference's "mutedText 20 % on
+// nightSky" -- derived over the WINDOW, where it reads -- and on panel_bg_2
+// it measures ~1.05:1, so a field, an unfilled button or a card drawn there
+// with it had no visible edge at all. This is mutedText blended over
+// panel_bg_2 just far enough to reach 3:1, the non-text contrast bar (WCAG
+// 1.4.11): the lightest such step, so the outline is visible and no louder.
+// Derived, not declared, so every palette (and a custom one) gets the same
+// guarantee; cached on its two inputs because it is read per element per frame.
+inline Color border_raised() {
+    constexpr double kNonText = 3.0;
+    struct Memo {
+        Color ground{}, ink{}, out{};
+        bool set = false;
+    };
+    static Memo memo;
+    const Color ground = panel_bg_2();
+    const Color ink = text_secondary();
+    const auto same = [](Color a, Color b) {
+        return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+    };
+    if (memo.set && same(memo.ground, ground) && same(memo.ink, ink)) return memo.out;
+    Color out = ink;
+    for (int pct = 1; pct <= 100; ++pct) {
+        const auto ch = [&](unsigned char f, unsigned char g) {
+            return static_cast<unsigned char>(std::lround(
+                g + (static_cast<double>(f) - g) * pct / 100.0));
+        };
+        const Color c{ch(ink.r, ground.r), ch(ink.g, ground.g), ch(ink.b, ground.b), 255};
+        if (contrast_ratio(c, ground) >= kNonText) {
+            out = c;
+            break;
+        }
+    }
+    memo = Memo{ground, ink, out, true};
+    return out;
 }
 
 // A colour as a fill under WHITE text: the same hue, dimmed only as far as
