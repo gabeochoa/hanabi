@@ -4428,7 +4428,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::prof::gauge("ledger.frame_measured_max", led.counters().rows_measured);
         hanabi::prof::gauge("ledger.frame_built_max", win.last - win.first);
         hanabi::prof::gauge("ledger.frame_classified_max",
-                            led.counters().rows_classified - led.counters().reindexed);
+                            led.counters().classified_beyond_reindex());
         hanabi::prof::gauge("ledger.unfilled_frames", led.counters().unfilled);
         if (!win.filled) hanabi::prof::tick("ledger.unfilled");
 

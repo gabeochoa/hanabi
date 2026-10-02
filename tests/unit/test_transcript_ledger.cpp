@@ -941,6 +941,17 @@ static void test_pinned_bottom_top_is_the_clamped_top_not_the_total() {
     CHECK(std::fabs(led2.pinned_bottom_top(viewH) - (led2.total() + 28.0f - viewH)) < 0.5f);
 }
 
+static void test_classified_beyond_reindex_saturates() {
+    ecs::model::LedgerCounters c;
+    c.rows_classified = 481;
+    c.reindexed = 520;  // a reindex re-keys more rows than it classifies
+    CHECK(c.classified_beyond_reindex() == 0);
+    c.rows_classified = 530;
+    CHECK(c.classified_beyond_reindex() == 10);
+    c.reset();
+    CHECK(c.classified_beyond_reindex() == 0);
+}
+
 int main() {
     test_pinned_bottom_top_is_the_clamped_top_not_the_total();
     std::printf("=== test_transcript_ledger ===\n");
@@ -958,6 +969,7 @@ int main() {
     test_reasoning_toggle_reclassifies_without_measuring();
     test_update_past_the_end_and_rekey();
     test_slack_above_and_below_keep_the_edges_honest();
+    test_classified_beyond_reindex_saturates();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

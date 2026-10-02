@@ -287,6 +287,13 @@ struct LedgerCounters {
     std::size_t recalibrated = 0;  // O(N) estimate rescales, on those frames
     std::size_t unfilled = 0;   // materialize ended with a visible estimate
     void reset() { *this = LedgerCounters{}; }
+    // Rows classified this frame outside an O(N) reindex. Saturating: a
+    // reindex counts every row it re-keyed, which can exceed the rows it had
+    // to classify, and the plain size_t difference then wrapped to ~1.8e19
+    // (the ledger.frame_classified_max gauge read 18446744073709551577).
+    [[nodiscard]] std::size_t classified_beyond_reindex() const {
+        return rows_classified > reindexed ? rows_classified - reindexed : 0;
+    }
 };
 
 class TranscriptLedger {
