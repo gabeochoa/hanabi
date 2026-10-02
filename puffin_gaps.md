@@ -1166,4 +1166,66 @@ Blocked on backend/vendor:
 
 ---
 
+# Puffin 0.8.3 → 0.8.9 delta (recorded 2026-10-02)
+
+Source: Puffin `CHANGELOG.md` at fbsource master (0.8.3–0.8.8) plus the 0.8.9
+release notes relayed to this lane (0.8.9 is not in the file at master yet).
+Base: Hanabi batch-2 tip 9b664d0 (app 65382cb), which ported line spacing and
+sidebar hysteresis. Each row was checked by reading Hanabi's own source at that
+tip; VERIFY means the source read did not decide it and nothing was run.
+Status words: MISSING, PARTIAL, MATCHED, N/A (no analogue surface; the row
+says why), VERIFY.
+
+| ID | Puffin | Behavior | Hanabi at 9b664d0 | Status |
+|---|---|---|---|---|
+| D01 | 0.8.3 | Archive Current Conversation in File menu + Keyboard Shortcuts, unassigned by default; archives without closing the tab, Undo notice; disabled when already archived | no command (`shortcuts.h` has no archive entry; archive lives on row/tab menus only) | MISSING |
+| D02 | 0.8.3 | New Conversation can be marked Sensitive where the account allows | no field; needs the account entitlement on the wire | MISSING (wire fact) |
+| D03 | 0.8.3 | "Open diffs in Puffin" opens diff links as native tabs | no native diff surface | N/A |
+| D04 | 0.8.3 | A Space sets a default theme for its threads | theme is global/rotating; no Space theme field | MISSING (wire fact) |
+| D05 | 0.8.3 | Typing no longer saves a server draft per keystroke | drafts are local only; no server draft write exists | MATCHED by construction |
+| D06 | 0.8.3 | Sign-in failures explain themselves and keep the list on screen | list retention on auth failure not traced | VERIFY |
+| D07 | 0.8.3 | Recent rows no longer reshuffle on every update | `sidebar_hysteresis.h` (batch 2) | MATCHED |
+| D08 | 0.8.4 | Line spacing in Settings → Appearance | `line_spacing.h` (batch 2) | MATCHED |
+| D09 | 0.8.4 | Cmd+F can start from the newest match (Settings → Search) | find always opens at the OLDEST match; no setting | MISSING |
+| D10 | 0.8.4 | "@" completes a Metamate Space by name; member picker shows faces | no @ mention picker at all | MISSING (large) |
+| D11 | 0.8.4 | Sidebar search `last_active:` today / yesterday / a date | sidebar search has no operators (0.6.7's `origin:`/`attention:`/`label:` also absent; only Cmd+F has `is:`/`has:`/`state:`) | MISSING |
+| D12 | 0.8.4 | Ctrl+Tab / Ctrl+Shift+Tab and Cmd+Option+←/→ cycle tabs (wrapping); Cmd+[ / Cmd+] step without wrapping | only Cmd+1…9; no relative step or cycle | MISSING |
+| D13 | 0.8.4 | Native diff shows its dependency graph | no native diff surface | N/A |
+| D14 | 0.8.4 | Settings → Memory browses and edits agent memory | none | MISSING (large; memory API) |
+| D15 | 0.8.4 | Code highlights once it settles; long replies stay visible; pinned status cards stay docked | code is coloured live (deliberate); the other two not traced | VERIFY |
+| D16 | 0.8.5 | Starts faster by reusing the saved list and recent history | `disk_cache`, `preload.cpp` serve a cached catalogue at launch | MATCHED (not re-measured) |
+| D17 | 0.8.5 | Cmd+K no longer redraws the whole window behind the palette | not measured | VERIFY |
+| D18 | 0.8.5 | Voice-started sessions stay in the background | no voice input | N/A |
+| D19 | 0.8.5 | Thread mentions name an untitled thread from what you are typing | no thread-mention feature | MISSING (with D10) |
+| D20 | 0.8.6 | Search results do not flicker or go stale while typing | not traced | VERIFY |
+| D21 | 0.8.6 | One conversation cannot appear twice in sidebar or search | not traced | VERIFY |
+| D22 | 0.8.6 | Automation threads raise no run-finished banners and are not in the @ picker | no @ picker; automation banner suppression not traced | VERIFY |
+| D23 | 0.8.1/0.8.6 | Multi-question card: a page per question, Next, Submit only on the last page, review page | one card listing every question ("Answer any one of these to submit") | MISSING |
+| D24 | 0.8.6 | A parked reader returns to the bottom when a hold releases | `follow_latch.h` exists; hold-release path not traced | VERIFY |
+| D25 | 0.8.6 | When a run folds away, later messages stay steady | not traced | VERIFY |
+| D26 | 0.8.8 | New Conversation picker choices easier to read | Puffin-specific picker styling | N/A |
+| D27 | 0.8.8 | Voice recording at the 90 s limit lands in the composer | no voice input | N/A |
+| D28 | 0.8.8 | Code blocks show no grey strips between lines | needs an ink check of a multi-line block | VERIFY (capture) |
+| D29 | 0.8.8 | A new conversation that never gets an answer shows Retry with the prompt intact | `create_outcome.h` hands a refused/unheard CREATE back with Retry; "created, reply never arrives" not traced | PARTIAL |
+| D30 | 0.8.8 | Picture artifacts fit the preview | `artifact_viewer_system.h` scales by min(1, box/natural) | MATCHED |
+| D31 | 0.8.8 | Scrolling back loads older messages when asked | `load_older_model.h` | MATCHED (not re-run) |
+| D32 | 0.8.9 | Cmd+click an artifact opens it on the web | not found | MISSING |
+| D33 | 0.8.9 | Sidebar sort: Oldest first | activity order plus manual drag order; no sort setting | MISSING |
+| D34 | 0.8.9 | Files-changed chip and panel | none | MISSING |
+| D35 | 0.8.9 | Saved templates in the / menu | `/` lists new/model/effort/btw/compact only | MISSING |
+| D36 | 0.8.9 | Bug-report window captures the window | no bug-report flow | MISSING |
+| D37 | 0.8.9 | Companion unified diff | no Companion surface (artifact viewer only) | MISSING (large) |
+| D38 | 0.8.9 | Companion task Comments page | no Companion surface | MISSING (large) |
+| D39 | 0.8.9 | `/knot` in the composer | not in the `/` menu | MISSING |
+| D40 | 0.8.9 fix | Credential-refused images retry | `inline_image.h` marks a failed load `tried` and never retries | VERIFY (likely MISSING for remote images) |
+| D41 | 0.8.9 fix | An unreadable file does not block a message | intake shows the staging error and stages nothing; send not re-run | VERIFY (likely MATCHED) |
+| D42 | 0.8.9 fix | A queued message is not sent while it is being edited | sends queue, but a queued message cannot be edited (0.8.4 queued edit absent) | N/A until queued edit exists |
+| D43 | 0.8.9 fix | Large-attachment staging writes only changes | attachments go inline base64; no staging store | N/A |
+
+Tally (43 rows) at 9b664d0: 18 MISSING (6 large or blocked on a wire fact),
+1 PARTIAL, 6 MATCHED, 11 VERIFY, 7 N/A. Rows closed since are marked in place. Work order in this lane: D12, D01, D09, D33,
+then D39/D35 and D23; VERIFY rows are decided as their areas are touched.
+
+---
+
 END OF GAP ANALYSIS
