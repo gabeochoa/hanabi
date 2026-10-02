@@ -26,10 +26,10 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **282** (recount at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609; the number 604 is unused) |
-| Distinct numeric gap numbers | **277** (271 at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609; several numbers are used twice, #31 three times - §5) |
+| Numbered headings parsed by the reference checker | **283** (recount at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610; the number 604 is unused) |
+| Distinct numeric gap numbers | **278** (271 at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610; several numbers are used twice, #31 three times - §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **280** rows, **280** unique identifiers - includes index-only ids with no detailed entry |
+| **Rows in the triage table (§6)** | **281** rows, **281** unique identifiers - includes index-only ids with no detailed entry |
 | Standalone live asks | not recounted; see §6 verdicts |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
@@ -898,6 +898,7 @@ correction narrows them rather than closing them.
 | 607 | Upstream main does not compile for a Metal consumer: four unqualified `begin`/`end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL` (809bdd1..c1d0e0b; build30); `graphics::` breaks the none backend (build31); the `afterhours::` wrapper form is portable (60b0b92) | BUILD / WRONG | HIGH | XS | live - local vendor commit, upstream submission pending |
 | 608 | A binding cannot say "exactly these modifiers": a bare key matches under any modifiers and an explicit chord matches any superset, so Ctrl Tab also fires the bare-Tab focus ring and Cmd Opt Left also fires Cmd Left (tab-chord port, c1d0e0b) | INPUT / MISSING | MED | S | live - Tab guarded app-side (`TabChordGuard`); superset case unguarded |
 | 609 | The character queue outlives the frame: characters typed at a disabled field are neither read nor dropped and land in the next live field (paged ask card port, c1d0e0b) | INPUT / FOOTGUN | MED | S | live - worked around app-side (`CharBacklogSystem` drains while a sheet owns the keyboard) |
+| 610 | A scripted click cannot carry a modifier: no e2e command holds Ctrl/Shift/Alt across a click (Cmd+click artifact port, c1d0e0b) | TESTING / MISSING | LOW | S | live - worked around app-side (`hold_modifier` / `release_modifier` e2e commands) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

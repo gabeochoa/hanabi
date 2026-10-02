@@ -14434,3 +14434,21 @@ CLASS: INPUT / MISSING
 **Hanabi reference.** `src/ecs/focus_routing_system.h` (`CharBacklogSystem`), `tests/ui/typing_at_a_sheet_does_not_reach_the_card_later.e2e`.
 
 CLASS: INPUT / FOOTGUN
+
+### #610 — a scripted click cannot carry a modifier: no e2e command holds Ctrl/Shift/Alt across a click, so a modified click is unreachable from a script
+
+**Class:** TESTING / MISSING (`plugins/e2e_testing/command_handlers.h` :100-130 -- `key` holds a chord's modifiers for two frames and releases them; `ui_commands.h` `click_ui`/`click`/`double_click` take a target and nothing else; `input_injector.h` :97 `set_key_held` exists but no command reaches it; pin c1d0e0b).
+
+**What happens.** A modifier can be down in a script only inside a `key` chord, which presses the key and releases everything two frames later. A click command takes a widget name or coordinates and no modifiers. So an app rule that reads the modifier state at click time (`Cmd+click opens on the web`, Shift-click extends a selection) cannot be driven from a scripted test at all: the click lands bare.
+
+**How Hanabi hit it.** Porting the reference's Cmd+click on an artifact row (0.8.9): the row reads `cmd_or_ctrl_down()` when its click listener fires, and nothing in the harness could hold Ctrl (CMD+ in a script is Ctrl, #49) across `click_ui artifact_head`.
+
+**Workaround.** Hanabi-side e2e commands `hold_modifier ctrl|shift|alt` / `release_modifier ...` (`src/ecs/e2e_commands.h`, `HandleHoldModifierCommand`) that call `input_injector::set_key_held` / `set_key_up`, so the modifier stays down across the commands between them. Pinned by `tests/ui/cmd_click_an_artifact_opens_its_web_page.e2e`.
+
+**Ask.** Either accept modifiers on the click commands (`click_ui <name> ctrl`) or ship hold/release commands upstream, the same two calls the injector already has.
+
+**Upstream acceptance test.** A button whose listener records `is_key_down(LEFT_CONTROL)`: `hold ctrl`, `click_ui b`, `release ctrl` records true; a bare `click_ui b` records false.
+
+**Hanabi reference.** `src/ecs/e2e_commands.h` (`HandleHoldModifierCommand`), `tests/ui/cmd_click_an_artifact_opens_its_web_page.e2e`.
+
+CLASS: TESTING / MISSING
