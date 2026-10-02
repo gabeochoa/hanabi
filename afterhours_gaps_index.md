@@ -742,7 +742,7 @@ correction narrows them rather than closing them.
 | 155 | The first draws cost 5-8x and there is no pre-warm | PERFORMANCE | MED | S | live |
 | 160 | A component is two cache misses to write four bytes | TEDIOUS | MED | S | live — the *cost* of the sweep that landed in `2393fe3` |
 | 162 | An app cannot see the widgets the LIBRARY built | TEDIOUS | MED | XS | live — dup→#171 |
-| 163 | A scroll view clamps against children that are not there | WORKAROUND | HIGH | XS | live; Home restored app-side 2026-10-02 |
+| 163 | A scroll view clamps against children that are not there | WORKAROUND | HIGH | XS | live; Home + digests restored app-side 2026-10-02 |
 | 170 | `Overflow::Scroll` clips; there is no way to build less | MISSING | HIGH | M | **live — top 10** |
 | 171 | Identity is the SLOT, so state re-points at another row | MISSING | HIGH | M | **live — family canonical** |
 | 172 | Input injection needs the e2e plugin compiled in | MISSING | MED | S | live |
@@ -803,7 +803,7 @@ correction narrows them rather than closing them.
 | 405 | Trackpad and wheel arrive as the same float; one `scroll_speed` cannot serve both conventions | MISSING | HIGH | S | **live** |
 | 406 | `HandleScrollInput` skips the ancestor-scroll correction its sibling `HandleScrollbarDrag` applies | TEDIOUS | LOW | XS | neg (latent) |
 | 407 | An injected wheel event is delivered on TWO frames, so a script cannot spell one notch | MISSING | MED | XS | **live** |
-| 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live** |
+| 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live**; app-side `expect_scroll_y` 2026-10-02 |
 | 409 | An OS preference read inside the per-frame widget build, 333 ns a panel a frame | PERF | LOW | S | app (fixed) |
 | 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** |
 | 420 | `virtual_list` has no RETAINED variable-height index (`height_of` landed at 1ac6db2) | MISSING / PERF | MED | M | partial · extends #326 |

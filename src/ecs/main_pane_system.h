@@ -61,6 +61,7 @@
 #include "../ui/slash_commands.h"
 #include "../ui/composer_templates.h"
 #include "../ui/thread_mention.h"
+#include "../ui/scroll_memory.h"
 #include "../api/session_changes.h"
 #include "../ui/syntax_highlighter.h"
 #include "../ui/model_menu.h"
@@ -984,6 +985,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("digest_scroll"));
         // (scrollbar now drawn by afterhours)
         hanabi::apply_scroll_prefs(scroll.ent());
+        // Each digest view keeps its own place, across a trip away and a
+        // switch between them (they share this one scroll entity).
+        keep_place(scroll.ent(), digestScroll_, static_cast<int>(app.view));
 
         int i = 0;
         Entity& wrap = centered_wrap(ctx, scroll.ent(), 9000, paneW - 48.0f);
@@ -1557,10 +1561,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         std::uint64_t spacesRevision = 0;
         std::vector<hanabi::mention::Row> rows;
     } mentionMemo_;
-    // Home's place across a trip away (render_home; afterhours_gaps.md #163).
-    std::size_t homeLastFrame_ = 0;
-    float homeSavedY_ = 0.0f;
-    int homeRestoreFrames_ = 0;
+    // Home's and the digests' places across a trip away (ui/scroll_memory.h).
+    hanabi::ui::ScrollMemory homeScroll_;
+    hanabi::ui::ScrollMemory digestScroll_;
+    static void keep_place(Entity& scrollEnt, hanabi::ui::ScrollMemory& memory, int key) {
+        if (!scrollEnt.has<afterhours::ui::HasScrollView>()) return;
+        auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
+        if (const auto y = memory.step(afterhours::ui::imm::ui_build_frame, key, sv.scroll_offset.y)) {
+            sv.scroll_offset.y = *y;
+            sv.scroll_target.y = *y;
+        }
+    }
     // The files-changed fold for the session the strip shows, kept until a
     // tool row it reads changes (changes_for).
     struct ChangesMemo {
@@ -1859,27 +1870,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (scrollbar now drawn by afterhours)
         hanabi::apply_scroll_prefs(scroll.ent());
 
-        // Coming back to Home keeps your place (afterhours_gaps.md #163): the
-        // library measures an unbuilt scroll view against zero children and
-        // clamps its offset to 0 the first frame Home is away. The offset is
-        // remembered while Home is built, and for a few frames after a return
-        // -- until the rebuilt rows have measured -- it is written back.
-        {
-            const std::size_t frame = afterhours::ui::imm::ui_build_frame;
-            const bool returning = homeLastFrame_ != 0 && frame > homeLastFrame_ + 1;
-            homeLastFrame_ = frame;
-            if (returning && homeSavedY_ > 0.0f) homeRestoreFrames_ = 4;
-            if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
-                auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
-                if (homeRestoreFrames_ > 0) {
-                    --homeRestoreFrames_;
-                    sv.scroll_offset.y = homeSavedY_;
-                    sv.scroll_target.y = homeSavedY_;
-                } else {
-                    homeSavedY_ = sv.scroll_offset.y;
-                }
-            }
-        }
+        // Coming back to Home keeps your place (ui/scroll_memory.h,
+        // afterhours_gaps.md #163).
+        keep_place(scroll.ent(), homeScroll_, 0);
         float homeViewH = 0.0f, homeOffsetY = 0.0f, homeTargetY = 0.0f;
         if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();

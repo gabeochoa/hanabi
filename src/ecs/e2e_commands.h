@@ -3093,6 +3093,7 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //   expect_mock_knot_arg <text...>            the last knot create carries it
 //   open_bug_report                           Help > Report a Bug
 //   open_companion D123|T456                  the Companion on that entity
+//   expect_scroll_y <name> <y>                a scroll view's offset (±1)
 //   release_modifier ctrl|shift|alt           let it go
 inline api::OutgoingMessage forced_surface_message(const std::string& sessionId,
                                                    std::string text, int pane) {
@@ -3322,6 +3323,49 @@ struct HandleExpectMockKnotArgCommand
         }
         cmd.fail("expect_mock_knot_arg: the last create carries no argument containing '" + want +
                  "' (" + std::to_string(calls.size()) + " call(s))");
+    }
+};
+
+// expect_scroll_y <name> <y>: the named scroll view's vertical offset, to
+// within a point. The harness has no scroll assertion of its own; a card's y
+// moves with layout, the offset is what a "keeps its place" rule is about.
+struct HandleExpectScrollYCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_scroll_y")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_scroll_y requires <name> <y>");
+            return;
+        }
+        const float want = std::strtof(cmd.arg(1).c_str(), nullptr);
+        float got = -1.0f;
+        bool found = false;
+        // The UI collection, as the harness's own ui_query reads it.
+        for (afterhours::Entity& e : afterhours::EntityQuery<>(
+                                         afterhours::ui::UICollectionHolder::get().collection,
+                                         {.ignore_temp_warning = true})
+                                         .whereHasComponent<afterhours::ui::HasScrollView>()
+                                         .whereHasComponent<afterhours::ui::UIComponentDebug>()
+                                         .gen()) {
+            if (e.get<afterhours::ui::UIComponentDebug>().name() != cmd.arg(0)) continue;
+            // The one built this frame: a retired copy keeps its name.
+            if (!e.get<afterhours::ui::UIComponent>().was_rendered_to_screen) continue;
+            got = e.get<afterhours::ui::HasScrollView>().scroll_offset.y;
+            found = true;
+            break;
+        }
+        if (found && std::abs(got - want) <= 1.0f) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(found ? std::format("expect_scroll_y {}: offset {:.1f}, expected {:.1f}", cmd.arg(0), got, want)
+                       : std::format("expect_scroll_y: no scroll view named {}", cmd.arg(0)));
     }
 };
 
@@ -4370,6 +4414,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectMockKnotArgCommand>());
     sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCachedCommand>());
     sm.register_update_system(std::make_unique<HandleDetachThreadCommand>());

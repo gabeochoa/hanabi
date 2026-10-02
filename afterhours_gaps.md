@@ -7516,9 +7516,9 @@ loses your place" will otherwise look at the widget lifetime, which is the
 wrong place: the culprit is a measurement of an empty tree.
 
 
-**POSTSCRIPT 2026-10-02 (lead lane): the "restore when the screen comes back" escape works for Home.** The doc above judged it unworkable because the offset would have to be written "before MeasureScrollViews runs but after the children exist". It does not need that hook: written during the BUILD on the return frame and the three after it, the offset survives the measure once the rebuilt rows have their sizes, and the build-frame counter (`ui_build_frame`) is all the "was I built last frame" bookkeeping it takes. Home only; the digest screens and Settings still reset.
+**POSTSCRIPT 2026-10-02 (lead lane): the "restore when the screen comes back" escape works for Home.** The doc above judged it unworkable because the offset would have to be written "before MeasureScrollViews runs but after the children exist". It does not need that hook: written during the BUILD on the return frame and the three after it, the offset survives the measure once the rebuilt rows have their sizes, and the build-frame counter (`ui_build_frame`) is all the "was I built last frame" bookkeeping it takes. Generalised the same day into `src/ui/scroll_memory.h` (one memory per screen, keyed by WHICH list it shows): Home, and the digest screens -- which share one scroll entity, so each view now keeps its own place across a switch as well as across a trip away. Settings still resets.
 
-**Hanabi reference.** `src/ecs/main_pane_system.h` (`homeSavedY_`, `homeRestoreFrames_` in `render_home`) — remembers Home's offset while built and writes it back for four frames after a return. Tests: `tests/ui/home_keeps_its_place_across_a_trip_away.e2e` — y=-673 before a trip to Blocked, -673 after, and the wheel still moves it.
+**Hanabi reference.** `src/ui/scroll_memory.h` (`struct ScrollMemory`) — remembers a list's offset per key while built and hands it back for four builds after a return or a switch; `src/ecs/main_pane_system.h` (`keep_place`, `homeScroll_`, `digestScroll_`) applies it to Home and the digest views. Tests: `tests/unit/test_scroll_memory.cpp` (return, top, per-key places), `tests/ui/home_keeps_its_place_across_a_trip_away.e2e` (y=-673 before a trip, -673 after, the wheel still moves it), `tests/ui/each_digest_keeps_its_own_place.e2e` (Blocked at 600, Review opens at 0, Blocked back at 600, and after a trip to Home).
 
 
 **Minimal upstream fix.** Do not clamp against a content size measured from
@@ -11216,7 +11216,9 @@ its number came from and the window size it is true at, in every wheel test
 here. Cost: exactly gap #232's complaint, one more time.
 
 
-**Hanabi reference.** `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=624`) — scroll offset is asserted through a named proxy element at the pinned position. `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=766`) — same proxy element verifies the scrolled position because assert_ui has no scroll_y property. Tests: `tests/ui/wheel_notch_distance_is_settable.e2e` (`assert_ui transcript_bottom_pad y=706`) — speed override test uses the same proxy-element workaround.
+**POSTSCRIPT 2026-10-02 (lead lane).** Hanabi now has its own assertion: `expect_scroll_y <name> <y>` reads the named scroll view's `scroll_offset.y` (to within a point) from the UI collection, skipping a retired copy that keeps the name. A proxy element's y still works where it was used; new scripts can ask for the offset itself.
+
+**Hanabi reference.** `src/ecs/e2e_commands.h` (`HandleExpectScrollYCommand`) — the app-side scroll-offset assertion; used by `tests/ui/each_digest_keeps_its_own_place.e2e`. `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=624`) — scroll offset is asserted through a named proxy element at the pinned position. `tests/ui/wheel_scrolls_the_transcript.e2e` (`assert_ui transcript_bottom_pad y=766`) — same proxy element verifies the scrolled position because assert_ui has no scroll_y property. Tests: `tests/ui/wheel_notch_distance_is_settable.e2e` (`assert_ui transcript_bottom_pad y=706`) — speed override test uses the same proxy-element workaround.
 
 
 **Minimal upstream fix.** Two lines in `check_ui_property`:

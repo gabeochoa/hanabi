@@ -1,0 +1,32 @@
+# Each digest screen keeps its own place. They share one scroll entity, so a
+# switch from a scrolled Blocked to Review used to carry Blocked's offset into
+# Review (clamped), and the trip back found Blocked wherever Review left it.
+# Now Review opens at its top and Blocked comes back where it was
+# (ui/scroll_memory.h, afterhours_gaps.md #163), and so does a trip to Home.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_STRESS_SESSIONS=300 HANABI_VIEW=blocked
+
+wait_frames 20
+mouse_move 800 450
+scroll_wheel 0 -15
+wait_frames 20
+scroll_wheel 0 -15
+wait_frames 30
+expect_scroll_y digest_scroll 600
+
+click_text Review
+wait_frames 30
+expect_scroll_y digest_scroll 0
+
+click_text Blocked
+wait_frames 30
+expect_scroll_y digest_scroll 600
+
+# A trip AWAY from the digests (Home builds no digest scroll view, so the
+# library clamps it to 0) and back.
+click_text Home
+wait_frames 20
+click_text Blocked
+wait_frames 30
+expect_scroll_y digest_scroll 600
