@@ -391,7 +391,7 @@ ARM_LIVE_COUNTER=palette.candidates ARM_LIVE_FLOOR=1000 \
 # (1001.0 against 1124.0 for the same tab): a fixture that silently stopped
 # producing a card would read ~1124 and pass. The floor is a per-frame rate,
 # so 1 means "every frame drew the card". Since the card pages one question at
-# a time (Puffin 0.8.1/0.8.6), the big form's first page FITS at this size, so
+# a time (the reference's 0.8.1/0.8.6), the big form's first page FITS at this size, so
 # this arm floors on the card being drawn (ask.cards_drawn); the narrow arm
 # below is the one whose page still scrolls, and keeps the scrolling floor.
 ARM_LIVE_COUNTER=ask.cards_drawn ARM_LIVE_FLOOR=1 \

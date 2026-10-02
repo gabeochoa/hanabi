@@ -1,4 +1,4 @@
-# File > Archive Current Conversation (Puffin 0.8.3): archives the thread on
+# File > Archive Current Conversation (the reference's 0.8.3): archives the thread on
 # screen WITHOUT closing its tab, offers the ordinary archive Undo, and is
 # disabled on a thread that is already archived -- it never toggles back.
 # It ships with no key (the reference sets none), so the fixture records one

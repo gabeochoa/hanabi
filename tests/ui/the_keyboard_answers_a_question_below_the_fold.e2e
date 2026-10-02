@@ -2,7 +2,7 @@
 #
 # This used to drive Down through all four questions of one tall, scrolling
 # card. A form with several questions now pages one question at a time
-# (Puffin 0.8.1 / 0.8.6): the arrows walk THIS page's rows and stop at its
+# (the reference's 0.8.1 / 0.8.6): the arrows walk THIS page's rows and stop at its
 # last one, and Return does what the primary button says -- Next on every
 # question but the last, Submit on the last. So the last question is reached
 # with Return, and answered and sent from there, without the mouse.

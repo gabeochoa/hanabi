@@ -1,6 +1,6 @@
 #pragma once
 
-// Sidebar search operators (the reference's Puffin 0.8.4: "Sidebar search by
+// Sidebar search operators (the reference's 0.8.4: "Sidebar search by
 // `last_active:` today, yesterday, or a date").
 //
 //   last_active:today        threads whose last activity is today (local time)

@@ -157,7 +157,7 @@ struct State {
     }
 };
 
-// ---- One question per page (the reference's question dock, Puffin 0.8.1 /
+// ---- One question per page (the reference's question dock, 0.8.1 /
 // 0.8.6) ---------------------------------------------------------------------
 //
 // A form with several questions pages one at a time, with a row of tabs (one

@@ -1,4 +1,4 @@
-# Settings > General > "Sort threads by": Oldest first (Puffin 0.8.9). The
+# Settings > General > "Sort threads by": Oldest first (the reference's 0.8.9). The
 # catalog carries no creation time, so choosing it starts a walk that asks
 # for each session's once (Client::session_created_at); rows it cannot answer
 # for sit LAST; every answer is kept, so switching back and forth never asks

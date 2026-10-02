@@ -3,7 +3,7 @@
 # This used to walk all four questions of the `big` form down one tall card
 # and assert the viewport dragged after the ring (744px of content in a 335px
 # body). A form with several questions now pages one question at a time
-# (Puffin 0.8.1 / 0.8.6), so the ring is the page's: its options in order, its
+# (the reference's 0.8.1 / 0.8.6), so the ring is the page's: its options in order, its
 # free-text field, then the actions -- the primary button, which ADVANCES on
 # every question but the last ("Next"), and Decline. Every move below is an
 # injected Tab through the input path the shipping build reads.

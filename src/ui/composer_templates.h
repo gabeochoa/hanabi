@@ -1,6 +1,6 @@
 #pragma once
 
-// Saved templates for the composer's / menu (the reference's Puffin 0.8.9,
+// Saved templates for the composer's / menu (the reference's 0.8.9,
 // `ComposerTemplates`). A template is a name and some text: typing `/name`
 // (or picking its row) puts the text in the box and sends nothing, so a
 // prompt the reader writes over and over is one keystroke away and still

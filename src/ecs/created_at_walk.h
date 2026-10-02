@@ -1,6 +1,6 @@
 #pragma once
 
-// Creation times for the sidebar's Oldest-first order (Puffin 0.8.9).
+// Creation times for the sidebar's Oldest-first order (the reference's 0.8.9).
 //
 // The catalog row does not carry a creation time -- agentcloud's `list` reply
 // has none, and the reference reads one off a separate catalog walk -- so the

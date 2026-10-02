@@ -1,6 +1,6 @@
 # Cmd+click an artifact row opens the artifact on the web app's own page for
 # it -- the session with the artifact docked beside its transcript, at the
-# row's version (Puffin 0.8.9; the reference's `?dock=artifact:<id>:<v>`). A
+# row's version (the reference's 0.8.9; the reference's `?dock=artifact:<id>:<v>`). A
 # plain click opens nothing on the web.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}

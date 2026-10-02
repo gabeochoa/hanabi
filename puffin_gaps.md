@@ -1166,9 +1166,9 @@ Blocked on backend/vendor:
 
 ---
 
-# Puffin 0.8.3 → 0.8.9 delta (recorded 2026-10-02)
+# The reference 0.8.3 → 0.8.9 delta (recorded 2026-10-02)
 
-Source: Puffin `CHANGELOG.md` at fbsource master (0.8.3–0.8.8) plus the 0.8.9
+Source: the reference's `CHANGELOG.md` at fbsource master (0.8.3–0.8.8) plus the 0.8.9
 release notes relayed to this lane (0.8.9 is not in the file at master yet).
 Base: Hanabi batch-2 tip 9b664d0 (app 65382cb), which ported line spacing and
 sidebar hysteresis. Each row was checked by reading Hanabi's own source at that
@@ -1176,11 +1176,11 @@ tip; VERIFY means the source read did not decide it and nothing was run.
 Status words: MISSING, PARTIAL, MATCHED, N/A (no analogue surface; the row
 says why), VERIFY.
 
-| ID | Puffin | Behavior | Hanabi at 9b664d0 | Status |
+| ID | Version | Behavior | Hanabi at 9b664d0 | Status |
 |---|---|---|---|---|
 | D01 | 0.8.3 | Archive Current Conversation in File menu + Keyboard Shortcuts, unassigned by default; archives without closing the tab, Undo notice; disabled when already archived | none at 9b664d0. Now: File menu + Keyboard Shortcuts command, unassigned by default, archives the focused pane's conversation and keeps its tab, ordinary Undo toast, disabled when archived; `tests/ui/archive_current_conversation_keeps_the_tab.e2e` (lead lane, 2026-10-02) | MATCHED |
 | D02 | 0.8.3 | New Conversation can be marked Sensitive where the account allows | no field; needs the account entitlement on the wire | MISSING (wire fact) |
-| D03 | 0.8.3 | "Open diffs in Puffin" opens diff links as native tabs | no native diff surface | N/A |
+| D03 | 0.8.3 | "Open diffs in <the reference>" opens diff links as native tabs | no native diff surface | N/A |
 | D04 | 0.8.3 | A Space sets a default theme for its threads | theme is global/rotating; no Space theme field | MISSING (wire fact) |
 | D05 | 0.8.3 | Typing no longer saves a server draft per keystroke | drafts are local only; no server draft write exists | MATCHED by construction |
 | D06 | 0.8.3 | Sign-in failures explain themselves and keep the list on screen | the loader already kept a stale list when a refresh failed, but said nothing while it was up (only an empty folder read "could not be read"). Now: one toast per failure streak, "Couldn't refresh the thread list (<the server's words>). Showing the saved list.", cleared by the next success; `tests/ui/a_failed_refresh_keeps_the_list_and_says_so.e2e` with HANABI_MOCK_LIST_FAIL_FROM (lead lane, 2026-10-02). The sign-in sheet's own failures (expired code, offline) were already covered by the auth_* fixtures | MATCHED |
@@ -1203,7 +1203,7 @@ says why), VERIFY.
 | D23 | 0.8.1/0.8.6 | Multi-question card: a page per question, Next, Submit only on the last page, review page | one card listing every question at 9b664d0. Now: a form with 2+ questions pages one question at a time under a tab row (one tab per question, a check when answered, then a Submit tab that is the review page reading every answer back); the primary button is Next on every question but the last and only advances, Submit on the last question and the review page sends the whole form; Return does what the primary says and leaves the caret on the new page's primary; the next-ask button now reads "Next ask"; `tests/ui/a_multi_question_card_pages_one_question_at_a_time.e2e` + 27 ask fixtures ported (lead lane, 2026-10-02). Not ported: option letters, per-option previews, Tab cycling the tab row | MATCHED |
 | D24 | 0.8.6 | A parked reader returns to the bottom when a hold releases | checked (lead lane, 2026-10-02): Hanabi's follow latch (`follow_latch.h`) has no hold state -- it breaks on a scroll-up and re-arms when the reader reaches the end -- so there is no hold whose release could strand a parked reader. The reference's diff was not found to compare the exact trigger | N/A (no hold state) |
 | D25 | 0.8.6 | When a run folds away, later messages stay steady | checked (lead lane, 2026-10-02): the transcript is anchor-relative (`TranscriptLedger`): a row that folds above the anchor changes the prefix, not the anchored rows, and a followed thread keeps its bottom anchor on the live row. No dedicated fold-at-run-end fixture | MATCHED by construction (unfixtured) |
-| D26 | 0.8.8 | New Conversation picker choices easier to read | Puffin-specific picker styling | N/A |
+| D26 | 0.8.8 | New Conversation picker choices easier to read | reference-specific picker styling | N/A |
 | D27 | 0.8.8 | Voice recording at the 90 s limit lands in the composer | no voice input | N/A |
 | D28 | 0.8.8 | Code blocks show no grey strips between lines | ink check (lead lane, 2026-10-02): t4's 4-line ts fence, column x=900 runs one chip colour (4,7,12) unbroken from y=240 to 302 across the three full-width lines; only the last line hugs its words | MATCHED |
 | D29 | 0.8.8 | A new conversation that never gets an answer shows Retry with the prompt intact | `create_outcome.h` hands a refused/unheard CREATE back with Retry; "created, reply never arrives" not traced | PARTIAL |

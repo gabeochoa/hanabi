@@ -1,4 +1,4 @@
-# Saved templates in the / menu (Puffin 0.8.9). A template is written in
+# Saved templates in the / menu (the reference's 0.8.9). A template is written in
 # Settings > Commands > Saved templates; in the composer `/name` offers it
 # after the built-in verbs, and picking it puts its text in the box and SENDS
 # NOTHING. A name a built-in verb owns is refused, and the refusal says why.

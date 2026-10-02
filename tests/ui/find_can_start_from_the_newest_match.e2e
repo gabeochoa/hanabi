@@ -1,4 +1,4 @@
-# Settings > Chat > "Start from the newest match" (Puffin 0.8.4). Off, Cmd+F
+# Settings > Chat > "Start from the newest match" (the reference's 0.8.4). Off, Cmd+F
 # lands on the OLDEST match and Cmd+G walks newer -- unchanged. On, every
 # Cmd+F starts over at the NEWEST match and Cmd+G walks older; the chevrons
 # keep their fixed meaning (up older, down newer) either way.

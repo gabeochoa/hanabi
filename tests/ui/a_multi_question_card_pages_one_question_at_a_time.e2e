@@ -1,4 +1,4 @@
-# A form with several questions pages one question at a time (Puffin 0.8.1 /
+# A form with several questions pages one question at a time (the reference's 0.8.1 /
 # 0.8.6): a row of tabs, one per question, marked when answered, and a final
 # Submit tab that is the REVIEW page. The primary button says Next on every
 # question but the last and only ADVANCES -- it never sends; the form sends

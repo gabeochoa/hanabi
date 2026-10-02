@@ -378,12 +378,12 @@ struct Settings {
 
     // Chat · Find: Cmd+F lands on the NEWEST match of a fresh search, and
     // Cmd+G walks toward older ones (the reference's "Start from the newest
-    // match", Puffin 0.8.4). Default off. Auto-persists.
+    // match", the reference's 0.8.4). Default off. Auto-persists.
     bool get_find_newest_first() const;
     void set_find_newest_first(bool on);
 
     // The order inside every sidebar section (the reference's Sort by,
-    // Puffin 0.8.9): false = recent activity, the order the list always
+    // the reference's 0.8.9): false = recent activity, the order the list always
     // had; true = oldest CREATED first, unknown creation times last. Stored
     // as "activity" / "oldest" so a third order has somewhere to go.
     // Auto-persists.

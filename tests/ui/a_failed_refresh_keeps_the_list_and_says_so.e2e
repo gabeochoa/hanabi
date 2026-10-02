@@ -1,5 +1,5 @@
 # A list refresh that fails behind a list already on screen keeps the list
-# AND says so (Puffin 0.8.3: sign-in failures explain themselves and keep the
+# AND says so (the reference's 0.8.3: sign-in failures explain themselves and keep the
 # list on screen). The second list call is refused the way a credential the
 # server stopped accepting is; the rows stay, and one notice names the reason.
 #

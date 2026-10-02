@@ -13941,7 +13941,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("artifact_head"));
         // Cmd+click opens the artifact on the WEB app's own page for it, at
-        // this row's version (Puffin 0.8.9). Only Cmd: a plain click keeps
+        // this row's version (the reference's 0.8.9). Only Cmd: a plain click keeps
         // doing what it did (an image opens full size from its picture), and
         // with no web base configured there is nowhere to send it.
         if (app.pane().openSession) {

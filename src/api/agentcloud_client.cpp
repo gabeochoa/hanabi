@@ -3325,7 +3325,7 @@ Result<ArtifactContent> AgentcloudClient::fetch_artifact(
     if (token.empty()) return Result<ArtifactContent>::failure(auth_error);
     auto first = fetch_artifact_with(session_id, ref, token.value);
     // A REFUSED CREDENTIAL IS DROPPED AND THE READ TRIED ONCE MORE (the
-    // reference's Puffin 0.8.9 fix). The cache keeps a token until its own
+    // reference's 0.8.9 fix). The cache keeps a token until its own
     // clock says it is stale; when the origin has stopped accepting it, every
     // read answered 401 -- and the 15-second transient retry asked again with
     // the SAME token -- until the cache turned over. A 401 now drops it and

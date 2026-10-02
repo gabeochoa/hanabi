@@ -938,7 +938,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     else
                         app.listState = LoadState::Loaded;  // keep stale data
                     // A failure behind a list that stays on screen still has
-                    // to be SAID (the reference's Puffin 0.8.3: sign-in
+                    // to be SAID (the reference's 0.8.3: sign-in
                     // failures explain themselves and keep the list): the
                     // list being there is not the reader being told it is
                     // the saved one. Once per failure streak, with the

@@ -258,7 +258,7 @@ inline bool sidebar_before(const api::SessionSummary* a,
     return a->id < b->id;
 }
 
-// The reference's Oldest first (Puffin 0.8.9, `RowOrder.oldestFirst`): the
+// The reference's Oldest first (its 0.8.9, `RowOrder.oldestFirst`): the
 // pin still lifts, then oldest CREATED first, a thread whose creation time is
 // not known yet LAST, ties on the id ascending. Creation time is the one
 // clock nothing the reader does can move, so opening a thread, replying in it

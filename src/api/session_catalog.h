@@ -1,6 +1,6 @@
 #pragma once
 
-// One conversation is ONE row (the reference's Puffin 0.8.6 fix: "one
+// One conversation is ONE row (the reference's 0.8.6 fix: "one
 // conversation cannot appear twice in the sidebar or in search").
 //
 // Every surface that lists threads -- the sidebar's buckets, Home, the session

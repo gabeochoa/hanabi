@@ -1,4 +1,4 @@
-# The reference's relative tab chords (Puffin 0.8.4): Cmd [ and Cmd ] step
+# The reference's relative tab chords (0.8.4): Cmd [ and Cmd ] step
 # along the strip and STOP at either end; Cmd Opt Left/Right and Ctrl Tab /
 # Ctrl Shift Tab cycle and WRAP. All six resolve against the strip's rendered
 # order, the same order Cmd 1..9 counts in, so a pinned tab is stepped over

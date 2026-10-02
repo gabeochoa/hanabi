@@ -48,7 +48,7 @@ enum class Command : int {
     CycleTabsForward,
     PreviousTab,
     NextTab,
-    // File > Archive Current Conversation (Puffin 0.8.3). Unassigned by
+    // File > Archive Current Conversation (the reference's 0.8.3). Unassigned by
     // default, like the reference: the user picks its key in Settings.
     ArchiveCurrentConversation,
     Count,

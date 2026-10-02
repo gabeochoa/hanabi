@@ -1,4 +1,4 @@
-# Sidebar search takes `last_active:` today, yesterday or a date (Puffin
+# Sidebar search takes `last_active:` today, yesterday or a date (the reference's
 # 0.8.4): it narrows the list to threads whose last activity falls on that
 # local day, and the words beside it still match titles. The mock's clock is
 # pinned to 2026-10-02 03:00 (ET), so threads under three hours old (the
