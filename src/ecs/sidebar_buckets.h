@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ctime>
+
 // ---------------------------------------------------------------------------
 // The sidebar's member lists: one pass over the catalog, and not even that
 // once the catalog stops moving.
@@ -60,6 +62,7 @@
 #include <vector>
 
 #include "../api/types.h"
+#include "../ui/sidebar_query.h"
 #include "../util/format.h"
 #include "../util/prof.h"
 #include "thread_model.h"
@@ -143,6 +146,11 @@ class SidebarBuckets {
             b.members.clear();
             b.hidden = 0;
         }
+        // `last_active:` (ui/sidebar_query.h) narrows by the day of a thread's
+        // last activity; the words left over match as before.
+        const hanabi::sidebar_query::Query parsed = hanabi::sidebar_query::parse(
+            q, static_cast<std::int64_t>(std::time(nullptr)));
+        const std::string& words = parsed.hasDay ? parsed.text : q;
 
         for (const api::SessionSummary& s : sessions) {
             if (keep && !keep(s)) continue;
@@ -159,8 +167,9 @@ class SidebarBuckets {
                 if (named) ++buckets_[idx].hidden;
                 continue;
             }
-            if (!(title_matches(s.title, q) ||
-                  (!q.empty() && contentMatch(s.id, q))))
+            if (!parsed.admits(s.updated_at)) continue;
+            if (!(title_matches(s.title, words) ||
+                  (!words.empty() && contentMatch(s.id, words))))
                 continue;
             if (named)
                 buckets_[idx].members.push_back(&s);

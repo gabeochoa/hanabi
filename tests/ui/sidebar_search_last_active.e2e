@@ -1,0 +1,42 @@
+# Sidebar search takes `last_active:` today, yesterday or a date (Puffin
+# 0.8.4): it narrows the list to threads whose last activity falls on that
+# local day, and the words beside it still match titles. The mock's clock is
+# pinned to 2026-10-02 03:00 (ET), so threads under three hours old (the
+# mock's rows are minutes old) are "2026-10-02" and older ones "2026-10-01". A thread (t5, days old) is open so
+# the main pane shows no Home cards carrying the same titles.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t5"],"active_tab":"t5","theme":"dark"}
+# env: HANABI_MOCK_NOW=1790924400 TZ=America/New_York
+
+expect_text "profiling the disk"
+expect_text "import failed twice"
+
+click_ui sb_search
+wait_frames 14
+type "last_active:2026-10-02"
+wait_frames 10
+expect_text "profiling the disk"
+expect_text "two workers still out"
+expect_no_text "import failed twice"
+expect_no_text "PSC daily post generator"
+
+# The words beside the operator still match titles.
+type " workers"
+wait_frames 10
+expect_text "two workers still out"
+expect_no_text "profiling the disk"
+
+# The day before.
+key CMD+A
+type "last_active:2026-10-01"
+wait_frames 10
+expect_text "import failed twice"
+expect_text "PSC daily post generator"
+expect_no_text "profiling the disk"
+
+# A value it does not understand stays search text: nothing matches it.
+key CMD+A
+type "last_active:someday"
+wait_frames 10
+expect_no_text "profiling the disk"
+expect_text "No matches for"
