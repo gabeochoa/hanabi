@@ -9469,7 +9469,7 @@ measured widget in the app, so it is on the spike branch and not shipped.
 
 **POSTSCRIPT 2026-08-26 (source-reference audit).** original 'none used' wrapper workaround is stale; current code fixes field entity directly.
 
-**Hanabi reference.** `src/ui/field_chrome.h` (`inline void apply_focus_edge`) — field entity receives focused border. `src/ecs/main_pane_system.h::hanabi::ui::field_chrome::apply_focus_edge` — composer applies workaround. Tests: `scripts/composer_chrome_gate.sh` (`A FOCUSED FIELD HAS A COLOURED EDGE`) — pixel gate verifies focused edge.
+**Hanabi reference.** `src/ui/field_chrome.h` (`inline void apply_focus_edge`) — field entity receives focused border. The composer itself stopped drawing a focus edge in f14f1bc (the reference's field keeps one hairline in both states; `main_pane_system.h`, "No accent edge on focus"), so `scripts/composer_chrome_gate.sh` (`a focused field keeps its hairline`) now pins the opposite: no accent row on focus (2026-10-02).
 
 
 **Minimal upstream fix.** The four lines from `component.h`.
