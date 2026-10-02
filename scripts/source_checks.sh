@@ -30,9 +30,12 @@ for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/c
            scripts/check_vocabulary.py scripts/check_settings_readers.py scripts/check_resize_deferral.py \
            scripts/check_frame_signal_merge.py scripts/check_wire_event_vocabulary.py \
            scripts/focus_edge_gate.py scripts/attachment_route_gate.py scripts/check_build_graph.py; do
-    if /usr/bin/python3 "$chk"; then :; else rc=1; fi
+    # python3 off PATH, not /usr/bin: focus_edge_gate.py (and compare.py
+    # below) need Pillow, which the system interpreter on a stock Mac does
+    # not have; the build's PATH carries an interpreter that does.
+    if python3 "$chk"; then :; else rc=1; fi
 done
-if /usr/bin/python3 scripts/compare.py --selftest; then :; else rc=1; fi
+if python3 scripts/compare.py --selftest; then :; else rc=1; fi
 if bash scripts/measure_launch.sh --selftest; then :; else rc=1; fi
 if bash scripts/composer_parity_gate.sh --selftest; then :; else rc=1; fi
 if bash scripts/composer_parity_gate.sh; then :; else rc=1; fi
