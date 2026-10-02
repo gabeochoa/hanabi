@@ -115,6 +115,34 @@ class MockClient : public Client {
         return s;
     }
 
+    // The server-side pin and archive writes, recorded for scripts;
+    // HANABI_MOCK_OVERLAY_FAIL=pin|archive refuses that one.
+    bool supports_overlay_writes() const override { return true; }
+    static std::vector<std::string>& overlay_writes() {
+        static std::vector<std::string> v;
+        return v;
+    }
+    static std::mutex& overlay_mu() {
+        static std::mutex m;
+        return m;
+    }
+    Result<bool> set_pinned(const std::string& session_id, bool pinned) override {
+        const char* f = std::getenv("HANABI_MOCK_OVERLAY_FAIL");
+        if (f != nullptr && std::string(f) == "pin")
+            return Result<bool>::failure("the web app answered 500");
+        std::lock_guard<std::mutex> lk(overlay_mu());
+        overlay_writes().push_back("pin " + session_id + (pinned ? " true" : " false"));
+        return Result<bool>::success(pinned);
+    }
+    Result<bool> set_archived(const std::string& session_id, bool archived) override {
+        const char* f = std::getenv("HANABI_MOCK_OVERLAY_FAIL");
+        if (f != nullptr && std::string(f) == "archive")
+            return Result<bool>::failure("archive refused");
+        std::lock_guard<std::mutex> lk(overlay_mu());
+        overlay_writes().push_back("archive " + session_id + (archived ? " true" : " false"));
+        return Result<bool>::success(archived);
+    }
+
     // Whether the last create reserved the Sensitive transition, for scripts.
     static std::atomic<bool>& last_create_allowed_sensitive() {
         static std::atomic<bool> v{false};
@@ -2088,7 +2116,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

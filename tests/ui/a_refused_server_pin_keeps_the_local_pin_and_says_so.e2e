@@ -1,0 +1,14 @@
+# A pin the server refuses stays pinned on this Mac, and the reader is told
+# the server did not take it -- the local mark is not quietly reverted, and
+# the refusal is not swallowed.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_OVERLAY_FAIL=pin
+
+wait_frames 20
+right_click_text "SKU backfill"
+wait_frames 4
+click_ui row_menu_pin
+wait_frames 30
+expect_text "PINNED"
+expect_text "the server did not take it"

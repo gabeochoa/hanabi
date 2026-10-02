@@ -3092,6 +3092,7 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //   hold_modifier ctrl|shift|alt              keep a modifier down (no press)
 //   expect_mock_knot_arg <text...>            the last knot create carries it
 //   open_bug_report                           Help > Report a Bug
+//   expect_overlay_write pin|archive id t|f   a server-side pin/archive write
 //   expect_mock_create_sensitive yes|no       the last create's Sensitive reserve
 //   open_companion D123|T456                  the Companion on that entity
 //   expect_scroll_y <name> <y>                a scroll view's offset (±1)
@@ -3413,6 +3414,40 @@ struct HandleExpectMockCreateSensitiveCommand
         }
         cmd.fail(std::string("expect_mock_create_sensitive: last create ") +
                  (got ? "reserved" : "did not reserve") + " the Sensitive transition");
+    }
+};
+
+// expect_overlay_write <pin|archive> <id> <true|false>: that server-side
+// write was made (the mock records them; kt-if8e).
+struct HandleExpectOverlayWriteCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_overlay_write")) return;
+        if (!cmd.has_args(3)) {
+            cmd.fail("expect_overlay_write requires <pin|archive> <id> <true|false>");
+            return;
+        }
+        const std::string want = cmd.arg(0) + " " + cmd.arg(1) + " " + cmd.arg(2);
+        {
+            std::lock_guard<std::mutex> lk(api::MockClient::overlay_mu());
+            for (const auto& w : api::MockClient::overlay_writes())
+                if (w == want) {
+                    cmd.consume();
+                    return;
+                }
+        }
+        if (cmd.frames_alive < hanabi::e2e::kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        std::string seen;
+        {
+            std::lock_guard<std::mutex> lk(api::MockClient::overlay_mu());
+            for (const auto& w : api::MockClient::overlay_writes()) seen += "[" + w + "] ";
+        }
+        cmd.fail("expect_overlay_write: no '" + want + "' (made: " + (seen.empty() ? "none" : seen) + ")");
     }
 };
 
@@ -4441,6 +4476,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleHoldModifierCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockKnotArgCommand>());
     sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectOverlayWriteCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());

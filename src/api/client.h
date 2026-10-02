@@ -891,6 +891,24 @@ class Client {
         return Result<memory::Document>::failure("This backend has no agent memory.");
     }
 
+    // A pin and an archive that reach the SERVER (the reference's
+    // SessionOverlayPins and set_archived; Knots kt-if8e): a pin is the web
+    // sidebar's pin -- the session overlay row's isPinned, via the web app's
+    // POST /api/session-overlay, never the Inbox star -- and an archive is
+    // the session's own archive state, set over an attach with `set_archived`
+    // and answered by `archive_result` (the settled state).
+    virtual bool supports_overlay_writes() const { return false; }
+    virtual Result<bool> set_pinned(const std::string& session_id, bool pinned) {
+        (void)session_id;
+        (void)pinned;
+        return Result<bool>::failure("This backend keeps pins on this Mac only.");
+    }
+    virtual Result<bool> set_archived(const std::string& session_id, bool archived) {
+        (void)session_id;
+        (void)archived;
+        return Result<bool>::failure("This backend keeps archives on this Mac only.");
+    }
+
     // One read of the web app's /api/graphql (api/companion_wire.h builds the
     // bodies): the GraphQL `data` object, or why not.
     virtual bool supports_graphql() const { return false; }

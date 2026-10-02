@@ -585,6 +585,7 @@ inline void pin_thread_tab(TabStripComponent& strip, AppComponent& app,
     if (!is_surface_tab(id)) {
         app.apply_starred(id, pinned);
         Settings::get().set_starred(id, pinned);
+        app.queue_pin_write(id, pinned);
     }
     set_tab_pinned(tab, pinned);
 
@@ -616,6 +617,7 @@ inline bool set_thread_pinned(AppComponent& app, TabStripComponent* strip,
     if (!is_surface_tab(id)) {
         app.apply_starred(id, pinned);
         Settings::get().set_starred(id, pinned);
+        app.queue_pin_write(id, pinned);
     }
     return false;
 }

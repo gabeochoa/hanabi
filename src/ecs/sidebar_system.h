@@ -136,6 +136,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 if (nowArchived != was) {
                     app->apply_archived(s.id, nowArchived);
                     Settings::get().set_archived(s.id, nowArchived);
+                    app->queue_archive_write(s.id, nowArchived);
                     if (!directed)
                         app->raise_toast(nowArchived ? "Session archived"
                                                      : "Session unarchived",

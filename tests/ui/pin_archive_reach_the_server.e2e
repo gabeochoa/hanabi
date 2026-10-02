@@ -1,0 +1,19 @@
+# Pinning and archiving reach the server (Knots kt-if8e, the reference's
+# SessionOverlayPins and set_archived): the local mark moves at once, and
+# the act is carried off the frame to the web app's session overlay (pin) and
+# to the session's own archive state (archive). The mock records the writes.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 20
+right_click_text "SKU backfill"
+wait_frames 4
+click_ui row_menu_pin
+wait_frames 20
+expect_overlay_write pin t6 true
+
+right_click_text "SKU backfill"
+wait_frames 4
+click_ui row_menu_archive
+wait_frames 20
+expect_overlay_write archive t6 true

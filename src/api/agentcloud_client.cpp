@@ -2861,6 +2861,96 @@ Result<std::string> AgentcloudClient::rename_session(
     }
 }
 
+// The web sidebar's pin: POST /api/session-overlay {sessionId, isPinned},
+// on the same origin, cookie and CSRF header as the inbox state route.
+// Never the Inbox star (inbox_session_state.starred_at): that is the Inbox's
+// own, separate mark.
+Result<bool> AgentcloudClient::set_pinned(const std::string& session_id, bool pinned) {
+    if (!supports_inbox_state())
+        return Result<bool>::failure("the web app is not addressable from this orchestrator");
+    if (!inbox_state::is_valid_session_id(session_id))
+        return Result<bool>::failure("the session id is not one the web app accepts");
+    const auto& cfg = web_auth_.config();
+    std::string auth_error;
+    const auto token = web_auth_.get(&auth_error);
+    if (token.empty()) return Result<bool>::failure(auth_error);
+    httplib::Client client(("http://" + cfg.host).c_str());
+    if (!cfg.proxy_host.empty() && cfg.proxy_port > 0)
+        client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
+    client.set_follow_location(false);
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(20, 0);
+    const httplib::Headers headers{
+        {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
+        {inbox_state::kCsrfHeader, inbox_state::kCsrfHeaderValue},
+        {"Accept", "application/json"}};
+    const std::string body = nlohmann::json{{"sessionId", session_id}, {"isPinned", pinned}}.dump();
+    auto res = client.Post("/api/session-overlay", headers, body, "application/json");
+    if (!res) return Result<bool>::failure("the web app was unreachable: " + httplib::to_string(res.error()));
+    if (res->status == 401 || res->status == 403) web_auth_.invalidate();
+    if (res->status != 200) return Result<bool>::failure("the web app answered " + std::to_string(res->status));
+    return Result<bool>::success(pinned);
+}
+
+// The session's own archive state (spec 659): dial, attach, check the attach
+// advertises archive_v1 when it advertises anything, send set_archived, and
+// take the correlated archive_result -- its archived_at_unix_ms is the state
+// that settled (present = archived).
+Result<bool> AgentcloudClient::set_archived(const std::string& session_id, bool archived) {
+    const auto fail = [](const std::string& why) { return Result<bool>::failure(why); };
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded()) return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    if (str_or(hello, "type", "") == "error")
+        return fail("attach refused: " + str_or(hello, "message", "(no message)"));
+    if (hello.contains("capabilities") && hello.at("capabilities").is_array()) {
+        bool announced = false;
+        for (const json& c : hello.at("capabilities"))
+            if (c.is_string() && c.get<std::string>() == "archive_v1") announced = true;
+        if (!announced) return fail("this orchestrator cannot archive sessions yet");
+    }
+    const json env = {{"sub", 1}, {"payload", {{"cmd", "set_archived"}, {"archived", archived}}}};
+    const std::string wire = env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size()))
+        return fail("socket closed before the archive was sent");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kReplyTimeoutSecs);
+    for (;;) {
+        const json msg = q.wait_for_next(deadline);
+        if (msg.is_discarded()) return fail(q.closed_note("no archive answer for " + session_id));
+        const std::string type = str_or(msg, "type", "");
+        if (type == "error") return fail(str_or(msg, "message", "archive refused"));
+        if (type != "archive_result") continue;
+        const bool settled = msg.contains("archived_at_unix_ms") &&
+                             msg["archived_at_unix_ms"].is_number();
+        return Result<bool>::success(settled);
+    }
+}
+
 Result<std::string> AgentcloudClient::compact_session(const std::string& session_id,
                                                       const CompactionRequest& request) {
     const auto fail = [](const std::string& why) {

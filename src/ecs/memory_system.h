@@ -20,6 +20,37 @@ struct MemorySystem : afterhours::System<AppComponent> {
             auto c = app.client;
             app.spacesFuture = std::async(std::launch::async, [c] { return c->list_spaces(); });
         }
+        // Pins and archives on their way to the server (kt-if8e).
+        if (!app.overlayWriteQueue.empty() && app.client && app.client->supports_overlay_writes()) {
+            for (auto& [pin, id, on] : app.overlayWriteQueue) {
+                AppComponent::OverlayWrite w;
+                w.pin = pin;
+                w.id = id;
+                w.on = on;
+                auto c = app.client;
+                const bool isPin = pin;
+                const std::string sid = id;
+                const bool value = on;
+                w.future = std::async(std::launch::async, [c, isPin, sid, value] {
+                    return isPin ? c->set_pinned(sid, value) : c->set_archived(sid, value);
+                });
+                app.overlayWrites.push_back(std::move(w));
+            }
+        }
+        app.overlayWriteQueue.clear();
+        for (auto it = app.overlayWrites.begin(); it != app.overlayWrites.end();) {
+            if (!it->future.valid() || it->future.wait_for(0s) != std::future_status::ready) {
+                ++it;
+                continue;
+            }
+            auto r = it->future.get();
+            if (!r.ok)
+                app.raise_toast(std::string(it->pin ? (it->on ? "Pinned" : "Unpinned")
+                                                    : (it->on ? "Archived" : "Unarchived")) +
+                                    " on this Mac; the server did not take it (" + r.error + ")",
+                                std::string(), AppComponent::ToastUndo::None);
+            it = app.overlayWrites.erase(it);
+        }
         // The Sensitive-mode gate: asked once; anything but a clear admission
         // is a refusal (the control is then not offered at all).
         if (!app.sensitiveGateAsked && app.client && app.client->supports_graphql()) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <tuple>
+
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
@@ -712,6 +714,24 @@ struct AppComponent : public afterhours::BaseComponent {
     bool sensitiveGateAsked = false;
     std::future<api::Result<nlohmann::json>> sensitiveGateFuture;
     bool newThreadSensitiveAsk = false;
+    // Pins and archives on their way to the server (kt-if8e). The local
+    // overlay has already moved; this only carries the act to the web app
+    // and the session, off the frame. A refusal leaves the local mark and
+    // says the server did not take it.
+    struct OverlayWrite {
+        bool pin = true;  // false = archive
+        std::string id;
+        bool on = false;
+        std::future<api::Result<bool>> future;
+    };
+    std::vector<OverlayWrite> overlayWrites;
+    std::vector<std::tuple<bool, std::string, bool>> overlayWriteQueue;
+    void queue_pin_write(const std::string& id, bool pinned) {
+        overlayWriteQueue.emplace_back(true, id, pinned);
+    }
+    void queue_archive_write(const std::string& id, bool archived) {
+        overlayWriteQueue.emplace_back(false, id, archived);
+    }
     // Which Space each session is filed in (spaces_wire.h's index walk, in
     // memory_system.h), applied to the catalogue as `space_group` so the
     // sidebar can section by Space. Re-walked every ten minutes.
