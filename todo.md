@@ -18,6 +18,15 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 
 ---
 
+## OPEN — lead lane (2026-10-02)
+- [ ] PERF: an UNCHANGED transcript frame still re-walks the viewport. `TranscriptLedger::materialize`
+      runs every frame and `ensure()`s every row it covers, so a frame where nothing moved visits the
+      ~9 rows on screen (480-message slope fixture: 3792 rows visited over 421 frames). That is what
+      scripts/perf_transcript_slope.sh's "unchanged-frame item walk" reads (0.0211 against 0.02); it
+      crossed when more rows came to fit in the fixture's 949 px. Fix at the root, not the limit:
+      skip the walk when the anchor, viewport height, row set and every measure are what the last
+      frame used, and reuse that LedgerWindow. Owner of the fix: this lane, next after D23.
+
 ## MESSAGE ACTIONS + TOOL PRESENTATION — COMPLETE (2026-08-27)
 - [x] Hover/focus overlay is zero-height and built only while visible; copy feedback is isolated by pane and thread.
 - [x] Copy preserves source bytes; retry appears only on eligible user prompts and enters the persistent outbox before dispatch.
