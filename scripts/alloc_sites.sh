@@ -62,7 +62,7 @@ env HOME="$H" HANABI_WIN_W=1180 HANABI_WIN_H=949 HANABI_BACKEND=mock \
     HANABI_CONFIG=/tmp/none HANABI_PROF=1 HANABI_PROF_SITES=1 \
     HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY="$FRAMES" \
     HANABI_STRESS="$SCENARIO" HANABI_STRESS_SESSIONS="$SESSIONS" \
-    "${BIG_ENV[@]}" \
+    ${BIG_ENV[@]+"${BIG_ENV[@]}"} \
     "$EXE" --screenshot "$H/shot.png" > "$LOG" 2>&1
 
 grep -E '^\[prof\] ALLOCATIONS' "$LOG" | sed 's/^/  /'

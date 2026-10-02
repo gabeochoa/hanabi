@@ -93,7 +93,7 @@ run_arm() {  # run_arm <sessions> <folders 0|1> <outfile> [settings-json]
         HANABI_STRESS=idle HANABI_STRESS_SESSIONS="$sessions" \
         HANABI_PROF=1 HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY=200 \
         HANABI_SOAK_WARM_FRAMES=0 \
-        "${folderenv[@]}" \
+        ${folderenv[@]+"${folderenv[@]}"} \
         "$EXE" --screenshot "$home/shot.png" >"$log" 2>&1 &
     local pid=$!
     watchdog_start "$pid" "$RUN_TIMEOUT"
