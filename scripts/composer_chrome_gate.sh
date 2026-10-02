@@ -16,7 +16,8 @@
 #      rect breaks that, and it breaks it silently -- the layout does not move
 #      and every geometric assertion still passes.
 #
-#   2. A FOCUSED FIELD HAS A COLOURED EDGE. One accent row on the top of the
+#   2. (Since f14f1bc: a focused field keeps its hairline and draws NO accent
+#      edge -- arm 3 below. What follows is the original rule.) One accent row on the top of the
 #      field and one on the bottom, and neither of them when it is not
 #      focused. This is the field's OWN focused border, which is not the
 #      app's :focus-visible ring (src/ui/focus_visible.h) and is not gated on
@@ -73,17 +74,20 @@ JSON
 shoot "$OUTDIR/rest.png"  env                              || exit 1
 shoot "$OUTDIR/focus.png" env HANABI_TEST_FOCUS_COMPOSER=1 || exit 1
 
-/usr/bin/python3 - "$OUTDIR/rest.png" "$OUTDIR/focus.png" <<'PY'
+python3 - "$OUTDIR/rest.png" "$OUTDIR/focus.png" <<'PY'
 import sys
 from PIL import Image
 
 rest_p, focus_p = sys.argv[1], sys.argv[2]
 
-# The three colours this gate is about, from src/ui/theme.h (dark) and
-# preload.cpp's ThemeDefaults Accent.
-WINDOW = (23, 23, 35)
-WRAP_BORDER = (41, 41, 52)
-ACCENT = (0, 122, 204)
+# The three colours this gate is about, from src/ui/theme.h's kDark: the
+# reference palette's window_bg (nightSky #0D141D), its hairline `border`
+# (#262F38) and its accent (naviBlue #3B9EDB). They were the pre-palette
+# (23,23,35) / (41,41,52) / (0,122,204) until 2026-10-02, which no capture had
+# drawn since the palette switch -- the gate chain stopped before this gate.
+WINDOW = (13, 20, 29)
+WRAP_BORDER = (38, 47, 56)
+ACCENT = (59, 158, 219)
 
 # Columns to sample across the field's own width. All well clear of the
 # placeholder's ink (which starts at the field's left inset) and of the send
@@ -95,11 +99,14 @@ failures = []
 
 
 def find_wrap(px, h, x):
-    """The composer wrap's two border rows, scanning up from the floor."""
+    """The composer wrap's two border rows: the first two hairline rows met
+    scanning up from the floor. The strip's own rule above the composer is
+    the same hairline colour now, so taking min/max of every match would span
+    the strip too."""
     rows = [y for y in range(h - 1, h - 140, -1) if px[x, y] == WRAP_BORDER]
     if len(rows) < 2:
         return None
-    return min(rows), max(rows)
+    return rows[1], rows[0]
 
 
 def load(path):
@@ -189,13 +196,15 @@ else:
         print("OK    wrap outline intact on all %d interior rows"
               % (bot - top - 1))
 
-# --- 3. the focus edge -----------------------------------------------------
+# --- 3. the focused field keeps its hairline --------------------------------
 #
-# Focus belongs to the outlined input box, not to the shorter text-area child
-# inside it. A matched accent pair must replace the wrap's top and bottom
-# borders; the interior remains the window colour. The global keyboard ring is
-# suppressed while this text field owns focus because the caret and focused
-# edge already identify the destination.
+# Since f14f1bc (2026-09-13) the focused composer draws NO accent edge: the
+# reference's field keeps its one hairline whether or not it has the caret
+# (liveComposerField's overlay is the same stroke in both states), and the
+# caret is what says the field is focused. This arm used to require a matched
+# accent pair on focus; it now requires the opposite -- the same hairline top
+# and bottom, no accent row, the window colour inside -- so a focus edge that
+# came back by accident fails here.
 def accent_rows(px):
     out = []
     for y in range(top, bot + 1):
@@ -208,21 +217,19 @@ focus_rows = accent_rows(fpx)
 
 if rest_rows:
     failures.append(
-        "an UNFOCUSED composer is drawing accent rows at y=%s -- the focused "
-        "edge must not be on when nothing is focused" % (rest_rows,))
+        "an UNFOCUSED composer is drawing accent rows at y=%s" % (rest_rows,))
 else:
     print("OK    rest: no accent rows on the wrap")
 
-if len(focus_rows) < 2:
+if focus_rows:
     failures.append(
-        "a FOCUSED composer draws %d accent row(s) %s on the wrap; the focused "
-        "edge needs both a top and bottom" % (len(focus_rows), focus_rows))
-elif focus_rows[0] != top or focus_rows[-1] != bot:
+        "a FOCUSED composer draws accent row(s) %s on the wrap; the field keeps "
+        "its hairline in both states (f14f1bc)" % (focus_rows,))
+elif not all(fpx[x, top] == WRAP_BORDER and fpx[x, bot] == WRAP_BORDER for x in COLS):
     failures.append(
-        "the focused edge covers y=%s instead of the full wrap %d..%d"
-        % (focus_rows, top, bot))
+        "the focused composer lost its hairline at y=%d / %d" % (top, bot))
 else:
-    print("OK    focus: accent edge spans the full wrap y=%d..%d" % (top, bot))
+    print("OK    focus: the hairline stays, no accent edge (y=%d..%d)" % (top, bot))
     fwrong = {}
     for y in range(top + 1, bot):
         for x in COLS:
@@ -236,8 +243,7 @@ else:
             "interior fill/ring (focused): %s inside the wrap"
             % ", ".join("%s x%d" % (c, n) for c, n in worst))
     else:
-        print("OK    interior (focus): all %s between the accent edges"
-              % (WINDOW,))
+        print("OK    interior (focus): all %s inside the wrap" % (WINDOW,))
 
 # --- 4. focus changes NOTHING else ----------------------------------------
 #
