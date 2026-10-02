@@ -7516,7 +7516,9 @@ loses your place" will otherwise look at the widget lifetime, which is the
 wrong place: the culprit is a measurement of an empty tree.
 
 
-**Hanabi reference.** None — no app-side workaround is implemented.
+**POSTSCRIPT 2026-10-02 (lead lane): the "restore when the screen comes back" escape works for Home.** The doc above judged it unworkable because the offset would have to be written "before MeasureScrollViews runs but after the children exist". It does not need that hook: written during the BUILD on the return frame and the three after it, the offset survives the measure once the rebuilt rows have their sizes, and the build-frame counter (`ui_build_frame`) is all the "was I built last frame" bookkeeping it takes. Home only; the digest screens and Settings still reset.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` (`homeSavedY_`, `homeRestoreFrames_` in `render_home`) — remembers Home's offset while built and writes it back for four frames after a return. Tests: `tests/ui/home_keeps_its_place_across_a_trip_away.e2e` — y=-673 before a trip to Blocked, -673 after, and the wheel still moves it.
 
 
 **Minimal upstream fix.** Do not clamp against a content size measured from

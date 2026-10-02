@@ -1557,6 +1557,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         std::uint64_t spacesRevision = 0;
         std::vector<hanabi::mention::Row> rows;
     } mentionMemo_;
+    // Home's place across a trip away (render_home; afterhours_gaps.md #163).
+    std::size_t homeLastFrame_ = 0;
+    float homeSavedY_ = 0.0f;
+    int homeRestoreFrames_ = 0;
     // The files-changed fold for the session the strip shows, kept until a
     // tool row it reads changes (changes_for).
     struct ChangesMemo {
@@ -1855,6 +1859,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (scrollbar now drawn by afterhours)
         hanabi::apply_scroll_prefs(scroll.ent());
 
+        // Coming back to Home keeps your place (afterhours_gaps.md #163): the
+        // library measures an unbuilt scroll view against zero children and
+        // clamps its offset to 0 the first frame Home is away. The offset is
+        // remembered while Home is built, and for a few frames after a return
+        // -- until the rebuilt rows have measured -- it is written back.
+        {
+            const std::size_t frame = afterhours::ui::imm::ui_build_frame;
+            const bool returning = homeLastFrame_ != 0 && frame > homeLastFrame_ + 1;
+            homeLastFrame_ = frame;
+            if (returning && homeSavedY_ > 0.0f) homeRestoreFrames_ = 4;
+            if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
+                auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();
+                if (homeRestoreFrames_ > 0) {
+                    --homeRestoreFrames_;
+                    sv.scroll_offset.y = homeSavedY_;
+                    sv.scroll_target.y = homeSavedY_;
+                } else {
+                    homeSavedY_ = sv.scroll_offset.y;
+                }
+            }
+        }
         float homeViewH = 0.0f, homeOffsetY = 0.0f, homeTargetY = 0.0f;
         if (scroll.ent().has<afterhours::ui::HasScrollView>()) {
             const auto& sv = scroll.ent().get<afterhours::ui::HasScrollView>();

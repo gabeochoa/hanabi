@@ -1,0 +1,28 @@
+# Coming back to Home keeps your place. The library measures a scroll view
+# that was not built this frame against zero children and clamps its offset
+# to 0 (afterhours_gaps.md #163), so one frame on another screen used to send
+# Home back to the top: the first section header read y=-673, then y=127
+# after a trip to Blocked and back. render_home remembers the offset while
+# Home is built and writes it back for a few frames after a return.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_STRESS_SESSIONS=60
+
+wait_frames 20
+mouse_move 600 400
+scroll_wheel 0 -40
+wait_frames 30
+assert_ui home_section y=-673
+
+click_text Blocked
+wait_frames 20
+expect_no_ui home_section
+click_text Home
+wait_frames 30
+assert_ui home_section y=-673
+
+# And the place is still the reader's: the wheel moves it as before.
+mouse_move 600 400
+scroll_wheel 0 40
+wait_frames 30
+assert_ui home_section y=127
