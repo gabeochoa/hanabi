@@ -73,18 +73,25 @@ inline void request_resize(int w, int h) {
 // scripts/stress_resize_gate.sh reported as "the call is not moving the
 // target" (asked 814x760, read 822x760).
 inline void begin_frame() {
-    bool resized = false;
+    const auto observe = [] {
+        applied_resize_size() = PendingResize{
+            static_cast<int>(afterhours::graphics::get_screen_width()),
+            static_cast<int>(afterhours::graphics::get_screen_height()), false};
+    };
+    bool readAfterOpen = false;
     if (PendingResize& p = pending_resize(); p.armed) {
         p.armed = false;
         afterhours::window_manager::set_window_size(p.width, p.height);
         ++applied_resize_count();
-        resized = true;
+        // Only the HEADLESS backend parks the size until the frame opens. A
+        // real window reports it at once, and scripts/resize_drive_gate.sh's
+        // planted "same-step draw off" is caught by reading it here, before
+        // the frame paints -- moving that read too hid the regression.
+        if (afterhours::graphics::is_headless()) readAfterOpen = true;
+        else observe();
     }
     afterhours::graphics::begin_frame();
-    if (resized)
-        applied_resize_size() = PendingResize{
-            static_cast<int>(afterhours::graphics::get_screen_width()),
-            static_cast<int>(afterhours::graphics::get_screen_height()), false};
+    if (readAfterOpen) observe();
 }
 
 }  // namespace hanabi::gfx
