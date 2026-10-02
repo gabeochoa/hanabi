@@ -1,0 +1,54 @@
+# Settings > Memory (the reference's 0.8.4): the viewer's personal agent
+# memory as a folder of files. Folders open and go back up, a file opens in an
+# editor, an edit saves with the version it was read at, and a new file is
+# created empty and opened. The mock's store honours CREATE_ONLY and
+# UPDATE_ONLY, so a second create of the same name is refused.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"memory"}
+# env: HANABI_TEST_OVERLAY=settings
+
+wait_frames 20
+expect_text "core_memory.md"
+expect_text "working_preferences.md"
+
+# A folder, and back up.
+click_ui settings_memory_folder_projects
+wait_frames 12
+expect_text "Memory / projects"
+expect_text "hanabi.md"
+click_ui settings_memory_up
+wait_frames 12
+expect_text "core_memory.md"
+
+# Open, edit, save.
+click_ui settings_memory_file_core_memory.md
+wait_frames 12
+expect_text "core_memory.md"
+assert_ui settings_memory_editor hidden=false
+click_ui settings_memory_editor
+wait_frames 4
+key CMD+A
+type "Remember: short replies."
+wait_frames 6
+expect_text "edited"
+click_ui settings_memory_save
+wait_frames 15
+expect_text "Saved."
+click_ui settings_memory_back
+wait_frames 12
+expect_text "working_preferences.md"
+
+# A new file is created empty and opened; the same name again is refused.
+click_ui settings_memory_new_name
+type "fresh.md"
+click_ui settings_memory_create_button
+wait_frames 15
+expect_text "Created."
+click_ui settings_memory_back
+wait_frames 12
+expect_text "fresh.md"
+click_ui settings_memory_new_name
+type "fresh.md"
+click_ui settings_memory_create_button
+wait_frames 15
+expect_text "Couldn't create that file"

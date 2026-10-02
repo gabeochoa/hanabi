@@ -1232,6 +1232,87 @@ class MockClient : public Client {
 
     bool supports_artifacts() const override { return true; }
 
+    // AGENT MEMORY, in memory: a root with two files and one folder, the
+    // write modes honoured exactly (CREATE_ONLY refuses an existing key,
+    // UPDATE_ONLY refuses a stale version), so the Settings page's conflict
+    // and create paths run offline. HANABI_MOCK_MEMORY_FAIL=1 refuses every
+    // call, for the page's error sentence.
+    struct MemoryEntry {
+        std::string content;
+        int version = 1;
+    };
+    struct MemoryStore {
+        std::mutex mu;
+        std::map<std::string, std::map<std::string, MemoryEntry>> files;  // folder -> key -> entry
+        std::vector<std::string> folders;
+        MemoryStore() {
+            files[""]["core_memory.md"] = {"# Core memory\n\n- Prefers short replies.\n- Works on Hanabi.\n", 3};
+            files[""]["working_preferences.md"] = {"# Working preferences\n\n- Never push.\n", 1};
+            files["projects"]["hanabi.md"] = {"# Hanabi\n\nA native client.\n", 2};
+            folders = {"projects"};
+        }
+    };
+    static MemoryStore& memory_store() {
+        static MemoryStore s;
+        return s;
+    }
+    static bool memory_refused() {
+        const char* v = std::getenv("HANABI_MOCK_MEMORY_FAIL");
+        return v != nullptr && *v == '1';
+    }
+    bool supports_memory() const override { return true; }
+    Result<memory::Listing> memory_list(const std::string& path) override {
+        if (memory_refused()) return Result<memory::Listing>::failure("memory HTTP 503");
+        if (!memory::valid_path(path))
+            return Result<memory::Listing>::failure("That folder name is not one memory accepts.");
+        auto& s = memory_store();
+        std::lock_guard<std::mutex> lock(s.mu);
+        memory::Listing out;
+        out.root = "mock-viewer";
+        out.path = path;
+        if (auto it = s.files.find(path); it != s.files.end())
+            for (const auto& [key, e] : it->second)
+                out.files.push_back({key, static_cast<std::int64_t>(e.content.size()), false});
+        for (const std::string& d : s.folders)
+            if (memory::parent_of(d) == path) out.folders.push_back(d);
+        return Result<memory::Listing>::success(std::move(out));
+    }
+    Result<memory::Document> memory_read(const std::string& path,
+                                         const std::string& key) override {
+        if (memory_refused()) return Result<memory::Document>::failure("memory HTTP 503");
+        auto& s = memory_store();
+        std::lock_guard<std::mutex> lock(s.mu);
+        const auto f = s.files.find(path);
+        if (f == s.files.end() || !f->second.count(key))
+            return Result<memory::Document>::failure("no such memory file");
+        const MemoryEntry& e = f->second.at(key);
+        return Result<memory::Document>::success(
+            {key, e.content, "v" + std::to_string(e.version), false});
+    }
+    Result<memory::Document> memory_write(const std::string& path, const std::string& key,
+                                          const std::string& content,
+                                          const std::string& version) override {
+        if (memory_refused()) return Result<memory::Document>::failure("memory HTTP 503");
+        if (!memory::valid_path(path) || !memory::valid_key(key))
+            return Result<memory::Document>::failure("That file name is not one memory accepts.");
+        auto& s = memory_store();
+        std::lock_guard<std::mutex> lock(s.mu);
+        auto& folder = s.files[path];
+        auto it = folder.find(key);
+        if (version.empty()) {
+            if (it != folder.end())
+                return Result<memory::Document>::failure("a memory file with that name already exists");
+            folder[key] = {content, 1};
+            return Result<memory::Document>::success({key, content, "v1", false});
+        }
+        if (it == folder.end() || "v" + std::to_string(it->second.version) != version)
+            return Result<memory::Document>::failure("the file changed since it was opened");
+        it->second.content = content;
+        ++it->second.version;
+        return Result<memory::Document>::success(
+            {key, content, "v" + std::to_string(it->second.version), false});
+    }
+
     bool supports_inbox_state() const override {
         const char* k = std::getenv("HANABI_MOCK_INBOX_GET");
         return !(k && std::string_view(k) == "off");
@@ -1861,7 +1942,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

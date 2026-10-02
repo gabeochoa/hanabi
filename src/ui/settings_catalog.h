@@ -18,12 +18,13 @@ enum class Pane {
     Storage,
     Connection,
     Model,
+    Memory,
     Shortcuts,
     Commands,
     About,
 };
 
-inline constexpr size_t kPaneCount = 10;
+inline constexpr size_t kPaneCount = 11;
 
 enum class Group { App, Backend, Input, System };
 
@@ -58,6 +59,9 @@ inline constexpr std::array<PaneInfo, kPaneCount> kPanes{{
     {Pane::Model, Group::Backend, "Model", "model",
      "Which model a new conversation starts on, and how hard it thinks",
      "cpu"},
+    {Pane::Memory, Group::Backend, "Memory", "memory",
+     "What the agent remembers about you, as files you can read and edit",
+     "layers"},
     {Pane::Shortcuts, Group::Input, "Shortcuts", "shortcuts",
      "Chords you can rebind, and the ones the system owns",
      "keyboard"},
@@ -155,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 47> kRows{{
+inline constexpr std::array<Row, 48> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -265,6 +269,9 @@ inline constexpr std::array<Row, 47> kRows{{
      "effort reasoning thinking low medium high xhigh max ladder slow fast",
      Origin::Device},
 
+    {"memory_files", Pane::Memory, "Memory files",
+     "memory remember agent notes files core preferences edit memex recall",
+     Origin::Account},
     {"global_chords", Pane::Shortcuts, "Global shortcuts",
      "global anywhere desktop chord hotkey summon launcher", Origin::Device},
     {"command_chords", Pane::Shortcuts, "Command shortcuts",

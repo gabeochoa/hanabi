@@ -24,6 +24,7 @@
 #include "../api/auth.h"
 #include "../api/session_catalog.h"
 #include "../api/client.h"
+#include "memory_page.h"
 #include "../api/outbox.h"
 #include "../api/wire_clock.h"
 #include "../settings.h"
@@ -697,6 +698,9 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string templateNameDraft;
     std::string templateTextDraft;
     std::string templateNotice;
+    // Settings > Memory (memory_page.h): the folder, the open file, requests.
+    MemoryPage memory;
+    std::string memoryNewKeyDraft;
     int settingsFocusZone = 0;  // 0 search, 1 nav/results, 2 content
     int settingsFocusIndex = 0;
     std::string settingsRevealRow;

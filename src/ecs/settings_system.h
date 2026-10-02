@@ -104,7 +104,8 @@ inline afterhours::EntityID& hosted_search_field() {
 }
 
 void render_settings_pane_list(UIContext<InputAction>& ctx, Entity& parent,
-                               AppComponent& app, float width, bool rail);
+                               AppComponent& app, float width, bool rail,
+                               float height = 0.0f);
 
 struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
@@ -769,18 +770,23 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto columnCfg =
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(navW),
-                                         hosted ? children() : pixels(bodyH)})
+                                         hosted && bodyH <= 0.0f ? children()
+                                                                 : pixels(bodyH)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name(hosted ? "sb_settings_nav" : "settings_nav");
-        if (!hosted) columnCfg.with_overflow(Overflow::Scroll, Axis::Y);
+        if (!hosted || bodyH > 0.0f) columnCfg.with_overflow(Overflow::Scroll, Axis::Y);
         auto col = div(ctx, mk(parent, hosted ? 61 : 1), columnCfg);
 
         int id = 1;
         cat::Group heading = cat::Group::App;
         bool first = true;
+        // The row to keep in view when the hosted list scrolls: the focused
+        // one, else the selected one -- revealed once each time it changes,
+        // so a reader's own scrolling is not fought every frame.
+        afterhours::EntityID revealRow = -1;
         for (size_t i = 0; i < cat::kPanes.size(); ++i) {
             const cat::PaneInfo& info = cat::kPanes[i];
             if (!rail && (first || info.group != heading)) {
@@ -865,6 +871,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                      info.slug);
             auto btn = button(ctx, mk(col.ent(), id++), cfg);
             if (isFocused) focusAnchor_ = btn.ent().id;
+            if (isFocused || (isSelected && focus.zone != cat::Zone::Nav))
+                revealRow = btn.ent().id;
             hanabi::a11y::set_name(
                 btn.ent(),
                 std::string(info.label) + (isSelected ? ", selected" : ""));
@@ -877,6 +885,38 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 }
             }
         }
+        if (hosted && bodyH > 0.0f && revealRow >= 0)
+            reveal_in(col.ent(), revealRow, bodyH);
+    }
+
+    // Scroll `colEnt` so `rowId` is inside its `viewH`, using last frame's
+    // layout; only when the row to reveal changed since the last call.
+    static void reveal_in(Entity& colEnt, afterhours::EntityID rowId, float viewH) {
+        static afterhours::EntityID revealed = -1;
+        static int settle = 0;
+        if (rowId != revealed) {
+            revealed = rowId;
+            settle = 3;  // a few frames: the first ones may not be laid out yet
+        }
+        if (settle <= 0 || !colEnt.has<afterhours::ui::HasScrollView>() ||
+            !colEnt.has<afterhours::ui::UIComponent>())
+            return;
+        --settle;
+        auto row = afterhours::EntityHelper::getEntityForID(rowId);
+        if (!row.valid() || !row->has<afterhours::ui::UIComponent>()) return;
+        const auto colRect = colEnt.get<afterhours::ui::UIComponent>().rect();
+        const auto rowRect = row->get<afterhours::ui::UIComponent>().rect();
+        auto& sv = colEnt.get<afterhours::ui::HasScrollView>();
+        // rect() is where the row is drawn, already scrolled.
+        const float top = rowRect.y - colRect.y;
+        const float bottom = top + rowRect.height;
+        float target = sv.scroll_offset.y;
+        if (bottom > viewH) target += bottom - viewH + 4.0f;
+        else if (top < 0.0f) target += top - 4.0f;
+        else return;
+        sv.scroll_offset.y = target;
+        hanabi::set_scroll_target_y(sv, target);
+        sv.clamp_scroll();
     }
 
     void render_results(UIContext<InputAction>& ctx, Entity& parent,
@@ -1266,6 +1306,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "slash_commands")
             render_slash_commands_row(ctx, parent, app);
         else if (id == "templates") render_templates_row(ctx, parent, app);
+        else if (id == "memory_files") render_memory_files_row(ctx, parent, app);
 
         rowFocused_ = false;
         rowActivate_ = false;
@@ -2835,6 +2876,197 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // Saved templates (ui/composer_templates.h): the list, each with Remove,
     // then a name and a text field and Save. A refused Save says why under
     // the fields and keeps what was typed.
+    // Settings > Memory (the reference's 0.8.4): the viewer's personal memory
+    // as a folder of files -- browse, open, edit, save, create. Requests go
+    // through MemoryPage; MemorySystem runs them off the frame.
+    void render_memory_files_row(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        MemoryPage& m = app.memory;
+        const bool available = app.client && app.client->supports_memory();
+        if (available && !m.listed && !m.busy() && m.error.empty() && !m.requestList) {
+            m.requestList = true;
+            m.requestListPath.clear();
+        }
+        const float w = content_w();
+        const auto line = [&](int id, const std::string& words, theme::Color ink,
+                              const std::string& dbg, float h = 20.0f) {
+            div(ctx, mk(parent, id),
+                ComponentConfig{}
+                    .with_label(words)
+                    .with_size(ComponentSize{pixels(w), pixels(h)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(ink)
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name(dbg));
+        };
+        const auto small_button = [&](Entity& at, int id, const std::string& label,
+                                      float bw, const std::string& dbg, bool enabled = true) {
+            return button(ctx, mk(at, id),
+                ComponentConfig{}
+                    .with_label(label)
+                    .with_size(ComponentSize{pixels(bw), pixels(26)})
+                    .with_margin(Margin{.right = pixels(8)})
+                    .with_transparent_bg()
+                    .with_border(enabled ? theme::border_raised()
+                                         : theme::border(), pixels(1.0f))
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(enabled ? theme::text_primary()
+                                                    : theme::text_faint())
+                    .with_font_size(theme::type::SM)
+                    .with_corner_radius(6.0f)
+                    .with_disabled(!enabled)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_debug_name(dbg));
+        };
+        row_name(ctx, parent, 700, "Memory files", "settings_memory_files_label");
+        if (!available) {
+            line(701, "This backend keeps no agent memory.", theme::text_faint(),
+                 "settings_memory_unavailable");
+            return;
+        }
+        const auto bar_row = [&](int id, const std::string& dbg) {
+            return div(ctx, mk(parent, id),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(w), pixels(30)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name(dbg));
+        };
+
+        if (m.doc) {
+            // ONE FILE: its name, the editor, Save / Discard, back to the list.
+            auto bar = bar_row(702, "settings_memory_file_bar");
+            if (small_button(bar.ent(), 1, "\xe2\x80\xb9 Files", 70, "settings_memory_back")) {
+                if (m.dirty()) {
+                    m.error = "Save or discard this edit first.";
+                } else {
+                    m.doc.reset();
+                    m.draft.clear();
+                    m.notice.clear();
+                    m.error.clear();
+                }
+            }
+            div(ctx, mk(bar.ent(), 2),
+                ComponentConfig{}
+                    .with_label((m.path.empty() ? std::string() : m.path + "/") + m.doc->key +
+                                (m.dirty() ? "  \xc2\xb7  edited" : ""))
+                    .with_size(ComponentSize{pixels(w - 80.0f), pixels(24)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("settings_memory_file_name"));
+            auto box = div(ctx, mk(parent, 703),
+                hanabi::surface::field(w, 11)
+                    .with_size(ComponentSize{pixels(w), pixels(240)})
+                    .with_border(theme::border_raised(), pixels(1.0f))
+                    .with_debug_name("settings_memory_editor_wrap"));
+            afterhours::ui::imm::text_area(
+                ctx, mk(box.ent(), 1), m.draft,
+                ComponentConfig{}
+                    .with_line_height(pixels(18.0f))
+                    .with_max_lines(400)
+                    .with_submit_on_enter(false)
+                    .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_disabled(m.doc->linked || m.doc->version.empty())
+                    .with_debug_name("settings_memory_editor"));
+            auto actions = bar_row(704, "settings_memory_actions");
+            if (small_button(actions.ent(), 1, m.busy() ? "Saving\xe2\x80\xa6" : "Save", 90,
+                             "settings_memory_save", m.can_save()))
+                m.requestSave = true;
+            if (small_button(actions.ent(), 2, "Discard", 90, "settings_memory_discard",
+                             m.dirty() && !m.busy())) {
+                m.draft = m.doc->content;
+                m.error.clear();
+            }
+        } else {
+            // THE FOLDER: up, its folders, its files, and a new file.
+            auto bar = bar_row(705, "settings_memory_folder_bar");
+            if (!m.path.empty() &&
+                small_button(bar.ent(), 1, "\xe2\x80\xb9 Up", 60, "settings_memory_up")) {
+                m.requestList = true;
+                m.requestListPath = api::memory::parent_of(m.path);
+            }
+            div(ctx, mk(bar.ent(), 2),
+                ComponentConfig{}
+                    .with_label(m.path.empty() ? std::string("Memory") : "Memory / " + m.path)
+                    .with_size(ComponentSize{pixels(w - 70.0f), pixels(24)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("settings_memory_path"));
+            int k = 0;
+            const auto entry = [&](const std::string& label, const std::string& tail,
+                                   const std::string& dbg) {
+                auto r = button(ctx, mk(parent, 720 + k++),
+                    hanabi::surface::option_row(w, 28.0f, false, 6)
+                        .with_label(label + (tail.empty() ? "" : "   " + tail))
+                        .with_custom_text_color(theme::text_primary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name(dbg));
+                return static_cast<bool>(r);
+            };
+            for (const std::string& dir : m.folders)
+                if (entry(api::memory::folder_name(dir) + "/", "", "settings_memory_folder_" +
+                                                                       api::memory::folder_name(dir))) {
+                    m.requestList = true;
+                    m.requestListPath = dir;
+                }
+            for (const auto& f : m.files) {
+                std::string tail;
+                if (f.linked) tail = "linked";
+                else if (f.bytes >= 0) tail = std::to_string(f.bytes) + " bytes";
+                if (entry(f.key, tail, "settings_memory_file_" + f.key)) m.requestOpenKey = f.key;
+            }
+            if (m.listed && m.files.empty() && m.folders.empty())
+                line(706, "No memory files here yet.", theme::text_faint(),
+                     "settings_memory_empty");
+            line(711, "New file name", theme::text_secondary(), "settings_memory_new_caption", 18.0f);
+            auto create = bar_row(707, "settings_memory_create");
+            auto fieldChrome = hanabi::surface::field(w - 120.0f, 11);
+            fieldChrome.with_border(theme::border_raised(), pixels(1.0f));
+            auto name = hanabi::ui::edged_text_input(
+                ctx, mk(create.ent(), 1), app.memoryNewKeyDraft, fieldChrome,
+                "settings_memory_new_name",
+                hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio);
+            hanabi::a11y::set_name(name.ent(), "New memory file name");
+            if (small_button(create.ent(), 2, "New file", 100, "settings_memory_create_button",
+                             !app.memoryNewKeyDraft.empty() && !m.busy())) {
+                m.requestCreateKey = app.memoryNewKeyDraft;
+                app.memoryNewKeyDraft.clear();
+            }
+        }
+        const bool err = !m.error.empty();
+        line(708,
+             err ? m.error
+                 : (!m.notice.empty() ? m.notice
+                                      : (m.busy() ? std::string("Working\xe2\x80\xa6")
+                                                  : std::string("Files the agent reads as "
+                                                                "memory, kept with your account."))),
+             err ? theme::destructive() : theme::text_faint(), "settings_memory_note");
+        if (err && !m.listed && !m.busy() &&
+            small_button(parent, 709, "Try again", 100, "settings_memory_retry")) {
+            m.error.clear();
+            m.requestList = true;
+            m.requestListPath = m.path;
+        }
+    }
+
     void render_templates_row(UIContext<InputAction>& ctx, Entity& parent,
                               AppComponent& app) {
         row_name(ctx, parent, 610, "Saved templates", "settings_templates_label");
@@ -3902,7 +4134,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 // row looks and behaves the same in both places and there is one selection.
 inline void render_settings_pane_list(UIContext<InputAction>& ctx,
                                       Entity& parent, AppComponent& app,
-                                      float width, bool rail) {
+                                      float width, bool rail, float height) {
     SettingsSystem host;
     if (app.settingsPane.empty())
         app.settingsPane =
@@ -3923,7 +4155,7 @@ inline void render_settings_pane_list(UIContext<InputAction>& ctx,
     // General. No pane row is focused while searching.
     const bool searching = !cat::normalize_query(app.settingsQuery).empty();
     host.render_nav(ctx, parent, app, cat::pane_from_slug(app.settingsPane),
-                    width, 0.0f, rail, searching ? none : live,
+                    width, height, rail, searching ? none : live,
                     /*hosted=*/true);
     hosted_focus_anchor() = host.focusAnchor_;
 }

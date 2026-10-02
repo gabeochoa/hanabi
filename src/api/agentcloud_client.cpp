@@ -467,6 +467,86 @@ Result<InboxStateWrite> AgentcloudClient::write_snooze(const std::string& sessio
     return Result<InboxStateWrite>::success(std::move(out));
 }
 
+bool AgentcloudClient::memory_post(const std::string& body, const char* field,
+                                   nlohmann::json* out, std::string* error) {
+    if (!supports_memory()) {
+        *error = "Agent memory is not reachable from this orchestrator.";
+        return false;
+    }
+    const auto& cfg = web_auth_.config();
+    std::string auth_error;
+    const auto token = web_auth_.get(&auth_error);
+    if (token.empty()) {
+        *error = auth_error;
+        return false;
+    }
+    httplib::Client client(("http://" + cfg.host).c_str());
+    if (!cfg.proxy_host.empty() && cfg.proxy_port > 0)
+        client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
+    client.set_follow_location(false);
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(30, 0);
+    const httplib::Headers headers{
+        {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
+        {"Accept", "application/json"}};
+    auto res = client.Post(memory::kRoute, headers, body, "application/json");
+    if (!res) {
+        *error = "memory unreachable: " + httplib::to_string(res.error());
+        return false;
+    }
+    if (res->status == 401 || res->status == 403) web_auth_.invalidate();
+    if (res->status != 200) {
+        *error = "memory HTTP " + std::to_string(res->status);
+        return false;
+    }
+    return memory::unwrap(res->body, field, out, error);
+}
+
+Result<memory::Listing> AgentcloudClient::memory_list(const std::string& path) {
+    if (!memory::valid_path(path))
+        return Result<memory::Listing>::failure("That folder name is not one memory accepts.");
+    nlohmann::json v;
+    std::string error;
+    if (!memory_post(memory::list_body(path), "memex_memory_namespace", &v, &error))
+        return Result<memory::Listing>::failure(error);
+    auto listing = memory::parse_listing(v, path);
+    if (!listing) return Result<memory::Listing>::failure("the memory listing was unreadable");
+    return Result<memory::Listing>::success(std::move(*listing));
+}
+
+Result<memory::Document> AgentcloudClient::memory_read(const std::string& path,
+                                                       const std::string& key) {
+    if (!memory::valid_path(path) || !memory::valid_key(key))
+        return Result<memory::Document>::failure("That file name is not one memory accepts.");
+    nlohmann::json v;
+    std::string error;
+    if (!memory_post(memory::read_body(path, key), "memex_memory", &v, &error))
+        return Result<memory::Document>::failure(error);
+    auto doc = memory::parse_document(v, path, key);
+    if (!doc) return Result<memory::Document>::failure("the memory file was unreadable");
+    return Result<memory::Document>::success(std::move(*doc));
+}
+
+Result<memory::Document> AgentcloudClient::memory_write(const std::string& path,
+                                                        const std::string& key,
+                                                        const std::string& content,
+                                                        const std::string& version) {
+    if (!memory::valid_path(path) || !memory::valid_key(key))
+        return Result<memory::Document>::failure("That file name is not one memory accepts.");
+    if (content.size() > memory::kMaxBytes)
+        return Result<memory::Document>::failure(
+            "Memory files must be UTF-8 text no larger than 256 KiB.");
+    nlohmann::json v;
+    std::string error;
+    if (!memory_post(memory::write_body(path, key, content, version), "memex_memory_write", &v,
+                     &error))
+        return Result<memory::Document>::failure(error);
+    auto doc = memory::parse_document(v, path, key);
+    if (!doc || doc->content != content)
+        return Result<memory::Document>::failure("the saved memory file did not come back as sent");
+    return Result<memory::Document>::success(std::move(*doc));
+}
+
 AgentcloudClient::~AgentcloudClient() = default;
 
 std::string AgentcloudClient::backend_label() const { return "agentcloud"; }

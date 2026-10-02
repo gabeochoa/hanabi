@@ -36,7 +36,8 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # One allowed site per line: "<path>|<reason>". A site with no reason is a
 # failure even when the path is right -- "why is this allowed" has to survive
 # the person who added it.
-COMPOSER_FIELDS="src/ecs/main_pane_system.h|the one composer; every New Thread entry point reaches this field"
+COMPOSER_FIELDS="src/ecs/main_pane_system.h|the one composer; every New Thread entry point reaches this field
+src/ecs/settings_system.h|Settings > Memory's file editor: edits a memory file, sends nothing, starts nothing"
 
 STAGE_CALLERS="src/ecs/attachment_intake_system.h|the one intake: picker, paste and drop all drain here
 src/ecs/main_pane_system.h|HANABI_ATTACH_DEMO, a screenshot hook that stages a fixture and never runs unset
@@ -144,6 +145,9 @@ auto inputRes = afterhours::ui::imm::text_area(ctx, mk(row, 1), draft);
 auto staged = api::attachments::stage(a);
 app.request_kickoff(std::move(message));
 escapeIn.attachments.push_back(staged.name);
+EOF
+    cat > "$dir/src/ecs/settings_system.h" <<'EOF'
+afterhours::ui::imm::text_area(ctx, mk(box.ent(), 1), m.draft, cfg);
 EOF
     cat > "$dir/src/ecs/components.h" <<'EOF'
 void request_kickoff(api::OutgoingMessage message) { requestKickoff = std::move(message); }

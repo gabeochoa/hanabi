@@ -1,0 +1,13 @@
+# Settings > Memory when the memory service refuses: one plain sentence, not
+# the server's words, and a Try again that asks once more.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"memory"}
+# env: HANABI_TEST_OVERLAY=settings HANABI_MOCK_MEMORY_FAIL=1
+
+wait_frames 20
+expect_text "Couldn't load your memory files right now"
+expect_no_text "503"
+assert_ui settings_memory_retry hidden=false
+click_ui settings_memory_retry
+wait_frames 15
+expect_text "Couldn't load your memory files right now"

@@ -146,7 +146,20 @@ class AgentcloudClient : public Client {
                                          std::optional<int64_t> snoozed_until_sec) override;
     void seed_web_token(agentcloud::Token token);
 
+    // Agent memory rides the web app's GraphQL route on the same web
+    // credential as the inbox state.
+    bool supports_memory() const override { return supports_inbox_state(); }
+    Result<memory::Listing> memory_list(const std::string& path) override;
+    Result<memory::Document> memory_read(const std::string& path,
+                                         const std::string& key) override;
+    Result<memory::Document> memory_write(const std::string& path, const std::string& key,
+                                          const std::string& content,
+                                          const std::string& version) override;
+
    private:
+    // One POST to the web app's /api/graphql, opened down to `field`.
+    bool memory_post(const std::string& body, const char* field, nlohmann::json* out,
+                     std::string* error);
     // One artifact read with the given credential (fetch_artifact retries a
     // refused one once through this).
     Result<ArtifactContent> fetch_artifact_with(const std::string& session_id,

@@ -243,7 +243,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (app->showSettings && hosts_settings(r.width)) {
             render_settings_search(ctx, panel.ent(), *app, r.width);
             spacer(ctx, panel.ent(), 9, kSbListGap);
-            render_settings_pane_list(ctx, panel.ent(), *app, r.width, false);
+            // The pane list scrolls inside what is left above the footer:
+            // eleven panes and four headings outgrow a 760-pt window.
+            const float navH = std::max(
+                40.0f, r.height - scroll_top_offset(viewsOpen) - kSbFooterH);
+            render_settings_pane_list(ctx, panel.ent(), *app, r.width, false, navH);
             render_footer(ctx, panel.ent(), *app, r);
             render_row_menu(ctx, uiRoot, *app);
             return;

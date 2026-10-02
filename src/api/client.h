@@ -23,6 +23,7 @@
 #include <string>
 
 #include "halt_state.h"
+#include "memory_wire.h"
 #include "types.h"
 
 namespace api {
@@ -861,6 +862,31 @@ class Client {
         (void)ref;
         return Result<ArtifactContent>::failure(
             "This backend does not serve artifact bytes.");
+    }
+
+    // AGENT MEMORY (api/memory_wire.h): the viewer's personal memory files, a
+    // folder at a time. Every call blocks; the UI runs them off the frame.
+    virtual bool supports_memory() const { return false; }
+    virtual Result<memory::Listing> memory_list(const std::string& path) {
+        (void)path;
+        return Result<memory::Listing>::failure("This backend has no agent memory.");
+    }
+    virtual Result<memory::Document> memory_read(const std::string& path,
+                                                 const std::string& key) {
+        (void)path;
+        (void)key;
+        return Result<memory::Document>::failure("This backend has no agent memory.");
+    }
+    // `version` "" creates a new file; otherwise it edits exactly that version.
+    virtual Result<memory::Document> memory_write(const std::string& path,
+                                                  const std::string& key,
+                                                  const std::string& content,
+                                                  const std::string& version) {
+        (void)path;
+        (void)key;
+        (void)content;
+        (void)version;
+        return Result<memory::Document>::failure("This backend has no agent memory.");
     }
 
     virtual bool supports_inbox_state() const { return false; }
