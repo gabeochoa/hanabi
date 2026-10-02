@@ -126,6 +126,20 @@ inline std::uint8_t shortcut_modifiers() {
 }
 
 inline bool shortcut_pressed(hanabi::shortcuts::Shortcut shortcut) {
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+    // The e2e Ctrl-as-Cmd alias never applies to Tab: Cmd Tab belongs to
+    // macOS and no command may hold it (shortcuts::validate refuses it), so a
+    // scripted Ctrl Tab can only mean Control Tab -- and must, or the Next Tab
+    // chord could not be driven at all.
+    if (shortcut.key == afterhours::keys::TAB) {
+        std::uint8_t raw = 0;
+        if (cmd_down()) raw |= hanabi::shortcuts::CommandModifier;
+        if (shift_down()) raw |= hanabi::shortcuts::ShiftModifier;
+        if (option_down()) raw |= hanabi::shortcuts::OptionModifier;
+        if (ctrl_down()) raw |= hanabi::shortcuts::ControlModifier;
+        return shortcut.modifiers == raw && pressed(shortcut.key);
+    }
+#endif
     return shortcut.modifiers == shortcut_modifiers() && pressed(shortcut.key);
 }
 

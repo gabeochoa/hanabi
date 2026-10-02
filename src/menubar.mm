@@ -339,6 +339,16 @@ static void install_main_menu() {
         [windowMenu addItem:command_item(
                                 hanabi::shortcuts::command_for_tab_slot(slot))];
     [windowMenu addItem:[NSMenuItem separatorItem]];
+    // The reference's six rows, in its order: step (stops at the ends), then
+    // the two wrapping cycles.
+    for (const auto command : {hanabi::shortcuts::Command::ShowPreviousTab,
+                               hanabi::shortcuts::Command::ShowNextTab,
+                               hanabi::shortcuts::Command::CycleTabsBackward,
+                               hanabi::shortcuts::Command::CycleTabsForward,
+                               hanabi::shortcuts::Command::PreviousTab,
+                               hanabi::shortcuts::Command::NextTab})
+        [windowMenu addItem:command_item(command)];
+    [windowMenu addItem:[NSMenuItem separatorItem]];
     [windowMenu addItem:item(@"Bring All to Front", @selector(arrangeInFront:), @"", nil)];
     windowRoot.submenu = windowMenu;
     [g_main_menu addItem:windowRoot];

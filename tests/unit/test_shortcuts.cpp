@@ -160,6 +160,73 @@ static void test_zoom_in_alone_takes_a_shifted_alias_on_its_default_binding() {
     CHECK(tab_slot_for(Command::ZoomActual) == 0);
 }
 
+static void test_relative_tab_moves_follow_the_reference() {
+    using namespace hanabi::shortcuts;
+    using namespace afterhours::keys;
+    // The six rows and their reference chords.
+    CHECK(definition(Command::ShowPreviousTab).shortcut ==
+          (Shortcut{LEFT_BRACKET, CommandModifier}));
+    CHECK(definition(Command::ShowNextTab).shortcut ==
+          (Shortcut{RIGHT_BRACKET, CommandModifier}));
+    CHECK(definition(Command::CycleTabsBackward).shortcut ==
+          (Shortcut{LEFT, static_cast<std::uint8_t>(CommandModifier | OptionModifier)}));
+    CHECK(definition(Command::CycleTabsForward).shortcut ==
+          (Shortcut{RIGHT, static_cast<std::uint8_t>(CommandModifier | OptionModifier)}));
+    CHECK(definition(Command::PreviousTab).shortcut ==
+          (Shortcut{TAB, static_cast<std::uint8_t>(ControlModifier | ShiftModifier)}));
+    CHECK(definition(Command::NextTab).shortcut ==
+          (Shortcut{TAB, ControlModifier}));
+
+    // Show stops at the ends; both cycles wrap.
+    CHECK(tab_step_for(Command::ShowNextTab).delta == 1);
+    CHECK(!tab_step_for(Command::ShowNextTab).wraps);
+    CHECK(tab_step_for(Command::ShowPreviousTab).delta == -1);
+    CHECK(tab_step_for(Command::CycleTabsForward).wraps);
+    CHECK(tab_step_for(Command::NextTab).wraps);
+    CHECK(tab_step_for(Command::PreviousTab).delta == -1);
+    CHECK(tab_step_for(Command::SelectTab1).delta == 0);
+    CHECK(tab_slot_for(Command::NextTab) == 0);
+
+    const TabStep next{1, false}, prev{-1, false};
+    const TabStep cycleNext{1, true}, cyclePrev{-1, true};
+    CHECK(tab_index_after_step(0, 4, next) == 1);
+    CHECK(tab_index_after_step(3, 4, next) == -1);      // end: stays put
+    CHECK(tab_index_after_step(0, 4, prev) == -1);
+    CHECK(tab_index_after_step(3, 4, cycleNext) == 0);  // end: wraps
+    CHECK(tab_index_after_step(0, 4, cyclePrev) == 3);
+    CHECK(tab_index_after_step(2, 4, cyclePrev) == 1);
+    // One tab, no tab, or no current tab: nothing to land on.
+    CHECK(tab_index_after_step(0, 1, cycleNext) == -1);
+    CHECK(tab_index_after_step(0, 0, cycleNext) == -1);
+    CHECK(tab_index_after_step(-1, 4, cycleNext) == -1);
+
+    // AppKit spells Shift Tab as backtab; arrows are function-key characters.
+    CHECK(native_key_equivalent(definition(Command::NextTab).shortcut) == "\t");
+    CHECK(native_key_equivalent(definition(Command::PreviousTab).shortcut) == "\x19");
+    CHECK(native_key_equivalent(definition(Command::CycleTabsForward).shortcut) ==
+          "\xef\x9c\x83");
+}
+
+static void test_control_tab_is_the_only_commandless_chord() {
+    using namespace hanabi::shortcuts;
+    using namespace afterhours::keys;
+    auto bindings = defaults();
+    // Admitted for its own command, refused as a duplicate elsewhere.
+    CHECK(validate(Command::NextTab, Shortcut{TAB, ControlModifier}, bindings).ok);
+    const auto taken =
+        validate(Command::OpenPalette, Shortcut{TAB, ControlModifier}, bindings);
+    CHECK(!taken.ok);
+    CHECK(taken.explanation.find("Next Tab") != std::string::npos);
+    // Nothing else drops Command: not Ctrl on a letter, not Opt on Tab.
+    CHECK(!validate(Command::OpenPalette, Shortcut{A, ControlModifier}, bindings).ok);
+    CHECK(!validate(Command::NextTab,
+                    Shortcut{TAB, static_cast<std::uint8_t>(ControlModifier | OptionModifier)},
+                    bindings).ok);
+    CHECK(!validate(Command::NextTab, Shortcut{TAB, 0}, bindings).ok);
+    // Cmd Tab stays the system's.
+    CHECK(!validate(Command::NextTab, Shortcut{TAB, CommandModifier}, bindings).ok);
+}
+
 int main() {
     test_defaults_are_unique_and_valid();
     test_serialization_round_trips();
@@ -170,6 +237,8 @@ int main() {
     test_tab_index_for_slot_covers_short_strips();
     test_tab_chords_clear_the_reserved_list();
     test_zoom_in_alone_takes_a_shifted_alias_on_its_default_binding();
+    test_relative_tab_moves_follow_the_reference();
+    test_control_tab_is_the_only_commandless_chord();
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

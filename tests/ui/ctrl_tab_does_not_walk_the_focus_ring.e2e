@@ -1,0 +1,33 @@
+# Ctrl Tab is the Next Tab chord and nothing else. The focus ring is bound to
+# a BARE Tab, and the library matches a bare binding under any modifiers
+# (afterhours_gaps.md #608), so without the explicit Ctrl+Tab claim in
+# input_mapping.h the chord would also walk focus out of the composer.
+#
+# One tab, so Next Tab has nowhere to go and cannot move focus itself: if
+# the caret leaves the composer here, the ring took the key.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+
+require_thread t1
+wait_frames 20
+click_ui composer_reply_input
+wait_frames 10
+expect_focused composer_reply_input
+
+key CTRL+TAB
+wait_frames 20
+expect_focused composer_reply_input
+require_thread t1
+
+key CTRL+SHIFT+TAB
+wait_frames 20
+expect_focused composer_reply_input
+
+# And the chord typed nothing into the field it left alone.
+expect_input_text composer_reply_input ""
+
+# Control: a bare Tab still walks the ring, so the field above held focus
+# because of the claim, not because the ring is broken.
+key TAB
+wait_frames 20
+expect_not_focused composer_reply_input

@@ -14396,3 +14396,23 @@ CLASS: UI / MISSING
 **Ask.** Qualify the four calls with `afterhours::` (or route them through `graphics::` and include `graphics.h` where the ui plugin is compiled without a backend), and add a Metal build to the library's own checks so a plugin that compiles under raylib is not taken as compiling everywhere.
 
 CLASS: BUILD / WRONG
+
+---
+
+### #608 — a key binding cannot say "these modifiers and no others": a bare key matches under ANY modifiers and an explicit chord matches any SUPERSET, so a modified chord also fires the plain binding on the same key
+
+**Class:** INPUT / MISSING (`plugins/input_system.h` `check_single_action_impl` :1015-1021, `suppress_permissive_duplicates` :1071; pin c1d0e0b).
+
+**What happens.** A `KeyChord` built from a bare key (`KeyChord(TAB)`) sets `has_explicit_modifiers = false`, and the matcher then accepts the key whatever modifiers are down. One built with modifiers matches when `(current & required) == required`, so `Cmd+Left` also matches `Cmd+Opt+Left`. There is no third form for "exactly these". The only guard is `suppress_permissive_duplicates`, which drops a bare-key action when some OTHER action's explicit chord claimed the same key in the same frame; it never separates two explicit chords, and it does nothing when the modified chord is handled outside the library's action table, which is where an app's own shortcuts live.
+
+**How Hanabi hit it.** Porting the reference's tab chords (Puffin 0.8.4: Ctrl Tab / Ctrl Shift Tab cycle tabs, Cmd Opt Left/Right cycle too). The focus ring is `WidgetNext` on a bare `TAB` (`src/input_mapping.h`), so Ctrl Tab, handled by Hanabi's shortcut table, also walked focus out of the composer. And `TextHome` is `Cmd+Left`, `TextWordLeft` is `Opt+Left`, so a scripted Cmd Opt Left in a focused field also moves the caret, twice over. (Natively the menu's key equivalent consumes Cmd Opt Left before the view sees it; sokol's `performKeyEquivalent:` answers Tab itself, so Ctrl Tab does reach the library.)
+
+**Workaround.** For Tab: bind an otherwise unused action, `InputAction::TabChordGuard`, to `KeyChord{TAB, CTRL}`. Its explicit claim makes `suppress_permissive_duplicates` drop the bare-Tab `WidgetNext` for that frame. Pinned by `tests/ui/ctrl_tab_does_not_walk_the_focus_ring.e2e` (one tab, so Next Tab cannot move focus itself; a bare Tab afterwards still walks the ring). For the superset case there is no app-side guard, so the arrow chords rely on the native menu consuming them.
+
+**Ask.** An exact-modifier chord form, e.g. `KeyChord::exactly(key, mods)` matching `current == mods`. Or a flag on a bare binding meaning "no modifiers", so the focus ring can be "Tab, or Shift Tab, and nothing else" without the app having to know which other chords exist.
+
+**Upstream acceptance test.** Bind A to bare TAB and B to `exactly(TAB, CTRL)`. Hold Ctrl and press Tab: only B fires. Press bare Tab: only A fires. Bind C to `exactly(LEFT, SUPER)`, hold Super and Alt, press Left: C does not fire.
+
+**Hanabi reference.** `src/input_mapping.h` (`InputAction::TabChordGuard`), `src/keys.h` (`shortcut_pressed`, the Tab exemption from the e2e Ctrl-as-Cmd alias), `tests/ui/ctrl_tab_does_not_walk_the_focus_ring.e2e`.
+
+CLASS: INPUT / MISSING

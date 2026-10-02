@@ -40,6 +40,14 @@ enum class Command : int {
     SelectTab7,
     SelectTab8,
     SelectTab9,
+    // Relative tab moves, the reference's Window menu rows in its order. The
+    // Show pair steps and stops at either end; the two Cycle pairs wrap.
+    ShowPreviousTab,
+    ShowNextTab,
+    CycleTabsBackward,
+    CycleTabsForward,
+    PreviousTab,
+    NextTab,
     Count,
 };
 
@@ -246,6 +254,45 @@ inline constexpr std::array<Definition,
          "Window",
          {afterhours::keys::NINE, CommandModifier},
          false},
+        {Command::ShowPreviousTab,
+         "show_previous_tab",
+         "Show Previous Tab",
+         "Window",
+         {afterhours::keys::LEFT_BRACKET, CommandModifier},
+         false},
+        {Command::ShowNextTab,
+         "show_next_tab",
+         "Show Next Tab",
+         "Window",
+         {afterhours::keys::RIGHT_BRACKET, CommandModifier},
+         false},
+        {Command::CycleTabsBackward,
+         "cycle_tabs_backward",
+         "Cycle Tabs Backward",
+         "Window",
+         {afterhours::keys::LEFT,
+          static_cast<std::uint8_t>(CommandModifier | OptionModifier)},
+         false},
+        {Command::CycleTabsForward,
+         "cycle_tabs_forward",
+         "Cycle Tabs Forward",
+         "Window",
+         {afterhours::keys::RIGHT,
+          static_cast<std::uint8_t>(CommandModifier | OptionModifier)},
+         false},
+        {Command::PreviousTab,
+         "previous_tab",
+         "Previous Tab",
+         "Window",
+         {afterhours::keys::TAB,
+          static_cast<std::uint8_t>(ControlModifier | ShiftModifier)},
+         false},
+        {Command::NextTab,
+         "next_tab",
+         "Next Tab",
+         "Window",
+         {afterhours::keys::TAB, ControlModifier},
+         false},
     }};
 
 using Bindings = std::array<Shortcut, kDefinitions.size()>;
@@ -283,6 +330,44 @@ inline constexpr int tab_slot_for(Command command) {
     const int first = static_cast<int>(Command::SelectTab1);
     if (at < first || at > static_cast<int>(Command::SelectTab9)) return 0;
     return at - first + 1;
+}
+
+// A relative tab move: how far, and whether running off an end comes round to
+// the other one. delta 0 for every command that is not a relative move.
+struct TabStep {
+    int delta = 0;
+    bool wraps = false;
+};
+
+inline constexpr TabStep tab_step_for(Command command) {
+    switch (command) {
+        case Command::ShowPreviousTab:
+            return {-1, false};
+        case Command::ShowNextTab:
+            return {1, false};
+        case Command::CycleTabsBackward:
+        case Command::PreviousTab:
+            return {-1, true};
+        case Command::CycleTabsForward:
+        case Command::NextTab:
+            return {1, true};
+        default:
+            return {};
+    }
+}
+
+// Where a relative move from `at` lands on a strip of `count`, or -1 when it
+// lands nowhere new: no strip, no current tab, a single tab, or a
+// non-wrapping step already at that end. "Nowhere new" is -1 rather than `at`
+// so the caller never re-commits the tab it is already on.
+inline constexpr int tab_index_after_step(int at, int count, TabStep step) {
+    if (count <= 1 || at < 0 || at >= count || step.delta == 0) return -1;
+    int next = at + step.delta;
+    if (next < 0 || next >= count) {
+        if (!step.wraps) return -1;
+        next = ((next % count) + count) % count;
+    }
+    return next == at ? -1 : next;
 }
 
 inline constexpr Command command_for_tab_slot(int slot) {
@@ -479,7 +564,13 @@ inline Validation validate(Command command, Shortcut candidate,
     using namespace afterhours::keys;
     if (candidate.empty())
         return {false, "Press a letter, number, or supported key."};
-    if ((candidate.modifiers & CommandModifier) == 0)
+    // Ctrl Tab (and Ctrl Shift Tab) is the one Command-less chord admitted:
+    // it types nothing and moves nothing a text field owns, and it is the
+    // tab chord every browser and the reference answer.
+    const bool controlTab =
+        candidate.key == TAB && (candidate.modifiers & ControlModifier) != 0 &&
+        (candidate.modifiers & (CommandModifier | OptionModifier)) == 0;
+    if ((candidate.modifiers & CommandModifier) == 0 && !controlTab)
         return {
             false,
             "Include Command so normal typing and navigation stay unchanged."};
@@ -571,6 +662,20 @@ inline std::string native_key_equivalent(Shortcut shortcut) {
             return "]";
         case GRAVE:
             return "`";
+        // AppKit matches a key equivalent against the characters the key
+        // produced: Shift Tab produces backtab (U+0019), not Tab, so an item
+        // carrying "\t" with Shift would never match.
+        case TAB:
+            return (shortcut.modifiers & ShiftModifier) ? "\x19" : "\t";
+        // NSLeftArrowFunctionKey .. NSDownArrowFunctionKey, as UTF-8.
+        case LEFT:
+            return "\xef\x9c\x82";
+        case RIGHT:
+            return "\xef\x9c\x83";
+        case UP:
+            return "\xef\x9c\x80";
+        case DOWN:
+            return "\xef\x9c\x81";
         default:
             return "";
     }

@@ -116,6 +116,34 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // Relative moves (Cmd [ / Cmd ], Cmd Opt arrows, Ctrl Tab), against
+        // the same rendered order as the slots. "Here" is the tab the FOCUSED
+        // pane shows, so a split steps the pane the reader is in; the landing
+        // tab then opens exactly the way a click on it would.
+        if (app.requestTabStep != 0) {
+            const hanabi::shortcuts::TabStep step{app.requestTabStep,
+                                                  app.requestTabStepWraps};
+            app.requestTabStep = 0;
+            app.requestTabStepWraps = false;
+            const int count = static_cast<int>(strip.tabOrder.size());
+            int here = -1;
+            int activeAt = -1;
+            for (int i = 0; i < count; ++i) {
+                auto opt = EntityHelper::getEntityForID(
+                    strip.tabOrder[static_cast<size_t>(i)]);
+                if (!opt.valid() || !opt->has<Tab>()) continue;
+                if (opt->get<Tab>().sessionId == app.pane().selectedId) here = i;
+                if (opt->has<ActiveTab>()) activeAt = i;
+            }
+            if (here < 0) here = activeAt;
+            const int at = hanabi::shortcuts::tab_index_after_step(here, count, step);
+            if (at >= 0) {
+                auto opt = EntityHelper::getEntityForID(
+                    strip.tabOrder[static_cast<size_t>(at)]);
+                if (opt.valid() && opt->has<Tab>()) switch_to_tab(app, opt.asE());
+            }
+        }
+
         const auto& r = layout.tabStrip;
         if (r.height <= 0.0f || r.width <= 0.0f) return;
 

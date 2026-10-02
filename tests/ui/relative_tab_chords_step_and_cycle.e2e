@@ -1,0 +1,61 @@
+# The reference's relative tab chords (Puffin 0.8.4): Cmd [ and Cmd ] step
+# along the strip and STOP at either end; Cmd Opt Left/Right and Ctrl Tab /
+# Ctrl Shift Tab cycle and WRAP. All six resolve against the strip's rendered
+# order, the same order Cmd 1..9 counts in, so a pinned tab is stepped over
+# like any other.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4"],"active_tab":"t1","pinned_tabs":["t2"],"theme":"dark"}
+
+require_thread t1
+wait_frames 20
+
+# Show Previous at the first tab goes nowhere: a step is not a cycle.
+key CMD+LEFT_BRACKET
+wait_frames 24
+require_thread t1
+
+# Show Next walks right, through the pinned t2, and stops at the last tab.
+key CMD+RIGHT_BRACKET
+wait_frames 24
+require_thread t2
+key CMD+RIGHT_BRACKET
+wait_frames 24
+require_thread t3
+key CMD+RIGHT_BRACKET
+wait_frames 24
+require_thread t4
+key CMD+RIGHT_BRACKET
+wait_frames 24
+require_thread t4
+
+# Cycle Forward from the last tab comes round to the first...
+key CMD+ALT+RIGHT
+wait_frames 24
+require_thread t1
+# ...and Cycle Backward from the first goes round to the last.
+key CMD+ALT+LEFT
+wait_frames 24
+require_thread t4
+key CMD+ALT+LEFT
+wait_frames 24
+require_thread t3
+
+# Ctrl Tab is the same wrapping cycle on the browser chord.
+key CMD+RIGHT_BRACKET
+wait_frames 24
+require_thread t4
+key CTRL+TAB
+wait_frames 24
+require_thread t1
+key CTRL+SHIFT+TAB
+wait_frames 24
+require_thread t4
+
+# A select, never an open: four tabs went in and four are still here, so the
+# last slot is still t4 and the first is still t1.
+key CMD+1
+wait_frames 24
+require_thread t1
+key CMD+9
+wait_frames 24
+require_thread t4

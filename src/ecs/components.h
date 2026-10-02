@@ -819,6 +819,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // otherwise. Resolved by TabBarSystem, which is the only thing that knows
     // the tab order.
     int requestSelectTabSlot = 0;
+    // A relative tab move waiting for the strip: -1 / +1, 0 when none.
+    // Wraps for the two Cycle pairs, stops at the ends for Show Previous /
+    // Show Next. Resolved by TabBarSystem beside the slot above.
+    int requestTabStep = 0;
+    bool requestTabStepWraps = false;
     // The threads whose tabs were closed, newest last. Bounded, because an
     // unbounded undo stack is a leak with a friendly name; ten is well past
     // what anyone reaches for and the whole list is a few short strings.

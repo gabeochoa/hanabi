@@ -54,6 +54,12 @@ enum class InputAction {
     TextDeleteWordBack,
     TextDeleteWordForward,
     MenuBack,
+    // Bound to Ctrl+Tab and handled by nothing. It exists so the library's
+    // suppress_permissive_duplicates sees an explicit chord claim the Tab key
+    // and drops the bare-Tab WidgetNext: a bare binding matches under ANY
+    // modifiers (afterhours_gaps.md #608), so without this the Next Tab chord
+    // would also move the focus ring.
+    TabChordGuard,
     // Will be extended by T040 (keyboard navigation)
 };
 
@@ -121,6 +127,7 @@ inline afterhours::input::ProvidesInputMapping::GameMapping key_mapping() {
     // favour of this branch and both features survive.
     bind(InputAction::WidgetNext, {keys::TAB});
     bind(InputAction::WidgetMod, {keys::LEFT_SHIFT, keys::RIGHT_SHIFT});
+    bind(InputAction::TabChordGuard, {KeyChord{keys::TAB, CTRL}});
 
     // Line ends. HOME/END keep working for anyone on a full keyboard; Cmd+
     // Arrow is what a Mac laptop actually has. TextHome/TextEnd run through

@@ -95,6 +95,17 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
         case Command::SelectTab9:
             app.requestSelectTabSlot = hanabi::shortcuts::tab_slot_for(command);
             break;
+        case Command::ShowPreviousTab:
+        case Command::ShowNextTab:
+        case Command::CycleTabsBackward:
+        case Command::CycleTabsForward:
+        case Command::PreviousTab:
+        case Command::NextTab: {
+            const auto step = hanabi::shortcuts::tab_step_for(command);
+            app.requestTabStep = step.delta;
+            app.requestTabStepWraps = step.wraps;
+            break;
+        }
         case Command::Count:
             break;
     }
