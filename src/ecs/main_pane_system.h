@@ -60,6 +60,7 @@
 #include "../ui/inline_image.h"
 #include "../ui/slash_commands.h"
 #include "../ui/composer_templates.h"
+#include "../api/session_changes.h"
 #include "../ui/syntax_highlighter.h"
 #include "../ui/model_menu.h"
 #include "../ui/effort_menu.h"
@@ -1545,6 +1546,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     bool modelPopoverWasOpen_ = false;
     bool contextPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
+    bool changesPopoverWasOpen_ = false;
+    // The files-changed fold for the session the strip shows, kept until a
+    // tool row it reads changes (changes_for).
+    struct ChangesMemo {
+        std::string sessionId;
+        std::size_t signature = 0;
+        std::vector<api::changes::File> files;
+    } changesMemo_;
     struct AskRowId {
         const std::string* question;
         const std::string* option;
@@ -7345,6 +7354,249 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // The files this session changed, re-folded only when an edit/write row
+    // changed: the signature walks the rows (no allocation) and the parse runs
+    // when it moves.
+    const std::vector<api::changes::File>& changes_for(const api::Session& session) {
+        std::size_t sig = session.messages.size();
+        for (std::size_t i = 0; i < session.messages.size(); ++i) {
+            const api::Message& m = session.messages[i];
+            if (m.tool_input.empty()) continue;
+            sig = sig * 1000003u + i * 31u + m.tool_input.size() * 7u +
+                  m.tool_status.size();
+        }
+        if (changesMemo_.sessionId != session.summary.id ||
+            changesMemo_.signature != sig) {
+            std::vector<api::changes::Call> calls;
+            for (const api::Message& m : session.messages) {
+                if (m.tool_input.empty()) continue;
+                calls.push_back({m.subtitle, m.tool_input, m.tool_status == "completed",
+                                 m.tool_node});
+            }
+            changesMemo_.files = api::changes::fold(calls);
+            changesMemo_.sessionId = session.summary.id;
+            changesMemo_.signature = sig;
+        }
+        return changesMemo_.files;
+    }
+
+    // The files-changed panel: the list (name, folder, +adds -dels), and one
+    // file's edits as diffs with context -- or its whole text, when the last
+    // write and every later edit place exactly.
+    void render_changes_popover(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app, Entity& anchorEnt,
+                                const std::vector<api::changes::File>& files) {
+        if (files.empty()) app.changesPopoverOpen = false;
+        if (!app.changesPopoverOpen && app.changesStayOpen && !files.empty()) {
+            app.changesStayOpen = false;
+            app.changesPopoverOpen = true;
+        }
+        if (!app.changesPopoverOpen && !changesPopoverWasOpen_) return;
+        auto popRoot = mk(parent, 3450);
+        RectangleType anchor = anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        anchor.y -= 24.0f;
+        if (!app.changesPopoverOpen) {
+            afterhours::ui::imm::popover(ctx, popRoot, anchor, app.changesPopoverOpen,
+                                         afterhours::ui::overlay::Placement::Above);
+            changesPopoverWasOpen_ = false;
+            app.changesFileKey.clear();
+            app.changesShowWhole = false;
+            app.changesStayOpen = false;
+            return;
+        }
+        changesPopoverWasOpen_ = true;
+
+        const api::changes::File* file = nullptr;
+        for (const auto& f : files)
+            if (f.key == app.changesFileKey) file = &f;
+        if (file == nullptr) app.changesFileKey.clear();
+
+        constexpr float kPopW = 520.0f;
+        constexpr float kRowH = 26.0f;
+        constexpr float kLineH = 17.0f;
+        constexpr int kMaxLines = 24;
+        // What the file view draws, flattened: a header per edit when there
+        // are several, then its lines -- or the whole text.
+        struct Shown {
+            api::changes::Side side;
+            std::string text;
+            bool header = false;
+        };
+        std::vector<Shown> shown;
+        std::string whole;
+        const bool wholeKnown = file != nullptr && api::changes::whole_text(*file, &whole);
+        if (file != nullptr) {
+            if (app.changesShowWhole && wholeKnown) {
+                for (auto& l : api::changes::split_lines(whole))
+                    shown.push_back({api::changes::Side::Context, std::move(l)});
+            } else {
+                for (std::size_t k = 0; k < file->edits.size(); ++k) {
+                    if (file->edits.size() > 1)
+                        shown.push_back({api::changes::Side::Context,
+                                         "edit " + std::to_string(k + 1) + " of " +
+                                             std::to_string(file->edits.size()),
+                                         true});
+                    for (auto& l : api::changes::diff_lines(file->edits[k].oldText,
+                                                            file->edits[k].newText))
+                        shown.push_back({l.side, std::move(l.text)});
+                }
+            }
+        }
+        const int drawnLines = std::min<int>(kMaxLines, static_cast<int>(shown.size()));
+        const bool clipped = static_cast<int>(shown.size()) > drawnLines;
+        float popH = 16.0f + 28.0f;
+        if (file == nullptr)
+            popH += kRowH * static_cast<float>(files.size());
+        else
+            popH += 26.0f + kLineH * static_cast<float>(drawnLines) + (clipped ? 18.0f : 0.0f);
+
+        const auto previousSurface = ctx.theme.surface;
+        ctx.theme.surface = theme::panel_bg_2();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, popRoot, anchor, app.changesPopoverOpen,
+            afterhours::ui::overlay::Placement::Above,
+            hanabi::surface::menu(kPopW, popH, 7)
+                .with_padding(Padding{.top = pixels(8), .right = pixels(10),
+                                      .bottom = pixels(8), .left = pixels(10)})
+                .with_debug_name("changes_popover"));
+        ctx.theme.surface = previousSurface;
+        if (!pop) {
+            // Dismissed by a press that was a step inside the panel: reopen.
+            if (app.changesStayOpen) {
+                app.changesStayOpen = false;
+                app.changesPopoverOpen = true;
+            }
+            return;
+        }
+        publish_popover_occluder(pop.ent());
+
+        const auto sum = api::changes::summary(files);
+        const auto text_row = [&](int key, const std::string& label, float h,
+                                  theme::Color ink, const std::string& dbg,
+                                  float size = theme::type::SM) {
+            div(ctx, mk(pop.ent(), key),
+                ComponentConfig{}
+                    .with_label(label)
+                    .with_size(ComponentSize{percent(1.0f), pixels(h)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(ink)
+                    .with_font_size(size)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name(dbg));
+        };
+        if (file == nullptr) {
+            text_row(1, api::changes::header_label(sum) + "   " +
+                            api::changes::counts(sum.additions, sum.deletions),
+                     28.0f, theme::text_primary(), "changes_header", theme::type::BODY);
+            for (std::size_t i = 0; i < files.size(); ++i) {
+                const auto& f = files[i];
+                std::string label = f.name();
+                if (!f.directory().empty()) label += "   " + f.directory();
+                if (!f.node.empty()) label += "   \xc2\xb7 " + f.node;
+                label += "   " + api::changes::counts(f.additions(), f.deletions());
+                auto row = button(ctx, mk(pop.ent(), 20 + static_cast<int>(i)),
+                    hanabi::surface::option_row(kPopW - 20.0f, kRowH, false, 8)
+                        .with_label(label)
+                        .with_custom_text_color(theme::text_primary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("changes_file_" + std::to_string(i)));
+                // Acted on in the listener: a popover row's `if (row)` is
+                // read after the popover has already dismissed itself
+                // (act_on_press.h, afterhours_gaps #599).
+                hanabi::ui::act_on_press(row, [&app, key = f.key] {
+                    app.changesFileKey = key;
+                    app.changesShowWhole = false;
+                    app.changesStayOpen = true;
+                });
+            }
+            return;
+        }
+        auto bar = div(ctx, mk(pop.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_debug_name("changes_file_bar"));
+        auto back = button(ctx, mk(bar.ent(), 1),
+            ComponentConfig{}
+                .with_label("\xe2\x80\xb9 Files")
+                .with_size(ComponentSize{pixels(70), pixels(24)})
+                .with_transparent_bg()
+                .with_border(theme::border_raised(), pixels(1.0f))
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_corner_radius(6.0f)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_debug_name("changes_back"));
+        hanabi::ui::act_on_press(back, [&app] {
+            app.changesFileKey.clear();
+            app.changesShowWhole = false;
+            app.changesStayOpen = true;
+        });
+        div(ctx, mk(bar.ent(), 2),
+            ComponentConfig{}
+                .with_label(file->path + "   " +
+                            api::changes::counts(file->additions(), file->deletions()))
+                .with_size(ComponentSize{pixels(kPopW - 20.0f - 70.0f - (wholeKnown ? 110.0f : 0.0f)),
+                                         pixels(24)})
+                .with_margin(Margin{.left = pixels(8)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_debug_name("changes_file_path"));
+        if (wholeKnown) {
+            auto toggle = button(ctx, mk(bar.ent(), 3),
+                ComponentConfig{}
+                    .with_label(app.changesShowWhole ? "Changes" : "Whole file")
+                    .with_size(ComponentSize{pixels(100), pixels(24)})
+                    .with_transparent_bg()
+                    .with_border(theme::border_raised(), pixels(1.0f))
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_corner_radius(6.0f)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_debug_name("changes_whole_toggle"));
+            hanabi::ui::act_on_press(toggle, [&app] {
+                app.changesShowWhole = !app.changesShowWhole;
+                app.changesStayOpen = true;
+            });
+        }
+        for (int i = 0; i < drawnLines; ++i) {
+            const Shown& l = shown[static_cast<std::size_t>(i)];
+            const char* sign = l.header ? "" :
+                (l.side == api::changes::Side::Added ? "+ " :
+                 (l.side == api::changes::Side::Removed ? "\xe2\x88\x92 " : "  "));
+            const theme::Color ink =
+                l.header ? theme::text_secondary()
+                         : (l.side == api::changes::Side::Added ? theme::status_review()
+                            : (l.side == api::changes::Side::Removed ? theme::status_blocked()
+                                                                     : theme::text_primary()));
+            div(ctx, mk(pop.ent(), 100 + i),
+                ComponentConfig{}
+                    .with_label(std::string(sign) + (l.text.empty() ? " " : l.text))
+                    .with_size(ComponentSize{percent(1.0f), pixels(kLineH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(ink)
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("changes_line_" + std::to_string(i)));
+        }
+        if (clipped)
+            text_row(99, std::to_string(shown.size() - static_cast<std::size_t>(drawnLines)) +
+                             " more lines",
+                     18.0f, theme::text_secondary(), "changes_more");
+    }
+
     void render_plan_popover(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, Entity& anchorEnt,
                              const api::Session& session) {
@@ -8709,6 +8961,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (skillChip.ent().has<afterhours::ui::HasLabel>())
                     skillChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
                         kStripChipTextX - kLabelInset;
+            }
+        }
+        // The files this conversation changed: a chip beside the skills, and
+        // the panel it opens (the reference's 0.8.9).
+        if (stripSession) {
+            const auto& changed = changes_for(*stripSession);
+            if (!changed.empty()) {
+                const auto sum = api::changes::summary(changed);
+                const std::string label = api::changes::chip_label(sum);
+                auto filesChip = button(ctx, mk(leftMeta.ent(), 25),
+                    strip_chip_cfg(label, "layers", theme::text_secondary(),
+                                   cname("composer_changes")));
+                if (filesChip.ent().has<afterhours::ui::HasLabel>())
+                    filesChip.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                        kStripChipTextX - kLabelInset;
+                if (filesChip) {
+                    app.changesPopoverOpen = !app.changesPopoverOpen;
+                    app.composerPopoverPane = paneIndex;
+                }
+                if (app.escape == EscapeIntent::CloseChangesPanel)
+                    app.changesPopoverOpen = false;
+                if (ownsPopovers)
+                    render_changes_popover(ctx, parent, app, filesChip.ent(), changed);
+            } else if (ownsPopovers) {
+                app.changesPopoverOpen = false;
             }
         }
         const bool hasPlan = stripSession && stripSession->plan &&

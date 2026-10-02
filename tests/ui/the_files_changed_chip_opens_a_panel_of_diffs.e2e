@@ -1,0 +1,43 @@
+# The files a conversation changed (the reference's 0.8.9): a "N files" chip
+# in the composer strip, folded from APPLIED edit and write calls, opens a
+# panel listing each file with its line counts; a file opens to its edits as
+# diffs with context, and to its whole text when the last write and every
+# later edit place exactly. A failed edit is not a change.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_CHANGES_DEMO=1 HANABI_OPEN=t1
+
+require_thread t1
+wait_frames 10
+expect_text "2 files"
+
+click_ui composer_changes
+wait_frames 10
+expect_text "2 files changed"
+# Most recently changed first; the failed edit's file is not listed.
+expect_text "prorate.ts"
+expect_text "upgrade-plan.md"
+expect_no_text "never.ts"
+
+# The edited file: its diff, with the line it kept for context.
+click_ui changes_file_0
+wait_frames 10
+expect_text "src/billing/prorate.ts"
+expect_text "const share = daysLeft / 30;"
+expect_no_ui changes_whole_toggle
+
+# Back, then the written-then-edited file: two edits, and its whole text.
+click_ui changes_back
+wait_frames 8
+click_ui changes_file_1
+wait_frames 10
+expect_text "edit 1 of 2"
+expect_text "+ - ship behind the flag"
+click_ui changes_whole_toggle
+wait_frames 8
+expect_text "# Upgrade plan"
+expect_no_text "edit 1 of 2"
+
+key ESCAPE
+wait_frames 10
+expect_no_ui changes_popover

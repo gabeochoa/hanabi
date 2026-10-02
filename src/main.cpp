@@ -1399,6 +1399,7 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "model") app->modelPopoverOpen = true;
         else if (os == "effort") app->modelPopoverOpen = true;  // one panel now
         else if (os == "plan") app->planPopoverOpen = true;
+        else if (os == "changes") app->changesPopoverOpen = true;
         else if (os == "context") app->contextPopoverOpen = true;
         else if (os == "nodes") app->nodePopoverOpen = true;
         else if (os == "slash") {

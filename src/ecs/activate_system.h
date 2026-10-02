@@ -23,7 +23,7 @@ inline hanabi::activate::Surfaces activate_surfaces(const AppComponent& app,
     out.slashMenu = app.slashMenuOpen;
     out.picker = app.modelPopoverOpen || app.contextPopoverOpen ||
                  app.planPopoverOpen || app.foldPopoverOpen ||
-                 app.nodePopoverOpen;
+                 app.nodePopoverOpen || app.changesPopoverOpen;
     out.askFocused = app.askFocused;
     return out;
 }

@@ -1391,6 +1391,9 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                                                   str_or(e, "input", "")));
             m.kind = EventKind::ToolCall;
             m.subtitle = str_or(e, "tool", "");
+            if (const auto k = tool_kinds::classify(m.subtitle);
+                k == tool_kinds::Kind::Edit || k == tool_kinds::Kind::Write)
+                m.tool_input = str_or(e, "input", "");
             row_for_intent_seq[seq] = out.size() - 1;
             if (const std::string call = str_or(e, "call_id", ""); call.rfind("tool_run:", 0) == 0) {
                 const std::size_t colon = call.find(':', 9);

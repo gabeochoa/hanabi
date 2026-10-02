@@ -320,6 +320,11 @@ struct Message {
     std::string tool_status;
     int64_t tool_duration_ms = 0;
     std::string tool_node;
+    //   tool_input         — the call's raw JSON arguments, kept ONLY for an
+    //                        edit or a write (api/session_changes.h folds them
+    //                        into the files-changed panel); empty otherwise, so
+    //                        a shell or a read pays nothing for it.
+    std::string tool_input;
 
     // Optional inline image (agent surface): a LOCAL filesystem path to an
     // image the agent produced/attached (e.g. a screenshot). When set, the

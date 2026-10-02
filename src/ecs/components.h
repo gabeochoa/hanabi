@@ -82,6 +82,7 @@ enum class EscapeIntent {
     CloseSlashMenu,
     CloseModelPicker,
     ClosePlanPicker,
+    CloseChangesPanel,
     CloseContextPopover,
     CloseFoldPicker,
     CloseNodePicker,
@@ -965,6 +966,16 @@ struct AppComponent : public afterhours::BaseComponent {
     // The composer strip's effort picker. One flag: the popover is a list of
     // levels and a click, with nothing in flight behind it.
     bool planPopoverOpen = false;
+    // The files-changed panel (api/session_changes.h): open, which file it is
+    // showing ("" = the list), and whether that file shows whole or as diffs.
+    bool changesPopoverOpen = false;
+    std::string changesFileKey;
+    bool changesShowWhole = false;
+    // A press INSIDE the panel (a file, Back, Whole file) is a step within
+    // it, not a dismissal: imm::popover dismisses on the frame after any press
+    // because the press leaves focus at ROOT (afterhours_gaps #599), so the
+    // row's listener sets this and the panel reopens itself.
+    bool changesStayOpen = false;
     // The context meter's popover (the reference's ContextPopover): how full
     // the window is, and -- with Appearance's Full context detail on, or the
     // Details disclosure opened for this showing -- the ledger the attach
@@ -2284,7 +2295,8 @@ inline bool overlay_up(const AppComponent& app) {
 
 inline bool composer_strip_surface_up(const AppComponent& app) {
     return app.slashMenuOpen || app.modelPopoverOpen || app.contextPopoverOpen ||
-           app.planPopoverOpen || app.foldPopoverOpen || app.nodePopoverOpen;
+           app.planPopoverOpen || app.foldPopoverOpen || app.nodePopoverOpen ||
+           app.changesPopoverOpen;
 }
 
 inline hanabi::ask::KeyOwnership key_ownership(const AppComponent& app,

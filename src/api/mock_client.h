@@ -1861,6 +1861,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
+        "HANABI_CHANGES_DEMO",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",
@@ -2437,6 +2438,48 @@ class MockClient : public Client {
                 if (mode == "hidden") chart.artifact.hidden = true;
                 s.messages.push_back(std::move(chart));
                 s.messages.push_back(std::move(clip));
+            }
+            // HANABI_CHANGES_DEMO: applied edit/write calls for the
+            // files-changed chip and panel -- a write then an edit to one
+            // file (so its whole text is known), an edit to a second, and a
+            // FAILED edit that must not count.
+            if (std::getenv("HANABI_CHANGES_DEMO") != nullptr) {
+                const auto call = [&](const char* id, const char* tool,
+                                      nlohmann::json input, const char* status) {
+                    Message t;
+                    t.id = id;
+                    t.role = Role::Tool;
+                    t.kind = EventKind::ToolCall;
+                    t.subtitle = tool;
+                    t.text = input.value("file_path", input.value("path", std::string()));
+                    t.tool_status = status;
+                    t.tool_input = input.dump();
+                    t.created_at = mins_ago(12);
+                    return t;
+                };
+                s.messages.push_back(call(
+                    "c1", "write",
+                    {{"path", "docs/upgrade-plan.md"},
+                     {"content", "# Upgrade plan\n\n- add the proration line\n- write the tests\n"}},
+                    "completed"));
+                s.messages.push_back(call(
+                    "c2", "edit",
+                    {{"file_path", "docs/upgrade-plan.md"},
+                     {"old_string", "- write the tests\n"},
+                     {"new_string", "- write the tests\n- ship behind the flag\n"}},
+                    "completed"));
+                s.messages.push_back(call(
+                    "c3", "edit",
+                    {{"file_path", "src/billing/prorate.ts"},
+                     {"old_string", "  return delta;\n"},
+                     {"new_string", "  const share = daysLeft / 30;\n  return Math.round(delta * share * 100) / 100;\n"}},
+                    "completed"));
+                s.messages.push_back(call(
+                    "c4", "edit",
+                    {{"file_path", "src/billing/never.ts"},
+                     {"old_string", "a"},
+                     {"new_string", "b"}},
+                    "failed"));
             }
             if (std::getenv("HANABI_COMPACT_DEMO") != nullptr) {
                 Message c;
