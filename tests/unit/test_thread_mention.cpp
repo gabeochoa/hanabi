@@ -117,7 +117,23 @@ static void test_spaces_follow_threads_and_write_space_ids() {
     CHECK(noBase.size() == 2 && noBase[0].space);
 }
 
+static void test_automation_born_threads_are_not_offered() {
+    auto a = thread("auto", "nightly sweep", 9);
+    a.origin_application = "metamate";
+    auto mine = thread("mine", "nightly notes", 8);
+    mine.origin_application = "metamate";
+    mine.title_is_human = true;  // a person's own Metamate chat
+    const std::vector<api::SessionSummary> cat{a, mine};
+    const auto none = [](const api::SessionSummary&) { return false; };
+    const auto r = mn::rows(cat, "@nightly", "https://web.test/chat", "", none);
+    CHECK(r.size() == 1 && r[0].id == "mine");
+    CHECK(api::is_automation_born(a) && !api::is_automation_born(mine));
+    api::SessionSummary noOrigin;
+    CHECK(!api::is_automation_born(noOrigin));
+}
+
 int main() {
+    test_automation_born_threads_are_not_offered();
     test_spaces_follow_threads_and_write_space_ids();
     test_a_thread_url_in_text_is_a_thread_link();
     test_the_at_must_open_a_word();

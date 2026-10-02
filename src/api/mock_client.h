@@ -158,6 +158,13 @@ class MockClient : public Client {
             fill_sub_agent_counts(s);
             out.push_back(catalog_row(s.summary));
         }
+        // HANABI_MOCK_AUTOMATION=<id,id>: those rows were started by an
+        // automation (origin_application "metamate", no human title).
+        if (const char* a = std::getenv("HANABI_MOCK_AUTOMATION"); a != nullptr && *a) {
+            const std::string list = std::string(",") + a + ",";
+            for (auto& s : out)
+                if (list.find("," + s.id + ",") != std::string::npos) s.origin_application = "metamate";
+        }
         // Newest first, but pinned (starred) rise to the top within order.
         std::sort(out.begin(), out.end(),
                   [](const SessionSummary& a, const SessionSummary& b) {
@@ -2040,7 +2047,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

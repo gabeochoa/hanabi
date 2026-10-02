@@ -70,7 +70,8 @@ inline std::vector<Event> transitions(
     const std::map<std::string, std::string>& titles,
     const std::set<std::string>& muted = {},
     const Children& children = {},
-    const Wants& wants = Wants{}) {
+    const Wants& wants = Wants{},
+    const std::set<std::string>& automations = {}) {
     std::vector<Event> out;
     for (const auto& [id, now] : current) {
         auto prev = previous.find(id);
@@ -84,7 +85,11 @@ inline std::vector<Event> transitions(
                                                         : title->second;
         if (now == Activity::Blocked)
             out.push_back({Event::Kind::Blocked, id, label});
-        else if (now == Activity::Finished)
+        // An automation's run finishing is not news (the reference's 0.8.6):
+        // it raises no banner unless the reader pinned the thread, which the
+        // caller has already folded into `automations`. One that BLOCKS on
+        // the reader still does.
+        else if (now == Activity::Finished && automations.count(id) == 0)
             out.push_back({Event::Kind::Finished, id, label});
     }
     return out;
@@ -96,9 +101,10 @@ inline std::optional<Event> native_event(
     const std::map<std::string, std::string>& titles,
     const std::set<std::string>& muted = {},
     const Children& children = {},
-    const Wants& wants = Wants{}) {
+    const Wants& wants = Wants{},
+    const std::set<std::string>& automations = {}) {
     const auto events =
-        transitions(previous, current, titles, muted, children, wants);
+        transitions(previous, current, titles, muted, children, wants, automations);
     if (events.empty()) return std::nullopt;
     for (const auto& event : events)
         if (event.kind == Event::Kind::Blocked) return event;

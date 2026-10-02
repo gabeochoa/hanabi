@@ -1070,6 +1070,7 @@ static void app_frame_body() {
             // become a stale banner the moment the thread is unmuted.
             std::set<std::string> muted;
             hanabi::notify::Children children;
+            std::set<std::string> automations;  // finished runs stay quiet
             now.reserve(app.sessions.size());
             for (const auto& s : app.sessions) {
                 if (s.id.empty()) continue;
@@ -1083,12 +1084,14 @@ static void app_frame_body() {
                 titles[s.id] = s.title;
                 if (s.muted) muted.insert(s.id);
                 if (!s.parent_id.empty()) children.insert(s.id);
+                // A pin outranks the automation guess.
+                if (api::is_automation_born(s) && !s.starred) automations.insert(s.id);
             }
 
             hanabi::notify::Wants wants;
             wants.subagents = Settings::get().get_notify_subagents();
             const auto event = hanabi::notify::native_event(
-                lastSeen, now, titles, muted, children, wants);
+                lastSeen, now, titles, muted, children, wants, automations);
             const bool quiet = in_quiet_hours_now();
             const auto cue = hanabi::notify::cue_for(
                 quiet ? std::nullopt : event,

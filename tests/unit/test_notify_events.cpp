@@ -21,7 +21,9 @@ static int g_failures = 0;
 using hanabi::notify::Activity;
 using hanabi::notify::Event;
 using hanabi::notify::snapshot;
+using hanabi::notify::Snapshot;
 using hanabi::notify::transitions;
+using hanabi::notify::Wants;
 
 using Row = std::pair<std::string, Activity>;
 using Rows = std::vector<Row>;
@@ -222,7 +224,22 @@ static void test_the_chime_answers_to_both_switches() {
     CHECK(!hanabi::notify::cue_for(std::nullopt, true, true).chime);
 }
 
+static void test_an_automation_finishing_is_quiet_but_blocking_is_not() {
+    const Snapshot before{{"auto", Activity::Other}, {"person", Activity::Other}};
+    const std::set<std::string> automations{"auto"};
+    auto ev = transitions(before, {{"auto", Activity::Finished}, {"person", Activity::Other}}, kTitles,
+                          {}, {}, Wants{}, automations);
+    CHECK(ev.empty());
+    ev = transitions(before, {{"auto", Activity::Blocked}, {"person", Activity::Other}}, kTitles, {},
+                     {}, Wants{}, automations);
+    CHECK(ev.size() == 1 && ev[0].kind == Event::Kind::Blocked);
+    ev = transitions(before, {{"auto", Activity::Other}, {"person", Activity::Finished}}, kTitles, {},
+                     {}, Wants{}, automations);
+    CHECK(ev.size() == 1 && ev[0].id == "person");
+}
+
 int main() {
+    test_an_automation_finishing_is_quiet_but_blocking_is_not();
     std::printf("=== test_notify_events ===\n");
     test_first_sight_is_never_news();
     test_a_thread_that_blocks_is_reported_by_name();

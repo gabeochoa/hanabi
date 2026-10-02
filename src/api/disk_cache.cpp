@@ -167,7 +167,9 @@ json to_json(const SessionSummary& s) {
                 {"frozen_by", s.frozen_by},
                 {"frozen_reason", s.frozen_reason},
                 {"replies_paused", s.replies_paused},
-                {"server_archived_at_ms", s.server_archived_at_ms}};
+                {"server_archived_at_ms", s.server_archived_at_ms},
+                {"origin_application", s.origin_application},
+                {"title_is_human", s.title_is_human}};
     if (s.last_event_unix_ms) out["last_event_unix_ms"] = *s.last_event_unix_ms;
     if (s.last_run_complete_unix_ms) out["last_run_complete_unix_ms"] = *s.last_run_complete_unix_ms;
     return out;
@@ -192,6 +194,8 @@ SessionSummary summary_from_json(const json& j) {
     s.frozen_reason = j.value("frozen_reason", "");
     s.replies_paused = j.value("replies_paused", false);
     s.server_archived_at_ms = j.value("server_archived_at_ms", (int64_t)0);
+    s.origin_application = j.value("origin_application", "");
+    s.title_is_human = j.value("title_is_human", false);
     s.last_event_unix_ms = wire_clock::read_ms(j, "last_event_unix_ms");
     s.last_run_complete_unix_ms = wire_clock::read_ms(j, "last_run_complete_unix_ms");
     return s;

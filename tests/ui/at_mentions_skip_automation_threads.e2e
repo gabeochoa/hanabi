@@ -1,0 +1,14 @@
+# The @ picker never offers a thread an automation started (the reference's
+# 0.8.6): origin_application "metamate" with no title a person set. The mock
+# marks t5 that way; it still sits in the catalogue and the sidebar.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WEB_BASE_URL=https://web.test/chat HANABI_MOCK_AUTOMATION=t5
+
+require_thread t2
+click_ui composer_reply_input
+wait_frames 4
+type "@watchdog"
+wait_frames 10
+expect_no_ui mention_item_0
+expect_text "watchdog clean for 6h"

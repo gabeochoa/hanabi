@@ -281,6 +281,9 @@ SessionSummary summary_from_row(const json& s) {
     sum.folder = workspace.find(sum.id) == std::string::npos ? workspace : "";
     sum.parent_id = str_or(s, "parent", "");
     sum.forked_from = str_or(obj_at(s, "forked_from"), "session_id", "");
+    sum.origin_application = str_or(s, "origin_application", "");
+    sum.title_is_human = s.contains("title_is_human") && s["title_is_human"].is_boolean() &&
+                         s["title_is_human"].get<bool>();
     // `frozen` and `archived_at_unix_ms` are summary-row keys
     // (`WireSessionSummary`), which is what lets the list mark them without
     // attaching.

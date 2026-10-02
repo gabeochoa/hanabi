@@ -172,6 +172,8 @@ std::vector<Row> rows(const std::vector<api::SessionSummary>& sessions,
     for (const api::SessionSummary& s : sessions) {
         if (!threadsOk) break;
         if (!s.parent_id.empty() || s.id == excludeId || s.id.empty()) continue;
+        // Nobody mentions an unattended run (the reference's 0.8.6).
+        if (api::is_automation_born(s)) continue;
         Row r{s.id, row_title(s), s.updated_at, isArchived(s), false};
         const int k = rank(r.title, needle);
         if (k < 0) continue;

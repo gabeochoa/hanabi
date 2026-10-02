@@ -458,6 +458,13 @@ struct SessionSummary {
     std::string parent_id;
     std::string forked_from;
 
+    // Where the session was started (`origin_application`, stamped once at
+    // create, never rewritten) and whether a PERSON set its title
+    // (`title_is_human`, skip-if-false on list rows). Together they say
+    // whether a session is automation-born -- see is_automation_born below.
+    std::string origin_application;
+    bool title_is_human = false;
+
     // --- Brakes the SERVER holds ------------------------------------------
     //
     //   frozen  — `frozen: {by, reason}` on the LIST ROW and on the attach
@@ -979,5 +986,16 @@ struct Result {
         return Result{false, T{}, std::move(e), true};
     }
 };
+
+// Started by an automation rather than a person (the reference's 0.8.6
+// AutomationOrigin, a port of the web's automationOrigin.ts): the ORIGIN
+// decides, never the title. `metamate` is the one automation origin -- MEDI and
+// Butterfly fire unattended under it -- and it is also what a person's own
+// chat in a Metamate Space carries, which `title_is_human` separates: nothing
+// unattended sets one. A row with no recorded origin is never an automation.
+inline bool is_automation_born(const SessionSummary& s) {
+    if (s.title_is_human) return false;
+    return s.origin_application == "metamate";
+}
 
 }  // namespace api
