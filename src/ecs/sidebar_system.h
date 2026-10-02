@@ -363,6 +363,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 keepKey += '\x1f';
                 keepKey += userView->query;
             }
+            const model::Grouping grouping =
+                model::grouping_from(Settings::get().get_session_grouping());
+            buckets_.set_grouping(grouping, Settings::get().get_only_ungrouped());
             buckets_.rebuild(
                 app->sessionCatalogRevision, app->sessions, q,
                 app->collapsedFolders.count(kHideAutoKey) > 0,
@@ -412,8 +415,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // only which of the two a session falls into is new.
             pinnedMembers_.clear();
             recentMembers_.clear();
+            // Flat: one list, no Pinned carve (pins still sort first).
             for (const auto* s : buckets_.recent())
-                (s->starred ? pinnedMembers_ : recentMembers_).push_back(s);
+                (s->starred && grouping != model::Grouping::Flat ? pinnedMembers_
+                                                                  : recentMembers_)
+                    .push_back(s);
             if (!pinnedMembers_.empty())
                 shown += render_folder(ctx, scroll.ent(), 880000, "Pinned",
                                        "pinned", pinnedMembers_, *app, q,
@@ -421,7 +427,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                        /*catchAll=*/true,
                                        /*headerless=*/false,
                                        /*cap=*/fillCap);
-            shown += render_folder(ctx, scroll.ent(), 900000, "Recents",
+            shown += render_folder(ctx, scroll.ent(), 900000,
+                                   grouping == model::Grouping::Flat ? "Threads" : "Recents",
                                    "recent", recentMembers_, *app, q, r.width,
                                    /*archivedStyle=*/false,
                                    /*catchAll=*/true, /*headerless=*/false,
@@ -3127,7 +3134,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // is filed under. A named folder is its own group; everything else lands in
     // the headerless catch-all, which renders under the "recent" key.
     static std::string group_key_for(const api::SessionSummary& s) {
-        const std::string& section = model::section_of(s);
+        const std::string& section = model::section_of(
+            s, model::grouping_from(Settings::get().get_session_grouping()));
         return model::is_named_folder(section) ? section : std::string("recent");
     }
 

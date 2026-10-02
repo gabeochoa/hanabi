@@ -105,6 +105,12 @@ bool Settings::load_save_file() {
         find_newest_first_ = j.value("find_newest_first", find_newest_first_);
         sort_oldest_first_ =
             j.value("session_sort_order", std::string("activity")) == "oldest";
+        {
+            const std::string g = j.value("session_grouping", std::string("space"));
+            session_grouping_ =
+                (g == "folder" || g == "status" || g == "flat") ? g : std::string("space");
+        }
+        only_ungrouped_ = j.value("only_ungrouped", false);
         templates_.clear();
         if (j.contains("composer_templates") && j["composer_templates"].is_array())
             for (const auto& e : j["composer_templates"]) {
@@ -311,6 +317,8 @@ void Settings::write_save_file() {
     j["show_timestamps"] = show_timestamps_;
     j["find_newest_first"] = find_newest_first_;
     j["session_sort_order"] = sort_oldest_first_ ? "oldest" : "activity";
+    j["session_grouping"] = session_grouping_;
+    j["only_ungrouped"] = only_ungrouped_;
     {
         auto arr = nlohmann::json::array();
         for (const auto& t : templates_)
@@ -867,6 +875,20 @@ bool Settings::get_sort_oldest_first() const { return sort_oldest_first_; }
 void Settings::set_sort_oldest_first(bool on) {
     if (on == sort_oldest_first_) return;
     sort_oldest_first_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+std::string Settings::get_session_grouping() const { return session_grouping_; }
+void Settings::set_session_grouping(const std::string& g) {
+    const std::string v = (g == "folder" || g == "status" || g == "flat") ? g : std::string("space");
+    if (v == session_grouping_) return;
+    session_grouping_ = v;
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_only_ungrouped() const { return only_ungrouped_; }
+void Settings::set_only_ungrouped(bool on) {
+    if (on == only_ungrouped_) return;
+    only_ungrouped_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

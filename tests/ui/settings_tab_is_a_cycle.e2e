@@ -38,11 +38,23 @@ expect_focused settings_timestamps_track
 key TAB
 wait_frames 6
 expect_focused settings_sort_order_row
+key TAB
+wait_frames 6
+expect_focused settings_group_by_row
+key TAB
+wait_frames 6
+expect_focused settings_only_ungrouped_track
 
 key TAB
 wait_frames 6
 expect_focused settings_search
 
+shift_tab
+wait_frames 6
+expect_focused settings_only_ungrouped_track
+shift_tab
+wait_frames 6
+expect_focused settings_group_by_row
 shift_tab
 wait_frames 6
 expect_focused settings_sort_order_row

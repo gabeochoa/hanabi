@@ -100,7 +100,33 @@ static std::vector<SessionSummary> corpus(int variant) {
     return v;
 }
 
+static void test_grouping_modes_and_only_ungrouped() {
+    using ecs::model::Grouping;
+    const auto none = [](const std::string&, const std::string&) { return false; };
+    std::vector<SessionSummary> sessions{sess("a", "alpha", "/work/x"), sess("b", "beta", ""),
+                                         sess("c", "gamma", "/work/x")};
+    sessions[2].space_group = "space:15";
+    ecs::model::SidebarBuckets b;
+    b.rebuild(1, sessions, "", false, none);  // Space (default): c by Space, a by folder
+    CHECK(b.folders().size() == 2 && b.recent().size() == 1);
+    b.set_grouping(Grouping::Folder, false);
+    b.rebuild(1, sessions, "", false, none);  // Folder: a and c share /work/x
+    CHECK(b.folders().size() == 1 && b.members("/work/x").size() == 2);
+    b.set_grouping(Grouping::Status, false);
+    b.rebuild(1, sessions, "", false, none);  // Status: no named sections
+    CHECK(b.folders().empty() && b.recent().size() == 3);
+    b.set_grouping(Grouping::Space, true);
+    b.rebuild(1, sessions, "", false, none);  // only ungrouped: just b, no sections
+    CHECK(b.folders().empty() && b.recent().size() == 1 && b.recent()[0]->id == "b");
+    b.set_grouping(Grouping::Flat, true);     // meaningless under Flat: everything
+    b.rebuild(1, sessions, "", false, none);
+    CHECK(b.recent().size() == 3);
+    CHECK(ecs::model::grouping_from("folder") == Grouping::Folder &&
+          ecs::model::grouping_from("junk") == Grouping::Space);
+}
+
 int main() {
+    test_grouping_modes_and_only_ungrouped();
     const auto noContent = [](const std::string&, const std::string&) {
         return false;
     };

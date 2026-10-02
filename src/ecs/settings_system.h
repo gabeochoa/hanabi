@@ -62,6 +62,7 @@
 #include "global_hotkey_apply.h"
 #include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
 #include "scroll_keep.h"
+#include "sidebar_buckets.h"
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
@@ -1269,6 +1270,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "confirm_quit") render_confirm_quit_row(ctx, parent, app);
         else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
         else if (id == "sort_order") render_sort_order_row(ctx, parent, app);
+        else if (id == "group_by") render_group_by_row(ctx, parent, app);
+        else if (id == "only_ungrouped") render_only_ungrouped_row(ctx, parent, app);
         else if (id == "theme_rotate") render_theme_rotate_row(ctx, parent, app);
         else if (id == "transcript_width") render_transcript_width_row(ctx, parent, app);
         else if (id == "context_detail") render_context_detail_row(ctx, parent, app);
@@ -3253,6 +3256,42 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         real_segmented(ctx, parent, 603, {"Recent activity", "Oldest first"},
                        oldest ? 1 : 0, "settings_sort_order",
                        [](int i) { Settings::get().set_sort_oldest_first(i == 1); });
+    }
+
+    // How the sidebar sections threads (the reference's Group by): Space
+    // (Metamate Space, else workspace folder), Folder, Status (Pinned and
+    // Recents only) or None (one list).
+    void render_group_by_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 606, "Group threads by", "settings_group_by_label");
+        const std::string g = Settings::get().get_session_grouping();
+        const int idx = g == "folder" ? 1 : g == "status" ? 2 : g == "flat" ? 3 : 0;
+        real_segmented(ctx, parent, 607, {"Space", "Folder", "Status", "None"}, idx,
+                       "settings_group_by", [](int i) {
+                           static constexpr const char* kNames[] = {"space", "folder", "status",
+                                                                    "flat"};
+                           Settings::get().set_session_grouping(kNames[i]);
+                       });
+    }
+
+    // "Only ungrouped": just the threads in no section. Under Status and
+    // None there is no such bucket, so the row says why and does nothing --
+    // a control that silently does nothing is the worse of the two.
+    void render_only_ungrouped_row(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent& app) {
+        (void)app;
+        const auto g = model::grouping_from(Settings::get().get_session_grouping());
+        const bool offerable = model::grouping_has_ungrouped(g);
+        row_name_with(ctx, parent, 608, "Only threads in no group",
+                      offerable ? std::string()
+                                : (g == model::Grouping::Status
+                                       ? std::string(" \xe2\x80\x94 every thread has a status")
+                                       : std::string(" \xe2\x80\x94 nothing is grouped")),
+                      "settings_only_ungrouped_label");
+        const bool on = offerable && Settings::get().get_only_ungrouped();
+        real_switch(ctx, parent, 609, on, "settings_only_ungrouped", [offerable](bool v) {
+            if (offerable) Settings::get().set_only_ungrouped(v);
+        });
     }
 
     // Find: where a fresh Cmd+F lands. Off (the default) is the oldest match

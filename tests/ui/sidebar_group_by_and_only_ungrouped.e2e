@@ -1,0 +1,47 @@
+# Settings > General > Group threads by (the reference's Group by): Space --
+# the default, Metamate Space else workspace folder -- Folder, Status
+# (Pinned and Recents only) or None (one list); and "only ungrouped", which
+# keeps just the threads in no section. Under Status and None there is no
+# such bucket, and the row says so instead of a switch that does nothing.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_FOLDER_DEMO=1
+
+wait_frames 20
+expect_text "SUBSCRIPTIONS"
+expect_text "MONETIZATION"
+click_ui sb_settings
+wait_frames 20
+
+# Status: the folder sections go; Pinned and Recents remain.
+click_ui settings_group_by_2
+wait_frames 10
+expect_text "Only threads in no group — every thread has a status"
+click_ui tab_close
+wait_frames 20
+expect_no_text "SUBSCRIPTIONS"
+expect_text "RECENTS"
+click_ui sb_settings
+wait_frames 20
+
+# None: one list, headed Threads.
+click_ui settings_group_by_3
+wait_frames 10
+expect_text "Only threads in no group — nothing is grouped"
+click_ui tab_close
+wait_frames 20
+expect_no_text "RECENTS"
+expect_text "THREADS"
+click_ui sb_settings
+wait_frames 20
+
+# Back to Space, then only ungrouped: the sections go, Recents stays.
+click_ui settings_group_by_0
+wait_frames 10
+click_ui settings_only_ungrouped
+wait_frames 10
+click_ui tab_close
+wait_frames 20
+expect_no_text "SUBSCRIPTIONS"
+expect_no_text "MONETIZATION"
+expect_text "RECENTS"

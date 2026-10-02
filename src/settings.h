@@ -390,6 +390,15 @@ struct Settings {
     bool get_sort_oldest_first() const;
     void set_sort_oldest_first(bool on);
 
+    // How the sidebar sections threads (the reference's Group by): "space"
+    // (the default: Metamate Space, else workspace folder), "folder",
+    // "status" (Pinned / Recents only) or "flat". And "only ungrouped",
+    // which keeps just the threads in no section. Auto-persist.
+    std::string get_session_grouping() const;
+    void set_session_grouping(const std::string& g);
+    bool get_only_ungrouped() const;
+    void set_only_ungrouped(bool on);
+
     // Saved templates for the composer's / menu (ui/composer_templates.h).
     // add_template answers why it refused, or "" when it saved; both
     // auto-persist. `builtins` is the menu's own verbs, which no template
@@ -572,6 +581,8 @@ struct Settings {
     bool show_timestamps_ = true;
     bool find_newest_first_ = false;
     bool sort_oldest_first_ = false;
+    std::string session_grouping_ = "space";
+    bool only_ungrouped_ = false;
     std::vector<hanabi::templates::Template> templates_;
     bool context_detail_ = false;
     bool disclosure_chips_open_ = false;

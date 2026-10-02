@@ -31,12 +31,18 @@ expect_no_text "proration.   ·   4h"
 
 # Keyboard: off -> on, through the focused row's Space.
 # Reach the row the way the keyboard does: Shift+Tab from the search field
-# walks BACKWARDS through the content rows (timestamps sits just above the
-# last General row, Sort threads by, so it is the second stop), the same path
+# walks BACKWARDS through the content rows (Only ungrouped, Group threads
+# by and Sort threads by sit below timestamps, so it is the fourth stop), the same path
 # settings_enter_and_space_activate takes to the first row.
 click_ui sb_settings
 wait_frames 16
 expect_focused settings_search
+shift_tab
+wait_frames 6
+expect_focused settings_only_ungrouped_track
+shift_tab
+wait_frames 6
+expect_focused settings_group_by_row
 shift_tab
 wait_frames 6
 expect_focused settings_sort_order_row

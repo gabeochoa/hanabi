@@ -78,9 +78,46 @@ inline bool is_named_folder(const std::string& folder) {
     return !folder.empty() && folder != "recent";
 }
 
-// The sidebar section a thread belongs to: its Metamate Space when it is
-// filed in one this viewer can see, else its workspace folder (else none).
-inline const std::string& section_of(const api::SessionSummary& s) {
+// How the sidebar sections threads (the reference's Group by, 0.6.x
+// grouping controls): by Metamate Space (else workspace folder -- the
+// default), by folder only, by Status (no named sections: Pinned and
+// Recents), or Flat (one list).
+enum class Grouping { Space, Folder, Status, Flat };
+
+inline Grouping grouping_from(std::string_view s) {
+    if (s == "folder") return Grouping::Folder;
+    if (s == "status") return Grouping::Status;
+    if (s == "flat") return Grouping::Flat;
+    return Grouping::Space;
+}
+inline const char* grouping_name(Grouping g) {
+    switch (g) {
+        case Grouping::Folder: return "folder";
+        case Grouping::Status: return "status";
+        case Grouping::Flat: return "flat";
+        case Grouping::Space: break;
+    }
+    return "space";
+}
+// Whether a grouping has a no-group bucket for "only ungrouped" to keep:
+// under Status every thread has a status, and a flat list groups nothing.
+inline bool grouping_has_ungrouped(Grouping g) {
+    return g == Grouping::Space || g == Grouping::Folder;
+}
+
+// The sidebar section a thread belongs to under a grouping: its Metamate
+// Space when it is filed in one this viewer can see, else its workspace
+// folder (else none) by default; the folder alone under Folder; none under
+// Status and Flat.
+inline const std::string& section_of(const api::SessionSummary& s,
+                                     Grouping g = Grouping::Space) {
+    static const std::string kNone;
+    switch (g) {
+        case Grouping::Folder: return s.folder;
+        case Grouping::Status:
+        case Grouping::Flat: return kNone;
+        case Grouping::Space: break;
+    }
     return s.space_group.empty() ? s.folder : s.space_group;
 }
 
@@ -119,7 +156,7 @@ class SidebarBuckets {
                  const std::string& q, bool hideAutomated,
                  ContentMatch&& contentMatch, const KeepFn& keep = {},
                  const std::string& keepKey = {}) {
-        if (valid_ && q.empty() && query_.empty() &&
+        if (valid_ && !groupingChanged_ && q.empty() && query_.empty() &&
             revision_ == catalogRevision && hideAutomated_ == hideAutomated &&
             keepKey_ == keepKey) {
             hanabi::prof::tick("sidebar.scan_reuse");
@@ -148,6 +185,7 @@ class SidebarBuckets {
         hideAutomated_ = hideAutomated;
         keepKey_ = keepKey;
         valid_ = true;
+        groupingChanged_ = false;
         folders_.clear();
         recent_.clear();
         for (Bucket& b : buckets_) {
@@ -163,8 +201,11 @@ class SidebarBuckets {
         for (const api::SessionSummary& s : sessions) {
             if (keep && !keep(s)) continue;
             const bool archived = is_archived(s);
-            const std::string& section = section_of(s);
+            const std::string& section = section_of(s, grouping_);
             const bool named = is_named_folder(section);
+            // "Only ungrouped": a grouped thread is not listed at all, and
+            // its section is not discovered either.
+            if (onlyUngrouped_ && named) continue;
             // Discovery runs BEFORE both filters and is resolved to an index
             // here, so a folder whose every member is filtered out is still
             // listed -- and so the push below never re-enters slot() while
@@ -193,6 +234,17 @@ class SidebarBuckets {
     }
 
     const std::vector<std::string>& folders() const { return folders_; }
+
+    // The grouping and the "only ungrouped" filter; a change rebuilds on the
+    // next call. Only ungrouped has no meaning under Status or Flat.
+    void set_grouping(Grouping g, bool onlyUngrouped) {
+        onlyUngrouped = onlyUngrouped && grouping_has_ungrouped(g);
+        if (g == grouping_ && onlyUngrouped == onlyUngrouped_) return;
+        grouping_ = g;
+        onlyUngrouped_ = onlyUngrouped;
+        groupingChanged_ = true;
+    }
+    Grouping grouping() const { return grouping_; }
 
     const std::vector<const api::SessionSummary*>& members(
         const std::string& key) const {
@@ -257,6 +309,9 @@ class SidebarBuckets {
 
     std::vector<Bucket> buckets_;
     std::vector<std::string> folders_;
+    Grouping grouping_ = Grouping::Space;
+    bool onlyUngrouped_ = false;
+    bool groupingChanged_ = false;
     std::vector<const api::SessionSummary*> recent_;
     std::vector<const api::SessionSummary*> empty_;
     std::string query_;

@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 48> kRows{{
+inline constexpr std::array<Row, 50> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -174,6 +174,12 @@ inline constexpr std::array<Row, 48> kRows{{
      "time clock when sent stamp date", Origin::Device},
     {"sort_order", Pane::General, "Sort threads by",
      "sort order sidebar oldest newest created recent activity queue",
+     Origin::Device},
+    {"group_by", Pane::General, "Group threads by",
+     "group sections sidebar space folder status pinned recents flat list",
+     Origin::Device},
+    {"only_ungrouped", Pane::General, "Only threads in no group",
+     "ungrouped personal filter sidebar space folder none",
      Origin::Device},
 
     // Appearance, in the reference's order of sections: Reading width,

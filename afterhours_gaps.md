@@ -10869,7 +10869,7 @@ hours, and the risk is entirely in the accumulator's reset point.
 
 
 
-**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/sidebar_system.h` (`shown += render_folder(ctx, scroll.ent(), 900000, "Recents",`) — the catch-all is the RECENTS section now; it was headerless when this was written. `src/ecs/sidebar_system.h` (`The count in the header is still the true number`) — visible_limit rationale depends on header count. Measurement/gate: `docs/SEARCH.md` (`The sidebar truncates silently`) — docs record issue as open.
+**Hanabi reference.** Hanabi-owned performance finding: `src/ecs/sidebar_system.h` (`shown += render_folder(ctx, scroll.ent(), 900000,`) — the catch-all is the RECENTS section now; it was headerless when this was written. `src/ecs/sidebar_system.h` (`The count in the header is still the true number`) — visible_limit rationale depends on header count. Measurement/gate: `docs/SEARCH.md` (`The sidebar truncates silently`) — docs record issue as open.
 
 ---
 
