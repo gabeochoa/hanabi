@@ -389,10 +389,12 @@ ARM_LIVE_COUNTER=palette.candidates ARM_LIVE_FLOOR=1000 \
 # costs less than the transcript rows it displaces -- so the ceiling is 1200.
 # A LIVE FLOOR, because this arm is cheaper WITH the card than without it
 # (1001.0 against 1124.0 for the same tab): a fixture that silently stopped
-# producing a card would read ~1124 and pass. The floor is on the card being
-# SCROLLING -- the state the new code path lives in -- and it is a per-frame
-# rate, so 1 means "every frame drew a scrolling card".
-ARM_LIVE_COUNTER=ask.cards_scrolling ARM_LIVE_FLOOR=1 \
+# producing a card would read ~1124 and pass. The floor is a per-frame rate,
+# so 1 means "every frame drew the card". Since the card pages one question at
+# a time (Puffin 0.8.1/0.8.6), the big form's first page FITS at this size, so
+# this arm floors on the card being drawn (ask.cards_drawn); the narrow arm
+# below is the one whose page still scrolls, and keeps the scrolling floor.
+ARM_LIVE_COUNTER=ask.cards_drawn ARM_LIVE_FLOOR=1 \
     run_arm askbig 20 "$CEIL_ASKBIG" '["t2"]' '"t2"' HANABI_ASK_DEMO=big
 ARM_LIVE_COUNTER=ask.cards_scrolling ARM_LIVE_FLOOR=1 \
     HANABI_ALLOC_WIN_W=760 HANABI_ALLOC_WIN_H=620 \
