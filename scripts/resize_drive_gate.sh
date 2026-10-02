@@ -89,8 +89,9 @@ check_scene() {  # name expect_audited(0|1) -> prints, returns 0/1
     if [ "$RC" -ne 0 ]; then echo "  FAIL exit $RC"; tail -5 "$LOG" | sed 's/^/        /'; return 1; fi
     if [ -z "$summary" ]; then echo "  FAIL no SUMMARY line: the drive measured nothing"; return 1; fi
     if ! grep -q '^\[prof\]' "$LOG"; then echo "  FAIL no prof table: the audit could not be read"; return 1; fi
-    local starts ends frames notes skipped final settle
+    local starts ends frames notes skipped final settle syncd
     starts=$(field "$summary" live_starts); ends=$(field "$summary" live_ends)
+    syncd=$(field "$summary" sync_draws)
     frames=$(field "$summary" frames_live); notes=$(field "$summary" notes)
     skipped=$(field "$summary" sizes_skipped); final=$(field "$summary" final)
     settle=$(field "$summary" settle_frames); lastframe=$(field "$summary" last_frame)
@@ -100,7 +101,7 @@ check_scene() {  # name expect_audited(0|1) -> prints, returns 0/1
     interval=$(grep -oE 'cache\.interval_hit +[0-9]+' "$LOG" | awk '{print $2}'); interval=${interval:-0}
     misses=$(grep -oE 'cache\.msgrender_miss +[0-9]+' "$LOG" | awk '{print $2}'); misses=${misses:-0}
     printf '  %-14s live_starts=%s live_ends=%s\n' liveness "$starts" "$ends"
-    printf '  %-14s frames=%s applied_sizes=%s sizes_skipped=%s\n' progression "$frames" "$notes" "$skipped"
+    printf '  %-14s frames=%s applied_sizes=%s sizes_skipped=%s same_step_draws=%s\n' progression "$frames" "$notes" "$skipped" "$syncd"
     printf '  %-14s window=%s last_frame=%s settle_frames=%s (pointer left it at 1100x760)\n' settle "$final" "$lastframe" "$settle"
     printf '  %-14s natural_audited=%s natural_mismatch=%s\n' exactness "$audited" "$mismatch"
     printf '  %-14s interval_hits=%s render_misses=%s\n' reuse "$interval" "$misses"
@@ -112,6 +113,13 @@ check_scene() {  # name expect_audited(0|1) -> prints, returns 0/1
         awk -v f="$frames" -v n="$notes" 'BEGIN { exit !(f * 10 < n * 9) }' && { echo "  FAIL progression: frames ($frames) under 90% of applied sizes ($notes)"; fail=1; }
     fi
     [ "$skipped" = 0 ] || { echo "  FAIL progression: $skipped applied sizes were never painted"; fail=1; }
+    # Every applied size drawn INSIDE its own step (sokol_impl.mm's
+    # windowDidResize draw). Without it a size is still painted -- one display
+    # tick later, the window server waiting on the fence -- so "never painted"
+    # alone caught the planted regression only by luck once frames got cheap.
+    if [ -n "$syncd" ] && [ -n "$notes" ]; then
+        awk -v s="$syncd" -v n="$notes" 'BEGIN { exit !(s * 10 < n * 9) }' && { echo "  FAIL progression: only $syncd of $notes applied sizes were drawn in their own step"; fail=1; }
+    fi
     [ "$final" = "$lastframe" ] || { echo "  FAIL settle: the last frame ($lastframe) is not the settled window ($final)"; fail=1; }
     local fw fh; fw=${final%x*}; fh=${final#*x}
     if [ -z "$fw" ] || [ -z "$fh" ] || [ $((fw - 1100)) -gt 4 ] || [ $((1100 - fw)) -gt 4 ] || [ $((fh - 760)) -gt 4 ] || [ $((760 - fh)) -gt 4 ]; then
@@ -133,23 +141,17 @@ echo "  pattern $PATTERN (net zero: settles at 1100x760)"
 
 if [ "$selftest" = 1 ]; then
     echo "  selftest: the same-step draw OFF must fail progression"
-    # The planted symptom is a RACE: with the same-step draw off, a size goes
-    # unpainted only when two resize notes land between frames. A 1 ms mouse
-    # (rather than the default 8 ms) makes that likely but not certain -- on
-    # Aspen it was caught 6 of 6 standalone and missed once under the gate's
-    # load -- so the planted arm gets up to three tries, and ONE catch proves
-    # the gate can see it. The real arms below run once, unchanged.
-    for try in 1 2 3; do
-        run_scene typical t2 HANABI_RESIZE_SYNC_DRAW=0 HANABI_RESIZE_DRIVE_TICK_MS=1
-        if ! check_scene "typical, sync draw off (planted, try $try)" 0; then
-            rm -rf "$SCENE_HOME"
-            echo "  selftest PASS: the planted regression was caught"
-            exit 0
-        fi
-        rm -rf "$SCENE_HOME"
-    done
-    echo "  selftest FAIL: the planted regression passed the gate three times"
-    exit 1
+    # Caught by the same-step count, which the planted arm zeroes every run.
+    # (Until 2026-10-02 the selftest leaned on "sizes never painted", a race
+    # that cheap frames stopped losing; three tries at a 1 ms mouse still
+    # missed under the gate's load.)
+    run_scene typical t2 HANABI_RESIZE_SYNC_DRAW=0
+    if check_scene "typical, sync draw off (planted)" 0; then
+        echo "  selftest FAIL: the planted regression passed the gate"; rm -rf "$SCENE_HOME"; exit 1
+    fi
+    rm -rf "$SCENE_HOME"
+    echo "  selftest PASS: the planted regression was caught"
+    exit 0
 fi
 
 overall=0
