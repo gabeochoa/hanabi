@@ -50,6 +50,15 @@ namespace ecs {
 // The strip's palette lives in tab_colors.h so tests can reach it.
 
 struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
+    // Where a tab dragged out of the strip would split: below the strip by
+    // a margin, over the right half of the pane area.
+    static constexpr float kSplitDropMargin = 24.0f;
+    static bool split_drop_target(const TabStripComponent& strip, float tabY, float tabH,
+                                  float paneLeft) {
+        const float paneMid = (paneLeft + hanabi::viewport::width()) * 0.5f;
+        return strip.dragCurY > tabY + tabH + kSplitDropMargin && strip.dragCurX >= paneMid;
+    }
+
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* layoutP = find_singleton<LayoutComponent>();
         auto* appP = find_singleton<AppComponent>();
@@ -307,18 +316,37 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     strip.dragFromIndex = i;
                     strip.dragStartX = ctx.mouse.pos.x;
                     strip.dragCurX = ctx.mouse.pos.x;
+                    strip.dragStartY = ctx.mouse.pos.y;
+                    strip.dragCurY = ctx.mouse.pos.y;
                     strip.dragging = false;
                     break;
                 }
             }
         } else if (ctx.mouse.left_down && strip.has_drag_candidate()) {
             strip.dragCurX = ctx.mouse.pos.x;
+            strip.dragCurY = ctx.mouse.pos.y;
             if (std::fabs(strip.dragCurX - strip.dragStartX) >
-                TabStripComponent::DRAG_THRESHOLD_PX)
+                    TabStripComponent::DRAG_THRESHOLD_PX ||
+                // Vertically only once the pointer has really left the
+                // strip, so a click that wobbles a few points still clicks.
+                std::fabs(strip.dragCurY - strip.dragStartY) > kSplitDropMargin)
                 strip.dragging = true;
         } else if (ctx.mouse.just_released && strip.has_drag_candidate()) {
             size_t from = index_of(strip.dragCandidate);
-            if (strip.dragging && from < nTabs && nTabs > 1) {
+            // A conversation tab dragged DOWN out of the strip and dropped on
+            // the right half of the pane area opens beside the one on screen
+            // (the reference's tab-to-split drop) -- the tab menu's "Open in
+            // Split" by hand. A surface tab (Settings, Home) has no split.
+            const auto draggedTab = EntityHelper::getEntityForID(strip.dragCandidate);
+            const std::string draggedId =
+                draggedTab.valid() && draggedTab->has<Tab>() ? draggedTab->get<Tab>().sessionId
+                                                              : std::string();
+            if (strip.dragging && split_drop_target(strip, tabY, tabH, runLeft) &&
+                !draggedId.empty() && !model::is_surface_tab(draggedId)) {
+                app.requestSplitOpen = draggedId;
+                app.view = SmartView::Chat;
+                ctx.mouse.just_pressed = false;
+            } else if (strip.dragging && from < nTabs && nTabs > 1) {
                 // Center-x of the dragged tab follows the cursor, clamped so it
                 // never leaves the strip (matches the render-side clamp).
                 float origCenter =
@@ -354,6 +382,30 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 }
             }
             strip.clear_drag();
+        }
+        // While a tab is held over the split drop zone, the zone says so: the
+        // right half of the pane area, tinted with the accent.
+        if (strip.dragging && ctx.mouse.left_down &&
+            split_drop_target(strip, tabY, tabH, runLeft)) {
+            const auto dragged = EntityHelper::getEntityForID(strip.dragCandidate);
+            if (dragged.valid() && dragged->has<Tab>() &&
+                !model::is_surface_tab(dragged->get<Tab>().sessionId)) {
+                const float paneMid = (runLeft + hanabi::viewport::width()) * 0.5f;
+                const float top = tabY + tabH;
+                theme::Color tint = theme::accent();
+                tint.a = 46;
+                div(ctx, mk(uiRoot, 8650),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{pixels(hanabi::viewport::width() - paneMid),
+                                                 pixels(hanabi::viewport::height() - top)})
+                        .with_absolute_position()
+                        .with_translate(paneMid, top)
+                        .with_custom_background(tint)
+                        .with_border(theme::accent(), pixels(2.0f))
+                        .with_roundness(0.0f)
+                        .with_render_layer(9)
+                        .with_debug_name("tab_split_drop_zone"));
+            }
         }
 
         // ---- Right-click context menu (open) ------------------------------

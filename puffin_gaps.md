@@ -535,6 +535,8 @@ Two tags the platform shipped after the reference's contract (`clients/rust/gene
 
 **Hanabi today:** Split exists (via HANABI_SPLIT env flag + right-click context menu) but not drag-into-drop-zone. User must right-click to split.
 
+**Hanabi 2026-10-02 (lead lane): BUILT.** A conversation tab dragged down out of the strip and dropped on the right half of the pane area opens in the split (the tab menu's Open in Split by hand); while held there the drop zone is tinted; a surface tab never splits; vertical motion only counts once the pointer has left the strip, so a wobbly click still clicks (`tab_bar_system.h` split_drop_target; `dragging_a_tab_into_the_pane_splits_it.e2e`).
+
 **Importance:** Important. Drag is more discoverable than context menu.
 
 **Size:** Medium. Drag recognizer + drop zone rendering + visual hints. ~90 lines (depends on afterhours drag support).

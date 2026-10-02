@@ -2295,6 +2295,8 @@ struct TabStripComponent : public afterhours::BaseComponent {
     bool dragging = false;      // promoted past the threshold this gesture
     float dragStartX = 0.0f;    // cursor X at press (for threshold + delta)
     float dragCurX = 0.0f;      // current cursor X while held
+    float dragStartY = 0.0f;    // cursor Y at press: a drag DOWN into a pane
+    float dragCurY = 0.0f;      // splits it (TabBarSystem, the reference's)
     size_t dragFromIndex = 0;   // tabOrder index of the tab being dragged
 
     bool has_drag_candidate() const {
@@ -2305,6 +2307,7 @@ struct TabStripComponent : public afterhours::BaseComponent {
         dragCandidate = std::numeric_limits<afterhours::EntityID>::max();
         dragging = false;
         dragStartX = dragCurX = 0.0f;
+        dragStartY = dragCurY = 0.0f;
         dragFromIndex = 0;
     }
 
