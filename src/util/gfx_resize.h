@@ -65,16 +65,26 @@ inline void request_resize(int w, int h) {
 
 // The only frame opener in this app. Applies a requested resize first, with no
 // pass open and nothing recorded against the outgoing target.
+//
+// The size is read back AFTER graphics::begin_frame(), not straight after the
+// call: the headless backend defers too now (vendor 60b0b92's
+// request_headless_resize parks the size and begin_drawing applies it), so a
+// read between the two saw the PREVIOUS size, one step behind -- which
+// scripts/stress_resize_gate.sh reported as "the call is not moving the
+// target" (asked 814x760, read 822x760).
 inline void begin_frame() {
+    bool resized = false;
     if (PendingResize& p = pending_resize(); p.armed) {
         p.armed = false;
         afterhours::window_manager::set_window_size(p.width, p.height);
+        ++applied_resize_count();
+        resized = true;
+    }
+    afterhours::graphics::begin_frame();
+    if (resized)
         applied_resize_size() = PendingResize{
             static_cast<int>(afterhours::graphics::get_screen_width()),
             static_cast<int>(afterhours::graphics::get_screen_height()), false};
-        ++applied_resize_count();
-    }
-    afterhours::graphics::begin_frame();
 }
 
 }  // namespace hanabi::gfx
