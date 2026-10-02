@@ -1562,6 +1562,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         std::uint64_t spacesRevision = 0;
         std::vector<hanabi::mention::Row> rows;
     } mentionMemo_;
+    // The thread names drawn in the reply being rendered (render_rich_body's
+    // caller sets it), so its lines can make them links.
+    std::vector<std::pair<std::string, std::string>> richTitleLabels_;
     // Home's and the digests' places across a trip away (ui/scroll_memory.h).
     hanabi::ui::ScrollMemory homeScroll_;
     hanabi::ui::ScrollMemory digestScroll_;
@@ -3319,10 +3322,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // reference's kt-dg5c; ui/thread_mention.h titled): only threads this
     // client holds are named, the rest stay their URL. Cheap when the text
     // holds no reference -- one find.
+    // Whether raw message text could hold a thread reference: one find on the
+    // wire text, so the per-frame paths pay nothing for the common message.
+    static const std::string& thread_ref_prefix(const AppComponent& app) {
+        // Rebuilt only when the web base changes: this runs per message per
+        // frame and must not allocate.
+        static std::string base, prefix;
+        if (base != app.webBaseUrl) {
+            base = app.webBaseUrl;
+            prefix = hanabi::mention::link_for(base, "");
+        }
+        return prefix;
+    }
+    static bool may_hold_thread_ref(const std::string& raw) {
+        AppComponent* app = app_singleton();
+        if (app == nullptr || app->webBaseUrl.empty()) return false;
+        const std::string& prefix = thread_ref_prefix(*app);
+        return !prefix.empty() && raw.find(prefix) != std::string::npos;
+    }
+    static hanabi::mention::Titled titled_refs_of(const api::Message& m) {
+        if (!may_hold_thread_ref(m.text)) return {};
+        return titled_refs(display_source(m));
+    }
+
     static hanabi::mention::Titled titled_refs(const std::string& text) {
         AppComponent* app = app_singleton();
-        if (app == nullptr || app->webBaseUrl.empty() ||
-            text.find(hanabi::mention::link_for(app->webBaseUrl, "")) == std::string::npos) {
+        if (app == nullptr || app->webBaseUrl.empty() || thread_ref_prefix(*app).empty() ||
+            text.find(thread_ref_prefix(*app)) == std::string::npos) {
             hanabi::mention::Titled t;
             t.text = text;
             return t;
@@ -11167,10 +11193,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                           bool isLive, int index,
                                           AppComponent::StreamPhase phase,
                                           bool rich) {
-        // A user message's references are drawn by title, so a rename changes
-        // what is measured: the drawn names ride in the key.
-        const hanabi::mention::Titled refs =
-            rich ? hanabi::mention::Titled{} : titled_refs(display_source(m));
+        // A message's thread references are drawn by title, so a rename
+        // changes what is measured: the drawn names ride in the key.
+        const hanabi::mention::Titled refs = titled_refs_of(m);
+        const auto drawn_source = [&]() {
+            return refs.labels.empty() && refs.text.empty() ? display_source(m) : refs.text;
+        };
         const std::string key =
             (m.id.empty() ? ("i" + std::to_string(index)) : m.id) +
             (rich ? "|r" : "|f") + zoom_key() +
@@ -11202,7 +11230,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                            : "cache.natural_hit");
                 }
                 if (audit && render_cache().natural() != naturalWas) {
-                    std::string body = strip_inline_md(rich ? display_source(m) : refs.text);
+                    std::string body = strip_inline_md(drawn_source());
                     if (!rich) body = strip_inline_markers(body);
                     const int lines = count_lines(body, textW);
                     const float h = rich ? rich_body_h(body, textW)
@@ -11231,7 +11259,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // color them as spans (gap upstream a1b9a4b); the flat (user) path strips them since
         // it renders one plain label. Both go through normalize_md_lines
         // (bullets / rules) via strip_inline_md.
-        r.body = strip_inline_md(rich ? display_source(m) : refs.text);
+        r.body = strip_inline_md(drawn_source());
         if (!rich) r.body = strip_inline_markers(r.body);
         if (isLive) {
             if (r.body.empty() ||
@@ -12324,8 +12352,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // handed over. Detection reads the VISIBLE text, the same
                 // string the measure pass wrapped, so a link can never change
                 // where a line breaks.
-                const std::vector<hanabi::links::Link> lnks =
-                    links_in(ip.visible);
+                std::vector<hanabi::links::Link> lnks = links_in(ip.visible);
+                // A thread reference drawn by its title (titled_refs) is a
+                // link wherever its name sits in this line.
+                for (const auto& [label, id] : richTitleLabels_)
+                    for (std::size_t at = ip.visible.find(label); at != std::string::npos;
+                         at = ip.visible.find(label, at + label.size()))
+                        lnks.push_back(hanabi::links::Link{
+                            at, label.size(), std::string(hanabi::links::kThreadPrefix) + id});
+                if (!richTitleLabels_.empty())
+                    std::sort(lnks.begin(), lnks.end(),
+                              [](const auto& a, const auto& b) { return a.off < b.off; });
                 colour_links(ip, lnks);
                 auto cfg = ComponentConfig{}
                         .with_label(ip.visible)
@@ -12907,7 +12944,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // thread; the drawn names are in the measurement key, so a rename
             // re-measures.
             std::vector<hanabi::links::Link> ulinks = links_in(userBody);
-            add_title_links(userBody, titled_refs(display_source(m)), ulinks);
+            add_title_links(userBody, titled_refs_of(m), ulinks);
             auto ucfg = ComponentConfig{}
                     .with_label(userBody)
                     .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
@@ -13114,8 +13151,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (isLive && streamPhase == AppComponent::StreamPhase::Thinking) {
             render_thinking_indicator(ctx, asstBubble.ent(), app);
         } else {
+            // The drawn thread names in this reply, for its lines' links.
+            richTitleLabels_ = titled_refs_of(m).labels;
             render_rich_body(ctx, asstBubble.ent(), shown, textW, winTop,
                              winBot, bodyStartY, paint_query_for(index), index);
+            richTitleLabels_.clear();
         }
 
         // Inline image (agent surface): if the message carries a decodable

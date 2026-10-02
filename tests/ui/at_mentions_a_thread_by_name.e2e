@@ -49,6 +49,8 @@ wait_frames 30
 # Sent, the reference is DRAWN by the thread's current title (the wire keeps
 # the URL), and a click on it opens the thread.
 expect_text "look at @profiling the disk"
+# The mock agent echoes the message; its line draws the name too.
+expect_text "working on: look at @profiling the disk"
 click_link thread:r5
 wait_frames 12
 expect_tab r5 unpinned
