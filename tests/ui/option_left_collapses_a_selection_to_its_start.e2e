@@ -1,0 +1,20 @@
+# Option+Left over a selection collapses it to its START and stops -- macOS's
+# rule, and the single-line field's -- rather than stepping a further word
+# from the caret, which is what afterhours' text_area word motion does on its
+# own (afterhours_gaps.md #260; text_edit_chords_system.h aims the caret).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+click_ui composer_reply_input
+wait_frames 6
+type "alpha beta gamma"
+wait_frames 6
+key ALT+SHIFT+LEFT
+wait_frames 6
+expect_selected_text composer_reply_input "gamma"
+key ALT+LEFT
+wait_frames 6
+type "!"
+wait_frames 6
+expect_input_text composer_reply_input "alpha beta !gamma"

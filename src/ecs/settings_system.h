@@ -2967,8 +2967,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 hanabi::surface::field(w, 11)
                     .with_size(ComponentSize{pixels(w), pixels(240)})
                     .with_border(theme::border_raised(), pixels(1.0f))
-                    // The text area paints its own ground: the box matches it
-                    // and leaves room for its hairline.
+                    // The text area paints its own ground (afterhours_gaps.md
+                    // #262): the box matches it and leaves room for its hairline.
                     .with_custom_background(theme::panel_bg())
                     .with_padding(Padding{.top = pixels(6), .right = pixels(8),
                                           .bottom = pixels(6), .left = pixels(8)})

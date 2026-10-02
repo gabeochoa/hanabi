@@ -768,7 +768,7 @@ correction narrows them rather than closing them.
 | 257 | No action for delete-to-line-start | MISSING | MED | S | live |
 | 258 | `expect_input_text` cannot see a multiline field | WORKAROUND | HIGH | XS | live |
 | 259 | The script parser is line-based; no `\n` escape | TEDIOUS | MED | XS | live |
-| 260 | `text_area`'s word motion does not collapse a selection | SHARP EDGE | MED | XS | dup→#67 |
+| 260 | `text_area`'s word motion does not collapse a selection | SHARP EDGE | MED | XS | dup→#67; app workaround 2026-10-02 (caret aimed before the step) |
 | 261 | `text_area` has no placeholder | MISSING | MED | XS | dup→#67 |
 | 262 | `text_area` hardcodes its field background | MISSING | MED | XS | dup→#67 |
 | 263 | `text_area` draws no focus ring | MISSING | MED | XS | dup→#67 |

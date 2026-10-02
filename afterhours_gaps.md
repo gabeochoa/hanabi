@@ -8926,7 +8926,9 @@ this gap named beside it, so that a library fix shows up as a failing test
 rather than as nothing.
 
 
-**Hanabi reference.** None — no app-side workaround is implemented.
+**POSTSCRIPT 2026-10-02 (lead lane): "an app cannot intervene" was wrong.** The step cannot be skipped, but it can be AIMED. Before the panes build, with Option+Left/Right pressed (no Shift, no Cmd/Ctrl) over a selection in a text area, hanabi moves the caret to the position from which the library's own `find_word_end` (Right) or `find_word_start` (Left) lands exactly on the selection's near edge, and clears the selection; the widget's word step later in the frame then finishes on the edge. Where no such position exists the widget is left to do what it does.
+
+**Hanabi reference.** `src/ecs/text_edit_chords_system.h` (`collapse_before_word_motion`) — aims the caret so text_area's one word step lands on the selection edge. Tests: `tests/ui/composer_shift_selection.e2e` (`expect_input_text composer_reply_input "alpha! x"`) and `tests/ui/option_left_collapses_a_selection_to_its_start.e2e` — Option+Right and Option+Left collapse to the near edge.
 
 
 **Minimal upstream fix.** The four lines `text_input` already has, in the two

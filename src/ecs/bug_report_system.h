@@ -110,8 +110,9 @@ struct BugReportSystem : afterhours::System<UIContext<InputAction>> {
             hanabi::surface::field(w, 11)
                 .with_size(ComponentSize{pixels(w), pixels(150)})
                 .with_border(theme::border_raised(), pixels(1.0f))
-                // The text area paints its own ground (the panel colour), so
-                // the box is that colour too, with room for its hairline.
+                // The text area paints its own ground (Theme Secondary, not
+                // its config -- afterhours_gaps.md #262), so the box matches
+                // it and leaves room for its hairline.
                 .with_custom_background(theme::panel_bg())
                 .with_padding(Padding{.top = pixels(6), .right = pixels(8),
                                       .bottom = pixels(6), .left = pixels(8)})

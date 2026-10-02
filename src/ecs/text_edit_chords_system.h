@@ -95,6 +95,48 @@ inline bool chord_pressed(EditVerb verb) {
 struct TextEditChordsSystem : afterhours::System<> {
     bool should_iterate() const override { return false; }
 
+    // Option+Left/Right over a selection in a text AREA: collapse to the
+    // selection's near edge and stop, as macOS (and the single-line field)
+    // does. text_area's word motion always steps a word from the caret
+    // (afterhours_gaps.md #260), and runs in the same call that reads the
+    // key, so it cannot be skipped -- but it can be AIMED: the caret is put
+    // where one word step lands exactly on the edge (the library's own
+    // find_word_end/find_word_start decide that), with no selection, and the
+    // widget's step later this frame finishes the move. Runs before the
+    // panes build, like the Cmd+Backspace chord below.
+    static void collapse_before_word_motion() {
+        if (!hanabi::keys::option_down() || hanabi::keys::shift_down() ||
+            hanabi::keys::cmd_or_ctrl_down())
+            return;
+        const bool right = hanabi::keys::pressed(hanabi::keys::kRight);
+        const bool left = hanabi::keys::pressed(hanabi::keys::kLeft);
+        if (right == left) return;
+        auto* area = focused_text_area();
+        if (area == nullptr || !area->has_selection()) return;
+        const std::string text = area->text();
+        const size_t target = right ? area->selection_end() : area->selection_start();
+        size_t from = target;
+        bool found = false;
+        if (right) {
+            for (size_t p = target; p-- > 0;)
+                if (afterhours::text_input::find_word_end(text, p) == target) {
+                    from = p;
+                    found = true;
+                    break;
+                }
+        } else {
+            for (size_t p = target + 1; p <= text.size(); ++p)
+                if (afterhours::text_input::find_word_start(text, p) == target) {
+                    from = p;
+                    found = true;
+                    break;
+                }
+        }
+        if (!found) return;
+        area->cursor_position = from;
+        area->clear_selection();
+    }
+
     void once(float) override {
         if (auto& pending = edit_actions::pending_field_edits(); !pending.verbs.empty()) {
             std::fprintf(stderr, "[edit-actions] %zu field verb(s) for entity %d were not applied last frame (field not built)\n",
@@ -111,6 +153,7 @@ struct TextEditChordsSystem : afterhours::System<> {
                 if (edit_actions::chord_pressed(verb)) edit_actions::perform(*app, verb);
             }
         }
+        collapse_before_word_motion();
         if (!hanabi::keys::cmd_or_ctrl_down()) return;
         if (!hanabi::keys::pressed(hanabi::keys::kBackspace)) return;
 

@@ -57,15 +57,15 @@ expect_selected_text composer_reply_input "alpha"
 
 # An unshifted motion over a selection. A Mac field collapses to the near edge
 # and stops there, which is what afterhours' single-line text_input does — and
-# what text_area does for a plain Left/Right, in a branch whose own comment
-# says so. Its WORD motion skips that branch and steps a further word anyway,
-# so the marker lands past "x" instead of at the end of "alpha"
-# (afterhours_gaps.md #260). Asserted as it behaves, not as it should: if the
-# library is fixed this fails, which is the notice we want.
+# what text_area does for a plain Left/Right. Its WORD motion skips that branch
+# and would step a further word (afterhours_gaps.md #260); hanabi aims the
+# caret so the widget's one word step lands on the edge
+# (text_edit_chords_system.h, collapse_before_word_motion), so the marker
+# lands at the end of "alpha".
 key ALT+RIGHT
 wait_frames 6
 type "!"
 wait_frames 6
-expect_input_text composer_reply_input "alpha x!"
+expect_input_text composer_reply_input "alpha! x"
 
 wait_frames 10
