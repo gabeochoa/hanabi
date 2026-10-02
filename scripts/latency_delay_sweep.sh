@@ -9,8 +9,10 @@ trap cleanup EXIT INT TERM
 
 N="${HANABI_LATENCY_SWEEP_DELAY:-7}"
 SCRIPTS=(interaction_latency_budgets interaction_latency_budgets_two interaction_latency_scroll shared_controls_latency shared_controls_latency_tooltip a_press_shows_on_every_control_family)
-EXPECTED_ARMS="attachment_stage click_feedback focus_gain focus_loss popup_close popup_open scroll_away scroll_back session_switch_back session_switch_forward sheet_close sheet_open submit typing_search keyboard_activation menu_open menu_close submenu_open submenu_close menu_press tooltip_reveal tooltip_dismiss focus_restored press_transparent press_opaque press_menu_row"
-EXPECTED_COUNT=26
+EXPECTED_ARMS="attachment_stage click_feedback focus_gain focus_loss popup_close popup_open scroll_away scroll_back session_switch_back session_switch_forward sheet_close sheet_open submit typing_search keyboard_activation menu_open menu_close menu_press tooltip_reveal tooltip_dismiss focus_restored press_transparent press_opaque press_menu_row"
+# 24 since 2801134 retired the row menu's Open… submenu and its two arms
+# (submenu_open, submenu_close) from shared_controls_latency.e2e.
+EXPECTED_COUNT=24
 SAMPLE_RUNS="${HANABI_LATENCY_SAMPLES:-10}"
 
 measure() {
