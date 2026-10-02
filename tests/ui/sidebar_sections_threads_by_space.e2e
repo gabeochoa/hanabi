@@ -1,0 +1,21 @@
+# Threads filed in a Metamate Space are sectioned under that Space in the
+# sidebar (the reference's Space grouping): one section per Space, headed by
+# its name (not its emoji: no loaded face draws one, afterhours_gaps.md
+# #48), in the Space list's order, before the workspace folders;
+# everything unfiled stays in Recents. Which thread is filed where comes from
+# the session->Space index (a paged walk; the mock answers one filing a page).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SPACE_FILING=t9:1593993452358360,t5:2200000000000001
+
+wait_frames 30
+# Section headers are drawn in capitals, like PINNED and RECENTS; both Space
+# sections arrive collapsed, as every named section does on first sight.
+expect_text "SUBS"
+expect_text "INFRA NOTES"
+expect_text "RECENTS"
+expect_no_text "watchdog clean for 6h"
+# Open Infra notes' section: its thread is there, not in Recents.
+click_text INFRA NOTES
+wait_frames 10
+expect_text "watchdog clean for 6h"

@@ -196,7 +196,8 @@ std::vector<Row> rows(const std::vector<api::SessionSummary>& sessions,
         if (k < 0) continue;
         Row r;
         r.id = s.id;
-        r.title = s.emoji.empty() ? s.name : s.emoji + " " + s.name;
+        // Not the emoji: no loaded face draws one (afterhours_gaps.md #48).
+        r.title = s.name;
         r.space = true;
         r.alreadyNamed = names(draft, space_reference(s.id));
         sp.push_back({needle.empty() ? 0 : k, std::move(r)});

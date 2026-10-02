@@ -108,7 +108,7 @@ static void test_spaces_follow_threads_and_write_space_ids() {
     CHECK(r.size() == 2);
     if (r.size() == 2) {
         CHECK(!r[0].space && r[0].id == "t");
-        CHECK(r[1].space && r[1].id == "1593993452358360" && r[1].title == "\xf0\x9f\x90\xa6 Subs");
+        CHECK(r[1].space && r[1].id == "1593993452358360" && r[1].title == "Subs");
     }
     CHECK(mn::completed("see @sub", mn::space_reference("1593993452358360")) ==
           "see space:1593993452358360 ");

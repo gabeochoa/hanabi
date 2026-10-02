@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "../../vendor/nlohmann/json.hpp"
@@ -47,6 +48,51 @@ inline bool valid_id(std::string_view id) {
 }
 
 inline std::string body() { return json{{"query_text", kDoc}}.dump(); }
+
+// Which Space each of the viewer's sessions is filed in: one paged walk of
+// the session list with no filter (a child inherits its parent's container,
+// so the walk includes them), the web's sessionSpaceQuery shape. The cursor
+// rides as a variable so every page reuses one persisted document.
+inline constexpr const char* kIndexDoc =
+    "query HanabiSessionSpaceIndex($first: Int!, $after: String) { "
+    "xfb_agentcloud_session_list_for_viewer(first: $first, after: $after) { sessions { "
+    "session_id space { id } } next_cursor } }";
+inline constexpr int kIndexPageSize = 200;
+inline constexpr int kIndexMaxPages = 25;
+
+inline std::string index_body(const std::string& after) {
+    json vars{{"first", kIndexPageSize}, {"after", after.empty() ? json() : json(after)}};
+    return json{{"query_text", kIndexDoc}, {"variables", vars.dump()}}.dump();
+}
+
+struct IndexPage {
+    std::vector<std::pair<std::string, std::string>> filed;  // session -> space
+    std::string next;                                         // "" = the end
+};
+
+// Positive evidence only: an unfiled row, or one whose Space the viewer may
+// not see, is simply absent. An unreadable answer ENDS the walk.
+inline IndexPage parse_index(const json& data) {
+    IndexPage out;
+    if (!data.is_object() || !data.contains("xfb_agentcloud_session_list_for_viewer")) return out;
+    const json& p = data["xfb_agentcloud_session_list_for_viewer"];
+    if (!p.is_object()) return out;
+    if (p.contains("sessions") && p["sessions"].is_array())
+        for (const json& row : p["sessions"]) {
+            if (!row.is_object() || !row.contains("session_id") || !row["session_id"].is_string())
+                continue;
+            const std::string sid = row["session_id"].get<std::string>();
+            if (sid.empty() || !row.contains("space") || !row["space"].is_object()) continue;
+            const json& sp = row["space"];
+            if (!sp.contains("id") || !sp["id"].is_string()) continue;
+            const std::string id = sp["id"].get<std::string>();
+            if (!valid_id(id)) continue;
+            out.filed.emplace_back(sid, id);
+        }
+    if (p.contains("next_cursor") && p["next_cursor"].is_string())
+        out.next = p["next_cursor"].get<std::string>();
+    return out;
+}
 
 // `data` (inside the route's two envelopes) -> the Spaces, ordered.
 inline std::optional<std::vector<Space>> parse(const json& data) {

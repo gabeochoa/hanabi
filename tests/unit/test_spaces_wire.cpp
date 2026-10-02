@@ -44,7 +44,25 @@ static void test_parse_orders_and_drops_named_agents() {
           std::string::npos);
 }
 
+static void test_index_pages_and_positive_evidence_only() {
+    const json data{{"xfb_agentcloud_session_list_for_viewer",
+                     {{"sessions", json::array({{{"session_id", "a"}, {"space", {{"id", "15"}}}},
+                                                {{"session_id", "b"}, {"space", nullptr}},
+                                                {{"session_id", "c"}},
+                                                {{"session_id", "d"}, {"space", {{"id", "x1"}}}}})},
+                      {"next_cursor", "cur2"}}}};
+    const auto p = sp::parse_index(data);
+    CHECK(p.filed.size() == 1 && p.filed[0].first == "a" && p.filed[0].second == "15");
+    CHECK(p.next == "cur2");
+    CHECK(sp::parse_index(json::object()).filed.empty() && sp::parse_index(json::object()).next.empty());
+    const json vars = json::parse(json::parse(sp::index_body("cur2"))["variables"].get<std::string>());
+    CHECK(vars["after"] == "cur2" && vars["first"] == sp::kIndexPageSize);
+    const json first = json::parse(json::parse(sp::index_body(""))["variables"].get<std::string>());
+    CHECK(first["after"].is_null());
+}
+
 int main() {
+    test_index_pages_and_positive_evidence_only();
     test_parse_orders_and_drops_named_agents();
     if (failures == 0) {
         std::printf("OK\n");

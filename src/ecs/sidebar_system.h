@@ -371,10 +371,23 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 },
                 keep, keepKey);
             folderNames_ = buckets_.folders();
+            // Space sections first, in the Space list's own order (pinned,
+            // then Metamate's rank, then name); then workspace folders by
+            // name.
+            const auto spaceRank = [app](const std::string& key) -> int {
+                if (!model::is_space_section(key)) return -1;
+                const std::string id = key.substr(6);
+                for (std::size_t i = 0; i < app->spaces.size(); ++i)
+                    if (app->spaces[i].id == id) return static_cast<int>(i);
+                return static_cast<int>(app->spaces.size());
+            };
             std::sort(folderNames_.begin(), folderNames_.end(),
-                      [](const std::string& a, const std::string& b) {
-                          const std::string an = folder_display_name(a);
-                          const std::string bn = folder_display_name(b);
+                      [&](const std::string& a, const std::string& b) {
+                          const int ra = spaceRank(a), rb = spaceRank(b);
+                          if ((ra >= 0) != (rb >= 0)) return ra >= 0;
+                          if (ra >= 0 && ra != rb) return ra < rb;
+                          const std::string an = section_display_name(*app, a);
+                          const std::string bn = section_display_name(*app, b);
                           return an == bn ? a < b : an < bn;
                       });
             if (!app->foldersDefaultCollapsedSeeded && !folderNames_.empty()) {
@@ -385,7 +398,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             for (const auto& folder : folderNames_) {
                 shown += render_folder(
                     ctx, scroll.ent(), folder_base(folder),
-                    folder_display_name(folder), folder,
+                    section_display_name(*app, folder), folder,
                     buckets_.members(folder), *app, q, r.width,
                     /*archivedStyle=*/false, /*catchAll=*/false,
                     /*headerless=*/false);
@@ -3064,6 +3077,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // What a named folder IS (its own section, excluded from the Recent
     // catch-all) is `ecs::model::is_named_folder`, next to the collection that
     // sorts sessions into one or the other.
+    // A section's header: a Space by its name (the Space list answers; one
+    // it has not heard of reads "Space"), a folder by its path. Not its
+    // emoji: no loaded face has colour glyphs and a missing one draws
+    // nothing, leaving a blank where the emoji was (afterhours_gaps.md #48).
+    static std::string section_display_name(const AppComponent& app, const std::string& key) {
+        if (!model::is_space_section(key)) return folder_display_name(key);
+        const std::string id = key.substr(6);
+        for (const auto& sp : app.spaces)
+            if (sp.id == id) return sp.name.empty() ? std::string("Space") : sp.name;
+        return "Space";
+    }
+
     static std::string folder_display_name(const std::string& folder) {
         size_t end = folder.size();
         while (end > 0 && (folder[end - 1] == '/' || folder[end - 1] == '\\'))
@@ -3084,8 +3109,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // is filed under. A named folder is its own group; everything else lands in
     // the headerless catch-all, which renders under the "recent" key.
     static std::string group_key_for(const api::SessionSummary& s) {
-        return model::is_named_folder(s.folder) ? s.folder
-                                               : std::string("recent");
+        const std::string& section = model::section_of(s);
+        return model::is_named_folder(section) ? section : std::string("recent");
     }
 
     static const std::string& more_key(const std::string& key,

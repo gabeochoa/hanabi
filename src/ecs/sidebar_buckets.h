@@ -78,6 +78,14 @@ inline bool is_named_folder(const std::string& folder) {
     return !folder.empty() && folder != "recent";
 }
 
+// The sidebar section a thread belongs to: its Metamate Space when it is
+// filed in one this viewer can see, else its workspace folder (else none).
+inline const std::string& section_of(const api::SessionSummary& s) {
+    return s.space_group.empty() ? s.folder : s.space_group;
+}
+
+inline bool is_space_section(const std::string& key) { return key.rfind("space:", 0) == 0; }
+
 // Kept deliberately small and conservative so it cannot over-match a real
 // conversation title: a session is "automated" if its title starts with
 // "Schedule:" OR ends with "-tick". Structural naming conventions of scheduled
@@ -155,13 +163,14 @@ class SidebarBuckets {
         for (const api::SessionSummary& s : sessions) {
             if (keep && !keep(s)) continue;
             const bool archived = is_archived(s);
-            const bool named = is_named_folder(s.folder);
+            const std::string& section = section_of(s);
+            const bool named = is_named_folder(section);
             // Discovery runs BEFORE both filters and is resolved to an index
             // here, so a folder whose every member is filtered out is still
             // listed -- and so the push below never re-enters slot() while
             // holding a reference into the vector slot() can grow.
             std::size_t idx = 0;
-            if (!archived && named) idx = slot(s.folder);
+            if (!archived && named) idx = slot(section);
             if (archived) continue;
             if (hideAutomated && is_automated_title(s.title)) {
                 if (named) ++buckets_[idx].hidden;

@@ -712,6 +712,18 @@ struct AppComponent : public afterhours::BaseComponent {
     bool sensitiveGateAsked = false;
     std::future<api::Result<nlohmann::json>> sensitiveGateFuture;
     bool newThreadSensitiveAsk = false;
+    // Which Space each session is filed in (spaces_wire.h's index walk, in
+    // memory_system.h), applied to the catalogue as `space_group` so the
+    // sidebar can section by Space. Re-walked every ten minutes.
+    std::unordered_map<std::string, std::string> sessionSpace;
+    std::future<api::Result<std::vector<std::pair<std::string, std::string>>>> spaceIndexFuture;
+    double spaceIndexAt = -1.0;
+    void apply_space_filing(std::vector<api::SessionSummary>& rows) const {
+        for (auto& s : rows) {
+            const auto it = sessionSpace.find(s.id);
+            s.space_group = it == sessionSpace.end() ? std::string() : "space:" + it->second;
+        }
+    }
     // The viewer's Spaces for the @ picker, read once (memory_system.h).
     std::vector<api::spaces::Space> spaces;
     std::uint64_t spacesRevision = 0;
@@ -1885,6 +1897,7 @@ struct AppComponent : public afterhours::BaseComponent {
         // (api/session_catalog.h): every list surface reads this catalogue.
         api::catalog::keep_one_row_per_id(replacement);
         carry_held_clocks(replacement, sessions);
+        apply_space_filing(replacement);
         sessions = std::move(replacement);
         mark_session_catalog_changed();
     }

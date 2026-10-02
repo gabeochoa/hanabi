@@ -1288,6 +1288,33 @@ class MockClient : public Client {
                               ? json::parse(b["variables"].get<std::string>(), nullptr, false)
                               : json::object();
         const auto has = [&](const char* op) { return doc.find(op) != std::string::npos; };
+        if (has("query HanabiSessionSpaceIndex(")) {
+            // HANABI_MOCK_SPACE_FILING=<sid>:<spaceId>,...: those threads are
+            // filed in those Spaces. One filing per page, so a script also
+            // walks the cursor. Unset: nothing is filed.
+            std::vector<std::pair<std::string, std::string>> filed;
+            if (const char* f = std::getenv("HANABI_MOCK_SPACE_FILING"); f != nullptr && *f) {
+                std::string all = f;
+                std::size_t pos = 0;
+                while (pos <= all.size()) {
+                    const std::size_t comma = all.find(',', pos);
+                    const std::string item = all.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+                    if (const auto colon = item.find(':'); colon != std::string::npos)
+                        filed.emplace_back(item.substr(0, colon), item.substr(colon + 1));
+                    if (comma == std::string::npos) break;
+                    pos = comma + 1;
+                }
+            }
+            std::size_t page = 0;
+            if (vars.contains("after") && vars["after"].is_string())
+                page = static_cast<std::size_t>(std::atoi(vars["after"].get<std::string>().c_str() + 1));
+            json sessions = json::array();
+            if (page < filed.size())
+                sessions.push_back({{"session_id", filed[page].first}, {"space", {{"id", filed[page].second}}}});
+            json next = page + 1 < filed.size() ? json("p" + std::to_string(page + 1)) : json();
+            return Result<json>::success(
+                {{"xfb_agentcloud_session_list_for_viewer", {{"sessions", sessions}, {"next_cursor", next}}}});
+        }
         if (has("query HanabiSensitiveModeGate")) {
             // HANABI_MOCK_SENSITIVE=1 admits the viewer; otherwise the gate
             // answers null, a refusal.
@@ -2061,7 +2088,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

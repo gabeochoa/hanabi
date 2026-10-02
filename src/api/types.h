@@ -472,6 +472,12 @@ struct SessionSummary {
     std::string origin_application;
     bool title_is_human = false;
 
+    // "space:<fbid>" when the thread is filed in a Metamate Space this viewer
+    // can see, from the session->Space index (spaces_wire.h); "" otherwise.
+    // Set on the catalogue by AppComponent::replace_sessions, never by the
+    // list row (the row does not carry it). The sidebar groups by it first.
+    std::string space_group;
+
     // --- Brakes the SERVER holds ------------------------------------------
     //
     //   frozen  — `frozen: {by, reason}` on the LIST ROW and on the attach

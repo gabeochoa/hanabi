@@ -88,6 +88,8 @@ Based on frequency of use, blocking other features, and user impact:
 
 **Hanabi today:** Sessions group by `workspace` field only; no Space hierarchy. Missing GraphQL route to fetch Spaces per viewer.
 
+**Hanabi 2026-10-02 (lead lane): BUILT.** The Spaces list (`/api/graphql` `metamate_projects`, D10) and the session->Space index (`xfb_agentcloud_session_list_for_viewer` with no filter, `session_id space { id }`, paged by cursor; `api/spaces_wire.h`) give every filed thread a `space_group`; the sidebar sections by Space first, in the Space list's order, before workspace folders, and unfiled threads stay in Recents. Headers show the Space's name, not its emoji (no loaded face draws one; afterhours_gaps.md #48). Re-walked every ten minutes. `tests/ui/sidebar_sections_threads_by_space.e2e`, test_spaces_wire. Mock-verified.
+
 **Importance:** Important. 8 real Spaces exist on the backend; grouping them is the correct IA.
 
 **Size:** Medium. Needs GraphQL query (Space list), Spaces model, grouping logic in sidebar. Puffin's limitation: "workspace" field is missing from session rows, so only the first Space's sessions appear. **This is a backend gap, not a UI one.**
@@ -170,6 +172,8 @@ collapse/expand.
 **Where in puffin:** `SidebarSection.swift` + `SpaceGrouping.swift`
 
 **Hanabi today:** Sidebar sections don't collapse. All sessions visible always.
+
+**Hanabi 2026-10-02:** stale -- named sections (workspace folders, and now Space sections) collapse on their header and arrive collapsed; `sidebar_sections_threads_by_space.e2e` opens one.
 
 **Importance:** Polish. Nice for power users with many sessions.
 
