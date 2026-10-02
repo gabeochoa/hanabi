@@ -941,6 +941,49 @@ static void test_pinned_bottom_top_is_the_clamped_top_not_the_total() {
     CHECK(std::fabs(led2.pinned_bottom_top(viewH) - (led2.total() + 28.0f - viewH)) < 0.5f);
 }
 
+static void test_an_unchanged_frame_reuses_its_window() {
+    std::printf("test_an_unchanged_frame_reuses_its_window\n");
+    FakeThread t = FakeThread::heterogeneous(500, 7);
+    TranscriptLedger led;
+    const LedgerFacts f = facts_at(700.0f);
+    const TranscriptMutation mut = reset_mut(1);
+    Anchor a;
+    a.id = t.id_of(499);
+    a.row = 499;
+    a.bottom = true;
+    const float viewH = 700.0f;
+    LedgerWindow w1, w2;
+    for (int i = 0; i < 3; ++i) frame(led, t, mut, f, a, viewH, &w1);
+    // Nothing changed: the same window, and not one row walked for it.
+    const FrameCost idle = frame(led, t, mut, f, a, viewH, &w2);
+    CHECK(idle.visited == 0);
+    CHECK(led.counters().window_reused == 1);
+    CHECK(w2.first == w1.first && w2.last == w1.last && w2.top == w1.top &&
+          w2.viewport_top == w1.viewport_top && w2.filled == w1.filled);
+    // A row in view dirtied: walk again (and re-measure it).
+    led.mark_dirty(w2.first);
+    const FrameCost dirty = frame(led, t, mut, f, a, viewH, &w2);
+    CHECK(dirty.visited > 0);
+    CHECK(led.counters().window_reused == 0);
+    // The anchor moved: walk again.
+    a.offset = -40.0f;
+    const FrameCost moved = frame(led, t, mut, f, a, viewH, &w2);
+    CHECK(moved.visited > 0);
+    // The viewport changed height: walk again.
+    frame(led, t, mut, f, a, viewH, &w2);
+    const FrameCost resized = frame(led, t, mut, f, a, viewH - 50.0f, &w2);
+    CHECK(resized.visited > 0);
+    // The slack changed: walk again.
+    frame(led, t, mut, f, a, viewH, &w2);
+    led.set_slack_below(30.0f);
+    const FrameCost slack = frame(led, t, mut, f, a, viewH, &w2);
+    CHECK(slack.visited > 0);
+    // A new width (a fact): walk again.
+    frame(led, t, mut, f, a, viewH, &w2);
+    const FrameCost wide = frame(led, t, mut, facts_at(640.0f), a, viewH, &w2);
+    CHECK(wide.visited > 0);
+}
+
 static void test_classified_beyond_reindex_saturates() {
     ecs::model::LedgerCounters c;
     c.rows_classified = 481;
@@ -970,6 +1013,7 @@ int main() {
     test_update_past_the_end_and_rekey();
     test_slack_above_and_below_keep_the_edges_honest();
     test_classified_beyond_reindex_saturates();
+    test_an_unchanged_frame_reuses_its_window();
     if (g_failures == 0) {
         std::printf("OK\n");
         return 0;

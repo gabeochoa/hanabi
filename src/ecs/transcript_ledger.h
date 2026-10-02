@@ -257,6 +257,7 @@ struct LedgerFacts {
     bool streaming = false;
     std::size_t live_index = 0;
     int stream_phase = 0;
+    bool operator==(const LedgerFacts&) const = default;
 };
 
 struct Anchor {
@@ -267,6 +268,7 @@ struct Anchor {
     // follow anchor, resolved AFTER the row's height is measured this frame,
     // so a token that grows the live row keeps its bottom on the edge.
     bool bottom = false;
+    bool operator==(const Anchor&) const = default;
 };
 
 struct LedgerWindow {
@@ -286,6 +288,7 @@ struct LedgerCounters {
     std::size_t reindexed = 0;  // O(N) events: reset, prepend, a toggle
     std::size_t recalibrated = 0;  // O(N) estimate rescales, on those frames
     std::size_t unfilled = 0;   // materialize ended with a visible estimate
+    std::size_t window_reused = 0;  // materialize answered from the last window
     void reset() { *this = LedgerCounters{}; }
     // Rows classified this frame outside an O(N) reindex. Saturating: a
     // reindex counts every row it re-keyed, which can exceed the rows it had
@@ -307,6 +310,11 @@ class TranscriptLedger {
               const LedgerFacts& facts, Classify&& classify, IdOf&& id_of) {
         const bool first = !initialized_;
         bool reset = first;
+        // Anything this sync can change -- rows, their classes, the facts a
+        // row's exactness is judged at -- retires a memoised window.
+        if (first || log.revision() != revision_ || message_count != rows_.size() ||
+            !(facts == facts_))
+            ++geomRev_;
         lastShift_ = 0;
         if (!first && log.revision() != revision_) {
             // Every step after the revision this ledger last saw, in order.
@@ -379,16 +387,21 @@ class TranscriptLedger {
     // Forget row `row`'s exactness; its height stays as the estimate.
     void mark_dirty(std::size_t row) {
         if (row >= rows_.size()) return;
+        ++geomRev_;
         rows_[row].exact = false;
         const RowGeom& g = rows_[row];
         if (g.hidden && g.kind == RowGeom::ToolPile && g.leadDistance <= row)
             rows_[row - g.leadDistance].exact = false;  // the pile's height is the run's
     }
-    void mark_all_dirty() { ++epoch_; }
+    void mark_all_dirty() {
+        ++epoch_;
+        ++geomRev_;
+    }
 
     // Record a measurement for row `row` at the current facts.
     void set_measure(std::size_t row, const RowMeasure& m) {
         ++counters_.rows_visited;
+        ++geomRev_;
         RowGeom& g = rows_[row];
         g.h = m.h;
         g.validLo = m.validLo;
@@ -415,6 +428,7 @@ class TranscriptLedger {
     // rail and the scrollbar are proportioned by the thread's own shape
     // rather than by a cold constant. Counted under reindexed.
     void recalibrate_estimates() {
+        ++geomRev_;
         for (std::size_t i = 0; i < rows_.size(); ++i) {
             RowGeom& g = rows_[i];
             if (g.everMeasured || g.hidden) continue;
@@ -511,11 +525,19 @@ class TranscriptLedger {
     // The scroll view's content is the rows plus whatever the caller lays
     // out below them (a trailing pad, a row in flight): `slack_below` is
     // that, so the clamp agrees with the view's own to the pixel.
-    void set_slack_below(float px) { slackBelow_ = std::max(0.0f, px); }
+    void set_slack_below(float px) {
+        const float v = std::max(0.0f, px);
+        if (v != slackBelow_) ++geomRev_;
+        slackBelow_ = v;
+    }
     float slack_below() const { return slackBelow_; }
     // ... and above them (a rollup panel at the head of the column): the
     // viewport may sit that far above row 0.
-    void set_slack_above(float px) { slackAbove_ = std::max(0.0f, px); }
+    void set_slack_above(float px) {
+        const float v = std::max(0.0f, px);
+        if (v != slackAbove_) ++geomRev_;
+        slackAbove_ = v;
+    }
     float slack_above() const { return slackAbove_; }
     float clamp_top(float y, float viewH) const {
         const float maxY = std::max(-slackAbove_, index_.total() + slackBelow_ - viewH);
@@ -552,6 +574,20 @@ class TranscriptLedger {
                              Measure&& measure) {
         LedgerWindow w;
         if (rows_.empty()) return w;
+        // AN UNCHANGED FRAME DOES NOT WALK. Same anchor, same viewport, same
+        // budget, and nothing about the rows changed since the last window
+        // (geomRev_ moves on every measure, dirtying, sync, slack or
+        // calibration change), and that window was all exact rows -- then
+        // walking it again can only reach the same answer, at the cost of
+        // ensure()ing every row on screen (scripts/perf_transcript_slope.sh's
+        // "unchanged-frame item walk"). A window holding a live row is never
+        // reused: a live row is re-measured every pass by design.
+        if (memo_.valid && memo_.stable && memo_.geomRev == geomRev_ &&
+            memo_.viewH == viewH && memo_.overscan == overscan_px &&
+            memo_.budget == budget && memo_.anchor == anchor) {
+            ++counters_.window_reused;
+            return memo_.window;
+        }
         constexpr int kPasses = 4;
         ++pass_;
         const std::size_t aRow = anchor_row(anchor);
@@ -687,6 +723,16 @@ class TranscriptLedger {
         w.last = hi;
         w.top = index_.prefix(lo);
         w.viewport_top = top;
+        memo_.valid = true;
+        memo_.stable = w.filled;
+        for (std::size_t r = lo; r < hi && memo_.stable; ++r)
+            if (!is_exact(r)) memo_.stable = false;
+        memo_.geomRev = geomRev_;
+        memo_.viewH = viewH;
+        memo_.overscan = overscan_px;
+        memo_.budget = budget;
+        memo_.anchor = anchor;
+        memo_.window = w;
         return w;
     }
 
@@ -699,6 +745,8 @@ class TranscriptLedger {
         indexOf_.clear();
         initialized_ = false;
         revision_ = 0;
+        ++geomRev_;
+        memo_.valid = false;
     }
 
   private:
@@ -1017,6 +1065,19 @@ class TranscriptLedger {
     bool initialized_ = false;
     std::size_t lastShift_ = 0;  // rows the last sync prepended
     LedgerCounters counters_;
+    // Bumped by everything that can change what materialize() returns.
+    std::uint64_t geomRev_ = 0;
+    struct WindowMemo {
+        bool valid = false;
+        bool stable = false;  // every row in it exact (no live row)
+        std::uint64_t geomRev = 0;
+        float viewH = 0.0f;
+        float overscan = 0.0f;
+        std::size_t budget = 0;
+        Anchor anchor;
+        LedgerWindow window;
+    };
+    WindowMemo memo_;
 };
 
 // One ledger per pane slot, LRU-bounded like the render cache.
