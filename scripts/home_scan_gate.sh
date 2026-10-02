@@ -63,6 +63,8 @@ fi
 run_arm() {
     local scenario="$1" log="$2" view="${3:-}" home pid rc every=200
     if [ "$FRAMES" -lt 600 ]; then every=20; fi
+    # macOS /bin/bash is 3.2, where "${a[@]}" of an EMPTY array is an
+    # unbound-variable error under set -u; the +-guard expands to nothing.
     local view_env=()
     if [ -n "$view" ]; then view_env=("HANABI_VIEW=$view"); fi
     home="$(mktemp -d /tmp/hanabi_home_scan.XXXXXX)"
@@ -80,7 +82,7 @@ run_arm() {
         HANABI_SOAK_MAX_BLOCK_SLOPE_PER1K=999999 \
         HANABI_SOAK_MAX_GPU_KB_PER1K=999999 \
         HANABI_SOAK_MAX_ENT_PER1K=999999 HANABI_SOAK_MAX_MS_PER1K=999999 \
-        "${view_env[@]}" \
+        ${view_env[@]+"${view_env[@]}"} \
         "$EXE" --screenshot "$home/shot.png" >"$log" 2>&1 &
     pid=$!
     watchdog_start "$pid" "$RUN_TIMEOUT"
