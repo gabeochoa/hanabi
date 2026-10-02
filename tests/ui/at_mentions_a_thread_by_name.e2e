@@ -1,0 +1,37 @@
+# `@` in the composer points the message at another thread by name (the
+# reference's 0.8.4): a picker of threads ranked by how their names answer the
+# query, and a pick writes the thread's web URL -- the id, never the title --
+# with a space after it. An @ inside a word (an address) opens nothing, and
+# Escape puts the picker away without touching the words.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WEB_BASE_URL=https://web.example.test/chat
+
+require_thread t2
+click_ui composer_reply_input
+wait_frames 6
+
+type "mail gabe@meta"
+wait_frames 6
+expect_no_ui slash_menu
+
+key CMD+A
+type "see @prof"
+wait_frames 8
+assert_ui slash_menu hidden=false
+assert_ui mention_title_0 text="profiling the disk"
+
+key ENTER
+wait_frames 8
+expect_input_text composer_reply_input "see https://web.example.test/chat/r5 "
+expect_no_ui slash_menu
+
+# A bare @ lists threads; the one this draft already names keeps its row,
+# marked. Down walks the rows; Escape closes the picker and keeps the words.
+type "and @two"
+wait_frames 8
+assert_ui mention_title_0 text="two workers still out"
+key ESCAPE
+wait_frames 6
+expect_no_ui slash_menu
+expect_input_text composer_reply_input "see https://web.example.test/chat/r5 and @two"

@@ -947,6 +947,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // locals because Esc has exactly one owner, and that owner has to rank
     // this menu against every other dismissable thing (escape_system.h).
     bool slashMenuOpen = false;
+    // The menu over the composer is offering THREAD MENTIONS (ui/thread_mention.h),
+    // in this pane: Enter picks the highlighted thread instead of sending.
+    bool mentionMenuOpen = false;
+    int mentionMenuPane = -1;
     int slashMenuIndex = 0;
     // Which pane's composer the notice row's `command` slot (slashNotice)
     // belongs to. Two composers, one notice: it shows under the pane whose

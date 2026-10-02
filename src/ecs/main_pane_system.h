@@ -60,6 +60,7 @@
 #include "../ui/inline_image.h"
 #include "../ui/slash_commands.h"
 #include "../ui/composer_templates.h"
+#include "../ui/thread_mention.h"
 #include "../api/session_changes.h"
 #include "../ui/syntax_highlighter.h"
 #include "../ui/model_menu.h"
@@ -1547,6 +1548,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     bool contextPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
     bool changesPopoverWasOpen_ = false;
+    // The @ picker's rows for the last draft that asked (render_composer).
+    struct MentionMemo {
+        std::string draft;
+        std::uint64_t revision = ~std::uint64_t{0};
+        std::string exclude;
+        std::string webBase;
+        std::vector<hanabi::mention::Row> rows;
+    } mentionMemo_;
     // The files-changed fold for the session the strip shows, kept until a
     // tool row it reads changes (changes_for).
     struct ChangesMemo {
@@ -8225,7 +8234,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             } else if (!submittedBrake.refuses_input &&
                 hanabi::enter_sends(Settings::get().get_send_key(),
                                     submitted.withCmd)) {
-                if (hanabi::slash::is_command_text(submitted.message.text)) {
+                if (hanabi::slash::is_command_text(submitted.message.text) ||
+                    (app.mentionMenuOpen && app.mentionMenuPane == paneIndex &&
+                     hanabi::mention::span_start(submitted.message.text))) {
                     slashSubmit = std::move(submitted);
                 } else if (canStream || canSend) {
                     remember_composer_snapshot(submitted.message);
@@ -9500,8 +9511,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // (BUILT-IN, then TEMPLATES). One index runs over both lists.
         const std::vector<const hanabi::templates::Template*> templateRows =
             hanabi::templates::offered(replyDraft, Settings::get().get_templates());
-        const int slashCount =
-            static_cast<int>(slashRows.size() + templateRows.size());
+        // `@` mentions share the menu (one list over one composer, one set of
+        // keys), offered only when the draft is not a slash command.
+        // Walked only when the draft (with an open `@`), the catalog or the
+        // thread changes -- not every frame a query sits in the box.
+        static const std::vector<hanabi::mention::Row> kNoMentions;
+        const bool mentionAsked = slashRows.empty() && templateRows.empty() &&
+                                  hanabi::mention::span_start(replyDraft).has_value();
+        if (mentionAsked &&
+            (mentionMemo_.draft != replyDraft ||
+             mentionMemo_.revision != app.sessionCatalogRevision ||
+             mentionMemo_.exclude != openId || mentionMemo_.webBase != app.webBaseUrl)) {
+            mentionMemo_.rows = hanabi::mention::rows(
+                app.sessions, replyDraft, app.webBaseUrl, openId,
+                [](const api::SessionSummary& s) { return model::is_archived(s); });
+            mentionMemo_.draft = replyDraft;
+            mentionMemo_.revision = app.sessionCatalogRevision;
+            mentionMemo_.exclude = openId;
+            mentionMemo_.webBase = app.webBaseUrl;
+        }
+        const std::vector<hanabi::mention::Row>& mentionRows =
+            mentionAsked ? mentionMemo_.rows : kNoMentions;
+        const int slashCount = static_cast<int>(slashRows.size() + templateRows.size() +
+                                                mentionRows.size());
         bool slashOpen = slashCount > 0 && replyDraft != app.slashDismissedFor;
         if (app.escape == EscapeIntent::CloseSlashMenu && slashOpen) {
             app.slashDismissedFor = replyDraft;
@@ -9515,6 +9547,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!slashOpen) app.slashMenuIndex = 0;
         if (app.slashMenuIndex >= slashCount) app.slashMenuIndex = 0;
         app.slashMenuOpen = slashOpen;
+        app.mentionMenuOpen = slashOpen && !mentionRows.empty();
+        app.mentionMenuPane = paneIndex;
 
         // Writing to the field's own state as well as the draft: the widget
         // keeps its own storage, and a draft change alone leaves the visible
@@ -9743,6 +9777,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // field so it can be typed; one that does not runs immediately.
         const auto choose_slash = [&](int index) {
             if (index < 0 || index >= slashCount) return;
+            const int beforeMentions =
+                static_cast<int>(slashRows.size() + templateRows.size());
+            if (index >= beforeMentions) {
+                // A thread: its web URL replaces the `@query`, and the menu
+                // is done -- a finished mention wants nothing typed after it.
+                const auto& row =
+                    mentionRows[static_cast<std::size_t>(index - beforeMentions)];
+                set_field(hanabi::mention::completed(
+                    replyDraft, hanabi::mention::link_for(app.webBaseUrl, row.id)));
+                app.slashDismissedFor = replyDraft;
+                app.slashMenuOpen = false;
+                app.mentionMenuOpen = false;
+                slashOpen = false;
+                refocus_field();
+                return;
+            }
             if (index >= static_cast<int>(slashRows.size())) {
                 const auto& tpl =
                     *templateRows[static_cast<std::size_t>(index) - slashRows.size()];
@@ -9780,6 +9830,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 std::move(*slashSubmit);
             if (submitted.message.target == composerTarget && slashOpen) {
                 choose_slash(app.slashMenuIndex);
+            } else if (!hanabi::slash::is_command_text(submitted.message.text)) {
+                // An Enter meant for a mention picker that closed under it:
+                // the words go back in the box, untouched and unsent.
+                set_field(submitted.message.text);
             } else {
                 run_slash(hanabi::slash::parse(submitted.message.text),
                           submitted.message.text, submitted.message.target,
@@ -10167,6 +10221,54 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             .with_alignment(TextAlignment::Right)
                             .with_text_overflow(TextOverflow::Ellipsis)
                             .with_debug_name("slash_template_tag_" + std::to_string(i)));
+                if (row) choose_slash(static_cast<int>(i));
+            }
+            // The THREAD rows: the name, and on the right what tells two
+            // names apart -- Archived, the age, a check when this draft
+            // already points there.
+            for (size_t k = 0; k < mentionRows.size(); ++k) {
+                const auto& m = mentionRows[k];
+                const size_t i = slashRows.size() + templateRows.size() + k;
+                const bool selected = static_cast<int>(i) == app.slashMenuIndex;
+                auto row = button(
+                    ctx, mk(menu.ent(), static_cast<int>(i)),
+                    hanabi::surface::option_row(inputW - 8.0f, kRowH, selected, 8)
+                        .with_label(" ")
+                        .with_flex_direction(FlexDirection::Row)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_align_items(AlignItems::Center)
+                        .with_debug_name("mention_item_" + std::to_string(k)));
+                std::string tail;
+                if (m.archived) tail += "Archived  ";
+                tail += fmtutil::relative_time(m.updated_at);
+                if (m.alreadyNamed) tail += "  \xe2\x9c\x93";
+                constexpr float kTailW = 120.0f;
+                // The slash rows' own budget: the row's inset and left pad
+                // come off first, then the tail, the title takes the rest.
+                const float titleW = std::max(
+                    40.0f, inputW - 8.0f - hanabi::slash_row::kRowInset -
+                               hanabi::slash_row::kPad - kTailW);
+                div(ctx, mk(row.ent(), 1),
+                    ComponentConfig{}
+                        .with_label(m.title)
+                        .with_size(ComponentSize{pixels(titleW), pixels(20)})
+                        .with_margin(Margin{.left = pixels(hanabi::slash_row::kPad)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_primary())
+                        .with_font_size(theme::type::BODY)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("mention_title_" + std::to_string(k)));
+                div(ctx, mk(row.ent(), 2),
+                    ComponentConfig{}
+                        .with_label(tail)
+                        .with_size(ComponentSize{pixels(kTailW), pixels(20)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_faint())
+                        .with_font_size(theme::type::MICRO)
+                        .with_alignment(TextAlignment::Right)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("mention_tail_" + std::to_string(k)));
                 if (row) choose_slash(static_cast<int>(i));
             }
         }

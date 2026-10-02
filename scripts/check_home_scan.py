@@ -11,7 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "src/ecs/main_pane_system.h"
 COMPONENTS = "src/ecs/components.h"
-ACCESS_BASELINE = {"render_digest": 1, "render_home": 2}
+# render_composer: the @ picker's one catalog read, memoised on the draft and
+# sessionCatalogRevision (ui/thread_mention.h) -- not a per-frame walk.
+ACCESS_BASELINE = {"render_digest": 1, "render_home": 2, "render_composer": 1}
 WALK_BASELINE = {"render_digest": 1}
 
 SIGNATURE = re.compile(
