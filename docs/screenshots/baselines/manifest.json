@@ -184,14 +184,6 @@
       "threshold_pct": 0.0,
       "note": "Model picker with selected row and explanatory heading, light."
     },
-    "18l_effort_picker_dark": {
-      "threshold_pct": 0.0,
-      "note": "Effort picker with descriptions and selected row, dark."
-    },
-    "18m_effort_picker_light": {
-      "threshold_pct": 0.0,
-      "note": "Effort picker with descriptions and selected row, light."
-    },
     "18n_slash_menu_dark": {
       "threshold_pct": 0.0,
       "note": "Slash-command menu with capability status, dark."
