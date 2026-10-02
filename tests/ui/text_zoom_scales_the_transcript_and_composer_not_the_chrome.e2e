@@ -1,3 +1,7 @@
+# env: HANABI_ALLOW_SYSTEM_FONTS_HEADLESS=1
+# Every number below was measured with installed fonts allowed (the C35 sweep
+# set this for the whole suite); under the bundled faces the wraps and the
+# settings anchors differ, so the dependency is declared, not inherited.
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
 require_thread t2
 wait_frames 16
