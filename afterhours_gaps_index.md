@@ -718,7 +718,7 @@ correction narrows them rather than closing them.
 | 101 | No supersampled capture; `ui_scale` is a layout zoom | IMPOSSIBLE | MED | M | live |
 | 102 | `on_draw_fg` gets a SCALED rect and no scale | WORKAROUND | HIGH | XS | live |
 | 103 | `measure_text` returns the ink BOX, not the advance | — | — | — | fixed at 1ac6db2 (`82145f9`); entry kept in place |
-| 104 | A script cannot assert an element is ABSENT | TEDIOUS | HIGH | S | live |
+| 104 | A script cannot assert an element is ABSENT | TEDIOUS | HIGH | S | live; absence asserted app-side (`expect_no_ui`), borders still not |
 | 105 | A field's placeholder colour is a frame-wide global | TEDIOUS | MED | XS | live |
 | 106 | No AA, and the one escape needs a flat, known background | WORKAROUND | HIGH | S | dup→#92 |
 | 107 | A selected row's fill IS the row's own background box | MISSING | MED | S | live |

@@ -5283,7 +5283,9 @@ reference does not draw — is the one class it cannot regression-test, and this
 particular strip has now been removed twice.
 
 
-**Hanabi reference.** None — no app-side workaround is implemented.
+**POSTSCRIPT 2026-10-02 (lead lane): half of this is answered app-side.** The negative assertion exists in Hanabi: `expect_no_ui <name>` (since f14f1bc, 2026-09-13) passes when no widget with that debug name was drawn this frame, waiting a few frames first; 80+ scripts use it. A border still cannot be asserted, so the original strip's paint remains held by the parity captures.
+
+**Hanabi reference.** `src/ecs/e2e_commands.h` (`HandleExpectNoUiCommand`) — the app-side absence assertion. Tests: `tests/ui/dragging_a_tab_into_the_pane_splits_it.e2e` (`expect_no_ui tab_split_drop_zone`) — one of the scripts that asserts a widget is absent.
 
 
 **Minimal upstream fix.** Two small commands, both of which the runner already
