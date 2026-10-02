@@ -1178,7 +1178,7 @@ says why), VERIFY.
 
 | ID | Puffin | Behavior | Hanabi at 9b664d0 | Status |
 |---|---|---|---|---|
-| D01 | 0.8.3 | Archive Current Conversation in File menu + Keyboard Shortcuts, unassigned by default; archives without closing the tab, Undo notice; disabled when already archived | no command (`shortcuts.h` has no archive entry; archive lives on row/tab menus only) | MISSING |
+| D01 | 0.8.3 | Archive Current Conversation in File menu + Keyboard Shortcuts, unassigned by default; archives without closing the tab, Undo notice; disabled when already archived | none at 9b664d0. Now: File menu + Keyboard Shortcuts command, unassigned by default, archives the focused pane's conversation and keeps its tab, ordinary Undo toast, disabled when archived; `tests/ui/archive_current_conversation_keeps_the_tab.e2e` (lead lane, 2026-10-02) | MATCHED |
 | D02 | 0.8.3 | New Conversation can be marked Sensitive where the account allows | no field; needs the account entitlement on the wire | MISSING (wire fact) |
 | D03 | 0.8.3 | "Open diffs in Puffin" opens diff links as native tabs | no native diff surface | N/A |
 | D04 | 0.8.3 | A Space sets a default theme for its threads | theme is global/rotating; no Space theme field | MISSING (wire fact) |

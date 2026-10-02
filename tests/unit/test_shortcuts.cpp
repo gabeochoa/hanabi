@@ -18,18 +18,21 @@ using hanabi::shortcuts::Shortcut;
 static void test_defaults_are_unique_and_valid() {
     auto bindings = hanabi::shortcuts::defaults();
     for (const auto& item : hanabi::shortcuts::kDefinitions) {
-        CHECK(!bindings[hanabi::shortcuts::index(item.command)].empty());
+        const bool empty = bindings[hanabi::shortcuts::index(item.command)].empty();
+        CHECK(empty == hanabi::shortcuts::unassigned_by_default(item.command));
+        if (empty) continue;
         CHECK(hanabi::shortcuts::validate(item.command, item.shortcut, bindings)
                   .ok);
     }
     for (std::size_t i = 0; i < bindings.size(); ++i)
         for (std::size_t j = i + 1; j < bindings.size(); ++j)
-            CHECK(!(bindings[i] == bindings[j]));
+            CHECK(bindings[i].empty() || !(bindings[i] == bindings[j]));
 }
 
 static void test_serialization_round_trips() {
     auto bindings = hanabi::shortcuts::defaults();
     for (const auto& binding : bindings) {
+        if (binding.empty()) continue;
         const auto parsed =
             hanabi::shortcuts::parse(hanabi::shortcuts::serialize(binding));
         CHECK(parsed.has_value());
@@ -227,6 +230,29 @@ static void test_control_tab_is_the_only_commandless_chord() {
     CHECK(!validate(Command::NextTab, Shortcut{TAB, CommandModifier}, bindings).ok);
 }
 
+static void test_archive_current_conversation_ships_without_a_key() {
+    using namespace hanabi::shortcuts;
+    using namespace afterhours::keys;
+    const auto& def = definition(Command::ArchiveCurrentConversation);
+    CHECK(def.shortcut.empty());
+    CHECK(def.section == "File");
+    CHECK(def.title == "Archive Current Conversation");
+    CHECK(display(def.shortcut) == "Unassigned");
+    CHECK(native_key_equivalent(def.shortcut).empty());
+    // A key the user records is held to the ordinary rules.
+    auto bindings = defaults();
+    CHECK(validate(Command::ArchiveCurrentConversation, Shortcut{E, CommandModifier},
+                   bindings).ok);
+    CHECK(!validate(Command::ArchiveCurrentConversation, Shortcut{E, 0}, bindings).ok);
+    CHECK(!validate(Command::ArchiveCurrentConversation, Shortcut{W, CommandModifier},
+                    bindings).ok);
+    // Exactly one command ships unassigned.
+    int unassigned = 0;
+    for (const auto& item : kDefinitions)
+        if (unassigned_by_default(item.command)) ++unassigned;
+    CHECK(unassigned == 1);
+}
+
 int main() {
     test_defaults_are_unique_and_valid();
     test_serialization_round_trips();
@@ -239,6 +265,7 @@ int main() {
     test_zoom_in_alone_takes_a_shifted_alias_on_its_default_binding();
     test_relative_tab_moves_follow_the_reference();
     test_control_tab_is_the_only_commandless_chord();
+    test_archive_current_conversation_ships_without_a_key();
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

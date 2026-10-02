@@ -1,0 +1,46 @@
+# File > Archive Current Conversation (Puffin 0.8.3): archives the thread on
+# screen WITHOUT closing its tab, offers the ordinary archive Undo, and is
+# disabled on a thread that is already archived -- it never toggles back.
+# It ships with no key (the reference sets none), so the fixture records one
+# the way a user would, through the shortcut overrides.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark","shortcuts":{"archive_current_conversation":"cmd+e"}}
+
+require_thread t2
+wait_frames 12
+expect_open t2
+assert_ui chat_row_id_t2 hidden=false
+
+key CMD+E
+wait_frames 12
+expect_text "Session archived"
+# The thread left the list; its tab did not close and still shows it.
+expect_no_ui chat_row_id_t2
+assert_ui tab_active hidden=false
+expect_open t2
+
+# Again on the archived thread: disabled, so nothing changes and nothing
+# unarchives.
+key CMD+E
+wait_frames 12
+expect_no_text "Session unarchived"
+expect_no_ui chat_row_id_t2
+
+# Undo puts it back where it was.
+click_ui toast_undo
+wait_frames 8
+expect_text "Session unarchived"
+assert_ui chat_row_id_t2 hidden=false
+expect_open t2
+
+# And it is the conversation ON SCREEN that the command means: switch tabs
+# and the other thread is the one archived.
+key CMD+2
+wait_frames 16
+require_thread t6
+key CMD+E
+wait_frames 12
+expect_no_ui chat_row_id_t6
+assert_ui chat_row_id_t2 hidden=false
+assert_ui tab_active hidden=false
+expect_open t6

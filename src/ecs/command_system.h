@@ -8,9 +8,24 @@
 #include "../text_zoom.h"
 #include "components.h"
 #include "surface_tabs.h"
+#include "thread_model.h"
 #include "ui_imports.h"
 
 namespace ecs::commands {
+
+// The thread Archive Current Conversation would archive: the focused pane's
+// open conversation while a conversation is what the window shows, and only
+// if it is not archived already. Empty means the command is disabled.
+inline std::string archivable_on_screen(const AppComponent& app) {
+    if (app.view != SmartView::Chat) return {};
+    const auto& session = app.pane().openSession;
+    if (!session) return {};
+    const std::string& id = session->summary.id;
+    if (id.empty() || model::surface_of(id)) return {};
+    const api::SessionSummary* sum = app.find_summary(id);
+    if (model::is_archived(sum != nullptr ? *sum : session->summary)) return {};
+    return id;
+}
 
 inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
                      LayoutComponent* layout) {
@@ -106,6 +121,14 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
             app.requestTabStepWraps = step.wraps;
             break;
         }
+        case Command::ArchiveCurrentConversation:
+            // The conversation on screen, archived where it sits: the tab
+            // stays open, and the ordinary archive toast offers Undo. Never a
+            // toggle -- the command is disabled on an archived thread, and
+            // this re-checks so a stale chord cannot unarchive one.
+            if (const auto id = archivable_on_screen(app); !id.empty())
+                app.requestToggleArchive = id;
+            break;
         case Command::Count:
             break;
     }
@@ -126,6 +149,10 @@ struct System : afterhours::System<> {
             menubar_refresh_shortcuts();
         }
 
+        menubar_set_command_enabled(
+            static_cast<int>(hanabi::shortcuts::Command::ArchiveCurrentConversation),
+            !archivable_on_screen(*app).empty());
+
         int nativeCommand = -1;
         if (menubar_take_command(&nativeCommand) && nativeCommand >= 0 &&
             nativeCommand < static_cast<int>(hanabi::shortcuts::Command::Count))
@@ -137,6 +164,7 @@ struct System : afterhours::System<> {
             if (!Settings::get().get_shortcut_enabled(item.command)) continue;
             if (!menubar_command_enabled(static_cast<int>(item.command))) continue;
             const auto bound = Settings::get().get_shortcut(item.command);
+            if (bound.empty()) continue;
             const auto alias = hanabi::shortcuts::shifted_alias(item.command, bound);
             if (hanabi::keys::shortcut_pressed(bound) ||
                 (alias && hanabi::keys::shortcut_pressed(*alias))) {

@@ -294,6 +294,9 @@ static void install_main_menu() {
     [fileMenu addItem:command_item(hanabi::shortcuts::Command::ReopenClosedTab)];
     [fileMenu addItem:command_item(hanabi::shortcuts::Command::CloseTab)];
     [fileMenu addItem:command_item(hanabi::shortcuts::Command::CloseKeptTab)];
+    [fileMenu addItem:[NSMenuItem separatorItem]];
+    [fileMenu addItem:command_item(
+                          hanabi::shortcuts::Command::ArchiveCurrentConversation)];
     fileRoot.submenu = fileMenu;
     [g_main_menu addItem:fileRoot];
 

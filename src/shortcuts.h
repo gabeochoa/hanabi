@@ -48,6 +48,9 @@ enum class Command : int {
     CycleTabsForward,
     PreviousTab,
     NextTab,
+    // File > Archive Current Conversation (Puffin 0.8.3). Unassigned by
+    // default, like the reference: the user picks its key in Settings.
+    ArchiveCurrentConversation,
     Count,
 };
 
@@ -293,7 +296,19 @@ inline constexpr std::array<Definition,
          "Window",
          {afterhours::keys::TAB, ControlModifier},
          false},
+        {Command::ArchiveCurrentConversation,
+         "archive_current_conversation",
+         "Archive Current Conversation",
+         "File",
+         {},
+         true},
     }};
+
+// The commands that ship with NO key. Every other default must be non-empty
+// and unique; these are empty on purpose until the user records one.
+inline constexpr bool unassigned_by_default(Command command) {
+    return command == Command::ArchiveCurrentConversation;
+}
 
 using Bindings = std::array<Shortcut, kDefinitions.size()>;
 
