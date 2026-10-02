@@ -904,6 +904,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     }
                     app.listState = LoadState::Loaded;
                     app.listError.clear();
+                    app.listFailureNoticed = false;
                     app.liveListSeen = true;
                     // Persist the fresh list for the next launch's instant paint.
                     if (disk_cache_enabled(app))
@@ -936,6 +937,19 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         app.listState = LoadState::Error;
                     else
                         app.listState = LoadState::Loaded;  // keep stale data
+                    // A failure behind a list that stays on screen still has
+                    // to be SAID (the reference's Puffin 0.8.3: sign-in
+                    // failures explain themselves and keep the list): the
+                    // list being there is not the reader being told it is
+                    // the saved one. Once per failure streak, with the
+                    // server's own words; an empty list already shows the
+                    // error in place of the rows.
+                    if (!app.sessions.empty() && !app.listFailureNoticed) {
+                        app.listFailureNoticed = true;
+                        app.raise_toast("Couldn't refresh the thread list (" + r.error +
+                                            "). Showing the saved list.",
+                                        "", AppComponent::ToastUndo::None);
+                    }
                 }
             }
         }

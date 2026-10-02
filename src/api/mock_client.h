@@ -130,7 +130,17 @@ class MockClient : public Client {
     }
 
     Result<std::vector<SessionSummary>> list_sessions() override {
-        list_polls().fetch_add(1);
+        const int poll = list_polls().fetch_add(1) + 1;
+        // HANABI_MOCK_LIST_FAIL_FROM=<n>: the n-th list call and every one
+        // after it is refused, the way a credential the server stopped
+        // accepting is -- the list a fixture already has stays on screen.
+        static const int failFrom = [] {
+            const char* v = std::getenv("HANABI_MOCK_LIST_FAIL_FROM");
+            return v && *v ? std::atoi(v) : 0;
+        }();
+        if (failFrom > 0 && poll >= failFrom)
+            return Result<std::vector<SessionSummary>>::failure(
+                "the server refused this client's credential (401)");
         const SeedPtr seedRef = seed_ptr();
         const auto& sessions = *seedRef;
         std::vector<SessionSummary> out;

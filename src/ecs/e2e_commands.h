@@ -3086,6 +3086,7 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //                                             send/steer/create <n> times
 //   expect_mock_created_at_calls <n>          the mock has been asked for
 //                                             <n> creation times
+//   refresh_list                              ask for the catalogue again
 inline api::OutgoingMessage forced_surface_message(const std::string& sessionId,
                                                    std::string text, int pane) {
     api::OutgoingMessage m;
@@ -3259,6 +3260,23 @@ struct HandleExpectOutboxAttachmentCommand
 // expect_mock_created_at_calls <n>: the app has asked the mock for <n>
 // creation times since launch (Client::session_created_at). Settles on the
 // exact count, so a walk that re-asks for a time it already holds fails.
+// refresh_list: ask for the catalogue again, the way a create or a stop does.
+struct HandleRefreshListCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("refresh_list")) return;
+        auto* app = ecs::find_singleton<ecs::AppComponent>();
+        if (app == nullptr) {
+            cmd.fail("refresh_list: no app");
+            return;
+        }
+        app->requestListRefresh = true;
+        cmd.consume();
+    }
+};
+
 struct HandleExpectMockCreatedAtCallsCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -4246,6 +4264,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockOutboundCallsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreatedAtCallsCommand>());
+    sm.register_update_system(std::make_unique<HandleRefreshListCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCachedCommand>());
     sm.register_update_system(std::make_unique<HandleDetachThreadCommand>());

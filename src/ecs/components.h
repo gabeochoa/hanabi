@@ -380,6 +380,10 @@ struct AppComponent : public afterhours::BaseComponent {
     std::vector<api::SessionSummary> sessions;
     LoadState listState = LoadState::Idle;
     std::string listError;
+    // The list refresh has failed since it last succeeded, and the reader has
+    // been told once (loader_system.h): one notice per failure streak, not
+    // one per retry.
+    bool listFailureNoticed = false;
     // Whether a LIVE list has ever landed this run. Rows shown before then
     // came from the disk, and a folder header says so.
     bool liveListSeen = false;
