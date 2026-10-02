@@ -21,8 +21,16 @@ struct Entry {
     bool operator==(const Entry&) const = default;
 };
 
+// Where a search with no live current match starts: the oldest match, or the
+// newest when the reader asked for that (Settings, "Start from the newest
+// match"). Matches are ordered oldest first.
+inline int fresh_index(int count, bool newestFirst) {
+    return newestFirst && count > 0 ? count - 1 : 0;
+}
+
 template <typename Matches, typename IdOf>
-int resolve(const Matches& matches, MatchKey& current, int index, IdOf&& idOf) {
+int resolve(const Matches& matches, MatchKey& current, int index, IdOf&& idOf,
+            bool newestFirst = false) {
     const int n = static_cast<int>(matches.size());
     if (n == 0) {
         current = {};
@@ -33,9 +41,9 @@ int resolve(const Matches& matches, MatchKey& current, int index, IdOf&& idOf) {
             const auto& m = matches[static_cast<std::size_t>(i)];
             if (m.line == current.line && m.off == current.off && idOf(m.msg) == current.msg) return i;
         }
-        index = 0;
+        index = fresh_index(n, newestFirst);
     }
-    if (index < 0 || index >= n) index = 0;
+    if (index < 0 || index >= n) index = fresh_index(n, newestFirst);
     const auto& m = matches[static_cast<std::size_t>(index)];
     current = MatchKey{idOf(m.msg), m.line, m.off};
     return index;

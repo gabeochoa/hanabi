@@ -102,6 +102,7 @@ bool Settings::load_save_file() {
         notification_sound_ =
             j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
+        find_newest_first_ = j.value("find_newest_first", find_newest_first_);
         context_detail_ = j.value("context_detail", context_detail_);
         disclosure_chips_open_ =
             j.value("disclosure_chips_open", disclosure_chips_open_);
@@ -295,6 +296,7 @@ void Settings::write_save_file() {
     j["auto_archive_days"] = auto_archive_days_;
     j["notification_sound"] = notification_sound_;
     j["show_timestamps"] = show_timestamps_;
+    j["find_newest_first"] = find_newest_first_;
     j["context_detail"] = context_detail_;
     j["disclosure_chips_open"] = disclosure_chips_open_;
     j["transcript_width"] = transcript_width_;
@@ -813,6 +815,13 @@ bool Settings::get_show_timestamps() const { return show_timestamps_; }
 void Settings::set_show_timestamps(bool on) {
     if (on == show_timestamps_) return;
     show_timestamps_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_find_newest_first() const { return find_newest_first_; }
+void Settings::set_find_newest_first(bool on) {
+    if (on == find_newest_first_) return;
+    find_newest_first_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

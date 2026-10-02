@@ -1186,7 +1186,7 @@ says why), VERIFY.
 | D06 | 0.8.3 | Sign-in failures explain themselves and keep the list on screen | list retention on auth failure not traced | VERIFY |
 | D07 | 0.8.3 | Recent rows no longer reshuffle on every update | `sidebar_hysteresis.h` (batch 2) | MATCHED |
 | D08 | 0.8.4 | Line spacing in Settings → Appearance | `line_spacing.h` (batch 2) | MATCHED |
-| D09 | 0.8.4 | Cmd+F can start from the newest match (Settings → Search) | find always opens at the OLDEST match; no setting | MISSING |
+| D09 | 0.8.4 | Cmd+F can start from the newest match (Settings → Search) | oldest-only at 9b664d0. Now: Settings > Chat "Start from the newest match" (this Mac, default off): each Cmd+F starts at the newest match, Cmd+G walks older, chevrons keep up-older/down-newer; `tests/ui/find_can_start_from_the_newest_match.e2e` (lead lane, 2026-10-02). Hanabi has no Search pane, so the row sits in Chat | MATCHED |
 | D10 | 0.8.4 | "@" completes a Metamate Space by name; member picker shows faces | no @ mention picker at all | MISSING (large) |
 | D11 | 0.8.4 | Sidebar search `last_active:` today / yesterday / a date | sidebar search has no operators (0.6.7's `origin:`/`attention:`/`label:` also absent; only Cmd+F has `is:`/`has:`/`state:`) | MISSING |
 | D12 | 0.8.4 | Ctrl+Tab / Ctrl+Shift+Tab and Cmd+Option+←/→ cycle tabs (wrapping); Cmd+[ / Cmd+] step without wrapping | only Cmd+1…9 at 9b664d0. Now: six Window-menu commands with the reference's chords, focused-pane scoped, `tests/ui/relative_tab_chords_step_and_cycle.e2e` (lead lane, 2026-10-02); Ctrl Tab needed an Afterhours workaround, gap #608 | MATCHED |

@@ -77,6 +77,13 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
             if (app.pane().openSession) {
                 app.pane().findOpen = true;
                 app.pane().findFocusPending = true;
+                // The reference's newest-first open: every Cmd+F starts the
+                // search over from the newest match, not from wherever the
+                // last one was left.
+                if (Settings::get().get_find_newest_first()) {
+                    app.pane().findCurrent = {};
+                    app.pane().findIndex = -1;
+                }
             }
             break;
         case Command::FindNext:

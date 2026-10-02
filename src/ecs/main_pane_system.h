@@ -147,10 +147,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             target.findCurrent = {};
             app->refocusComposer = true;
         }
+        // Newest-first turns the chord round with the start: Cmd+G walks
+        // AWAY from where the search began, toward older matches; the
+        // chevrons keep their fixed meaning (up older, down newer).
+        const bool chordOlder = Settings::get().get_find_newest_first();
         if (app->pane().findOpen && app->requestFindStep != 0) {
             const hanabi::find_nav::Step step =
-                app->requestFindStep < 0 ? hanabi::find_nav::Step::Prev
-                                         : hanabi::find_nav::Step::Next;
+                (app->requestFindStep < 0) != chordOlder
+                    ? hanabi::find_nav::Step::Prev
+                    : hanabi::find_nav::Step::Next;
             const int count = std::abs(app->requestFindStep);
             app->requestFindStep = 0;
             for (int i = 0; i < count; ++i)
@@ -164,8 +169,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const int n = hanabi::test_hooks::find_step();
             if (n != 0 && app->pane().findCount > 0) {
                 const hanabi::find_nav::Step s =
-                    n < 0 ? hanabi::find_nav::Step::Prev
-                          : hanabi::find_nav::Step::Next;
+                    (n < 0) != chordOlder ? hanabi::find_nav::Step::Prev
+                                          : hanabi::find_nav::Step::Next;
                 for (int i = 0; i < (n < 0 ? -n : n); ++i)
                     apply_find_step(app->pane(), s);
                 findStepApplied_ = true;
@@ -3954,7 +3959,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     if (!m.id.empty()) return m.id;
                     if (!m.local_id.empty()) return "local:" + m.local_id;
                     return "i" + std::to_string(i);
-                });
+                }, Settings::get().get_find_newest_first());
         }
         pane.findCount = static_cast<int>(matches->size());
 

@@ -375,6 +375,12 @@ struct Settings {
     bool get_show_timestamps() const;
     void set_show_timestamps(bool on);  // auto-persists
 
+    // Chat · Find: Cmd+F lands on the NEWEST match of a fresh search, and
+    // Cmd+G walks toward older ones (the reference's "Start from the newest
+    // match", Puffin 0.8.4). Default off. Auto-persists.
+    bool get_find_newest_first() const;
+    void set_find_newest_first(bool on);
+
     // Appearance · Context: the context meter's caption carries the full
     // accounting (lifetime totals, cache split, last call, last compaction,
     // sub-agent rollup) when on; off, how full the window is. Default off.
@@ -546,6 +552,7 @@ struct Settings {
     int auto_archive_days_ = 5;
     bool notification_sound_ = true;
     bool show_timestamps_ = true;
+    bool find_newest_first_ = false;
     bool context_detail_ = false;
     bool disclosure_chips_open_ = false;
     std::string transcript_width_ = "comfortable";

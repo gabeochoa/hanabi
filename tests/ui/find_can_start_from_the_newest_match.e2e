@@ -1,0 +1,68 @@
+# Settings > Chat > "Start from the newest match" (Puffin 0.8.4). Off, Cmd+F
+# lands on the OLDEST match and Cmd+G walks newer -- unchanged. On, every
+# Cmd+F starts over at the NEWEST match and Cmd+G walks older; the chevrons
+# keep their fixed meaning (up older, down newer) either way.
+#
+# "ledger" appears three times in t2, oldest first.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 16
+
+# Default: the oldest match.
+key CMD+F
+wait_frames 12
+type "ledger"
+wait_frames 12
+expect_text "1 of 3"
+key ESCAPE
+wait_frames 8
+expect_no_ui find_bar
+
+# Turn it on the way a reader would: Settings, search, the switch.
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+type "newest match"
+wait_frames 8
+expect_text "Start from the newest match"
+click_ui settings_result_0
+wait_frames 8
+click_ui settings_find_newest
+wait_frames 6
+click_ui tab_t2
+wait_frames 16
+expect_open t2
+
+# Now Cmd+F starts from the newest of the three...
+key CMD+F
+wait_frames 12
+expect_focused find_input
+expect_input_text find_input "ledger"
+expect_text "3 of 3"
+# ...Cmd+G walks older, Cmd+Shift+G back newer...
+key CMD+G
+wait_frames 6
+expect_text "2 of 3"
+key CMD+SHIFT+G
+wait_frames 6
+expect_text "3 of 3"
+# ...and the chevrons still mean up-older, down-newer, wrapping.
+click_ui find_prev
+wait_frames 6
+expect_text "2 of 3"
+click_ui find_next
+wait_frames 6
+expect_text "3 of 3"
+click_ui find_next
+wait_frames 6
+expect_text "1 of 3"
+
+# Reopening starts over from the newest, not from where it was left.
+key ESCAPE
+wait_frames 8
+key CMD+F
+wait_frames 12
+expect_input_text find_input "ledger"
+expect_text "3 of 3"

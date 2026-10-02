@@ -160,6 +160,33 @@ static void test_the_current_match_survives_a_message_arriving_above_it() {
     CHECK(index == 0 && current == (tf::MatchKey{"m0", 0, 0}));
 }
 
+static void test_newest_first_starts_a_fresh_search_at_the_last_match() {
+    const std::vector<std::string> ids{"m0", "m1", "m2"};
+    const std::vector<M> matches{{0, 0, 0}, {1, 0, 0}, {2, 4, 1}};
+    const auto id = [&](int i) { return id_of(ids, i); };
+    // No current match and no usable index: the newest (last) match.
+    tf::MatchKey current;
+    int index = tf::resolve(matches, current, -1, id, true);
+    CHECK(index == 2 && current == (tf::MatchKey{"m2", 4, 1}));
+    // A live current match is kept, whatever the preference.
+    index = tf::resolve(matches, current, index, id, true);
+    CHECK(index == 2);
+    // A step (current cleared, index moved) is honoured, not reset.
+    current = {};
+    index = tf::resolve(matches, current, 1, id, true);
+    CHECK(index == 1 && current == (tf::MatchKey{"m1", 0, 0}));
+    // A query change that loses the current match starts over at the newest...
+    current = tf::MatchKey{"gone", 0, 0};
+    index = tf::resolve(matches, current, 0, id, true);
+    CHECK(index == 2);
+    // ...and, with the preference off, at the oldest as before.
+    current = tf::MatchKey{"gone", 0, 0};
+    index = tf::resolve(matches, current, 2, id);
+    CHECK(index == 0);
+    CHECK(tf::fresh_index(0, true) == 0 && tf::fresh_index(5, true) == 4 &&
+          tf::fresh_index(5, false) == 0);
+}
+
 static void test_store_ignores_an_empty_id() {
     tf::Store store;
     store.set("", tf::Entry{true, "x", {}});
@@ -176,6 +203,7 @@ int main() {
     test_state_set_before_the_first_frame_seeds_the_store();
     test_the_current_match_survives_a_message_arriving_above_it();
     test_store_ignores_an_empty_id();
+    test_newest_first_starts_a_fresh_search_at_the_last_match();
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

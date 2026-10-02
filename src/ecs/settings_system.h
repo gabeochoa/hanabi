@@ -1243,6 +1243,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "subagents") render_subagents_row(ctx, parent, app);
         else if (id == "yap") render_yap_row(ctx, parent, app);
         else if (id == "jump_latest") render_jump_latest_row(ctx, parent, app);
+        else if (id == "find_newest") render_find_newest_row(ctx, parent, app);
         else if (id == "minimap") render_minimap_row(ctx, parent, app);
         else if (id == "notify_show") render_notify_show_row(ctx, parent, app);
         else if (id == "notify_sound") render_notification_row(ctx, parent, app);
@@ -2877,6 +2878,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     // Timestamps on transcript rows: Off / On. Local to this machine, so it
     // persists without going near the sync-dirty flag.
+    // Find: where a fresh Cmd+F lands. Off (the default) is the oldest match
+    // and Cmd+G walks newer; on is the newest match and Cmd+G walks older.
+    void render_find_newest_row(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 600, "Start from the newest match",
+                 "settings_find_newest_label");
+        const bool on = Settings::get().get_find_newest_first();
+        real_switch(ctx, parent, 601, on, "settings_find_newest",
+                    [](bool v) { Settings::get().set_find_newest_first(v); });
+    }
+
     void render_timestamps_row(UIContext<InputAction>& ctx, Entity& parent,
                                AppComponent& app) {
         (void)app;
