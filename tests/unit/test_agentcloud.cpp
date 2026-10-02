@@ -2504,6 +2504,14 @@ static void test_create_carries_the_launch_tuning_as_options_llm() {
         CHECK(!j.contains("title") && !j.contains("node"));
     }
     {
+        LaunchTuning sensitive;
+        sensitive.allowSensitiveSwitch = true;
+        const auto j = json::parse(create_command_json("t", "", sensitive));
+        CHECK(j["options"]["control"]["may_add"] == json::array({"sensitive"}));
+        CHECK(!j["options"].contains("llm"));
+        CHECK(!sensitive.empty());
+    }
+    {
         const auto j = json::parse(create_command_json("t", "od-1", LaunchTuning{}));
         CHECK(!j.contains("options"));
         CHECK(j["title"] == "t" && j["node"]["existing"]["node_id"] == "od-1");

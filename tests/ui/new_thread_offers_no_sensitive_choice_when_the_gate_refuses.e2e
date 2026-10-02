@@ -1,0 +1,13 @@
+# Where the viewer's Sensitive-mode gate does not admit, the New Thread
+# composer offers no Sensitive choice at all -- a control whose only outcome
+# would be the server's refusal is not drawn -- and a create reserves nothing.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 20
+expect_no_ui composer_sensitive
+click_ui composer_reply_input
+type "an ordinary question"
+key ENTER
+wait_frames 40
+expect_mock_create_sensitive no

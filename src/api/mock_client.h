@@ -115,6 +115,11 @@ class MockClient : public Client {
         return s;
     }
 
+    // Whether the last create reserved the Sensitive transition, for scripts.
+    static std::atomic<bool>& last_create_allowed_sensitive() {
+        static std::atomic<bool> v{false};
+        return v;
+    }
     static std::atomic<int>& list_polls() {
         static std::atomic<int> n{0};
         return n;
@@ -409,6 +414,7 @@ class MockClient : public Client {
             }
             fresh->model.requested_effort = message.launch.effort;
         }
+        last_create_allowed_sensitive() = message.launch.allowSensitiveSwitch;
         Session* session = find_mutable(created.value);
         if (session != nullptr && !session->messages.empty())
             session->messages.back().attachments = accepted_attachments(message);
@@ -1282,6 +1288,14 @@ class MockClient : public Client {
                               ? json::parse(b["variables"].get<std::string>(), nullptr, false)
                               : json::object();
         const auto has = [&](const char* op) { return doc.find(op) != std::string::npos; };
+        if (has("query HanabiSensitiveModeGate")) {
+            // HANABI_MOCK_SENSITIVE=1 admits the viewer; otherwise the gate
+            // answers null, a refusal.
+            const char* v = std::getenv("HANABI_MOCK_SENSITIVE");
+            const bool admitted = v != nullptr && *v == '1';
+            return Result<json>::success(
+                {{"viewer", {{"sensitive_mode", admitted ? json{{"__typename", "Viewer"}} : json()}}}});
+        }
         if (has("query HanabiCompanionDiffFile(")) {
             json hunks = json::array(
                 {{{"old_contents", "int total() {\n  return 1;\n}\n"},
@@ -2047,7 +2061,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

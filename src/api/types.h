@@ -256,7 +256,14 @@ struct OutgoingTarget {
 struct LaunchTuning {
     std::string model;
     std::string effort;
-    [[nodiscard]] bool empty() const { return model.empty() && effort.empty(); }
+    // Reserve the Sensitive transition at birth (`options.control.may_add`,
+    // the reference's 0.8.3): the agent may ASK to switch this thread to the
+    // sensitive company policy; a person still approves, and an approved
+    // switch is permanent. Set only when the viewer's rollout gate admitted.
+    bool allowSensitiveSwitch = false;
+    [[nodiscard]] bool empty() const {
+        return model.empty() && effort.empty() && !allowSensitiveSwitch;
+    }
     bool operator==(const LaunchTuning&) const = default;
 };
 

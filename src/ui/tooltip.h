@@ -15,6 +15,9 @@ inline std::string_view text_for(std::string_view control) {
     if (control.ends_with("_2")) control.remove_suffix(2);
     if (control == "composer_attach") return "Attach a file";
     if (control == "composer_send") return "Send this message";
+    if (control == "composer_sensitive")
+        return "Let the agent ask to switch this thread to sensitive mode. "
+               "If you approve a switch, it cannot be undone.";
     if (control == "code_block_copy") return "Copy this code block";
     if (control == "find_close") return "Close find";
     if (control == "jump_to_bottom") return "Jump to the newest message";

@@ -3092,6 +3092,7 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //   hold_modifier ctrl|shift|alt              keep a modifier down (no press)
 //   expect_mock_knot_arg <text...>            the last knot create carries it
 //   open_bug_report                           Help > Report a Bug
+//   expect_mock_create_sensitive yes|no       the last create's Sensitive reserve
 //   open_companion D123|T456                  the Companion on that entity
 //   expect_scroll_y <name> <y>                a scroll view's offset (±1)
 //   release_modifier ctrl|shift|alt           let it go
@@ -3385,6 +3386,33 @@ struct HandleOpenCompanionCommand
         }
         app->companion.open_entity(cmd.arg(0)[0], cmd.arg(0).substr(1));
         cmd.consume();
+    }
+};
+
+// expect_mock_create_sensitive <yes|no>: whether the last create reserved
+// the Sensitive transition (options.control.may_add).
+struct HandleExpectMockCreateSensitiveCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_create_sensitive")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_mock_create_sensitive requires yes|no");
+            return;
+        }
+        const bool want = cmd.arg(0) == "yes";
+        const bool got = api::MockClient::last_create_allowed_sensitive().load();
+        if (got == want) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < hanabi::e2e::kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::string("expect_mock_create_sensitive: last create ") +
+                 (got ? "reserved" : "did not reserve") + " the Sensitive transition");
     }
 };
 
@@ -4413,6 +4441,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleHoldModifierCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockKnotArgCommand>());
     sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());

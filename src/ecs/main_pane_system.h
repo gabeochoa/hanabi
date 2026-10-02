@@ -9030,6 +9030,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         kStripChipTextX - kLabelInset;
             }
         }
+        // New Thread, where the viewer's gate admits: let the agent ASK to
+        // switch this thread to the sensitive policy (the reference's 0.8.3).
+        // Ticking permits the ask, not the switch -- a person still approves,
+        // and an approved switch is permanent (the tooltip says so).
+        if (targetKickoff && app.sensitiveGate == AppComponent::Gate::Admitted) {
+            const bool on = app.newThreadSensitiveAsk;
+            auto sens = button(ctx, mk(leftMeta.ent(), 24),
+                strip_chip_cfg(on ? "Sensitive: may ask" : "Sensitive: off", "hand",
+                               on ? theme::text_primary() : theme::text_secondary(),
+                               cname("composer_sensitive")));
+            if (sens.ent().has<afterhours::ui::HasLabel>())
+                sens.ent().get<afterhours::ui::HasLabel>().text_x_offset =
+                    kStripChipTextX - kLabelInset;
+            hanabi::a11y::set_name(sens.ent(),
+                                   on ? "The agent may ask to switch this thread to sensitive mode"
+                                      : "Standard thread; the agent may not ask for sensitive mode");
+            if (sens) app.newThreadSensitiveAsk = !app.newThreadSensitiveAsk;
+        }
         // The files this conversation changed: a chip beside the skills, and
         // the panel it opens (the reference's 0.8.9).
         if (stripSession) {

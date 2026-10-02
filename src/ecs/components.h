@@ -704,6 +704,14 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string templateNotice;
     // Settings > Memory (memory_page.h): the folder, the open file, requests.
     MemoryPage memory;
+    // The viewer's Sensitive-mode rollout gate (read once, memory_system.h)
+    // and the New Thread choice it unlocks: let the agent ASK to switch the
+    // thread to the sensitive policy (the reference's 0.8.3).
+    enum class Gate { Unknown, Admitted, Denied };
+    Gate sensitiveGate = Gate::Unknown;
+    bool sensitiveGateAsked = false;
+    std::future<api::Result<nlohmann::json>> sensitiveGateFuture;
+    bool newThreadSensitiveAsk = false;
     // The viewer's Spaces for the @ picker, read once (memory_system.h).
     std::vector<api::spaces::Space> spaces;
     std::uint64_t spacesRevision = 0;
@@ -905,6 +913,11 @@ struct AppComponent : public afterhours::BaseComponent {
             if (m != "default") message.launch.model = m;
         }
         if (message.launch.effort.empty()) message.launch.effort = s.get_default_effort();
+        // The New Thread's Sensitive choice rides this create only, and only
+        // while the gate admits; the next New Thread starts Standard again.
+        if (newThreadSensitiveAsk && sensitiveGate == Gate::Admitted)
+            message.launch.allowSensitiveSwitch = true;
+        newThreadSensitiveAsk = false;
         requestKickoff = std::move(message);
     }
     std::optional<api::OutgoingMessage> requestSend;

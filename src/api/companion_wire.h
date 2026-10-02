@@ -56,9 +56,25 @@ inline constexpr const char* kCommentsDoc =
     "task_number intern_activity_comments(first: $rows, exclude_deleted: true) { count nodes { "
     "id created_time activity_actor { full_name } rte_content { rte_content_plain_text } } } } }";
 
+// The viewer's Sensitive-mode rollout gate, the same lookup the web client
+// makes before create (the reference's SensitiveModeGate). Advisory: the
+// orchestrator stays the admission authority.
+inline constexpr const char* kSensitiveGateDoc =
+    "query HanabiSensitiveModeGate { viewer { sensitive_mode: "
+    "if_gk(gk: \"agentcloud_sensitive_mode_switch\") { __typename } } }";
+
+inline bool sensitive_gate_admits(const json& data) {
+    if (!data.is_object() || !data.contains("viewer") || !data["viewer"].is_object()) return false;
+    const json& v = data["viewer"];
+    return v.contains("sensitive_mode") && v["sensitive_mode"].is_object() &&
+           v["sensitive_mode"].value("__typename", std::string()) == "Viewer";
+}
+
 inline std::string body(const char* doc, const json& vars) {
     return json{{"query_text", doc}, {"variables", vars.dump()}}.dump();
 }
+
+inline std::string sensitive_gate_body() { return body(kSensitiveGateDoc, json::object()); }
 
 inline std::string diff_body(std::int64_t number) {
     return body(kDiffDoc, json{{"queryParams", json::array({{{"numbers", {number}}}})},

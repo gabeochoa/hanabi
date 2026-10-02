@@ -1,0 +1,22 @@
+# New Thread can be marked Sensitive where the account allows (the reference's
+# 0.8.3). The viewer's rollout gate is read once; where it admits, the New
+# Thread composer offers a chip that lets the agent ASK to switch the thread
+# to the sensitive policy -- the create reserves the transition
+# (options.control.may_add = ["sensitive"]); a person still approves, and an
+# approved switch is permanent (the chip's tooltip says so). The choice rides
+# one create; the next New Thread starts Standard again.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SENSITIVE=1
+
+wait_frames 20
+assert_ui composer_sensitive text="Sensitive: off"
+click_ui composer_sensitive
+wait_frames 6
+assert_ui composer_sensitive text="Sensitive: may ask"
+
+click_ui composer_reply_input
+type "a sensitive look at the payroll export"
+key ENTER
+wait_frames 40
+expect_mock_create_sensitive yes
