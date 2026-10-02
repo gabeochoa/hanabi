@@ -4,22 +4,34 @@
 require_thread t1
 require_thread t2
 
-right_click 770 48
+# Named targets, not pixels: the strip's geometry has moved since this was
+# written, and a coordinate lands on whichever tab sits there now.
+right_click_ui tab_t4
 wait_frames 3
 click_ui tab_menu_close_others
 wait_frames 20
+# Close Others closes only unpinned tabs and, as the reference does, leaves a
+# surviving active tab where it is: both pinned pane threads are still up.
+expect_tab t5 absent within=30
 require_thread t1
-require_thread t4
-expect_panes t1 t4 1
+require_thread t2
+expect_panes t1 t2 1
 
 assert_ui split_divider hidden=false
 assert_ui split_focus_edge x=693
 
-mouse_move 711 49
+# Close the focused pane's pinned t2. A kept tab refuses an ordinary close
+# (its pin lights instead), so it goes the way the reference closes one on
+# purpose, Close Kept Tab (Cmd Shift W); the pane lands on the next survivor.
+hover_ui tab_active
+wait_frames 4
+hover_ui tab_close
 wait_frames 2
 expect_text "Close tab: needs a decision before it can go on"
-click 711 49
+key CMD+SHIFT+W
 wait_frames 8
+require_thread t4
+expect_panes t1 t4 1
 
 assert_ui tab_t1 hidden=false
 assert_ui tab_active hidden=false
