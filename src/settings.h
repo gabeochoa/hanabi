@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "ui/saved_views_codec.h"
+#include "ui/composer_templates.h"
 
 // Minimal persisted settings: window geometry, theme mode, and the open-tab
 // set (session ids + which one is active) so a launch restores exactly where
@@ -389,6 +390,15 @@ struct Settings {
     bool get_sort_oldest_first() const;
     void set_sort_oldest_first(bool on);
 
+    // Saved templates for the composer's / menu (ui/composer_templates.h).
+    // add_template answers why it refused, or "" when it saved; both
+    // auto-persist. `builtins` is the menu's own verbs, which no template
+    // may take.
+    const std::vector<hanabi::templates::Template>& get_templates() const;
+    std::string add_template(std::string_view rawName, std::string_view text,
+                             const std::vector<std::string_view>& builtins);
+    void remove_template(std::string_view name);
+
     // Appearance · Context: the context meter's caption carries the full
     // accounting (lifetime totals, cache split, last call, last compaction,
     // sub-agent rollup) when on; off, how full the window is. Default off.
@@ -562,6 +572,7 @@ struct Settings {
     bool show_timestamps_ = true;
     bool find_newest_first_ = false;
     bool sort_oldest_first_ = false;
+    std::vector<hanabi::templates::Template> templates_;
     bool context_detail_ = false;
     bool disclosure_chips_open_ = false;
     std::string transcript_width_ = "comfortable";

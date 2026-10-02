@@ -59,6 +59,7 @@
 #include "../ui/text_select.h"
 #include "../ui/inline_image.h"
 #include "../ui/slash_commands.h"
+#include "../ui/composer_templates.h"
 #include "../ui/syntax_highlighter.h"
 #include "../ui/model_menu.h"
 #include "../ui/effort_menu.h"
@@ -8981,8 +8982,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         const std::vector<const hanabi::slash::Command*> slashRows =
             hanabi::slash::filter(replyDraft);
-        bool slashOpen =
-            !slashRows.empty() && replyDraft != app.slashDismissedFor;
+        // Saved templates follow the built-in verbs, the reference's order
+        // (BUILT-IN, then TEMPLATES). One index runs over both lists.
+        const std::vector<const hanabi::templates::Template*> templateRows =
+            hanabi::templates::offered(replyDraft, Settings::get().get_templates());
+        const int slashCount =
+            static_cast<int>(slashRows.size() + templateRows.size());
+        bool slashOpen = slashCount > 0 && replyDraft != app.slashDismissedFor;
         if (app.escape == EscapeIntent::CloseSlashMenu && slashOpen) {
             app.slashDismissedFor = replyDraft;
             slashOpen = false;
@@ -8993,8 +8999,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             refocus_field();
         }
         if (!slashOpen) app.slashMenuIndex = 0;
-        if (app.slashMenuIndex >= static_cast<int>(slashRows.size()))
-            app.slashMenuIndex = 0;
+        if (app.slashMenuIndex >= slashCount) app.slashMenuIndex = 0;
         app.slashMenuOpen = slashOpen;
 
         // Writing to the field's own state as well as the draft: the widget
@@ -9134,6 +9139,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                    const api::OutgoingTarget& target,
                                    const api::OutgoingMessage* captured) {
             const hanabi::slash::Command* cmd = hanabi::slash::find(p.verb);
+            // A saved template: its text goes in the box, nothing is sent.
+            // Typed in full and Entered, it is the same act as picking it.
+            if (cmd == nullptr && p.args.empty()) {
+                if (const auto* tpl = hanabi::templates::find(
+                        p.verb, Settings::get().get_templates())) {
+                    app.slashNotice.clear();
+                    set_target_field(target, tpl->text);
+                    return;
+                }
+            }
             if (cmd == nullptr) {
                 app.slashNotice = "/" + p.verb + " is not a command";
                 app.slashNoticePane = target.pane_index;
@@ -9213,8 +9228,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Choosing a row: a verb that wants an argument completes into the
         // field so it can be typed; one that does not runs immediately.
         const auto choose_slash = [&](int index) {
-            if (index < 0 || index >= static_cast<int>(slashRows.size()))
+            if (index < 0 || index >= slashCount) return;
+            if (index >= static_cast<int>(slashRows.size())) {
+                const auto& tpl =
+                    *templateRows[static_cast<std::size_t>(index) - slashRows.size()];
+                set_field(tpl.text);
+                app.slashNotice.clear();
+                app.slashDismissedFor = replyDraft;
+                app.slashMenuOpen = false;
+                slashOpen = false;
+                refocus_field();
                 return;
+            }
             const hanabi::slash::Command& cmd = *slashRows[index];
             if (cmd.arg.empty()) {
                 hanabi::slash::Parsed p;
@@ -9250,12 +9275,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         // Up/Down belong to the menu while it is up — the history walk below
         // stands down so one keystroke never does two things.
-        if (slashOpen && !slashRows.empty() &&
+        if (slashOpen && slashCount > 0 &&
             inputRes.ent().has<afterhours::text_input::HasTextAreaState>() &&
             inputRes.ent()
                 .get<afterhours::text_input::HasTextAreaState>()
                 .is_focused) {
-            const int count = static_cast<int>(slashRows.size());
+            const int count = slashCount;
             if (hanabi::keys::pressed(hanabi::keys::kUp))
                 app.slashMenuIndex = (app.slashMenuIndex + count - 1) % count;
             if (hanabi::keys::pressed(hanabi::keys::kDown))
@@ -9511,8 +9536,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // parent, in the same screen coordinates, on a layer over it.
         if (slashOpen && absX >= 0.0f && absY >= 0.0f) {
             constexpr float kRowH = hanabi::surface::kMenuRowH;
-            const float menuH =
-                kRowH * static_cast<float>(slashRows.size()) + 8.0f;
+            const float menuH = kRowH * static_cast<float>(slashCount) + 8.0f;
             auto menuConfig = hanabi::surface::menu(inputW, menuH, 7);
             menuConfig.with_absolute_position()
                 .with_translate(absX + composerGutter, absY - menuH - 6.0f)
@@ -9576,6 +9600,59 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             .with_text_overflow(TextOverflow::Ellipsis)
                             .with_debug_name("slash_unavailable_" +
                                              std::to_string(i)));
+                if (row) choose_slash(static_cast<int>(i));
+            }
+            // The TEMPLATES rows: "/name", the text's first line, and the
+            // word "Template" where a built-in verb would say it is
+            // unavailable, so the two kinds read apart without a header row.
+            for (size_t k = 0; k < templateRows.size(); ++k) {
+                const auto& tpl = *templateRows[k];
+                const size_t i = slashRows.size() + k;
+                const bool selected = static_cast<int>(i) == app.slashMenuIndex;
+                auto row = button(
+                    ctx, mk(menu.ent(), static_cast<int>(i)),
+                    hanabi::surface::option_row(inputW - 8.0f, kRowH, selected, 8)
+                        .with_label(" ")
+                        .with_flex_direction(FlexDirection::Row)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_align_items(AlignItems::Center)
+                        .with_debug_name("slash_item_" + std::to_string(i)));
+                const auto slot = hanabi::slash_row::budget(inputW - 8.0f, false);
+                div(ctx, mk(row.ent(), 1),
+                    ComponentConfig{}
+                        .with_label("/" + tpl.name)
+                        .with_size(ComponentSize{pixels(slot.command), pixels(20)})
+                        .with_margin(Margin{.left = pixels(hanabi::slash_row::kPad)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_primary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("slash_template_" + tpl.name));
+                if (slot.blurb > 0.0f)
+                    div(ctx, mk(row.ent(), 2),
+                        ComponentConfig{}
+                            .with_label(hanabi::templates::first_line(tpl.text))
+                            .with_size(ComponentSize{pixels(slot.blurb), pixels(20)})
+                            .with_transparent_bg()
+                            .with_custom_text_color(theme::text_secondary())
+                            .with_font_size(theme::type::SM)
+                            .with_alignment(TextAlignment::Left)
+                            .with_text_overflow(TextOverflow::Ellipsis)
+                            .with_debug_name("slash_blurb_" + std::to_string(i)));
+                if (slot.status > 0.0f)
+                    div(ctx, mk(row.ent(), 3),
+                        ComponentConfig{}
+                            .with_label(slot.status >= hanabi::slash_row::kStatusW
+                                            ? "Template"
+                                            : "tpl")
+                            .with_size(ComponentSize{pixels(slot.status), pixels(20)})
+                            .with_transparent_bg()
+                            .with_custom_text_color(theme::text_faint())
+                            .with_font_size(theme::type::MICRO)
+                            .with_alignment(TextAlignment::Right)
+                            .with_text_overflow(TextOverflow::Ellipsis)
+                            .with_debug_name("slash_template_tag_" + std::to_string(i)));
                 if (row) choose_slash(static_cast<int>(i));
             }
         }

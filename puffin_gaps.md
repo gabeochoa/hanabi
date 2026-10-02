@@ -1212,7 +1212,7 @@ says why), VERIFY.
 | D32 | 0.8.9 | Cmd+click an artifact opens it on the web | not found | MISSING |
 | D33 | 0.8.9 | Sidebar sort: Oldest first | activity order only at 9b664d0. Now: Settings > General "Sort threads by" Recent activity / Oldest first; oldest created first, unknown last, id tie-break, pin still lifts, every section; creation times learned per session (attach + the seq-1 frame's `created_at_unix_ms`, since the `list` row carries none) while the order is chosen, kept on disk; `tests/ui/sidebar_sort_oldest_first.e2e` (lead lane, 2026-10-02). Deviation: the reference puts it in the sidebar list-options menu; Hanabi's filter glyph is a one-state toggle, so the choice lives in Settings | MATCHED |
 | D34 | 0.8.9 | Files-changed chip and panel | none | MISSING |
-| D35 | 0.8.9 | Saved templates in the / menu | `/` lists new/model/effort/btw/compact only | MISSING |
+| D35 | 0.8.9 | Saved templates in the / menu | built-ins only at 9b664d0. Now: Settings > Commands > Saved templates (name + text, Remove; built-in names refused with a reason; machine-local); `/name` offers them after the verbs, picking or Entering puts the text in the box and sends nothing; `tests/ui/composer_saved_templates.e2e` (lead lane, 2026-10-02). Deviation: no TEMPLATES header row; each template row says "Template" where a verb would say Unavailable | MATCHED |
 | D36 | 0.8.9 | Bug-report window captures the window | no bug-report flow | MISSING |
 | D37 | 0.8.9 | Companion unified diff | no Companion surface (artifact viewer only) | MISSING (large) |
 | D38 | 0.8.9 | Companion task Comments page | no Companion surface | MISSING (large) |

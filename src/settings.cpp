@@ -105,6 +105,17 @@ bool Settings::load_save_file() {
         find_newest_first_ = j.value("find_newest_first", find_newest_first_);
         sort_oldest_first_ =
             j.value("session_sort_order", std::string("activity")) == "oldest";
+        templates_.clear();
+        if (j.contains("composer_templates") && j["composer_templates"].is_array())
+            for (const auto& e : j["composer_templates"]) {
+                if (!e.is_object()) continue;
+                hanabi::templates::Template t{e.value("name", std::string()),
+                                              e.value("text", std::string())};
+                // A hand-edited file is held to the same rules as the pane,
+                // except the built-in check (the verb list is the app's).
+                if (hanabi::templates::refusal(t.name, t.text, templates_, {}).empty())
+                    templates_.push_back(std::move(t));
+            }
         context_detail_ = j.value("context_detail", context_detail_);
         disclosure_chips_open_ =
             j.value("disclosure_chips_open", disclosure_chips_open_);
@@ -300,6 +311,12 @@ void Settings::write_save_file() {
     j["show_timestamps"] = show_timestamps_;
     j["find_newest_first"] = find_newest_first_;
     j["session_sort_order"] = sort_oldest_first_ ? "oldest" : "activity";
+    {
+        auto arr = nlohmann::json::array();
+        for (const auto& t : templates_)
+            arr.push_back({{"name", t.name}, {"text", t.text}});
+        j["composer_templates"] = std::move(arr);
+    }
     j["context_detail"] = context_detail_;
     j["disclosure_chips_open"] = disclosure_chips_open_;
     j["transcript_width"] = transcript_width_;
@@ -826,6 +843,24 @@ void Settings::set_find_newest_first(bool on) {
     if (on == find_newest_first_) return;
     find_newest_first_ = on;
     if (auto_save_enabled) write_save_file();
+}
+
+const std::vector<hanabi::templates::Template>& Settings::get_templates() const {
+    return templates_;
+}
+std::string Settings::add_template(std::string_view rawName, std::string_view text,
+                                   const std::vector<std::string_view>& builtins) {
+    const std::string name = hanabi::templates::normalized_name(rawName);
+    std::string why = hanabi::templates::refusal(name, text, templates_, builtins);
+    if (!why.empty()) return why;
+    templates_.push_back({name, std::string(text)});
+    if (auto_save_enabled) write_save_file();
+    return {};
+}
+void Settings::remove_template(std::string_view name) {
+    const auto before = templates_.size();
+    std::erase_if(templates_, [&](const auto& t) { return t.name == name; });
+    if (templates_.size() != before && auto_save_enabled) write_save_file();
 }
 
 bool Settings::get_sort_oldest_first() const { return sort_oldest_first_; }

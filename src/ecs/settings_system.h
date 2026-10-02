@@ -1265,6 +1265,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_default_effort_row(ctx, parent, app);
         else if (id == "slash_commands")
             render_slash_commands_row(ctx, parent, app);
+        else if (id == "templates") render_templates_row(ctx, parent, app);
 
         rowFocused_ = false;
         rowActivate_ = false;
@@ -2829,6 +2830,125 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_text_overflow(TextOverflow::Ellipsis)
                 .with_roundness(0.0f)
                 .with_debug_name("settings_slash_note"));
+    }
+
+    // Saved templates (ui/composer_templates.h): the list, each with Remove,
+    // then a name and a text field and Save. A refused Save says why under
+    // the fields and keeps what was typed.
+    void render_templates_row(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app) {
+        row_name(ctx, parent, 610, "Saved templates", "settings_templates_label");
+        const auto& templates = Settings::get().get_templates();
+        std::string removeName;
+        for (std::size_t i = 0; i < templates.size(); ++i) {
+            const auto& t = templates[i];
+            auto row = div(ctx, mk(parent, 620 + static_cast<int>(i)),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(content_w()),
+                                             pixels(hanabi::control::kMinHitTarget)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_template_row_" + t.name));
+            div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_label("/" + t.name + "  \xc2\xb7  " +
+                                hanabi::templates::first_line(t.text))
+                    .with_size(ComponentSize{pixels(content_w() - 90.0f), pixels(22)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_template_" + t.name));
+            auto remove = button(ctx, mk(row.ent(), 2),
+                ComponentConfig{}
+                    .with_label("Remove")
+                    .with_size(ComponentSize{pixels(80), pixels(26)})
+                    .with_transparent_bg()
+                    .with_border(theme::border_raised(), pixels(1.0f))
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_corner_radius(6.0f)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_debug_name("settings_template_remove_" + t.name));
+            if (remove) removeName = t.name;
+        }
+        if (!removeName.empty()) Settings::get().remove_template(removeName);
+
+        const float fieldW = content_w();
+        // The fields sit on the card (panel_bg_2), where the standard field
+        // chrome's window hairline has no edge: the raised one, and a
+        // caption above each, since an empty field says nothing itself.
+        const auto caption = [&](int id, const char* words, const char* dbg) {
+            div(ctx, mk(parent, id),
+                ComponentConfig{}
+                    .with_label(words)
+                    .with_size(ComponentSize{pixels(fieldW), pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name(dbg));
+        };
+        auto fieldChrome = [&] {
+            auto c = hanabi::surface::field(fieldW, 11);
+            c.with_border(theme::border_raised(), pixels(1.0f));
+            return c;
+        };
+        caption(694, "Name (what you type after the slash)", "settings_template_name_caption");
+        auto name = hanabi::ui::edged_text_input(
+            ctx, mk(parent, 690), app.templateNameDraft, fieldChrome(),
+            "settings_template_name",
+            hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio);
+        hanabi::a11y::set_name(name.ent(), "Template name");
+        caption(695, "Text", "settings_template_text_caption");
+        auto text = hanabi::ui::edged_text_input(
+            ctx, mk(parent, 691), app.templateTextDraft, fieldChrome(),
+            "settings_template_text",
+            hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio);
+        hanabi::a11y::set_name(text.ent(), "Template text");
+        auto save = button(ctx, mk(parent, 692),
+            ComponentConfig{}
+                .with_label("Save template")
+                .with_size(ComponentSize{pixels(140), pixels(28)})
+                .with_custom_background(theme::accent())
+                .with_custom_text_color(theme::Color{255, 255, 255, 255})
+                .with_font_size(theme::type::SM)
+                .with_corner_radius(6.0f)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_debug_name("settings_template_save"));
+        if (save) {
+            std::vector<std::string_view> builtins;
+            for (const auto& c : hanabi::slash::all()) builtins.push_back(c.name);
+            app.templateNotice = Settings::get().add_template(
+                app.templateNameDraft, app.templateTextDraft, builtins);
+            if (app.templateNotice.empty()) {
+                app.templateNameDraft.clear();
+                app.templateTextDraft.clear();
+            }
+        }
+        div(ctx, mk(parent, 693),
+            ComponentConfig{}
+                .with_label(app.templateNotice.empty()
+                                ? std::string("Type /name in the composer to put "
+                                              "a template's text in the box.")
+                                : app.templateNotice)
+                .with_size(ComponentSize{pixels(content_w()), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(app.templateNotice.empty()
+                                            ? theme::text_faint()
+                                            : theme::destructive())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_template_note"));
     }
 
     template <typename Fn>

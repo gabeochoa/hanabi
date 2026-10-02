@@ -686,6 +686,11 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string settingsPane;
     std::string settingsRoute;
     std::string settingsQuery;
+    // Settings > Commands > Saved templates: the two fields of a template
+    // being written, and why the last Save was refused ("" = it was not).
+    std::string templateNameDraft;
+    std::string templateTextDraft;
+    std::string templateNotice;
     int settingsFocusZone = 0;  // 0 search, 1 nav/results, 2 content
     int settingsFocusIndex = 0;
     std::string settingsRevealRow;

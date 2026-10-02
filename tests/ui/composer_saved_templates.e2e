@@ -1,0 +1,86 @@
+# Saved templates in the / menu (Puffin 0.8.9). A template is written in
+# Settings > Commands > Saved templates; in the composer `/name` offers it
+# after the built-in verbs, and picking it puts its text in the box and SENDS
+# NOTHING. A name a built-in verb owns is refused, and the refusal says why.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 12
+
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+type "saved templates"
+wait_frames 8
+expect_text "Saved templates"
+click_ui settings_result_0
+wait_frames 8
+
+# A built-in's name is refused, and the fields keep what was typed.
+click_ui settings_template_name
+wait_frames 4
+type "new"
+click_ui settings_template_text
+wait_frames 4
+type "Yesterday I shipped the ledger fix."
+click_ui settings_template_save
+wait_frames 8
+expect_text "/new is a built-in command."
+expect_input_text settings_template_text "Yesterday I shipped the ledger fix."
+
+# Renamed, it saves, lists, and the fields clear.
+click_ui settings_template_name
+wait_frames 4
+key CMD+A
+type "standup"
+click_ui settings_template_save
+wait_frames 8
+assert_ui settings_template_row_standup hidden=false
+expect_input_text settings_template_name ""
+expect_no_text "/new is a built-in command."
+
+# Back to the thread: /st offers it after the verbs; Enter takes it.
+key CMD+W
+wait_frames 16
+require_thread t2
+click_ui composer_reply_input
+wait_frames 4
+type "/st"
+wait_frames 8
+assert_ui slash_template_standup hidden=false
+key ENTER
+wait_frames 10
+expect_input_text composer_reply_input "Yesterday I shipped the ledger fix."
+expect_no_ui slash_menu
+# Nothing was sent: the text is the reader's to finish.
+expect_mock_outbound_calls 0
+
+# Typed in full and Entered, it is the same act.
+key CMD+A
+type "/standup"
+wait_frames 6
+key ENTER
+wait_frames 10
+expect_input_text composer_reply_input "Yesterday I shipped the ledger fix."
+expect_mock_outbound_calls 0
+
+# Removed in Settings, the menu stops offering it.
+key CMD+A
+key BACKSPACE
+click_ui sb_settings
+wait_frames 10
+type "saved templates"
+wait_frames 8
+click_ui settings_result_0
+wait_frames 8
+click_ui settings_template_remove_standup
+wait_frames 8
+expect_no_ui settings_template_row_standup
+key CMD+W
+wait_frames 16
+click_ui composer_reply_input
+wait_frames 4
+type "/st"
+wait_frames 8
+expect_no_ui slash_template_standup
