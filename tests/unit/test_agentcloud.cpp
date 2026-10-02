@@ -1364,6 +1364,93 @@ static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
     th.join();
 }
 
+static void test_a_refused_artifact_credential_is_dropped_and_retried_once() {
+    std::printf("test_a_refused_artifact_credential_is_dropped_and_retried_once\n");
+    httplib::Server svr;
+    std::atomic<int> mints{0};
+    std::atomic<int> reads{0};
+    std::string mintValue = "fresh";
+    svr.Get("/create", [&](const httplib::Request&, httplib::Response& res) {
+        ++mints;
+        res.set_content(mintValue, "text/plain");
+    });
+    svr.Get(R"(/artifacts/(\w+)/content)", [&](const httplib::Request& req, httplib::Response& res) {
+        ++reads;
+        const std::string tok = req.get_header_value("crypto_auth_tokens");
+        const std::string id = req.matches[1];
+        if (id == "forbidden") {
+            res.status = 403;
+            return;
+        }
+        if (tok != "fresh") {
+            res.status = 401;
+            return;
+        }
+        res.set_content(std::string("\x89PNG\r\n\x1a\n", 8) + "ok", "image/png");
+    });
+    const int port = svr.bind_to_any_port("127.0.0.1");
+    CHECK(port > 0);
+    std::thread th([&] { svr.listen_after_bind(); });
+    svr.wait_until_ready();
+
+    api::agentcloud::AuthConfig cfg;
+    cfg.proxy_host.clear();
+    cfg.proxy_port = 0;
+    cfg.host = "127.0.0.1:" + std::to_string(port);
+    cfg.mint_host = cfg.host;
+    cfg.verifier = "v";
+    api::agentcloud::Token stale;
+    stale.value = "stale";
+    stale.expires_at = static_cast<int64_t>(std::time(nullptr)) + 3600;
+
+    // The cached token is refused: dropped, re-minted, read again -- once.
+    {
+        api::AgentcloudClient client(cfg, stale);
+        api::ArtifactRef ref;
+        ref.id = "img";
+        auto r = client.fetch_artifact("s1", ref);
+        CHECK(r.ok);
+        CHECK(reads == 2 && mints == 1);
+    }
+    // A second refusal is final: no third read.
+    {
+        reads = 0;
+        mints = 0;
+        mintValue = "also-refused";
+        api::AgentcloudClient client(cfg, stale);
+        api::ArtifactRef ref;
+        ref.id = "img";
+        auto r = client.fetch_artifact("s1", ref);
+        CHECK(!r.ok && r.value.http_status == 401);
+        CHECK(reads == 2 && mints == 1);
+    }
+    // A 403 is about the artifact, not the credential: one read, no mint.
+    {
+        reads = 0;
+        mints = 0;
+        api::AgentcloudClient client(cfg, stale);
+        api::ArtifactRef ref;
+        ref.id = "forbidden";
+        auto r = client.fetch_artifact("s1", ref);
+        CHECK(!r.ok && r.value.http_status == 403);
+        CHECK(reads == 1 && mints == 0);
+    }
+    // A mint that hands back the same token does not loop.
+    {
+        reads = 0;
+        mints = 0;
+        mintValue = "stale";
+        api::AgentcloudClient client(cfg, stale);
+        api::ArtifactRef ref;
+        ref.id = "img";
+        auto r = client.fetch_artifact("s1", ref);
+        CHECK(!r.ok && r.value.http_status == 401);
+        CHECK(reads == 1 && mints == 1);
+    }
+    svr.stop();
+    th.join();
+}
+
 static void test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored() {
     std::printf("test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored\n");
     const std::string reply = R"({"type":"page","frames":[
@@ -2852,6 +2939,7 @@ int main() {
     test_a_compaction_marker_is_a_divider_not_a_message();
     test_a_shown_artifact_is_a_row_with_its_file_and_size();
     test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives();
+    test_a_refused_artifact_credential_is_dropped_and_retried_once();
     test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_ignored();
     test_declared_tool_calls_that_did_not_run_are_counted_on_the_run_terminal();
     test_a_delivered_input_is_labelled_by_its_source_kind();

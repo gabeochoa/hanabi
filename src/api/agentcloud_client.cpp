@@ -3320,16 +3320,34 @@ Result<ArtifactContent> AgentcloudClient::fetch_artifact(
     const std::string& session_id, const ArtifactRef& ref) {
     if (session_id.empty() || ref.id.empty())
         return Result<ArtifactContent>::failure("The artifact has no address.");
-    const auto& cfg = auth_.config();
     std::string auth_error;
     const auto token = auth_.get(&auth_error);
     if (token.empty()) return Result<ArtifactContent>::failure(auth_error);
+    auto first = fetch_artifact_with(session_id, ref, token.value);
+    // A REFUSED CREDENTIAL IS DROPPED AND THE READ TRIED ONCE MORE (the
+    // reference's Puffin 0.8.9 fix). The cache keeps a token until its own
+    // clock says it is stale; when the origin has stopped accepting it, every
+    // read answered 401 -- and the 15-second transient retry asked again with
+    // the SAME token -- until the cache turned over. A 401 now drops it and
+    // retries once with a freshly minted one; a second 401 is final, and a 403
+    // (an answer about the artifact, not the credential) is not retried.
+    if (first.ok || first.value.http_status != 401) return first;
+    auth_.invalidate();
+    const auto fresh = auth_.get(&auth_error);
+    if (fresh.empty() || fresh.value == token.value) return first;
+    return fetch_artifact_with(session_id, ref, fresh.value);
+}
+
+Result<ArtifactContent> AgentcloudClient::fetch_artifact_with(
+    const std::string& session_id, const ArtifactRef& ref,
+    const std::string& tokenValue) {
+    const auto& cfg = auth_.config();
     httplib::Client client(("http://" + cfg.host).c_str());
     if (!cfg.proxy_host.empty() && cfg.proxy_port > 0)
         client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
     client.set_connection_timeout(5, 0);
     client.set_read_timeout(60, 0);
-    const httplib::Headers headers{{"crypto_auth_tokens", token.value}};
+    const httplib::Headers headers{{"crypto_auth_tokens", tokenValue}};
     std::string path = "/artifacts/" + agentcloud::percent_encode(ref.id) +
                        "/content?session=" +
                        agentcloud::percent_encode(session_id);

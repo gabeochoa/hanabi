@@ -147,6 +147,11 @@ class AgentcloudClient : public Client {
     void seed_web_token(agentcloud::Token token);
 
    private:
+    // One artifact read with the given credential (fetch_artifact retries a
+    // refused one once through this).
+    Result<ArtifactContent> fetch_artifact_with(const std::string& session_id,
+                                                const ArtifactRef& ref,
+                                                const std::string& tokenValue);
     // One request/reply over a short-lived socket on the control channel.
     // Returns the decoded `msg` object as raw JSON text, or empty with *error.
     std::string round_trip(const std::string& payload_json,
