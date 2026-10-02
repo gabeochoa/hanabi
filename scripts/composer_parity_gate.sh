@@ -111,7 +111,10 @@ EOF
 
 scan() {
     local root="$1"
-    check_closed_set "$root" "composer field" 'text_area(' "$COMPOSER_FIELDS"
+    # The widget CALL, not any identifier ending in text_area: the
+    # keyboard-focus helper `focused_text_area()` (keyboard_focus.h, read by
+    # text_edit_chords_system.h since 28adefc) is not a second composer field.
+    check_closed_set "$root" "composer field" '\(^\|[^_[:alnum:]]\)text_area(' "$COMPOSER_FIELDS"
     check_closed_set "$root" "attachment staging" 'attachments::stage(' \
         "$STAGE_CALLERS"
     check_closed_set "$root" "create path" 'requestKickoff = \|request_kickoff(' \
