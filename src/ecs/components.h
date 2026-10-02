@@ -25,6 +25,7 @@
 #include "../api/session_catalog.h"
 #include "../api/client.h"
 #include "memory_page.h"
+#include "companion_state.h"
 #include "../api/knots_reporter.h"
 #include "../api/outbox.h"
 #include "../api/wire_clock.h"
@@ -80,6 +81,7 @@ enum class EscapeIntent {
     CancelShortcutRecording,
     CloseShortcuts,
     CloseBugReport,
+    CloseCompanion,
     CloseSettings,
     CloseFind,
     CloseSlashMenu,
@@ -1847,6 +1849,8 @@ struct AppComponent : public afterhours::BaseComponent {
     // Help > Report a Bug (bug_report_system.h): the sheet, its text, which
     // board, the window capture taken as it opened, and the filing.
     bool showBugReport = false;
+    // The Companion (companion_system.h): a diff or a task, read in-app.
+    CompanionState companion;
     std::string bugReportText;
     bool bugReportBackend = false;  // false = this app's board
     bool bugReportAttach = true;
@@ -2330,7 +2334,8 @@ inline bool overlay_up(const AppComponent& app) {
     // Settings is a click, the same as from any other tab -- and keyboard
     // owners behind it are not covering anything the reader cannot see.
     return app.renameOpen || app.showShortcuts || app.showAuth ||
-           app.paletteOpen || !app.viewerImagePath.empty() || app.showBugReport;
+           app.paletteOpen || !app.viewerImagePath.empty() || app.showBugReport ||
+           app.companion.open;
 }
 
 inline bool composer_strip_surface_up(const AppComponent& app) {

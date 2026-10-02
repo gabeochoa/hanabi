@@ -3387,6 +3387,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         AppComponent* app = app_singleton();
         if (app == nullptr) return;
         const std::string_view tp = hanabi::links::kThreadPrefix;
+        // A diff or a task opens in the Companion (companion_system.h), read
+        // in-app; Cmd-click (Ctrl in scripts) still goes to the browser.
+        if ((id[0] == 'D' || id[0] == 'T') && app->client && app->client->supports_graphql() &&
+            !hanabi::keys::cmd_or_ctrl_down()) {
+            app->companion.open_entity(id[0], id.substr(1));
+            return;
+        }
         if (id.rfind(tp, 0) == 0) {
             // A thread this client holds opens in a tab, as a sidebar click
             // would; one it does not hold goes to the web app's page.

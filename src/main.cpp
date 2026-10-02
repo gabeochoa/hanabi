@@ -90,6 +90,7 @@
 #include "ecs/memory_system.h"
 #include "ecs/knots_system.h"
 #include "ecs/bug_report_system.h"
+#include "ecs/companion_system.h"
 #include "ecs/artifact_viewer_system.h"
 #include "ecs/capture_marker_system.h"
 #include "ecs/toast_system.h"
@@ -490,6 +491,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
     sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
     sm.register_update_system(std::make_unique<ecs::BugReportSystem>());
+    sm.register_update_system(std::make_unique<ecs::CompanionSystem>());
     sm.register_update_system(std::make_unique<ecs::NewThreadSystem>());
     sm.register_update_system(std::make_unique<ecs::PaletteSystem>());
     sm.register_update_system(std::make_unique<ecs::SessionSearchSystem>());
@@ -1417,6 +1419,10 @@ static void apply_test_knobs(ecs::AppComponent* app) {
         else if (os == "plan") app->planPopoverOpen = true;
         else if (os == "changes") app->changesPopoverOpen = true;
         else if (os == "bug_report") ecs::open_bug_report(*app, "menu");
+        else if (os == "companion") {
+            app->companion.open_entity('D', "1234");
+            app->companion.requestFile = 0;
+        }
         else if (os == "context") app->contextPopoverOpen = true;
         else if (os == "nodes") app->nodePopoverOpen = true;
         else if (os == "slash") {

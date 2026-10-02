@@ -499,7 +499,15 @@ bool AgentcloudClient::memory_post(const std::string& body, const char* field,
         *error = "memory HTTP " + std::to_string(res->status);
         return false;
     }
+    if (field == nullptr) return memory::unwrap_data(res->body, out, error);
     return memory::unwrap(res->body, field, out, error);
+}
+
+Result<nlohmann::json> AgentcloudClient::graphql(const std::string& body) {
+    nlohmann::json data;
+    std::string error;
+    if (!memory_post(body, nullptr, &data, &error)) return Result<nlohmann::json>::failure(error);
+    return Result<nlohmann::json>::success(std::move(data));
 }
 
 Result<std::vector<spaces::Space>> AgentcloudClient::list_spaces() {

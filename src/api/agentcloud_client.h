@@ -150,6 +150,8 @@ class AgentcloudClient : public Client {
     // credential as the inbox state.
     bool supports_memory() const override { return supports_inbox_state(); }
     bool supports_spaces() const override { return supports_inbox_state(); }
+    bool supports_graphql() const override { return supports_inbox_state(); }
+    Result<nlohmann::json> graphql(const std::string& body) override;
     Result<std::vector<spaces::Space>> list_spaces() override;
     Result<memory::Listing> memory_list(const std::string& path) override;
     Result<memory::Document> memory_read(const std::string& path,

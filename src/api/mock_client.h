@@ -1261,6 +1261,95 @@ class MockClient : public Client {
         return v != nullptr && *v == '1';
     }
     bool supports_memory() const override { return true; }
+    // The Companion's reads (api/companion_wire.h), answered from fixtures by
+    // the operation the body names: any diff number has two files (D404 is
+    // not found), a.cpp has two hunks, any task has a description and two
+    // comments. HANABI_MOCK_COMPANION_COMMENTS_FAIL=1 refuses the comments
+    // read alone, so the page fails and the card does not.
+    bool supports_graphql() const override { return true; }
+    Result<nlohmann::json> graphql(const std::string& body) override {
+        using nlohmann::json;
+        const json b = json::parse(body, nullptr, false);
+        const std::string doc = b.is_object() ? b.value("query_text", std::string()) : "";
+        const json vars = b.is_object() && b.contains("variables") && b["variables"].is_string()
+                              ? json::parse(b["variables"].get<std::string>(), nullptr, false)
+                              : json::object();
+        const auto has = [&](const char* op) { return doc.find(op) != std::string::npos; };
+        if (has("query HanabiCompanionDiffFile(")) {
+            json hunks = json::array(
+                {{{"old_contents", "int total() {\n  return 1;\n}\n"},
+                  {"new_contents", "int total() {\n  return 2;\n}\n"},
+                  {"new_offset", 10}, {"new_length", 3}},
+                 {{"old_contents", "// old tail\n"},
+                  {"new_contents", "// new tail\n// one more line\n"},
+                  {"new_offset", 80}, {"new_length", 2}}});
+            const std::string path = vars.contains("paths") ? vars["paths"][0].get<std::string>() : "";
+            return Result<json>::success(
+                {{"phabricator_version",
+                  {{"id", vars.value("version", std::string())},
+                   {"phabricator_version_changesets",
+                    {{"nodes", json::array({{{"filename", path},
+                                             {"source_file_change_type", "TYPE_CHANGE"},
+                                             {"comparison_hunks", hunks}}})}}}}}});
+        }
+        if (has("query HanabiCompanionDiff(")) {
+            const std::int64_t n = vars["queryParams"][0]["numbers"][0].get<std::int64_t>();
+            json nodes = json::array();
+            if (n != 404)
+                nodes.push_back(
+                    {{"number", n},
+                     {"diff_title", "Reconcile payouts with one retry"},
+                     {"commit_message", "Summary: retry the reconcile batch once."},
+                     {"file_count", 2},
+                     {"repository", {{"name", "fbsource"}}},
+                     {"status_badge", {{"label", "Needs Review"}}},
+                     {"latest_active_visible_phabricator_version",
+                      {{"id", "ver-" + std::to_string(n)},
+                       {"number", "7"},
+                       {"ordinal_label", {{"abbreviated", "V3"}}},
+                       {"phabricator_version_changesets",
+                        {{"nodes", json::array({{{"filename", "payouts/reconcile.cpp"},
+                                                 {"source_file_change_type", "TYPE_CHANGE"},
+                                                 {"add_lines", 3}, {"delete_lines", 2}},
+                                                {{"filename", "payouts/retry.h"},
+                                                 {"source_file_change_type", "TYPE_ADD"},
+                                                 {"add_lines", 12}}})}}}}}});
+            return Result<json>::success(
+                {{"phabricator_diff_query", json::array({{{"results", {{"nodes", nodes}}}}})}});
+        }
+        if (has("query HanabiCompanionTaskComments(")) {
+            const char* f = std::getenv("HANABI_MOCK_COMPANION_COMMENTS_FAIL");
+            if (f != nullptr && *f == '1') return Result<json>::failure("memory HTTP 500");
+            return Result<json>::success(
+                {{"task",
+                  {{"task_number", vars.value("number", 0)},
+                   {"intern_activity_comments",
+                    {{"count", 2},
+                     {"nodes", json::array({{{"id", "c2"}, {"created_time", mock_now() - 3600},
+                                            {"activity_actor", {{"full_name", "Second Reviewer"}}},
+                                            {"rte_content", {{"rte_content_plain_text", "Looks right; ship it."}}}},
+                                           {{"id", "c1"}, {"created_time", mock_now() - 86400},
+                                            {"activity_actor", {{"full_name", "First Author"}}},
+                                            {"rte_content", {{"rte_content_plain_text", "Filed from the reconcile run."}}}}})}}}}}});
+        }
+        if (has("query HanabiCompanionTask(")) {
+            return Result<json>::success(
+                {{"task",
+                  {{"task_number", vars.value("number", 0)},
+                   {"task_title", "Reconcile batch should retry once"},
+                   {"task_priority", "mid"},
+                   {"is_closed", false},
+                   {"task_progress_status", "In Progress"},
+                   {"created_time", mock_now() - 172800},
+                   {"updated_time", mock_now() - 3600},
+                   {"task_description", {{"text", "Two accounts did not reconcile; retry once before paging."}}},
+                   {"task_owner", {{"name", "Pat Owner"}, {"unixname", "pat"}}},
+                   {"task_creator", {{"name", "Sam Filer"}, {"unixname", "sam"}}},
+                   {"tags", {{"count", 1}, {"nodes", json::array({{{"name", "payouts"}}})}}}}}});
+        }
+        return Result<json>::failure("the mock has no fixture for this query");
+    }
+
     // Two Spaces (one pinned) for the @ picker; HANABI_MOCK_SPACES=0 none.
     bool supports_spaces() const override { return true; }
     Result<std::vector<spaces::Space>> list_spaces() override {
@@ -1951,7 +2040,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

@@ -131,6 +131,25 @@ struct Document {
     bool linked = false;
 };
 
+// Opens the route's two envelopes down to the GraphQL `data` object.
+inline bool unwrap_data(const std::string& raw, json* out, std::string* why) {
+    const json j = json::parse(raw, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) {
+        *why = "not JSON";
+        return false;
+    }
+    if (!j.value("success", false) || !j.contains("result") || !j["result"].is_object() ||
+        !j["result"].contains("data") || !j["result"]["data"].is_object()) {
+        *why = "no success/result/data envelope";
+        if (j.contains("result") && j["result"].is_object() && j["result"].contains("errors") &&
+            j["result"]["errors"].is_array() && !j["result"]["errors"].empty())
+            *why += " (" + j["result"]["errors"][0].value("message", std::string("error")) + ")";
+        return false;
+    }
+    *out = j["result"]["data"];
+    return true;
+}
+
 // Opens the route's two envelopes down to `field`'s object, or returns the
 // reason it could not (which is logged; the reader sees a plain sentence).
 inline bool unwrap(const std::string& raw, const char* field, json* out, std::string* why) {

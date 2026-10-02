@@ -3092,6 +3092,7 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //   hold_modifier ctrl|shift|alt              keep a modifier down (no press)
 //   expect_mock_knot_arg <text...>            the last knot create carries it
 //   open_bug_report                           Help > Report a Bug
+//   open_companion D123|T456                  the Companion on that entity
 //   release_modifier ctrl|shift|alt           let it go
 inline api::OutgoingMessage forced_surface_message(const std::string& sessionId,
                                                    std::string text, int pane) {
@@ -3321,6 +3322,25 @@ struct HandleExpectMockKnotArgCommand
         }
         cmd.fail("expect_mock_knot_arg: the last create carries no argument containing '" + want +
                  "' (" + std::to_string(calls.size()) + " call(s))");
+    }
+};
+
+// open_companion <D123|T456>: the Companion on that entity, as a click on its
+// link does.
+struct HandleOpenCompanionCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("open_companion")) return;
+        auto* app = ecs::find_singleton<ecs::AppComponent>();
+        if (app == nullptr || !cmd.has_args(1) || cmd.arg(0).size() < 2 ||
+            (cmd.arg(0)[0] != 'D' && cmd.arg(0)[0] != 'T')) {
+            cmd.fail("open_companion requires D<number> or T<number>");
+            return;
+        }
+        app->companion.open_entity(cmd.arg(0)[0], cmd.arg(0).substr(1));
+        cmd.consume();
     }
 };
 
@@ -4349,6 +4369,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleHoldModifierCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockKnotArgCommand>());
     sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
+    sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCachedCommand>());
     sm.register_update_system(std::make_unique<HandleDetachThreadCommand>());

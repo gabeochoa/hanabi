@@ -25,6 +25,7 @@
 #include "halt_state.h"
 #include "memory_wire.h"
 #include "spaces_wire.h"
+#include "companion_wire.h"
 #include "types.h"
 
 namespace api {
@@ -888,6 +889,14 @@ class Client {
         (void)content;
         (void)version;
         return Result<memory::Document>::failure("This backend has no agent memory.");
+    }
+
+    // One read of the web app's /api/graphql (api/companion_wire.h builds the
+    // bodies): the GraphQL `data` object, or why not.
+    virtual bool supports_graphql() const { return false; }
+    virtual Result<nlohmann::json> graphql(const std::string& body) {
+        (void)body;
+        return Result<nlohmann::json>::failure("This backend has no GraphQL route.");
     }
 
     // The viewer's Metamate Spaces (api/spaces_wire.h), for the @ picker.

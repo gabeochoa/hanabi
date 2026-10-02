@@ -1,4 +1,6 @@
-# A work-tracker id in a reply opens the tracker.
+# A work-tracker id in a reply is a link. A diff or a task opens in the
+# Companion, read in-app (companion_system.h, the reference's); Cmd-click --
+# Ctrl in a script -- opens the configured tracker in the browser.
 #
 # "Built the config diff D948120 adding Tier 1/2/3 price points" — the id is a
 # reference to something that lives elsewhere, and it used to be prose. It is
@@ -48,5 +50,17 @@ require_thread t1
 expect_text "Built the config diff"
 
 click_link D948120
+wait_frames 15
+assert_ui companion_panel hidden=false
+expect_text "Reconcile payouts with one retry"
+key ESCAPE
+wait_frames 8
+expect_no_ui companion_panel
+
+hold_modifier ctrl
+click_link D948120
 wait_frames 10
+release_modifier ctrl
 expect_text "Opened D948120"
+expect_link_opened https://tracker.example.com/D948120
+expect_no_ui companion_panel

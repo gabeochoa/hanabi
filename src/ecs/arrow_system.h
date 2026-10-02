@@ -55,6 +55,7 @@ struct ArrowSystem : afterhours::System<UIContext<InputAction>> {
         else if (any_text_field_focused())
             app->arrow = ArrowIntent::TextField;
         else if (app->renameOpen || app->showShortcuts || app->showBugReport ||
+                 app->companion.open ||
                  app->showSettings || app->showAuth ||
                  !app->viewerImagePath.empty())
             app->arrow = ArrowIntent::None;

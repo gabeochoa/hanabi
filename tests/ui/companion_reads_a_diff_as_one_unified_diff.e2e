@@ -1,0 +1,33 @@
+# The Companion on a diff (the reference's 0.8.9): its title, status, repo,
+# version and files; a file opens to EVERY comparison hunk drawn as one
+# unified diff -- a range header per hunk, context, removals and additions
+# interleaved -- not one hunk's two sides behind a toggle. Read in-app from
+# the mock's fixtures; Escape closes.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+open_companion D1234
+wait_frames 20
+expect_text "D1234"
+expect_text "Reconcile payouts with one retry"
+expect_text "Needs Review"
+expect_text "payouts/reconcile.cpp"
+expect_text "Pick a file to read its changes."
+
+click_ui companion_file_0
+wait_frames 20
+expect_text "@@ lines 10"
+expect_text "return 1;"
+expect_text "return 2;"
+expect_text "@@ lines 80"
+expect_text "one more line"
+
+key ESCAPE
+wait_frames 8
+expect_no_ui companion_panel
+
+# A diff that is not there says so.
+open_companion D404
+wait_frames 20
+expect_text "This diff was not found, or you do not have access to it."

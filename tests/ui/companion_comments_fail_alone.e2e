@@ -1,0 +1,15 @@
+# A Comments read that fails fails the Comments page alone: the task card
+# still reads.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_COMPANION_COMMENTS_FAIL=1
+
+require_thread t2
+open_companion T555
+wait_frames 20
+click_ui companion_page_comments
+wait_frames 20
+expect_text "This task's comments are unavailable right now."
+click_ui companion_page_overview
+wait_frames 8
+expect_text "retry once before paging"

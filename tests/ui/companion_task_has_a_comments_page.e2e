@@ -1,0 +1,20 @@
+# The Companion on a task (the reference's 0.8.9): Overview and Comments. The
+# comments are their own read, newest first; when that read fails only the
+# Comments page says so -- the card is untouched.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+open_companion T555
+wait_frames 20
+expect_text "Reconcile batch should retry once"
+expect_text "In Progress"
+expect_text "owner Pat Owner"
+expect_text "retry once before paging"
+
+click_ui companion_page_comments
+wait_frames 20
+assert_ui companion_comment_author_0 hidden=false
+expect_text "Second Reviewer"
+expect_text "Looks right; ship it."
+expect_text "First Author"
