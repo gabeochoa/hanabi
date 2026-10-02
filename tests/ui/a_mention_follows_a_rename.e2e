@@ -1,0 +1,29 @@
+# A thread reference in a sent message is drawn by the thread's CURRENT title
+# (the reference's kt-dg5c): the wire keeps the bare URL, so renaming the
+# thread renames every mention of it on screen, and the bubble re-measures for
+# the longer name instead of keeping the old height.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WEB_BASE_URL=https://web.example.test/chat
+
+require_thread t2
+click_ui composer_reply_input
+wait_frames 4
+type "see @SKU"
+wait_frames 8
+key ENTER
+wait_frames 8
+key ENTER
+wait_frames 30
+expect_text "see @SKU backfill — my name for it"
+
+right_click_text "SKU backfill"
+wait_frames 4
+click_ui row_menu_rename
+wait_frames 4
+type "Ship notes for the quarterly payout reconciliation and every account that did not balance"
+wait_frames 2
+key ENTER
+wait_frames 30
+expect_text "see @Ship notes for the quarterly payout reconciliation and every account that did not balance"
+expect_children_inside user_bubble

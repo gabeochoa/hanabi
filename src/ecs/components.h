@@ -1892,12 +1892,27 @@ struct AppComponent : public afterhours::BaseComponent {
         if (sessionCatalogRevision == 0) sessionCatalogRevision = 1;
     }
 
+    // Bumps when a thread's title (or the set of threads) changes, so the
+    // transcript re-measures rows that draw a thread reference by title.
+    unsigned threadTitlesEpoch = 1;
+    std::size_t threadTitlesHash_ = 0;
+    void note_titles(const std::vector<api::SessionSummary>& rows) {
+        std::size_t h = rows.size();
+        const std::hash<std::string> hs;
+        for (const auto& s : rows) h = h * 1000003u ^ (hs(s.id) * 31u + hs(s.title));
+        if (h != threadTitlesHash_) {
+            threadTitlesHash_ = h;
+            ++threadTitlesEpoch;
+        }
+    }
+
     void replace_sessions(std::vector<api::SessionSummary> replacement) {
         // One conversation, one row, in the sidebar and in search alike
         // (api/session_catalog.h): every list surface reads this catalogue.
         api::catalog::keep_one_row_per_id(replacement);
         carry_held_clocks(replacement, sessions);
         apply_space_filing(replacement);
+        note_titles(replacement);
         sessions = std::move(replacement);
         mark_session_catalog_changed();
     }
@@ -1918,6 +1933,7 @@ struct AppComponent : public afterhours::BaseComponent {
                 s.title = title;
                 changed = true;
             }
+        if (changed) note_titles(sessions);
         for (auto& s : subagentSessions)
             if (s.id == id && s.title != title) {
                 s.title = title;

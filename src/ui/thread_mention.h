@@ -31,6 +31,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "../api/spaces_wire.h"
@@ -235,6 +236,48 @@ inline std::vector<Found> find_threads(const std::string& text, const std::strin
         out.push_back({at, j - at, text.substr(at + base.size(), j - at - base.size())});
         at = j - 1;
     }
+    return out;
+}
+
+// THE DISPLAY HALF (the reference's kt-dg5c): a thread reference is DRAWN as
+// "@<title>", resolved against the catalogue as it stands now -- the wire keeps
+// the bare URL, so a rename is never stale and no title is ever sent. Only a
+// thread this client holds is named (`titleOf` answers "" otherwise), so the
+// display cannot show a name the reader could not already see; an unresolved
+// one stays its URL. `labels` are the drawn names in order, for finding their
+// spans in the final body; `signature` changes whenever any drawn name does,
+// for the measurement cache key.
+struct Titled {
+    std::string text;
+    std::vector<std::pair<std::string, std::string>> labels;  // label, session id
+    std::string signature;
+};
+template <class TitleOf>
+Titled titled(const std::string& text, const std::string& webBase, TitleOf&& titleOf) {
+    Titled out;
+    const auto refs = find_threads(text, webBase);
+    if (refs.empty()) {
+        out.text = text;
+        return out;
+    }
+    std::size_t at = 0;
+    for (const Found& f : refs) {
+        out.text.append(text, at, f.off - at);
+        const std::string title = titleOf(f.id);
+        if (title.empty()) {
+            out.text.append(text, f.off, f.len);
+        } else {
+            const std::string label = "@" + title;
+            out.text += label;
+            out.labels.emplace_back(label, f.id);
+            out.signature += f.id;
+            out.signature += '=';
+            out.signature += title;
+            out.signature += '\x1f';
+        }
+        at = f.off + f.len;
+    }
+    out.text.append(text, at, std::string::npos);
     return out;
 }
 

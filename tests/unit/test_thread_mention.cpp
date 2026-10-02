@@ -132,7 +132,22 @@ static void test_automation_born_threads_are_not_offered() {
     CHECK(!api::is_automation_born(noOrigin));
 }
 
+static void test_references_are_drawn_by_their_current_title() {
+    const auto titleOf = [](const std::string& id) -> std::string {
+        if (id == "r5") return "profiling the disk";
+        return "";  // not held here: stays its URL
+    };
+    const auto t = mn::titled("see https://w.test/chat/r5 and https://w.test/chat/zz now",
+                              "https://w.test/chat", titleOf);
+    CHECK(t.text == "see @profiling the disk and https://w.test/chat/zz now");
+    CHECK(t.labels.size() == 1 && t.labels[0].first == "@profiling the disk" && t.labels[0].second == "r5");
+    CHECK(!t.signature.empty());
+    const auto none = mn::titled("plain words", "https://w.test/chat", titleOf);
+    CHECK(none.text == "plain words" && none.labels.empty() && none.signature.empty());
+}
+
 int main() {
+    test_references_are_drawn_by_their_current_title();
     test_automation_born_threads_are_not_offered();
     test_spaces_follow_threads_and_write_space_ids();
     test_a_thread_url_in_text_is_a_thread_link();

@@ -254,6 +254,10 @@ struct LedgerFacts {
     std::string find_query;
     bool find_open = false;
     unsigned font_epoch = 0;
+    // Bumps when any thread's title changes: a user message draws its thread
+    // references by title (ui/thread_mention.h titled), so a rename can move
+    // a row's height.
+    unsigned titles_epoch = 0;
     bool streaming = false;
     std::size_t live_index = 0;
     int stream_phase = 0;
@@ -1017,7 +1021,7 @@ class TranscriptLedger {
         }
         // Width alone bumps nothing: rows carry their own validity.
         const bool epochChange =
-            f.font_epoch != facts_.font_epoch ||
+            f.font_epoch != facts_.font_epoch || f.titles_epoch != facts_.titles_epoch ||
             f.fold_long_messages != facts_.fold_long_messages ||
             f.tool_fold_mode != facts_.tool_fold_mode ||
             f.find_open != facts_.find_open || f.find_query != facts_.find_query;
