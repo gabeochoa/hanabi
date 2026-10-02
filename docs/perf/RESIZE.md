@@ -9,7 +9,7 @@ line or the `[prof]` table; nothing is computed by hand.
 
 ## The stimulus
 
-`HANABI_RESIZE_DRIVE=grow:300x150:150,grow:-500x-250:150,grow:200x100:80`
+`HANABI_RESIZE_DRIVE=grow:300x150:150,grow:-500x-250:150,grow:200x100:80` (the gate's default is now `grow:300x-150:150,grow:-500x100:150,grow:200x50:80`, which never makes the window taller than it starts -- see resize_drive_gate.sh)
 (`src/resize_drive.mm`). A user-interactive-QoS thread posts real NSEvents at
 the window's bottom-right resize zone -- mouse-down, a mouse-dragged every
 8 ms along three legs with two edge reversals (net zero), the final position

@@ -8,9 +8,9 @@
 # (src/resize_drive.mm has the mechanism and its one limitation: the events
 # enter through NSApp's queue, not the window server, so presentation timing
 # against a real cursor is not what is measured here). Two scenes: the
-# typical thread (t2) and the 3,672-message fixture; each grows, shrinks past
-# the start, grows back, and settles -- net zero, so the settled size is the
-# starting size to the pixel.
+# typical thread (t2) and the 3,672-message fixture; each goes wider and
+# shorter, narrower, then back, and settles -- net zero, so the settled size is
+# the starting size to the pixel.
 #
 # What is asserted, all counts (this box is shared; a millisecond budget on
 # it is a coin flip -- docs/perf/GATES.md):
@@ -55,7 +55,13 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 EXE="${HANABI_RESIZE_DRIVE_EXE:-$ROOT/output/hanabi.exe}"
-PATTERN="${HANABI_RESIZE_DRIVE_PATTERN:-grow:300x150:150,grow:-500x-250:150,grow:200x100:80}"
+# The default pattern never makes the window TALLER than it starts: AppKit
+# stops a live resize at the bottom of the screen's visible frame while the
+# pointer keeps going, and on a 982-pt built-in display the 760-pt window has
+# ~49 pt below it, so the old "grow 150 down first" pattern ended the net-zero
+# drag at 1100x799-801 (2026-10-02, external display gone). Width still grows
+# (there is room on both sides); height shrinks first and returns.
+PATTERN="${HANABI_RESIZE_DRIVE_PATTERN:-grow:300x-150:150,grow:-500x100:150,grow:200x50:80}"
 if [ ! -x "$EXE" ]; then
     echo "resize_drive_gate: $EXE not found — run 'zig build' first." >&2
     exit 2
