@@ -20,6 +20,8 @@ require_thread t2
 expect_text "The sub-agent cannot book the correction without a cycle."
 expect_no_text "answer it in the sub-agent's thread"
 
+click_ui ask_tab_q3
+wait_frames 6
 click_ui ask_text_q3
 wait_frames 4
 type "the payout owner already signed it"

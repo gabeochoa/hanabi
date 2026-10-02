@@ -14416,3 +14416,21 @@ CLASS: BUILD / WRONG
 **Hanabi reference.** `src/input_mapping.h` (`InputAction::TabChordGuard`), `src/keys.h` (`shortcut_pressed`, the Tab exemption from the e2e Ctrl-as-Cmd alias), `tests/ui/ctrl_tab_does_not_walk_the_focus_ring.e2e`.
 
 CLASS: INPUT / MISSING
+
+### #609 — the character queue outlives the frame: characters no live field reads (typed at a DISABLED field) wait in the queue and land in the next field that reads it
+
+**Class:** INPUT / FOOTGUN (`plugins/ui/text_input/component.h` :287 `state.is_focused = !state.disabled && ...`, :557 the read-or-drain block runs only `if (state.is_focused)`; `backends/sokol/backend.h` :234-282 `char_queue` is a ring buffer nothing resets per frame; the e2e `test_input::get_char_pressed` queue likewise; pin c1d0e0b).
+
+**What happens.** A text field reads the character queue, or drains it when read-only, only while it is focused, and a disabled field is never focused. So a character typed while the caret sits on a disabled field (or on nothing that reads characters) is not consumed and not dropped: it stays in the backend's ring buffer, across frames, until the next live field calls `get_char_pressed()` -- and then it lands there, prepended to whatever is typed next.
+
+**How Hanabi hit it.** Porting the reference's one-question-per-page ask card (Puffin 0.8.1/0.8.6) meant re-ordering `tests/ui/an_overlay_owns_the_typing_too.e2e`. With the Shortcuts sheet up, the card's fields are disabled; "leaked" typed at page one's free-text field showed nothing (correct), but once the sheet closed, focusing that same field and typing "lands" gave "leakedlands". Reproduced on the pre-paging build with the same order, so it predates the port; the old fixture's order happened to have a field consume the backlog before its checks.
+
+**Workaround.** Partial. Hanabi already spends the backlog where the COMPOSER takes the keyboard back (`main_pane_system.h`, the composer-yield drain and the claim-edge drain). Card fields under a sheet are not covered yet; a narrow drain there did not take (the disabled field does not hold focus, so "a card field is focused" is false). Open item in todo.md.
+
+**Ask.** Make the character queue frame-scoped (clear what no widget read at the end of the frame), or have a disabled field that the app focused drain it the way a read-only one does.
+
+**Upstream acceptance test.** Focus a disabled text input, inject "abc", run two frames, enable and focus it, inject "d": its text is "d".
+
+**Hanabi reference.** `tests/ui/an_overlay_owns_the_typing_too.e2e` (order chosen so it does not depend on this), todo.md.
+
+CLASS: INPUT / FOOTGUN

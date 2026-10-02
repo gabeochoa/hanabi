@@ -6,9 +6,11 @@ expect_text "The agent is asking"
 expect_text "Two accounts disagree with the ledger and I cannot pick for you."
 expect_text "Which mismatch do we trust?"
 expect_text "Pick one"
-expect_text "What may I touch to fix it?"
-expect_text "Pick any"
-expect_text "Anything I should know first?"
+# One question per page: the others are tabs until their page is open.
+expect_no_text "What may I touch to fix it?"
+assert_ui ask_tab_q2 hidden=false
+assert_ui ask_tab_q3 hidden=false
+assert_ui ask_tab_submit hidden=false
 expect_text "Answer any one of these to submit"
 
 click_ui composer_reply_input
@@ -22,13 +24,23 @@ expect_no_text "Answer any one of these to submit"
 expect_text "file question will be left unanswered"
 expect_input_text composer_reply_input "keep this draft"
 
+click_ui ask_tab_q2
+wait_frames 6
 click_ui ask_option_q2_1
 wait_frames 4
+click_ui ask_tab_q3
+wait_frames 6
 click_ui ask_text_q3
 type "check the promo ledger first"
 wait_frames 6
 expect_input_text ask_text_q3 "check the promo ledger first"
 
+click_ui ask_tab_submit
+wait_frames 6
+# The Submit tab is the review page: every answer read back before sending.
+expect_text "Which mismatch do we trust?"
+expect_text "check the promo ledger first"
+expect_text "Not answered here"
 click_ui ask_submit
 wait_frames 20
 expect_no_text "The agent is asking"

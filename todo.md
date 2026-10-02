@@ -26,6 +26,10 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
       crossed when more rows came to fit in the fixture's 949 px. Fix at the root, not the limit:
       skip the walk when the anchor, viewport height, row set and every measure are what the last
       frame used, and reuse that LedgerWindow. Owner of the fix: this lane, next after D23.
+- [ ] BUG (pre-existing, found porting D23): characters typed at an ask card's field while a sheet
+      owns the keyboard are held in the character queue and land in the field once the sheet closes
+      ("leaked" + "lands" = "leakedlands"). afterhours_gaps.md #609. Needs a drain that runs while a
+      sheet owns input and no live field reads characters.
 
 ## MESSAGE ACTIONS + TOOL PRESENTATION — COMPLETE (2026-08-27)
 - [x] Hover/focus overlay is zero-height and built only while visible; copy feedback is isolated by pane and thread.

@@ -895,7 +895,82 @@ static void test_every_ask_field_reserves_the_spans_it_draws() {
               hanabi::text::wrapped_line_count(option, column, measure)));
 }
 
+static api::PendingAsk paged_form(int n) {
+    api::PendingAsk a;
+    a.seq = 9;
+    a.owner_session = "s";
+    for (int i = 0; i < n; ++i) {
+        api::AskQuestion q;
+        q.key = "q" + std::to_string(i + 1);
+        q.prompt = "Question number " + std::to_string(i + 1);
+        q.control = api::AskControl::Single;
+        q.options = {{"a", "Alpha", ""}, {"b", "Bravo", ""}};
+        a.questions.push_back(q);
+    }
+    return a;
+}
+
+static void test_one_question_per_page() {
+    using hanabi::ask::Primary;
+    const api::PendingAsk one = paged_form(1);
+    CHECK(!hanabi::ask::paged(one));
+    CHECK(hanabi::ask::page_count(one) == 1);
+    CHECK(hanabi::ask::primary_action(one, 0) == Primary::Submit);
+
+    api::PendingAsk approval = paged_form(3);
+    approval.kind = api::AskKind::Approval;
+    CHECK(!hanabi::ask::paged(approval));
+
+    const api::PendingAsk three = paged_form(3);
+    CHECK(hanabi::ask::paged(three));
+    CHECK(hanabi::ask::page_count(three) == 4);  // three questions + review
+    // Next on every question but the last; Submit on the last and on review.
+    CHECK(hanabi::ask::primary_action(three, 0) == Primary::Next);
+    CHECK(hanabi::ask::primary_action(three, 1) == Primary::Next);
+    CHECK(hanabi::ask::primary_action(three, 2) == Primary::Submit);
+    CHECK(hanabi::ask::primary_action(three, 3) == Primary::Submit);
+    CHECK(hanabi::ask::is_review(three, 3) && !hanabi::ask::is_review(three, 2));
+    // A remembered page past the end lands on the last.
+    CHECK(hanabi::ask::clamp_page(three, 9) == 3);
+    CHECK(hanabi::ask::clamp_page(three, -2) == 0);
+
+    // The page view keeps the id and carries only its question.
+    const api::PendingAsk p1 = hanabi::ask::page_view(three, 1);
+    CHECK(p1.id() == three.id());
+    CHECK(p1.questions.size() == 1 && p1.questions[0].key == "q2");
+    CHECK(hanabi::ask::page_view(three, 3).questions.empty());
+    CHECK(hanabi::ask::page_view(one, 0).questions.size() == 1);
+}
+
+static void test_tabs_and_review_read_the_answers() {
+    const api::PendingAsk f = paged_form(2);
+    api::AskAnswer a;
+    CHECK(!hanabi::ask::answered(f.questions[0], a));
+    CHECK(hanabi::ask::answer_summary(f.questions[0], a) == "No answer");
+    a.picks["q1"] = {"b"};
+    CHECK(hanabi::ask::answered(f.questions[0], a));
+    CHECK(hanabi::ask::answer_summary(f.questions[0], a) == "Bravo");
+    a.text["q2"] = "   ";
+    CHECK(!hanabi::ask::answered(f.questions[1], a));
+    a.text["q2"] = "free words";
+    CHECK(hanabi::ask::answer_summary(f.questions[1], a) == "free words");
+
+    CHECK(hanabi::ask::tab_title("Short one") == "Short one");
+    const std::string cut = hanabi::ask::tab_title("Which ledger should the reconciliation trust");
+    CHECK(cut == "Which ledger should\xe2\x80\xa6");
+    CHECK(hanabi::ask::tab_title("Supercalifragilisticexpialidocious") ==
+          "Supercalifragilisticex\xe2\x80\xa6");
+
+    hanabi::ask::State st;
+    st.pages["x"] = 2;
+    CHECK(st.page_of("x") == 2 && st.page_of("y") == 0);
+    st.forget("x");
+    CHECK(st.page_of("x") == 0);
+}
+
 int main() {
+    test_one_question_per_page();
+    test_tabs_and_review_read_the_answers();
     test_cursor();
     test_toggle();
     test_submit_gate();

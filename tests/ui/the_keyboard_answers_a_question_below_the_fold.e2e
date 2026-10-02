@@ -1,3 +1,12 @@
+# The keyboard reaches the LAST question of a big form and answers it.
+#
+# This used to drive Down through all four questions of one tall, scrolling
+# card. A form with several questions now pages one question at a time
+# (Puffin 0.8.1 / 0.8.6): the arrows walk THIS page's rows and stop at its
+# last one, and Return does what the primary button says -- Next on every
+# question but the last, Submit on the last. So the last question is reached
+# with Return, and answered and sent from there, without the mouse.
+#
 # settings: {"window_width":760,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ASK_DEMO=big HANABI_WIN_W=760 HANABI_WIN_H=620
 
@@ -8,13 +17,7 @@ expect_no_text "nobody, it is already approved in the ticket"
 
 focus_ui ask_option_q1_0
 expect_focused ask_option_q1_0
-
-key DOWN
-key DOWN
-key DOWN
-key DOWN
-key DOWN
-key DOWN
+# Down stops at the page's last row; it does not leave for another question.
 key DOWN
 key DOWN
 key DOWN
@@ -22,18 +25,29 @@ key DOWN
 key DOWN
 key DOWN
 wait_frames 12
-expect_focused ask_option_q4_0
-expect_text "nobody, it is already approved in the ticket"
-
+expect_focused ask_option_q1_3
+expect_no_text "What may I touch while fixing it?"
 key SPACE
 wait_frames 8
 expect_no_text "Answer any one of these to submit"
-expect_text "Submit"
-expect_text "Decline"
 
-wait_frames 10
-focus_ui ask_submit
+# Return walks the pages, the caret on each page's primary button.
+key ENTER
+wait_frames 16
+expect_text "What may I touch while fixing it?"
+expect_focused ask_page_next
+key ENTER
+wait_frames 16
+expect_text "Which cycle should the corrected batch be booked against?"
+key ENTER
+wait_frames 16
+expect_text "nobody, it is already approved in the ticket"
+# The last question's primary is Submit, not Next.
 expect_focused ask_submit
+expect_no_ui ask_page_next
+
+# Send from there: Return on the focused Submit sends the whole form,
+# page one's answer included.
 key ENTER
 wait_frames 20
 expect_no_text "The agent is asking"

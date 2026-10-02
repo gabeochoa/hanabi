@@ -30,10 +30,13 @@ NOTE_LINE_COVERAGE = 0.95
 # compared WITHIN a row -- same card, same theme, same state -- so a disabled
 # label can never be checked against an unrelated control's enabled one.
 ROWS = [
+    # A multi-question form pages one question at a time: page one's
+    # primary button is Next (it advances, so it is enabled with nothing
+    # answered), not a disabled Submit.
     ("55_ask_card_dark.png", 631, 661, 320, 1040,
-     [("Submit", True), ("Decline", False)]),
+     [("Next", False), ("Decline", False)]),
     ("56_ask_card_light.png", 631, 661, 320, 1040,
-     [("Submit", True), ("Decline", False)]),
+     [("Next", False), ("Decline", False)]),
     ("59_ask_approval_dark.png", 631, 661, 320, 1040,
      [("Approve", False), ("Deny", False)]),
     ("61_ask_long_approval_dark.png", 631, 661, 320, 1040,
@@ -41,11 +44,11 @@ ROWS = [
     ("63_ask_unanswerable_backend_dark.png", 631, 661, 320, 1040,
      [("Approve", True), ("Deny", True)]),
     ("57_ask_card_narrow_dark.png", 491, 521, 250, 740,
-     [("Submit", True), ("Decline", False)]),
+     [("Next", False), ("Decline", False)]),
     ("65_ask_two_questions_narrow_dark.png", 491, 521, 250, 470,
-     [("Submit", True), ("Next", False), ("Decline", False)]),
+     [("Next", False), ("Next ask", False), ("Decline", False)]),
     ("66_ask_two_questions_tiny_dark.png", 491, 521, 190, 325,
-     [("Send", True), ("Next", False), ("Skip", False)]),
+     [("Next", False), ("Next ask", False), ("Skip", False)]),
 ]
 
 NOTE_ROWS = [
@@ -93,33 +96,32 @@ PAIRED = [
 # pair computes to 4.5024:1, which passes a unit check and still fails on
 # screen once the glyph is anti-aliased onto the card.
 BODY_LABELS = [
+    # One question per page: page one carries q1's "Pick one" and "Other";
+    # q2's "Pick any" is on page two, which no baseline opens. The tab row
+    # above the question moves every band down.
     ("55_ask_card_dark.png", [
-        ("Pick one", 978, 1042, 248, 268),
-        ("Pick any", 978, 1042, 406, 428),
-        ("Other", 328, 520, 355, 372)]),
+        ("Pick one", 978, 1042, 444, 464),
+        ("Other", 328, 520, 552, 569)]),
     ("56_ask_card_light.png", [
-        ("Pick one", 978, 1042, 248, 268),
-        ("Pick any", 978, 1042, 406, 428),
-        ("Other", 328, 520, 355, 372)]),
+        ("Pick one", 978, 1042, 444, 464),
+        ("Other", 328, 520, 552, 569)]),
     ("57_ask_card_narrow_dark.png", [
-        ("Pick one", 652, 716, 248, 268),
-        ("Pick any", 652, 716, 406, 428),
-        ("Other", 254, 446, 355, 372)]),
+        ("Pick one", 652, 716, 304, 324),
+        ("Other", 254, 446, 412, 429)]),
     ("58_ask_card_split_dark.png", [
-        ("Pick one", 580, 644, 248, 268),
-        ("Pick any", 580, 644, 406, 428),
-        ("Other", 314, 500, 355, 372)]),
+        ("Pick one", 580, 644, 426, 446),
+        ("Other", 314, 500, 534, 551)]),
     ("60_ask_full_form_narrow_dark.png", [
-        ("Pick one", 652, 716, 266, 286),
-        ("Other", 254, 446, 417, 434)]),
+        ("Pick one", 652, 716, 294, 314),
+        ("Other", 254, 446, 445, 462)]),
     ("62_ask_with_attachment_narrow_dark.png", [
-        ("Pick one", 652, 716, 266, 286)]),
+        ("Pick one", 652, 716, 294, 314)]),
     ("64_ask_wrapped_options_narrow_dark.png", [
-        ("Pick one", 379, 443, 266, 286)]),
+        ("Pick one", 379, 443, 294, 314)]),
     ("65_ask_two_questions_narrow_dark.png", [
-        ("Pick one", 379, 443, 266, 286)]),
+        ("Pick one", 379, 443, 294, 314)]),
     ("66_ask_two_questions_tiny_dark.png", [
-        ("Pick one", 195, 259, 336, 356)]),
+        ("Pick one", 195, 259, 364, 384)]),
 ]
 
 # What those labels actually measured, on these very baselines, when they were

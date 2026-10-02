@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../api/elicitation.h"
@@ -50,6 +51,13 @@ struct State {
     api::AskAction errorAction = api::AskAction::Accept;
 
     std::map<std::string, int64_t> seenAt;
+    // The page each multi-question form is on (pages(), below). An ask that
+    // goes away takes its page with it, like its answers.
+    std::map<std::string, int> pages;
+    [[nodiscard]] int page_of(const std::string& id) const {
+        const auto at = pages.find(id);
+        return at == pages.end() ? 0 : at->second;
+    }
     std::uint64_t loadSeq = 0;
     // Drop authority is per ASK, not per session.
     //
@@ -137,6 +145,7 @@ struct State {
     void forget(const std::string& id) {
         answers.erase(id);
         cursors.erase(id);
+        pages.erase(id);
         seenAt.erase(id);
         bornStamp.erase(id);
         if (shownId == id) shownId.clear();
@@ -147,6 +156,130 @@ struct State {
         if (busyId == id) busyId.clear();
     }
 };
+
+// ---- One question per page (the reference's question dock, Puffin 0.8.1 /
+// 0.8.6) ---------------------------------------------------------------------
+//
+// A form with several questions pages one at a time, with a row of tabs (one
+// per question, marked when answered) and a final Submit tab that is the
+// REVIEW page: every answer read back before anything is sent. The primary
+// action ADVANCES on every question but the last ("Next" -- the answers so far
+// are a draft) and SUBMITS on the last question and on the review page. A
+// one-question form, an approval and a form this build cannot read are one
+// page, as before.
+
+inline bool paged(const api::PendingAsk& ask) {
+    return ask.kind != api::AskKind::Approval && !ask.schema_unreadable &&
+           ask.questions.size() > 1;
+}
+
+inline int page_count(const api::PendingAsk& ask) {
+    return paged(ask) ? static_cast<int>(ask.questions.size()) + 1 : 1;
+}
+
+// A remembered page past the end (the form was re-read with fewer questions)
+// lands on the last page rather than on nothing.
+inline int clamp_page(const api::PendingAsk& ask, int page) {
+    const int last = page_count(ask) - 1;
+    return page < 0 ? 0 : (page > last ? last : page);
+}
+
+inline bool is_review(const api::PendingAsk& ask, int page) {
+    return paged(ask) &&
+           clamp_page(ask, page) == static_cast<int>(ask.questions.size());
+}
+
+enum class Primary { Next, Submit };
+
+// Decided by the QUESTION, not "is this the last page": the last page of a
+// paged form is the review page, and a rule on that alone would make the
+// final question a Next and leave the reader one more click from sending.
+inline Primary primary_action(const api::PendingAsk& ask, int page) {
+    if (!paged(ask) || is_review(ask, page)) return Primary::Submit;
+    return clamp_page(ask, page) < static_cast<int>(ask.questions.size()) - 1
+               ? Primary::Next
+               : Primary::Submit;
+}
+
+// The ask as one page shows it: the same id (answers and cursors are keyed by
+// it), only that page's question -- none on the review page. Everything that
+// lays out or draws or walks the card reads this view; what SENDS reads the
+// whole ask, because an answer given on page one is still an answer.
+inline api::PendingAsk page_view(const api::PendingAsk& ask, int page) {
+    if (!paged(ask)) return ask;
+    api::PendingAsk view = ask;
+    view.questions.clear();
+    const int p = clamp_page(ask, page);
+    if (!is_review(ask, p))
+        view.questions.push_back(ask.questions[static_cast<std::size_t>(p)]);
+    return view;
+}
+
+// A question has an answer when something was picked or typed for it (a file
+// question is never answerable here: the deferral note says why).
+inline bool answered(const api::AskQuestion& q, const api::AskAnswer& a) {
+    const auto picks = a.picks.find(q.key);
+    if (picks != a.picks.end() && !picks->second.empty()) return true;
+    const auto has_text = [&](const std::string& key) {
+        if (key.empty()) return false;
+        const auto t = a.text.find(key);
+        return t != a.text.end() &&
+               t->second.find_first_not_of(" \t\n") != std::string::npos;
+    };
+    return has_text(q.key) || has_text(q.free_text_key);
+}
+
+// A tab's title: the prompt cut at a word to `cap` characters with an
+// ellipsis. The wire carries no per-question header (the reference cuts the
+// prompt the same way, QuestionDockTabs.shortTitle).
+inline std::string tab_title(std::string_view prompt, std::size_t cap = 22) {
+    while (!prompt.empty() && (prompt.front() == ' ' || prompt.front() == '\n'))
+        prompt.remove_prefix(1);
+    while (!prompt.empty() && (prompt.back() == ' ' || prompt.back() == '\n'))
+        prompt.remove_suffix(1);
+    if (prompt.size() <= cap) return std::string(prompt);
+    std::string_view head = prompt.substr(0, cap);
+    const std::size_t space = head.rfind(' ');
+    if (space != std::string_view::npos && space > 0) head = head.substr(0, space);
+    while (!head.empty() && std::string_view(" -:;,").find(head.back()) !=
+                                std::string_view::npos)
+        head.remove_suffix(1);
+    return std::string(head.empty() ? prompt.substr(0, cap) : head) +
+           "\xe2\x80\xa6";
+}
+
+// What the review page reads back for a question.
+inline std::string answer_summary(const api::AskQuestion& q,
+                                  const api::AskAnswer& a) {
+    std::string out;
+    const auto picks = a.picks.find(q.key);
+    if (picks != a.picks.end())
+        for (const std::string& value : picks->second) {
+            std::string label = value;
+            for (const auto& o : q.options)
+                if (o.value == value && !o.label.empty()) label = o.label;
+            if (!out.empty()) out += ", ";
+            out += label;
+        }
+    for (const std::string& key : {q.key, q.free_text_key}) {
+        if (key.empty()) continue;
+        const auto t = a.text.find(key);
+        if (t == a.text.end() ||
+            t->second.find_first_not_of(" \t\n") == std::string::npos)
+            continue;
+        if (!out.empty()) out += ", ";
+        out += t->second;
+    }
+    if (q.control == api::AskControl::File && out.empty()) return "Not answered here";
+    return out.empty() ? "No answer" : out;
+}
+
+inline constexpr float kTabsH = 28.0f;
+inline constexpr float kReviewRowH = 2.0f * 18.0f + 6.0f;  // prompt + answer + gap
+
+inline float review_h(const api::PendingAsk& ask) {
+    return kReviewRowH * static_cast<float>(ask.questions.size());
+}
 
 inline int clamp_message_lines(int measured) {
     if (measured < 1) return 1;

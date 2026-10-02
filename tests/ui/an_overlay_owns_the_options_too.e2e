@@ -66,5 +66,16 @@ expect_no_text "Answer any one of these to submit"
 # card -- unbound, uninjected, or simply not pressed -- the question is still
 # on screen here and this fails.
 key ENTER
+wait_frames 20
+# One page per question: Return on an intermediate page turns it (the
+# caret lands on the new page's primary button); the form sends from its
+# last question.
+expect_text "What may I touch to fix it?"
+expect_text "The agent is asking"
+key ENTER
+wait_frames 20
+key ENTER
+wait_frames 20
+key ENTER
 wait_frames 40
 expect_no_text "The agent is asking"

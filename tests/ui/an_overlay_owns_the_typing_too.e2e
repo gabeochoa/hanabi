@@ -9,11 +9,8 @@ require_thread t2
 expect_text "The agent is asking"
 expect_text "Keyboard shortcuts"
 
-focus_ui ask_text_q3
-type "leaked"
-wait_frames 12
-expect_input_text ask_text_q3 ""
-
+# One question per page: the field on screen under the sheet is page one's
+# free text.
 focus_ui ask_other_q1
 type "leaked"
 wait_frames 12
@@ -22,17 +19,12 @@ expect_input_text ask_other_q1 ""
 click_ui tab_close
 wait_frames 20
 expect_no_text "Keyboard shortcuts"
-expect_input_text ask_text_q3 ""
 expect_input_text ask_other_q1 ""
 
 type "lands"
 wait_frames 4
+click_ui ask_tab_q3
+wait_frames 6
 click_ui ask_text_q3
 wait_frames 14
 expect_input_text ask_text_q3 "lands"
-
-focus_ui ask_other_q1
-wait_frames 8
-type "lands"
-wait_frames 14
-expect_input_text ask_other_q1 "lands"

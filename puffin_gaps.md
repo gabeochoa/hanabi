@@ -1200,7 +1200,7 @@ says why), VERIFY.
 | D20 | 0.8.6 | Search results do not flicker or go stale while typing | not traced | VERIFY |
 | D21 | 0.8.6 | One conversation cannot appear twice in sidebar or search | not traced | VERIFY |
 | D22 | 0.8.6 | Automation threads raise no run-finished banners and are not in the @ picker | no @ picker; automation banner suppression not traced | VERIFY |
-| D23 | 0.8.1/0.8.6 | Multi-question card: a page per question, Next, Submit only on the last page, review page | one card listing every question ("Answer any one of these to submit") | MISSING |
+| D23 | 0.8.1/0.8.6 | Multi-question card: a page per question, Next, Submit only on the last page, review page | one card listing every question at 9b664d0. Now: a form with 2+ questions pages one question at a time under a tab row (one tab per question, a check when answered, then a Submit tab that is the review page reading every answer back); the primary button is Next on every question but the last and only advances, Submit on the last question and the review page sends the whole form; Return does what the primary says and leaves the caret on the new page's primary; the next-ask button now reads "Next ask"; `tests/ui/a_multi_question_card_pages_one_question_at_a_time.e2e` + 27 ask fixtures ported (lead lane, 2026-10-02). Not ported: option letters, per-option previews, Tab cycling the tab row | MATCHED |
 | D24 | 0.8.6 | A parked reader returns to the bottom when a hold releases | `follow_latch.h` exists; hold-release path not traced | VERIFY |
 | D25 | 0.8.6 | When a run folds away, later messages stay steady | not traced | VERIFY |
 | D26 | 0.8.8 | New Conversation picker choices easier to read | Puffin-specific picker styling | N/A |

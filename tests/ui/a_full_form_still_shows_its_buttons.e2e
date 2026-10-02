@@ -10,6 +10,8 @@ click_ui ask_option_q1_0
 wait_frames 6
 expect_no_text "Answer any one of these to submit"
 
+click_ui ask_tab_submit
+wait_frames 6
 click_ui ask_submit
 wait_frames 20
 expect_no_text "The agent is asking"

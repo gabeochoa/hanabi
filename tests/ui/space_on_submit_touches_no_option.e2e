@@ -11,6 +11,8 @@ key SPACE
 wait_frames 8
 expect_no_text "Answer any one of these to submit"
 
+click_ui ask_tab_submit
+wait_frames 6
 focus_ui ask_submit
 expect_focused ask_submit
 key SPACE

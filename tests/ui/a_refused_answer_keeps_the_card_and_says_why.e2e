@@ -6,6 +6,8 @@ expect_text "The agent is asking"
 
 click_ui ask_option_q1_2
 wait_frames 6
+click_ui ask_tab_submit
+wait_frames 6
 click_ui ask_submit
 wait_frames 20
 expect_text "the orchestrator refused that answer — press Submit to try again."

@@ -15,6 +15,8 @@ require_thread t2
 expect_text "Four accounts disagree with the ledger"
 expect_no_text "nobody, it is already approved in the ticket"
 
+click_ui ask_tab_q4
+wait_frames 6
 focus_ui ask_option_q4_3
 wait_frames 20
 expect_text "nobody, it is already approved in the ticket"

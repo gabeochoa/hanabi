@@ -20,6 +20,16 @@ wait_frames 10
 expect_no_text "Answer any one of these to submit"
 
 key ENTER
+wait_frames 20
+# One page per question: Return on an intermediate page turns it (the
+# caret lands on the new page's primary button); the form sends from its
+# last question.
+expect_text "What may I touch to fix it?"
+key ENTER
+wait_frames 20
+key ENTER
+wait_frames 20
+key ENTER
 wait_frames 40
 # The pick SURVIVED Enter, and Enter sent the card.
 expect_no_text "Answer any one of these to submit"

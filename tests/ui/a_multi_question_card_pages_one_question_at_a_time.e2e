@@ -1,0 +1,55 @@
+# A form with several questions pages one question at a time (Puffin 0.8.1 /
+# 0.8.6): a row of tabs, one per question, marked when answered, and a final
+# Submit tab that is the REVIEW page. The primary button says Next on every
+# question but the last and only ADVANCES -- it never sends; the form sends
+# once, from the last question or the review page, with every page's answer.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1
+
+require_thread t2
+expect_text "The agent is asking"
+
+# Page one: the first question, the tabs, and Next where Submit was.
+expect_text "Which mismatch do we trust?"
+expect_no_text "What may I touch to fix it?"
+assert_ui ask_tabs hidden=false
+assert_ui ask_page_next hidden=false
+expect_no_ui ask_submit
+
+# Answer it; its tab gains a check. Next turns the page and sends nothing.
+click_ui ask_option_q1_1
+wait_frames 6
+expect_text "Which mismatch do we…  ✓"
+click_ui ask_page_next
+wait_frames 12
+expect_text "The agent is asking"
+expect_text "What may I touch to fix it?"
+expect_no_text "Which mismatch do we trust?"
+
+# Page three by its tab; type an answer there.
+click_ui ask_tab_q3
+wait_frames 8
+click_ui ask_text_q3
+type "check the promo ledger first"
+wait_frames 6
+
+# Back to page one: the pick is still there.
+click_ui ask_tab_q1
+wait_frames 8
+expect_text "Which mismatch do we trust?"
+expect_text "Which mismatch do we…  ✓"
+
+# The review page reads every answer back, the unanswered one too.
+click_ui ask_tab_submit
+wait_frames 10
+expect_text "Which mismatch do we trust?"
+expect_text "check the promo ledger first"
+expect_text "No answer"
+expect_no_ui ask_page_next
+assert_ui ask_submit hidden=false
+
+# Submit sends the whole form.
+click_ui ask_submit
+wait_frames 30
+expect_no_text "The agent is asking"

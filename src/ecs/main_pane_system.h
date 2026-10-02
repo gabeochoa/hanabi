@@ -1553,6 +1553,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     std::vector<AskRowId> askRowIds_;
     afterhours::EntityID askEnterRow_ = 0;
     afterhours::EntityID askFocusedRow_ = 0;
+    // A paged ask card turned its page by Next or Return: put the caret on
+    // the new page's primary button once it is built.
+    bool askFocusPrimary_ = false;
 
     void list_extent(float h) { listY_ += h; }
 
@@ -5326,12 +5329,60 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return hanabi::ask::shown_index(rows);
     }
 
-    static const api::PendingAsk* open_ask(const AppComponent& app) {
+    // The whole ask on screen: what a Submit, a Decline or a Cancel sends,
+    // and what "is anything still unanswered" reads.
+    static const api::PendingAsk* open_ask_full(const AppComponent& app) {
         if (app.view != SmartView::Chat || !app.pane().openSession)
             return nullptr;
         const auto* asks = app.asks_for(app.pane().openSession->summary.id);
         if (asks == nullptr || asks->empty()) return nullptr;
         return &(*asks)[open_ask_index(app)];
+    }
+
+    static int ask_page(const AppComponent& app, const api::PendingAsk& full) {
+        return hanabi::ask::clamp_page(full, app.askState.page_of(full.id()));
+    }
+
+    // The ask as its current PAGE shows it (hanabi::ask::page_view): every
+    // layout, draw and keyboard path reads this. Rebuilt only when the page or
+    // the question on it changes -- callers hold a reference to it across
+    // helpers that call back in here, so it must not be reassigned under them.
+    static const api::PendingAsk* open_ask(const AppComponent& app) {
+        const api::PendingAsk* full = open_ask_full(app);
+        if (full == nullptr || !hanabi::ask::paged(*full)) return full;
+        static api::PendingAsk view;
+        static std::string viewKey;
+        const int page = ask_page(app, *full);
+        std::string key = full->id() + "#" + std::to_string(page) + "/" +
+                          std::to_string(full->questions.size());
+        if (page < static_cast<int>(full->questions.size())) {
+            const auto& q = full->questions[static_cast<std::size_t>(page)];
+            key += "|" + q.key + "|" + std::to_string(q.prompt.size()) + "|" +
+                   std::to_string(q.options.size()) + "|" +
+                   std::to_string(static_cast<int>(q.control));
+        }
+        key += "|" + full->message;
+        if (key != viewKey) {
+            view = hanabi::ask::page_view(*full, page);
+            viewKey = std::move(key);
+        }
+        return &view;
+    }
+
+    // The body's natural height for a page: its question (or the review),
+    // plus the tab row a paged form carries above it.
+    static float ask_body_natural(const AppComponent& app,
+                                  const api::PendingAsk& pageAsk, int inputLines,
+                                  const std::vector<hanabi::ask::QuestionMetrics>& metrics) {
+        const api::PendingAsk* full = open_ask_full(app);
+        if (full == nullptr || !hanabi::ask::paged(*full) ||
+            full->id() != pageAsk.id())
+            return hanabi::ask::body_h(pageAsk, inputLines, metrics);
+        const int page = ask_page(app, *full);
+        const float base = hanabi::ask::is_review(*full, page)
+                               ? hanabi::ask::review_h(*full)
+                               : hanabi::ask::body_h(pageAsk, inputLines, metrics);
+        return base + hanabi::ask::kTabsH;
     }
 
     static constexpr float kComposerBaseH = 98.0f;
@@ -5590,8 +5641,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             static_cast<int64_t>(std::time(nullptr)), ask.deadline_unix_ms);
     }
 
+    // The whole ask a page belongs to (or the ask itself when it is not one
+    // page of the open form): the note speaks for the form, not the page.
+    static const api::PendingAsk& whole_of(const AppComponent& app,
+                                           const api::PendingAsk& ask) {
+        const api::PendingAsk* full = open_ask_full(app);
+        return full != nullptr && full->id() == ask.id() ? *full : ask;
+    }
+
     static bool ask_note_shown(const AppComponent& app,
-                               const api::PendingAsk& ask) {
+                               const api::PendingAsk& page) {
+        const api::PendingAsk& ask = whole_of(app, page);
         if (!ask_can_resolve(app)) return true;
         if (ask_expired(app, ask)) return true;
         if (!app.askState.errorText.empty() &&
@@ -5633,8 +5693,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static std::string ask_note_text(const AppComponent& app,
-                                     const api::PendingAsk& ask,
+                                     const api::PendingAsk& page,
                                      bool tooShort) {
+        const api::PendingAsk& ask = whole_of(app, page);
         const std::string askId = ask.id();
         if (app.askState.busyId == askId) return "Sending your answer…";
         if (!ask_can_resolve(app))
@@ -5719,8 +5780,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             memoEpoch == epoch && memoId == ask.id())
             return memo;
         const float narrow = textW - kAskScrollbarW;
-        const float natural = hanabi::ask::body_h(
-            ask, ask_input_lines(ask, narrow), ask_metrics(ask, narrow));
+        const float natural = ask_body_natural(
+            app, ask, ask_input_lines(ask, narrow), ask_metrics(ask, narrow));
         memoId = ask.id();
         memoTextW = textW;
         memoBudget = budget;
@@ -5746,8 +5807,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float budget = ask_height_budget(app);
         const int wantedMessageLines = ask_message_lines(ask, textW);
         AskLayout out;
-        out.bodyNaturalH = hanabi::ask::body_h(
-            ask, ask_input_lines(ask, bodyTextW), ask_metrics(ask, bodyTextW));
+        out.bodyNaturalH = ask_body_natural(
+            app, ask, ask_input_lines(ask, bodyTextW), ask_metrics(ask, bodyTextW));
         for (int pass = 0; pass < 3; ++pass) {
             out.noteLines = ask_note_lines_for(app, ask, out.tooShort);
             out.messageLines = hanabi::ask::message_lines_for(
@@ -5764,18 +5825,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return out;
     }
 
+    // The card's height is the layout's: chrome plus the body's view, the
+    // same two numbers render_ask_card draws with (hanabi::ask::card_h is the
+    // same arithmetic over the whole ask, which a paged form no longer draws).
     static float ask_card_h(const AppComponent& app) {
         const api::PendingAsk* ask = open_ask(app);
         if (ask == nullptr) return 0.0f;
-        const float textW = ask_text_w(app);
-        const float bodyW = ask_body_text_w(app, *ask);
-        return hanabi::ask::card_h(*ask, ask_message_lines(*ask, textW),
-                                   ask_note_shown(app, *ask),
-                                   ask_layout(app, *ask).noteLines,
-                                   ask_input_lines(*ask, bodyW),
-                                   ask_metrics(*ask, bodyW),
-                                   ask_height_budget(app)) +
-               8.0f;
+        const AskLayout layout = ask_layout(app, *ask);
+        return layout.chromeH + layout.bodyH + 8.0f;
     }
 
     static void draw_ask_glyph(RectangleType r, api::AskControl control,
@@ -5904,11 +5961,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (app.activate == ActivateIntent::Ask && !widgetOwnsEnter) {
             askEnterRow_ = ask_row_id(cursor.question, cursor.option);
+            // "Is anything still unanswered" is the whole form's question;
+            // the cursor can only be on this page's rows either way.
+            const api::PendingAsk* wholeAsk = open_ask_full(app);
+            const api::PendingAsk& intentAsk =
+                wholeAsk != nullptr && wholeAsk->id() == ask.id() ? *wholeAsk : ask;
             switch (hanabi::ask::return_intent(
-                ask, answer, editing ? hanabi::ask::Cursor{} : cursor)) {
-                case hanabi::ask::ReturnIntent::Submit:
-                    submit_ask(app, ask, api::AskAction::Accept);
+                intentAsk, answer, editing ? hanabi::ask::Cursor{} : cursor)) {
+                case hanabi::ask::ReturnIntent::Submit: {
+                    // On a paged form Return does what the primary button
+                    // says: Next turns the page, Submit sends the whole form.
+                    const api::PendingAsk* whole = open_ask_full(app);
+                    const api::PendingAsk& sendable =
+                        whole != nullptr && whole->id() == ask.id() ? *whole : ask;
+                    const int at = ask_page(app, sendable);
+                    if (hanabi::ask::primary_action(sendable, at) ==
+                        hanabi::ask::Primary::Next) {
+                        app.askState.pages[ask.id()] = at + 1;
+                        cursor.clear();
+                        askFocusPrimary_ = true;
+                    } else {
+                        submit_ask(app, sendable, api::AskAction::Accept);
+                    }
                     break;
+                }
                 case hanabi::ask::ReturnIntent::PickAtCursor:
                     if (!editing)
                         hanabi::ask::toggle_at_cursor(ask, cursor, &answer);
@@ -5959,12 +6035,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         const api::PendingAsk& ask = *found;
+        // `ask` is the PAGE (one question of a paged form); `full` is what
+        // sends and what "anything left unanswered" reads.
+        const api::PendingAsk& full = *open_ask_full(app);
+        const bool pagedForm = hanabi::ask::paged(full);
+        const int page = ask_page(app, full);
+        const bool reviewPage = hanabi::ask::is_review(full, page);
         const std::string askId = ask.id();
         const bool busy = app.askState.busyId == askId;
         const bool approval = ask.kind == api::AskKind::Approval;
         auto& answer = app.askState.answer_for(askId);
         auto& cursor = app.askState.cursor_for(askId);
-        const bool blocked = hanabi::ask::submit_blocked(ask, answer);
+        const bool blocked = hanabi::ask::submit_blocked(full, answer);
         const bool answerable = ask_can_resolve(app);
         const bool showNote = ask_note_shown(app, ask);
         const float cardW = ask_card_w(app);
@@ -6049,6 +6131,115 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("ask_body_content"));
 
         int key = 20;
+        // The tab row of a paged form: one tab per question (a check when it
+        // has an answer) and the Submit tab, which is the review page.
+        if (pagedForm && !tooShort) {
+            auto strip = div(ctx, mk(content.ent(), key++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f),
+                                             pixels(hanabi::ask::kTabsH)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_debug_name("ask_tabs"));
+            const int tabs = hanabi::ask::page_count(full);
+            // Every tab stays inside the card: at a narrow width the row
+            // shrinks to numbers (and R for the review page) rather than
+            // pushing the last tabs -- the Submit one among them -- off the
+            // card's edge.
+            const float tabW = std::max(
+                14.0f, (bodyTextW - 4.0f * static_cast<float>(tabs - 1)) /
+                           static_cast<float>(tabs));
+            const bool compactTabs = tabW < 64.0f;
+            for (int t = 0; t < tabs; ++t) {
+                const bool reviewTab = t == tabs - 1;
+                std::string title;
+                std::string dbg;
+                if (reviewTab) {
+                    title = compactTabs ? "R" : "Submit";
+                    dbg = "ask_tab_submit";
+                } else {
+                    const auto& q = full.questions[static_cast<std::size_t>(t)];
+                    title = std::to_string(t + 1);
+                    if (!compactTabs)
+                        title += "  " + hanabi::ask::tab_title(q.prompt);
+                    if (hanabi::ask::answered(q, answer))
+                        title += compactTabs ? "\xe2\x9c\x93" : "  \xe2\x9c\x93";
+                    dbg = "ask_tab_" + q.key;
+                }
+                const bool on = t == page;
+                auto tab = button(ctx, mk(strip.ent(), t),
+                    ComponentConfig{}
+                        .with_label(title)
+                        .with_size(ComponentSize{pixels(tabW), pixels(24)})
+                        .with_margin(Margin{.left = pixels(t == 0 ? 0.0f : 4.0f)})
+                        .with_custom_background(on ? theme::accent_soft()
+                                                   : theme::Color{0, 0, 0, 0})
+                        .with_border(on ? theme::accent() : theme::border_raised(),
+                                     pixels(1.0f))
+                        .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                        .with_custom_text_color(on ? theme::text_primary()
+                                                   : theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_padding(compactTabs
+                                          ? Padding{.top = pixels(0), .right = pixels(0),
+                                                    .bottom = pixels(0), .left = pixels(0)}
+                                          : Padding{.top = pixels(0), .right = pixels(6),
+                                                    .bottom = pixels(0), .left = pixels(6)})
+                        .with_text_overflow(compactTabs ? TextOverflow::Clip
+                                                        : TextOverflow::Ellipsis)
+                        .with_corner_radius(6.0f)
+                        .with_cursor(afterhours::ui::CursorType::Pointer)
+                        .with_click_activation(ClickActivationMode::Press)
+                        .with_disabled(!inputLive)
+                        .with_debug_name(dbg));
+                if (tab && inputLive && t != page) {
+                    app.askState.pages[askId] = t;
+                    cursor.clear();
+                    clicked = true;
+                }
+            }
+        }
+        if (reviewPage && !tooShort) {
+            // Every answer read back before anything is sent.
+            for (std::size_t qi = 0; qi < full.questions.size(); ++qi) {
+                const auto& q = full.questions[qi];
+                const bool has = hanabi::ask::answered(q, answer);
+                auto row = div(ctx, mk(content.ent(), key++),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{percent(1.0f),
+                                                 pixels(hanabi::ask::kReviewRowH)})
+                        .with_flex_direction(FlexDirection::Column)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_padding(Padding{.top = pixels(6)})
+                        .with_transparent_bg()
+                        .with_debug_name("ask_review_" + q.key));
+                div(ctx, mk(row.ent(), 1),
+                    ComponentConfig{}
+                        .with_label(q.prompt)
+                        .with_size(ComponentSize{percent(1.0f),
+                                                 pixels(hanabi::ask::kNoteH)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("ask_review_prompt_" + q.key));
+                div(ctx, mk(row.ent(), 2),
+                    ComponentConfig{}
+                        .with_label(hanabi::ask::answer_summary(q, answer))
+                        .with_size(ComponentSize{percent(1.0f),
+                                                 pixels(hanabi::ask::kNoteH)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(has ? theme::text_primary()
+                                                    : theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("ask_review_answer_" + q.key));
+            }
+        }
         if (tooShort) {
             div(ctx, mk(content.ent(), key++),
                 ComponentConfig{}
@@ -6081,7 +6272,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_text_overflow(TextOverflow::Ellipsis)
                     .with_debug_name("ask_unreadable"));
-        } else if (ask.questions.empty()) {
+        } else if (ask.questions.empty() && !reviewPage) {
             div(ctx, mk(content.ent(), key++),
                 ComponentConfig{}
                     .with_label("This one asks for nothing but an answer.")
@@ -6334,6 +6525,44 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool expired = ask_expired(app, ask);
         const bool submitOff = busy || blocked || !answerable || !inputLive ||
                                expired || tooShort;
+        // An intermediate question's primary action ADVANCES and never
+        // delivers: the answers so far are a draft (the reference's ruling).
+        const bool advancing = hanabi::ask::primary_action(full, page) ==
+                               hanabi::ask::Primary::Next;
+        if (advancing) {
+            const bool nextOff = busy || !inputLive || expired || tooShort;
+            auto pageNext = button(ctx, mk(actions.ent(), 1),
+                ComponentConfig{}
+                    .with_label("Next")
+                    .with_disabled(nextOff)
+                    .with_size(ComponentSize{pixels(ask_action_w(app)), pixels(28)})
+                    .with_custom_background(nextOff ? theme::ask_action_disabled_fill()
+                                                    : theme::accent())
+                    .with_border(nextOff ? ask_disabled_border() : theme::accent(),
+                                 pixels(1.0f))
+                    .with_custom_text_color(nextOff ? ask_disabled_ink()
+                                                    : theme::window_bg())
+                    .with_font_size(theme::type::SM)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_corner_radius(6.0f)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_debug_name("ask_page_next"));
+            ask_set_tab_stop(pageNext.ent(), !nextOff);
+            if (askFocusPrimary_ && !nextOff) {
+                ctx.set_focus(pageNext.ent().id);
+                askFocusPrimary_ = false;
+            }
+            if (pageNext && !nextOff) {
+                app.askState.pages[askId] = page + 1;
+                cursor.clear();
+                clicked = true;
+                // The page this lands on is drawn next frame; the caret goes to
+                // ITS primary button, so Return keeps walking the form instead
+                // of falling out of a card whose focused row just went away.
+                askFocusPrimary_ = true;
+            }
+        }
+        if (!advancing) {
         auto submit = button(ctx, mk(actions.ent(), 1),
             ComponentConfig{}
                 .with_label(submitOff ? std::string() : submitLabel)
@@ -6359,9 +6588,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_click_activation(ClickActivationMode::Press)
                 .with_debug_name("ask_submit"));
         ask_set_tab_stop(submit.ent(), !submitOff);
+        if (askFocusPrimary_) {
+            ctx.set_focus(submit.ent().id);
+            askFocusPrimary_ = false;
+        }
         if (submit && !submitOff && inputLive) {
             clicked = true;
-            submit_ask(app, ask, api::AskAction::Accept);
+            submit_ask(app, full, api::AskAction::Accept);
+        }
         }
 
         const auto* allAsks =
@@ -6369,7 +6603,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (allAsks != nullptr && allAsks->size() > 1) {
             auto next = button(ctx, mk(actions.ent(), 3),
                 ComponentConfig{}
-                    .with_label(tightRow ? "»" : "Next")
+                    // "Next ask": a paged form's own Next is the primary
+                    // button, and two buttons both saying Next would leave
+                    // the reader guessing which one keeps their answers.
+                    .with_label(tightRow ? "»" : "Next ask")
                     .with_size(ComponentSize{pixels(ask_action_w(app)),
                                              pixels(28)})
                     .with_margin(Margin{.left = pixels(kAskActionGap)})
@@ -6436,7 +6673,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (decline && !busy && answerable && inputLive && !expired &&
             !tooShort) {
             clicked = true;
-            submit_ask(app, ask, api::AskAction::Decline);
+            submit_ask(app, full, api::AskAction::Decline);
         }
 
         app.askFocused = clicked || ctx.focus_in_subtree(card.ent().id);
@@ -6472,7 +6709,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.askFocused = false;
                 ctx.set_focus(ctx.ROOT);
             } else {
-                submit_ask(app, ask, api::AskAction::Cancel);
+                submit_ask(app, full, api::AskAction::Cancel);
                 app.askFocused = false;
                 ctx.set_focus(ctx.ROOT);
             }
