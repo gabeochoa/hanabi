@@ -897,7 +897,7 @@ correction narrows them rather than closing them.
 | 606 | A wrapped label has no line-height or leading control: only `text_area` takes `with_line_height`; label rows advance by the `"Ag"` measure (batch 2 line-spacing port, c1d0e0b) | UI / MISSING | MED | S | live |
 | 607 | Upstream main does not compile for a Metal consumer: four unqualified `begin`/`end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL` (809bdd1..c1d0e0b; build30); `graphics::` breaks the none backend (build31); the `afterhours::` wrapper form is portable (60b0b92) | BUILD / WRONG | HIGH | XS | live - local vendor commit, upstream submission pending |
 | 608 | A binding cannot say "exactly these modifiers": a bare key matches under any modifiers and an explicit chord matches any superset, so Ctrl Tab also fires the bare-Tab focus ring and Cmd Opt Left also fires Cmd Left (tab-chord port, c1d0e0b) | INPUT / MISSING | MED | S | live - Tab guarded app-side (`TabChordGuard`); superset case unguarded |
-| 609 | The character queue outlives the frame: characters typed at a disabled field are neither read nor dropped and land in the next live field (paged ask card port, c1d0e0b) | INPUT / FOOTGUN | MED | S | live - composer claim drains; card fields under a sheet open (todo) |
+| 609 | The character queue outlives the frame: characters typed at a disabled field are neither read nor dropped and land in the next live field (paged ask card port, c1d0e0b) | INPUT / FOOTGUN | MED | S | live - worked around app-side (`CharBacklogSystem` drains while a sheet owns the keyboard) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

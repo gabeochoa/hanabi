@@ -506,6 +506,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(
         std::make_unique<ecs::AccessibilityActionSystem>());
     sm.register_update_system(std::make_unique<ecs::KeyboardClaimSystem>());
+    sm.register_update_system(std::make_unique<ecs::CharBacklogSystem>());
 
     // Render systems.
     sm.register_render_system(std::make_unique<MainRenderSystem>());

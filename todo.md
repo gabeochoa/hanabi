@@ -26,11 +26,11 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
       crossed when more rows came to fit in the fixture's 949 px. Fix at the root, not the limit:
       skip the walk when the anchor, viewport height, row set and every measure are what the last
       frame used, and reuse that LedgerWindow. Owner of the fix: this lane, next after D23.
-- [ ] GATE RED (pre-existing, exposed 2026-10-02 once perf_transcript_slope went green and the gate chain
+- [x] GATE RED (fixed 2026-10-02: gfx_resize.h reads the size back after graphics::begin_frame, where the headless backend now applies it) (pre-existing, exposed 2026-10-02 once perf_transcript_slope went green and the gate chain
       reached it): scripts/stress_resize_gate.sh -- 520 resizes asked and applied, but the last target
       logged is 814x760 while the backend reports 822x760 (one 8 px step behind). Identical with the
       window memo reverted, so not the ledger. Not yet diagnosed.
-- [ ] BUG (pre-existing, found porting D23): characters typed at an ask card's field while a sheet
+- [x] BUG (fixed 2026-10-02, CharBacklogSystem) (pre-existing, found porting D23): characters typed at an ask card's field while a sheet
       owns the keyboard are held in the character queue and land in the field once the sheet closes
       ("leaked" + "lands" = "leakedlands"). afterhours_gaps.md #609. Needs a drain that runs while a
       sheet owns input and no live field reads characters.

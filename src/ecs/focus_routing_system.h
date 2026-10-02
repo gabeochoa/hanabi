@@ -64,6 +64,27 @@ struct FocusRoutingSystem : afterhours::System<UIContext<InputAction>> {
     }
 };
 
+// CHARACTERS TYPED AT A SHEET ARE THE SHEET'S, OR NOBODY'S. The character
+// queue is not frame-scoped (afterhours_gaps.md #609): a character no field
+// reads waits in it, and a disabled field -- every card field while a sheet,
+// menu or popover owns the keyboard -- neither reads nor drains it. So what
+// was typed at the card under the Shortcuts sheet came out in the card's
+// field the moment the sheet closed. Registered after every surface has
+// drawn: a sheet's own field has already taken what was its, and the rest is
+// dropped here. Only while something ABOVE the composer owns the keyboard --
+// with nothing up, a run typed at a waiting card is kept on purpose until its
+// field is clicked (main_pane_system.h, the claim-edge drain).
+struct CharBacklogSystem : afterhours::System<UIContext<InputAction>> {
+    void for_each_with(Entity&, UIContext<InputAction>&, float) override {
+        auto* app = find_singleton<AppComponent>();
+        if (app == nullptr) return;
+        auto* strip = find_singleton<TabStripComponent>();
+        if (ask_input_live(*app, strip != nullptr && strip->menuOpen)) return;
+        while (afterhours::input::get_char_pressed() > 0) {
+        }
+    }
+};
+
 struct KeyboardClaimSystem : afterhours::System<UIContext<InputAction>> {
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* app = find_singleton<AppComponent>();

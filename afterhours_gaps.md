@@ -14425,12 +14425,12 @@ CLASS: INPUT / MISSING
 
 **How Hanabi hit it.** Porting the reference's one-question-per-page ask card (Puffin 0.8.1/0.8.6) meant re-ordering `tests/ui/an_overlay_owns_the_typing_too.e2e`. With the Shortcuts sheet up, the card's fields are disabled; "leaked" typed at page one's free-text field showed nothing (correct), but once the sheet closed, focusing that same field and typing "lands" gave "leakedlands". Reproduced on the pre-paging build with the same order, so it predates the port; the old fixture's order happened to have a field consume the backlog before its checks.
 
-**Workaround.** Partial. Hanabi already spends the backlog where the COMPOSER takes the keyboard back (`main_pane_system.h`, the composer-yield drain and the claim-edge drain). Card fields under a sheet are not covered yet; a narrow drain there did not take (the disabled field does not hold focus, so "a card field is focused" is false). Open item in todo.md.
+**Workaround.** `ecs::CharBacklogSystem` (`src/ecs/focus_routing_system.h`), registered after every surface has drawn: while a sheet, menu or popover owns the keyboard (`ask_input_live` false), whatever no field read this frame is dropped. Not a blanket per-frame drain: with nothing up, a run typed at a waiting ask card is kept on purpose until its field is clicked, and the composer's own claim-edge drain (`main_pane_system.h`) still spends the backlog when the composer takes the keyboard back. Pinned by `tests/ui/typing_at_a_sheet_does_not_reach_the_card_later.e2e`.
 
 **Ask.** Make the character queue frame-scoped (clear what no widget read at the end of the frame), or have a disabled field that the app focused drain it the way a read-only one does.
 
 **Upstream acceptance test.** Focus a disabled text input, inject "abc", run two frames, enable and focus it, inject "d": its text is "d".
 
-**Hanabi reference.** `tests/ui/an_overlay_owns_the_typing_too.e2e` (order chosen so it does not depend on this), todo.md.
+**Hanabi reference.** `src/ecs/focus_routing_system.h` (`CharBacklogSystem`), `tests/ui/typing_at_a_sheet_does_not_reach_the_card_later.e2e`.
 
 CLASS: INPUT / FOOTGUN

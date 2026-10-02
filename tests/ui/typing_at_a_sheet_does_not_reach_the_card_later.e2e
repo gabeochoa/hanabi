@@ -1,0 +1,27 @@
+# Characters typed while a sheet owns the keyboard are the sheet's or
+# nobody's (afterhours_gaps.md #609). The card's fields are disabled under
+# the sheet, and a disabled field neither reads nor drains the character
+# queue, so "leaked" used to wait there and come out in the card's field the
+# moment the sheet closed: focus it, type "lands", read "leakedlands".
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_TEST_OVERLAY=shortcuts
+
+require_thread t2
+expect_text "The agent is asking"
+expect_text "Keyboard shortcuts"
+
+focus_ui ask_other_q1
+type "leaked"
+wait_frames 12
+expect_input_text ask_other_q1 ""
+
+click_ui tab_close
+wait_frames 20
+expect_no_text "Keyboard shortcuts"
+
+focus_ui ask_other_q1
+wait_frames 8
+type "lands"
+wait_frames 14
+expect_input_text ask_other_q1 "lands"
