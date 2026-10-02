@@ -725,9 +725,9 @@ correction narrows them rather than closing them.
 | 108 | Icon stroke weight is baked into the atlas | MISSING | — | — | app |
 | 109 | #85 again, live 2,200 lines down, cost a whole region | FOOTGUN | — | — | fixed with #85 at 1ac6db2 (the warn-once) |
 | 110 | Nothing rounds a widget's ORIGIN | SURPRISING | HIGH | S | live |
-| 111 | A hover highlight IS the hit rectangle | MISSING | MED | XS | live |
+| 111 | A hover highlight IS the hit rectangle | MISSING | MED | XS | live; footer chip drawn app-side (on_draw_bg) 2026-10-02 |
 | 112 | No accessible name (tooltip landed at 1ac6db2) | MISSING | MED | M | partial |
-| 114 | A sprite's rendered INK extent is not derivable | TEDIOUS | — | — | app |
+| 114 | A sprite's rendered INK extent is not derivable | TEDIOUS | — | — | app; ink table generated from the atlas 2026-10-02 |
 | 116 | No way to ask how much of a string fits in a width | WORKAROUND | HIGH | S | **live — top 10** |
 | 117 | A script pins coordinates and goes stale silently | TEDIOUS | MED | S | wrong |
 | 125 | `load_texture` has no max dimension | WORKAROUND | MED | XS | live |

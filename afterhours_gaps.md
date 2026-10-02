@@ -5877,7 +5877,9 @@ in this workstream shows a hover state at all, so the half that was chosen is
 the half that can be verified.
 
 
-**Hanabi reference.** None — no app-side workaround is implemented.
+**POSTSCRIPT 2026-10-02 (lead lane): the `with_on_draw_bg` escape is now taken, and its bill is small.** The footer buttons had since grown to the full 28 pt band (`control::kMinHitTarget`), so the trade above flipped: the target was right and the hover fill covered all of it. Now each button paints no hover of its own (a clear `with_custom_hover_bg`) and draws its chip in `with_on_draw_bg`, 2 pt inside the target on both axes with a 4 pt corner -- the reference's `hoverHighlight(inset: 2, vertical: 2, cornerRadius: 4)` -- off `ctx.was_hot(id) || ctx.is_hot(id)` read while building (a frame stale at worst, invisible at hover speeds). Measured on the new capture: target 244..271 x 732..759, chip 246..269 x 734..757.
+
+**Hanabi reference.** `src/ecs/sidebar_system.h` (`hoverHighlight(inset: 2, vertical: 2, cornerRadius: 4)`) — the footer buttons draw an inset hover chip inside a band-tall target. Tests: `scripts/screens.sh` (`07a_hover_footer_settings_dark`) — the forced-hover capture holds the chip's geometry in the screenshot baselines.
 
 
 **Minimal upstream fix.** An inset on the highlight —
@@ -6001,7 +6003,9 @@ same afternoon the footer's gear cost (13 -> 14, `37 diff pixels -> 22`) and
 the same one the filter rules cost, each rediscovered from scratch.
 
 
-**Hanabi reference.** None — no app-side workaround is implemented.
+**POSTSCRIPT 2026-10-02 (lead lane): derivable after all, from the committed atlas.** The ink is not in the atlas RECT, but it is in the atlas PIXELS, and those are committed. `scripts/gen_icon_ink.py` reads `resources/icons/icons.png` once and writes `src/ui/icons_ink.h`: every icon's ink box inside its cell (alpha >= 128). `icons::draw_px_for_ink(name, px)` answers the draw_px whose core ink is `px`; `draw_px_for_extent(name, px)` the one whose VISIBLE extent in a screenshot is `px`, adding the bilinear spread (1.5 pt, calibrated on this entry's own two close-mark captures: it hands back 8 for the 8 px target, and 10.5 for the 11 px draw's 10-11 px). One step instead of build-measure-repeat. source_checks fails while the table is stale against the atlas.
+
+**Hanabi reference.** `scripts/gen_icon_ink.py` (`def render()`) — generates the ink table from the committed atlas. `src/ui/icons_ink.h` (`draw_px_for_extent`) — sizes a mark by the extent a capture measures. Tests: `tests/unit/test_icon_ink.cpp` — every icon's ink sits inside its cell, and the close mark's recorded captures come back.
 
 
 **Minimal upstream fix.** Have the atlas generator emit the inked bounding box

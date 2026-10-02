@@ -36,6 +36,8 @@ for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/c
     if python3 "$chk"; then :; else rc=1; fi
 done
 if python3 scripts/compare.py --selftest; then :; else rc=1; fi
+# The icon ink table must match the committed atlas (afterhours_gaps.md #114).
+if python3 scripts/gen_icon_ink.py --check; then :; else rc=1; fi
 if bash scripts/measure_launch.sh --selftest; then :; else rc=1; fi
 if bash scripts/composer_parity_gate.sh --selftest; then :; else rc=1; fi
 if bash scripts/composer_parity_gate.sh; then :; else rc=1; fi
