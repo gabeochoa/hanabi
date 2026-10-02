@@ -2239,7 +2239,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         };
         for (int k = 0; k < 3; ++k) {
             const float cx = r.width - 78.0f + 28.0f * static_cast<float>(k);
-            auto hit = button(ctx, mk(parent, btns[k].id),
+            // The target is the band's full height; the hover CHIP is drawn
+            // 2 pt inside it on both axes, the reference's
+            // hoverHighlight(inset: 2, vertical: 2, cornerRadius: 4). One
+            // widget paints its hover at its own rect (afterhours_gaps.md
+            // #111), so the chip is drawn here off last frame's hover.
+            const auto ep = mk(parent, btns[k].id);
+            const bool hovered = ctx.was_hot(ep.first.get().id) || ctx.is_hot(ep.first.get().id) ||
+                                 hanabi::test_hooks::force_hover(std::string("footer:") + btns[k].name);
+            const theme::Color chip = theme::hover_over(theme::chrome::sidebar());
+            auto hit = button(ctx, ep,
                 ComponentConfig{}
                     .with_label(" ")
                     .with_size(ComponentSize{
@@ -2248,7 +2257,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_absolute_position()
                     .with_translate(cx - 14.0f, top)
                     .with_transparent_bg()
-                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
+                    .with_custom_hover_bg(theme::Color{0, 0, 0, 0})
+                    .with_on_draw_bg([hovered, chip](RectangleType rr) {
+                        if (!hovered) return;
+                        constexpr float kInset = 2.0f, kCorner = 4.0f;
+                        const RectangleType c{rr.x + kInset, rr.y + kInset,
+                                              rr.width - 2.0f * kInset,
+                                              rr.height - 2.0f * kInset};
+                        afterhours::draw_rectangle_rounded(
+                            c, kCorner / (0.5f * std::min(c.width, c.height)), 6, chip);
+                    })
                     .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_click_activation(ClickActivationMode::Press)
                     .with_roundness(0.3f)
