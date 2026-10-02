@@ -50,3 +50,16 @@ expect_text "look at https://web.example.test/chat/r5"
 click_text "https://web.example.test/chat/r5"
 wait_frames 12
 expect_tab r5 unpinned
+
+# Metamate Spaces follow the threads, and a Space pick writes `space:<id>`.
+key CMD+A
+type "ask @subs"
+wait_frames 10
+expect_text "Subs"
+expect_text "Space"
+key CMD+A
+type "ask @Infra"
+wait_frames 10
+key ENTER
+wait_frames 8
+expect_input_text composer_reply_input "ask space:2200000000000001 "

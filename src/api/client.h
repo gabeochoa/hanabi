@@ -24,6 +24,7 @@
 
 #include "halt_state.h"
 #include "memory_wire.h"
+#include "spaces_wire.h"
 #include "types.h"
 
 namespace api {
@@ -887,6 +888,12 @@ class Client {
         (void)content;
         (void)version;
         return Result<memory::Document>::failure("This backend has no agent memory.");
+    }
+
+    // The viewer's Metamate Spaces (api/spaces_wire.h), for the @ picker.
+    virtual bool supports_spaces() const { return false; }
+    virtual Result<std::vector<spaces::Space>> list_spaces() {
+        return Result<std::vector<spaces::Space>>::failure("This backend has no Spaces.");
     }
 
     virtual bool supports_inbox_state() const { return false; }

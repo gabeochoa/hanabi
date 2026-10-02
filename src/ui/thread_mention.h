@@ -33,6 +33,7 @@
 #include <string_view>
 #include <vector>
 
+#include "../api/spaces_wire.h"
 #include "../api/types.h"
 #include "../util/format.h"
 
@@ -141,16 +142,27 @@ struct Row {
     int64_t updated_at = 0;
     bool archived = false;
     bool alreadyNamed = false;
+    bool space = false;  // a Metamate Space: a pick writes `space:<id> `
 };
+
+inline constexpr std::size_t kMaxSpaces = 5;
+
+// What a Space pick writes (the reference's spelling); "" for an id that is
+// not an fbid, which is then never offered.
+inline std::string space_reference(const std::string& id) {
+    return api::spaces::valid_id(id) ? "space:" + id : std::string();
+}
 
 template <class IsArchived>
 std::vector<Row> rows(const std::vector<api::SessionSummary>& sessions,
                       std::string_view draft, const std::string& webBase,
-                      const std::string& excludeId, IsArchived&& isArchived) {
+                      const std::string& excludeId, IsArchived&& isArchived,
+                      const std::vector<api::spaces::Space>& spaces = {}) {
     std::vector<Row> out;
     const auto q = query(draft);
     if (!q) return out;
-    if (link_for(webBase, "x").empty()) return out;
+    // Threads need a web base to be spelled; Spaces do not.
+    const bool threadsOk = !link_for(webBase, "x").empty();
     const std::string needle = lower(*q);
     struct Ranked {
         int rank;
@@ -158,6 +170,7 @@ std::vector<Row> rows(const std::vector<api::SessionSummary>& sessions,
     };
     std::vector<Ranked> found;
     for (const api::SessionSummary& s : sessions) {
+        if (!threadsOk) break;
         if (!s.parent_id.empty() || s.id == excludeId || s.id.empty()) continue;
         Row r{s.id, row_title(s), s.updated_at, isArchived(s), false};
         const int k = rank(r.title, needle);
@@ -172,6 +185,24 @@ std::vector<Row> rows(const std::vector<api::SessionSummary>& sessions,
     const std::size_t cap = needle.empty() ? kMaxBare : kMaxMatches;
     for (std::size_t i = 0; i < found.size() && i < cap; ++i)
         out.push_back(std::move(found[i].row));
+    // METAMATE SPACES after the threads: the Space list's own order at a bare
+    // `@`, the same three rungs for a query.
+    std::vector<Ranked> sp;
+    for (const api::spaces::Space& s : spaces) {
+        if (space_reference(s.id).empty() || s.name.empty()) continue;
+        const int k = rank(s.name, needle);
+        if (k < 0) continue;
+        Row r;
+        r.id = s.id;
+        r.title = s.emoji.empty() ? s.name : s.emoji + " " + s.name;
+        r.space = true;
+        r.alreadyNamed = names(draft, space_reference(s.id));
+        sp.push_back({needle.empty() ? 0 : k, std::move(r)});
+    }
+    std::stable_sort(sp.begin(), sp.end(),
+                     [](const Ranked& a, const Ranked& b) { return a.rank < b.rank; });
+    for (std::size_t i = 0; i < sp.size() && i < kMaxSpaces; ++i)
+        out.push_back(std::move(sp[i].row));
     return out;
 }
 

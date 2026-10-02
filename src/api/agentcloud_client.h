@@ -149,6 +149,8 @@ class AgentcloudClient : public Client {
     // Agent memory rides the web app's GraphQL route on the same web
     // credential as the inbox state.
     bool supports_memory() const override { return supports_inbox_state(); }
+    bool supports_spaces() const override { return supports_inbox_state(); }
+    Result<std::vector<spaces::Space>> list_spaces() override;
     Result<memory::Listing> memory_list(const std::string& path) override;
     Result<memory::Document> memory_read(const std::string& path,
                                          const std::string& key) override;

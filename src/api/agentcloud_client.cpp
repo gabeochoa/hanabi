@@ -502,6 +502,16 @@ bool AgentcloudClient::memory_post(const std::string& body, const char* field,
     return memory::unwrap(res->body, field, out, error);
 }
 
+Result<std::vector<spaces::Space>> AgentcloudClient::list_spaces() {
+    nlohmann::json v;
+    std::string error;
+    if (!memory_post(spaces::body(), "viewer_intern_user", &v, &error))
+        return Result<std::vector<spaces::Space>>::failure(error);
+    auto list = spaces::parse(nlohmann::json{{"viewer_intern_user", v}});
+    if (!list) return Result<std::vector<spaces::Space>>::failure("the Spaces list was unreadable");
+    return Result<std::vector<spaces::Space>>::success(std::move(*list));
+}
+
 Result<memory::Listing> AgentcloudClient::memory_list(const std::string& path) {
     if (!memory::valid_path(path))
         return Result<memory::Listing>::failure("That folder name is not one memory accepts.");

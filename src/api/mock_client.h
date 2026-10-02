@@ -1261,6 +1261,15 @@ class MockClient : public Client {
         return v != nullptr && *v == '1';
     }
     bool supports_memory() const override { return true; }
+    // Two Spaces (one pinned) for the @ picker; HANABI_MOCK_SPACES=0 none.
+    bool supports_spaces() const override { return true; }
+    Result<std::vector<spaces::Space>> list_spaces() override {
+        const char* v = std::getenv("HANABI_MOCK_SPACES");
+        if (v != nullptr && *v == '0') return Result<std::vector<spaces::Space>>::success({});
+        return Result<std::vector<spaces::Space>>::success(
+            {{"1593993452358360", "Subs", "\xf0\x9f\x90\xa6", true, 0},
+             {"2200000000000001", "Infra notes", "", false, 3}});
+    }
     Result<memory::Listing> memory_list(const std::string& path) override {
         if (memory_refused()) return Result<memory::Listing>::failure("memory HTTP 503");
         if (!memory::valid_path(path))
@@ -1942,7 +1951,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

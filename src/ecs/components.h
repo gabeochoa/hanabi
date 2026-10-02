@@ -702,6 +702,11 @@ struct AppComponent : public afterhours::BaseComponent {
     std::string templateNotice;
     // Settings > Memory (memory_page.h): the folder, the open file, requests.
     MemoryPage memory;
+    // The viewer's Spaces for the @ picker, read once (memory_system.h).
+    std::vector<api::spaces::Space> spaces;
+    std::uint64_t spacesRevision = 0;
+    bool spacesRequested = false;
+    std::future<api::Result<std::vector<api::spaces::Space>>> spacesFuture;
     std::string memoryNewKeyDraft;
     int settingsFocusZone = 0;  // 0 search, 1 nav/results, 2 content
     int settingsFocusIndex = 0;

@@ -98,7 +98,27 @@ static void test_a_thread_url_in_text_is_a_thread_link() {
     CHECK(mn::find_threads(text, "").empty());
 }
 
+static void test_spaces_follow_threads_and_write_space_ids() {
+    const std::vector<api::SessionSummary> cat{thread("t", "subs migration", 9)};
+    const std::vector<api::spaces::Space> spaces{{"1593993452358360", "Subs", "\xf0\x9f\x90\xa6", true, 0},
+                                                 {"22", "Infra", "", false, 1},
+                                                 {"bad", "Subs bad id", "", false, 2}};
+    const auto none = [](const api::SessionSummary&) { return false; };
+    const auto r = mn::rows(cat, "@sub", "https://web.test/chat", "", none, spaces);
+    CHECK(r.size() == 2);
+    if (r.size() == 2) {
+        CHECK(!r[0].space && r[0].id == "t");
+        CHECK(r[1].space && r[1].id == "1593993452358360" && r[1].title == "\xf0\x9f\x90\xa6 Subs");
+    }
+    CHECK(mn::completed("see @sub", mn::space_reference("1593993452358360")) ==
+          "see space:1593993452358360 ");
+    // Spaces need no web base; threads do.
+    const auto noBase = mn::rows(cat, "@", "", "", none, spaces);
+    CHECK(noBase.size() == 2 && noBase[0].space);
+}
+
 int main() {
+    test_spaces_follow_threads_and_write_space_ids();
     test_a_thread_url_in_text_is_a_thread_link();
     test_the_at_must_open_a_word();
     test_ranking_is_starts_then_word_then_contains_freshest_first();

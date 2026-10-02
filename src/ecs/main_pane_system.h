@@ -1554,6 +1554,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         std::uint64_t revision = ~std::uint64_t{0};
         std::string exclude;
         std::string webBase;
+        std::uint64_t spacesRevision = 0;
         std::vector<hanabi::mention::Row> rows;
     } mentionMemo_;
     // The files-changed fold for the session the strip shows, kept until a
@@ -9555,10 +9556,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (mentionAsked &&
             (mentionMemo_.draft != replyDraft ||
              mentionMemo_.revision != app.sessionCatalogRevision ||
-             mentionMemo_.exclude != openId || mentionMemo_.webBase != app.webBaseUrl)) {
+             mentionMemo_.exclude != openId || mentionMemo_.webBase != app.webBaseUrl ||
+             mentionMemo_.spacesRevision != app.spacesRevision)) {
             mentionMemo_.rows = hanabi::mention::rows(
                 app.sessions, replyDraft, app.webBaseUrl, openId,
-                [](const api::SessionSummary& s) { return model::is_archived(s); });
+                [](const api::SessionSummary& s) { return model::is_archived(s); },
+                app.spaces);
+            mentionMemo_.spacesRevision = app.spacesRevision;
             mentionMemo_.draft = replyDraft;
             mentionMemo_.revision = app.sessionCatalogRevision;
             mentionMemo_.exclude = openId;
@@ -9855,7 +9859,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 const auto& row =
                     mentionRows[static_cast<std::size_t>(index - beforeMentions)];
                 set_field(hanabi::mention::completed(
-                    replyDraft, hanabi::mention::link_for(app.webBaseUrl, row.id)));
+                    replyDraft, row.space ? hanabi::mention::space_reference(row.id)
+                                          : hanabi::mention::link_for(app.webBaseUrl, row.id)));
                 app.slashDismissedFor = replyDraft;
                 app.slashMenuOpen = false;
                 app.mentionMenuOpen = false;
@@ -10309,8 +10314,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_align_items(AlignItems::Center)
                         .with_debug_name("mention_item_" + std::to_string(k)));
                 std::string tail;
+                if (m.space) tail += "Space";
                 if (m.archived) tail += "Archived  ";
-                tail += fmtutil::relative_time(m.updated_at);
+                if (!m.space) tail += fmtutil::relative_time(m.updated_at);
                 if (m.alreadyNamed) tail += "  \xe2\x9c\x93";
                 constexpr float kTailW = 120.0f;
                 // The slash rows' own budget: the row's inset and left pad
