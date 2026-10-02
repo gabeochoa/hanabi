@@ -133,7 +133,12 @@ echo "  pattern $PATTERN (net zero: settles at 1100x760)"
 
 if [ "$selftest" = 1 ]; then
     echo "  selftest: the same-step draw OFF must fail progression"
-    run_scene typical t2 HANABI_RESIZE_SYNC_DRAW=0
+    # A 1 ms mouse rather than the default 8 ms: with the same-step draw off,
+    # a size goes unpainted only when two resize notes land between frames,
+    # and once an unchanged transcript frame stopped re-walking its rows
+    # (57f14f7) frames got cheap enough that at 120 Hz the planted regression
+    # was caught in 1 run of 4 (4 of 5 at 2 ms). At 1 ms: 6 of 6.
+    run_scene typical t2 HANABI_RESIZE_SYNC_DRAW=0 HANABI_RESIZE_DRIVE_TICK_MS=1
     if check_scene "typical, sync draw off (planted)" 0; then
         echo "  selftest FAIL: the planted regression passed the gate"; rm -rf "$SCENE_HOME"; exit 1
     fi
