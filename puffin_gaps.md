@@ -1198,7 +1198,7 @@ says why), VERIFY.
 | D18 | 0.8.5 | Voice-started sessions stay in the background | no voice input | N/A |
 | D19 | 0.8.5 | Thread mentions name an untitled thread from what you are typing | no thread-mention feature | MISSING (with D10) |
 | D20 | 0.8.6 | Search results do not flicker or go stale while typing | not traced | VERIFY |
-| D21 | 0.8.6 | One conversation cannot appear twice in sidebar or search | not traced | VERIFY |
+| D21 | 0.8.6 | One conversation cannot appear twice in sidebar or search | not traced at 9b664d0 (replace_sessions kept whatever the list handed it). Now: api::catalog::keep_one_row_per_id on every catalogue replacement, the freshest row kept in its first place; test_session_catalog (lead lane, 2026-10-02) | MATCHED |
 | D22 | 0.8.6 | Automation threads raise no run-finished banners and are not in the @ picker | no @ picker; automation banner suppression not traced | VERIFY |
 | D23 | 0.8.1/0.8.6 | Multi-question card: a page per question, Next, Submit only on the last page, review page | one card listing every question at 9b664d0. Now: a form with 2+ questions pages one question at a time under a tab row (one tab per question, a check when answered, then a Submit tab that is the review page reading every answer back); the primary button is Next on every question but the last and only advances, Submit on the last question and the review page sends the whole form; Return does what the primary says and leaves the caret on the new page's primary; the next-ask button now reads "Next ask"; `tests/ui/a_multi_question_card_pages_one_question_at_a_time.e2e` + 27 ask fixtures ported (lead lane, 2026-10-02). Not ported: option letters, per-option previews, Tab cycling the tab row | MATCHED |
 | D24 | 0.8.6 | A parked reader returns to the bottom when a hold releases | `follow_latch.h` exists; hold-release path not traced | VERIFY |
@@ -1217,8 +1217,8 @@ says why), VERIFY.
 | D37 | 0.8.9 | Companion unified diff | no Companion surface (artifact viewer only) | MISSING (large) |
 | D38 | 0.8.9 | Companion task Comments page | no Companion surface | MISSING (large) |
 | D39 | 0.8.9 | `/knot` in the composer | not in the `/` menu. Blocked: the reference files through its in-app Knots reporter (`KnotsReporter.fileJoiningIfNeeded`, D122768093), and Hanabi has no Knots client or credential path (D36 needs the same) | MISSING (needs a Knots client) |
-| D40 | 0.8.9 fix | Credential-refused images retry | `inline_image.h` marks a failed load `tried` and never retries | VERIFY (likely MISSING for remote images) |
-| D41 | 0.8.9 fix | An unreadable file does not block a message | intake shows the staging error and stages nothing; send not re-run | VERIFY (likely MATCHED) |
+| D40 | 0.8.9 fix | Credential-refused images retry | artifact reads gave up on a 401 and the 15 s transient retry reused the same cached token. Now: a 401 drops the token and retries once with a fresh mint; second 401 final; 403 not retried (as D122768089); test_agentcloud (lead lane, 2026-10-02). Local inline images (`inline_image.h`) carry no credential and are unaffected | MATCHED |
+| D41 | 0.8.9 fix | An unreadable file does not block a message | the reference's fix (D122768094) sends an unsupported kind as a mention of its name, this Mac and its path instead of holding the message. Hanabi refuses an unsupported or unreadable file at INTAKE with the reason (never stages it, so it never holds a message), but a staged file that becomes unreadable before the send fails the whole send ("X is no longer available"), and no path-mention send exists | PARTIAL |
 | D42 | 0.8.9 fix | A queued message is not sent while it is being edited | sends queue, but a queued message cannot be edited (0.8.4 queued edit absent) | N/A until queued edit exists |
 | D43 | 0.8.9 fix | Large-attachment staging writes only changes | attachments go inline base64; no staging store | N/A |
 
