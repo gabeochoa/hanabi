@@ -1,7 +1,9 @@
 # Vendored afterhours patches (proven in hanabi, ready for the maintainer)
 
 `vendor/afterhours` is the pinned afterhours submodule
-(`d90db15a5f9c0e745a3302339d653829a4aa7c59`). This directory contains both
+(`60b0b92ce5e0305373b74b51fd73dbb5bc189612`: upstream `c1d0e0b` plus the local
+Metal build fix of afterhours_gaps.md #607; the proof patches below were
+written against the earlier pin `d90db15`). This directory contains both
 older Hanabi-proven fixes and proof patches that are applied only to temporary
 vendor copies by `make verify-vendor-patches`. The verifier checks the base,
 checks and applies each patch independently, compiles focused probes, and
