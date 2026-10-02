@@ -61,6 +61,7 @@
 #include "../ui/font_system.h"
 #include "global_hotkey_apply.h"
 #include "theme_rotation_system.h"  // theme_rotation::restart (interval clock)
+#include "scroll_keep.h"
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
@@ -1049,6 +1050,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("settings_pane_scroll"));
         Entity& p = col.ent();
+        // Each pane keeps its own place, across a switch of pane and a trip
+        // to another tab (ui/scroll_memory.h, afterhours_gaps.md #163).
+        keep_scroll_place(col.ent(), paneScroll_, static_cast<int>(pane));
 
         const cat::PaneInfo& info = cat::pane_info(pane);
         // Hosted as a tab, the pane has no title and no subtitle of its own
@@ -1158,6 +1162,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (app.settingsRevealFrames > 0)
             scroll_reveal_into_view(col.ent(), bodyH);
     }
+
+    hanabi::ui::ScrollMemory paneScroll_;
 
     void scroll_reveal_into_view(Entity& scrollEnt, float viewH) {
         if (focusAnchor_ == 0) return;

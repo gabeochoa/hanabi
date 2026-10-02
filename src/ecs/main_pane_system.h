@@ -62,6 +62,7 @@
 #include "../ui/composer_templates.h"
 #include "../ui/thread_mention.h"
 #include "../ui/scroll_memory.h"
+#include "scroll_keep.h"
 #include "../api/session_changes.h"
 #include "../ui/syntax_highlighter.h"
 #include "../ui/model_menu.h"
@@ -1565,12 +1566,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     hanabi::ui::ScrollMemory homeScroll_;
     hanabi::ui::ScrollMemory digestScroll_;
     static void keep_place(Entity& scrollEnt, hanabi::ui::ScrollMemory& memory, int key) {
-        if (!scrollEnt.has<afterhours::ui::HasScrollView>()) return;
-        auto& sv = scrollEnt.get<afterhours::ui::HasScrollView>();
-        if (const auto y = memory.step(afterhours::ui::imm::ui_build_frame, key, sv.scroll_offset.y)) {
-            sv.scroll_offset.y = *y;
-            sv.scroll_target.y = *y;
-        }
+        keep_scroll_place(scrollEnt, memory, key);
     }
     // The files-changed fold for the session the strip shows, kept until a
     // tool row it reads changes (changes_for).

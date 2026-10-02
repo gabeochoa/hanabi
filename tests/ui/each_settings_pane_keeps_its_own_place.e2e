@@ -1,0 +1,34 @@
+# Each Settings pane keeps its own place. The panes share one scroll view, so
+# a scrolled pane used to hand its offset to the next pane opened; and a trip
+# to a thread tab and back found Settings at the top (the library clamps a
+# scroll view that was not built to 0, afterhours_gaps.md #163). Now each pane
+# remembers where it was (ui/scroll_memory.h).
+#
+# settings: {"window_width":1100,"window_height":620,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+click_ui sb_settings
+wait_frames 20
+click_ui sb_settings_nav_appearance
+wait_frames 20
+mouse_move 700 400
+scroll_wheel 0 -6
+wait_frames 30
+expect_scroll_y settings_pane_scroll 120
+
+# Another pane opens at its own place -- its top.
+click_ui sb_settings_nav_general
+wait_frames 30
+expect_scroll_y settings_pane_scroll 0
+
+# Back to Appearance: where it was.
+click_ui sb_settings_nav_appearance
+wait_frames 30
+expect_scroll_y settings_pane_scroll 120
+
+# A trip to the thread tab and back.
+click_ui tab_t2
+wait_frames 20
+click_ui sb_settings
+wait_frames 30
+expect_scroll_y settings_pane_scroll 120

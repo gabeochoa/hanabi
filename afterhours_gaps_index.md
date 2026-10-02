@@ -742,7 +742,7 @@ correction narrows them rather than closing them.
 | 155 | The first draws cost 5-8x and there is no pre-warm | PERFORMANCE | MED | S | live |
 | 160 | A component is two cache misses to write four bytes | TEDIOUS | MED | S | live — the *cost* of the sweep that landed in `2393fe3` |
 | 162 | An app cannot see the widgets the LIBRARY built | TEDIOUS | MED | XS | live — dup→#171 |
-| 163 | A scroll view clamps against children that are not there | WORKAROUND | HIGH | XS | live; Home + digests restored app-side 2026-10-02 |
+| 163 | A scroll view clamps against children that are not there | WORKAROUND | HIGH | XS | live; Home, digests, Settings panes restored app-side 2026-10-02 |
 | 170 | `Overflow::Scroll` clips; there is no way to build less | MISSING | HIGH | M | **live — top 10** |
 | 171 | Identity is the SLOT, so state re-points at another row | MISSING | HIGH | M | **live — family canonical** |
 | 172 | Input injection needs the e2e plugin compiled in | MISSING | MED | S | live |
