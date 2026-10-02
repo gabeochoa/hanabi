@@ -3302,8 +3302,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // that goes nowhere (src/ui/link_detect.h says why).
     static std::vector<hanabi::links::Link> links_in(const std::string& text) {
         AppComponent* app = app_singleton();
-        if (app == nullptr || app->trackerBaseUrl.empty()) return {};
-        return hanabi::links::find(text);
+        if (app == nullptr) return {};
+        std::vector<hanabi::links::Link> out;
+        if (!app->trackerBaseUrl.empty()) out = hanabi::links::find(text);
+        // Thread references (an @ mention's URL): opened in a tab here, not
+        // handed to a browser, when this client holds the thread.
+        if (!app->webBaseUrl.empty()) {
+            const auto threads = hanabi::mention::find_threads(text, app->webBaseUrl);
+            if (!threads.empty()) {
+                for (const auto& f : threads)
+                    out.push_back(hanabi::links::Link{
+                        f.off, f.len, std::string(hanabi::links::kThreadPrefix) + f.id});
+                std::sort(out.begin(), out.end(),
+                          [](const auto& a, const auto& b) { return a.off < b.off; });
+            }
+        }
+        return out;
+    }
+
+    // Where a link goes: a tracker id to the tracker, a thread reference to
+    // the web app's page for it (what the message menu copies or opens).
+    static std::string link_url(const AppComponent& app, const std::string& id) {
+        const std::string_view tp = hanabi::links::kThreadPrefix;
+        if (id.rfind(tp, 0) == 0)
+            return hanabi::mention::link_for(app.webBaseUrl, id.substr(tp.size()));
+        return hanabi::links::url_for(app.trackerBaseUrl, id);
     }
 
     // Recolour the spans covering each link so an id reads as one. The runs
@@ -3354,7 +3377,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app != nullptr && app->messageMenuOpen && !app->messageMenuNativeTried &&
             ctx.mouse.right_just_released && ctx.mouse_was_in_subtree(el.id)) {
             app->messageMenuLinkId = id;
-            app->messageMenuLinkUrl = hanabi::links::url_for(app->trackerBaseUrl, id);
+            app->messageMenuLinkUrl = link_url(*app, id);
         }
         if (el.has<afterhours::ui::HasCursor>())
             el.get<afterhours::ui::HasCursor>().cursor =
@@ -3362,10 +3385,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (!ctx.mouse.just_pressed) return;
         AppComponent* app = app_singleton();
         if (app == nullptr) return;
-        hanabi::links::open(hanabi::links::url_for(app->trackerBaseUrl, id));
+        const std::string_view tp = hanabi::links::kThreadPrefix;
+        if (id.rfind(tp, 0) == 0) {
+            // A thread this client holds opens in a tab, as a sidebar click
+            // would; one it does not hold goes to the web app's page.
+            const std::string sid = id.substr(tp.size());
+            if (app->find_summary(sid) != nullptr) {
+                app->requestOpenTab = sid;
+                return;
+            }
+        }
+        hanabi::links::open(link_url(*app, id));
         // The browser is another app, and on a headless render there is no
         // browser at all — either way the transcript says what it just did.
-        app->raise_toast("Opened " + id, "", AppComponent::ToastUndo::None);
+        app->raise_toast("Opened " + (id.rfind(tp, 0) == 0 ? std::string("the thread") : id),
+                         "", AppComponent::ToastUndo::None);
     }
 
     static void selectable_text(UIContext<InputAction>& ctx, Entity& el,
@@ -12746,6 +12780,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_corner_radius(kBubbleCorner)
                     .with_debug_name("user_bubble"));
             const std::string uq = paint_query_for(index);
+            // Thread references in what the reader wrote (an @ mention) read
+            // as links and open their thread; the visible text is untouched,
+            // so the measured height still holds.
+            const std::vector<hanabi::links::Link> ulinks = links_in(userBody);
             auto ucfg = ComponentConfig{}
                     .with_label(userBody)
                     .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
@@ -12778,8 +12816,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         r, uldp->text, uldp->query, theme::type::BODY,
                         &uldp->findOffsets);
             });
+            if (!ulinks.empty()) {
+                InlineParse uip;
+                uip.visible = userBody;
+                uip.spans.push_back(afterhours::ui::TextSpan{userBody, theme::text_primary()});
+                colour_links(uip, ulinks);
+                ucfg = ucfg.with_styled_label(uip.spans);
+                uld.links = ulinks;
+                ucfg = ucfg.with_on_draw_fg([uldp](RectangleType r) {
+                    hanabi::links::draw_underlines(r, uldp->text, uldp->links,
+                                                   theme::type::BODY);
+                });
+            } else if (!uld.links.empty()) {
+                uld.links.clear();
+            }
             auto uEl = div(ctx, uep, ucfg);
             selectable_text(ctx, uEl.ent(), userBody, theme::type::BODY);
+            link_hotspot(ctx, uEl.ent(), userBody, ulinks, theme::type::BODY);
             for (std::size_t attachmentIndex = 0;
                  attachmentIndex < m.attachments.size(); ++attachmentIndex) {
                 const auto& attachment = m.attachments[attachmentIndex];

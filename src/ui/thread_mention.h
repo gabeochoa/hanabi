@@ -92,8 +92,10 @@ inline int rank(std::string_view title, std::string_view needleLower) {
 // first line of what it carries, so an untitled thread is still a row you can
 // pick (the reference's 0.8.5).
 inline std::string row_title(const api::SessionSummary& s) {
+    // "(untitled)" is the agentcloud parse's own placeholder for a row with no
+    // title and no status subject (summary_from_row), so it counts as none.
     std::string t = fmtutil::display_title(s.title);
-    if (!t.empty()) return t;
+    if (!t.empty() && t != "(untitled)") return t;
     std::string p = s.preview;
     const std::size_t nl = p.find('\n');
     if (nl != std::string::npos) p.resize(nl);
@@ -170,6 +172,35 @@ std::vector<Row> rows(const std::vector<api::SessionSummary>& sessions,
     const std::size_t cap = needle.empty() ? kMaxBare : kMaxMatches;
     for (std::size_t i = 0; i < found.size() && i < cap; ++i)
         out.push_back(std::move(found[i].row));
+    return out;
+}
+
+// THREAD REFERENCES IN TEXT: every bare `<web base>/<session id>` -- what a
+// pick writes, and what the web app's own links look like. A URL that runs on
+// into more path, a query or a fragment is not a bare reference and is left
+// alone; neither is one glued to a word before it.
+struct Found {
+    std::size_t off = 0;
+    std::size_t len = 0;
+    std::string id;
+};
+inline bool id_char(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '-' || c == '_';
+}
+inline std::vector<Found> find_threads(const std::string& text, const std::string& webBase) {
+    std::vector<Found> out;
+    std::string base = link_for(webBase, "");
+    if (base.empty()) return out;
+    for (std::size_t at = text.find(base); at != std::string::npos;
+         at = text.find(base, at + 1)) {
+        if (at > 0 && id_char(text[at - 1])) continue;
+        std::size_t j = at + base.size();
+        while (j < text.size() && id_char(text[j])) ++j;
+        if (j == at + base.size()) continue;
+        if (j < text.size() && (text[j] == '/' || text[j] == '?' || text[j] == '#')) continue;
+        out.push_back({at, j - at, text.substr(at + base.size(), j - at - base.size())});
+        at = j - 1;
+    }
     return out;
 }
 

@@ -78,11 +78,28 @@ static void test_an_untitled_thread_is_named_from_what_it_carries() {
     api::SessionSummary s = thread("u", "", 5);
     s.preview = "profile the disk\nand more";
     CHECK(mn::row_title(s) == "profile the disk");
+    s.title = "(untitled)";  // the agentcloud parse's placeholder
+    CHECK(mn::row_title(s) == "profile the disk");
     s.preview.clear();
     CHECK(mn::row_title(s) == "Untitled thread");
 }
 
+static void test_a_thread_url_in_text_is_a_thread_link() {
+    const std::string base = "https://web.test/chat";
+    const std::string text = "see https://web.test/chat/r5 and https://web.test/chat/r6, "
+                             "not https://web.test/chat/r7/files or xhttps://web.test/chat/r8";
+    const auto links = mn::find_threads(text, base);
+    CHECK(links.size() == 2);
+    if (links.size() == 2) {
+        CHECK(links[0].id == "r5" && text.substr(links[0].off, links[0].len) ==
+                                                "https://web.test/chat/r5");
+        CHECK(links[1].id == "r6");  // the comma ends it
+    }
+    CHECK(mn::find_threads(text, "").empty());
+}
+
 int main() {
+    test_a_thread_url_in_text_is_a_thread_link();
     test_the_at_must_open_a_word();
     test_ranking_is_starts_then_word_then_contains_freshest_first();
     test_a_pick_writes_the_web_url_and_marks_the_row();

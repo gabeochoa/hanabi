@@ -26,6 +26,9 @@
 // ---------------------------------------------------------------------------
 
 #include <cctype>
+#include <string>
+#include <string_view>
+#include <vector>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -83,6 +86,10 @@ inline std::vector<Link> find(const std::string& text) {
     }
     return out;
 }
+
+// Thread references (an @ mention's URL) are found by
+// hanabi::mention::find_threads and carried as Links whose id starts with this.
+inline constexpr std::string_view kThreadPrefix = "thread:";
 
 // The URL an id opens. Empty base -> empty URL -> no link at all; every caller
 // treats an empty URL as "this is prose".

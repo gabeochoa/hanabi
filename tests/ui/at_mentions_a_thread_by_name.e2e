@@ -2,7 +2,8 @@
 # reference's 0.8.4): a picker of threads ranked by how their names answer the
 # query, and a pick writes the thread's web URL -- the id, never the title --
 # with a space after it. An @ inside a word (an address) opens nothing, and
-# Escape puts the picker away without touching the words.
+# Escape puts the picker away without touching the words. Sent, the
+# reference reads as a link in the bubble and opens its thread in a tab.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_WEB_BASE_URL=https://web.example.test/chat
@@ -35,3 +36,17 @@ key ESCAPE
 wait_frames 6
 expect_no_ui slash_menu
 expect_input_text composer_reply_input "see https://web.example.test/chat/r5 and @two"
+
+# Send it: the URL in the sent bubble is a link to its thread, and a click
+# opens that thread here rather than in a browser.
+key CMD+A
+type "look at @prof"
+wait_frames 8
+key ENTER
+wait_frames 8
+key ENTER
+wait_frames 30
+expect_text "look at https://web.example.test/chat/r5"
+click_text "https://web.example.test/chat/r5"
+wait_frames 12
+expect_tab r5 unpinned
