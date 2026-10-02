@@ -22,6 +22,7 @@
 #include <afterhours/src/core/base_component.h>
 #include "tab_find_state.h"
 #include "../api/auth.h"
+#include "../api/session_catalog.h"
 #include "../api/client.h"
 #include "../api/outbox.h"
 #include "../api/wire_clock.h"
@@ -1808,6 +1809,9 @@ struct AppComponent : public afterhours::BaseComponent {
     }
 
     void replace_sessions(std::vector<api::SessionSummary> replacement) {
+        // One conversation, one row, in the sidebar and in search alike
+        // (api/session_catalog.h): every list surface reads this catalogue.
+        api::catalog::keep_one_row_per_id(replacement);
         carry_held_clocks(replacement, sessions);
         sessions = std::move(replacement);
         mark_session_catalog_changed();
