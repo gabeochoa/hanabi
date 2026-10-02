@@ -83,10 +83,12 @@ inline void begin_frame() {
         p.armed = false;
         afterhours::window_manager::set_window_size(p.width, p.height);
         ++applied_resize_count();
-        // Only the HEADLESS backend parks the size until the frame opens. A
-        // real window reports it at once, and scripts/resize_drive_gate.sh's
-        // planted "same-step draw off" is caught by reading it here, before
-        // the frame paints -- moving that read too hid the regression.
+        // Only the HEADLESS backend parks the size until the frame opens; a
+        // real window reports it at once, so it is read here as before.
+        // (8802b01 blamed the later read for resize_drive_gate's selftest
+        // passing its planted regression; that selftest was flaky on its own
+        // at the default 8 ms mouse -- ac14293 -- so the split is caution,
+        // not a measured need.)
         if (afterhours::graphics::is_headless()) readAfterOpen = true;
         else observe();
     }
