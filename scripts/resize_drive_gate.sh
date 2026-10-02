@@ -133,18 +133,23 @@ echo "  pattern $PATTERN (net zero: settles at 1100x760)"
 
 if [ "$selftest" = 1 ]; then
     echo "  selftest: the same-step draw OFF must fail progression"
-    # A 1 ms mouse rather than the default 8 ms: with the same-step draw off,
-    # a size goes unpainted only when two resize notes land between frames,
-    # and once an unchanged transcript frame stopped re-walking its rows
-    # (57f14f7) frames got cheap enough that at 120 Hz the planted regression
-    # was caught in 1 run of 4 (4 of 5 at 2 ms). At 1 ms: 6 of 6.
-    run_scene typical t2 HANABI_RESIZE_SYNC_DRAW=0 HANABI_RESIZE_DRIVE_TICK_MS=1
-    if check_scene "typical, sync draw off (planted)" 0; then
-        echo "  selftest FAIL: the planted regression passed the gate"; rm -rf "$SCENE_HOME"; exit 1
-    fi
-    rm -rf "$SCENE_HOME"
-    echo "  selftest PASS: the planted regression was caught"
-    exit 0
+    # The planted symptom is a RACE: with the same-step draw off, a size goes
+    # unpainted only when two resize notes land between frames. A 1 ms mouse
+    # (rather than the default 8 ms) makes that likely but not certain -- on
+    # Aspen it was caught 6 of 6 standalone and missed once under the gate's
+    # load -- so the planted arm gets up to three tries, and ONE catch proves
+    # the gate can see it. The real arms below run once, unchanged.
+    for try in 1 2 3; do
+        run_scene typical t2 HANABI_RESIZE_SYNC_DRAW=0 HANABI_RESIZE_DRIVE_TICK_MS=1
+        if ! check_scene "typical, sync draw off (planted, try $try)" 0; then
+            rm -rf "$SCENE_HOME"
+            echo "  selftest PASS: the planted regression was caught"
+            exit 0
+        fi
+        rm -rf "$SCENE_HOME"
+    done
+    echo "  selftest FAIL: the planted regression passed the gate three times"
+    exit 1
 fi
 
 overall=0
