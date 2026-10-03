@@ -24,6 +24,9 @@ inline std::string_view text_for(std::string_view control) {
     if (control == "msg_quote_btn")
         return "Quote this message in the composer";
     if (control == "row_star") return "Star this conversation";
+    if (control == "sb_update_restart")
+        return "Quit and open the newer Hanabi that is on disk";
+    if (control == "sb_update_later") return "Hide this until a newer build arrives";
     if (control == "settings_close") return "Close settings";
     if (control == "shortcuts_close") return "Close the shortcut list";
     if (control == "split_close") return "Close this pane";

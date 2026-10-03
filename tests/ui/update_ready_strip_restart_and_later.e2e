@@ -1,0 +1,15 @@
+# "Update ready" (the reference's 0.8.9 update strip; puffin_gaps.md D44):
+# while the executable on disk is not the one running, one line above the
+# sidebar footer says so, with Restart and Later. Later hides it for that
+# build. Restart is recorded, never acted on, in a scripted build.
+# HANABI_TEST_UPDATE_READY stands in for a replaced binary.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_UPDATE_READY=1
+
+wait_frames 20
+expect_text "Update ready"
+assert_ui sb_update_restart hidden=false
+click_ui sb_update_later
+wait_frames 6
+expect_no_text "Update ready"

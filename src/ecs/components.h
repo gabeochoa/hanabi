@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <afterhours/src/core/base_component.h>
+#include "../util/update_ready.h"
 #include "../ui/image_markup.h"
 #include "tab_find_state.h"
 #include "../api/auth.h"
@@ -806,6 +807,12 @@ struct AppComponent : public afterhours::BaseComponent {
             s.web_folder = it == webFolders.membership.end() ? std::string() : "folder:" + it->second;
         }
     }
+    // A newer build waiting on a restart (util/update_ready.h; D44): the
+    // watch, when it was last checked, and whether the strip is up.
+    hanabi::update_ready::Watch updateWatch;
+    double updateCheckedAt = -1.0;
+    bool updatePending = false;
+    bool updateRestartRequested = false;  // scripted builds record it, never act
     // A thread being moved between Spaces (row menu > Move to Space, the
     // reference's refile): the request, and the move in flight. On success
     // the local filing moves at once; the next index walk confirms it.

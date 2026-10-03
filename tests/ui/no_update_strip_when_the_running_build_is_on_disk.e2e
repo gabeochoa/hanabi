@@ -1,0 +1,7 @@
+# No strip while the executable on disk is the one running.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 20
+expect_no_text "Update ready"
+expect_no_ui sb_update_ready

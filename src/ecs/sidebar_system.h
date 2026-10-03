@@ -247,7 +247,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // The pane list scrolls inside what is left above the footer:
             // eleven panes and four headings outgrow a 760-pt window.
             const float navH = std::max(
-                40.0f, r.height - scroll_top_offset(viewsOpen) - kSbFooterH);
+                40.0f, r.height - scroll_top_offset(viewsOpen) - kSbFooterH - update_strip_h(*app));
             render_settings_pane_list(ctx, panel.ent(), *app, r.width, false, navH);
             render_footer(ctx, panel.ent(), *app, r);
             render_row_menu(ctx, uiRoot, *app);
@@ -261,7 +261,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         // Scrollable region: one flat, activity-ordered session list.
         float used = scroll_top_offset(viewsOpen);
-        float scrollH = r.height - used - kSbFooterH;
+        float scrollH = r.height - used - kSbFooterH - update_strip_h(*app);
         if (scrollH < 40.0f) scrollH = 40.0f;
         auto scroll = div(ctx, mk(panel.ent(), 5),
             preset::ScrollPanel()
@@ -2304,12 +2304,82 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         return "";
     }
 
+    // "Update ready" (the reference's 0.8.9 update strip; puffin_gaps.md
+    // D44): one line above the footer while a newer build sits on disk, with
+    // Restart (quits and opens the new build) and Later (hides it for THAT
+    // build; a newer one shows again). Single line, no icon.
+    static constexpr float kUpdateStripH = 28.0f;
+    static float update_strip_h(const AppComponent& app) {
+        return app.updatePending ? kUpdateStripH : 0.0f;
+    }
+    void render_update_strip(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app,
+                             const LayoutComponent::Rect& r) {
+        if (!app.updatePending) return;
+        const float top = r.height - kSbFooterH - kUpdateStripH;
+        auto strip = div(ctx, mk(parent, 14),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(r.width), pixels(kUpdateStripH)})
+                .with_absolute_position()
+                .with_translate(0.0f, top)
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_custom_background(theme::chrome::sidebar())
+                .with_roundness(0.0f)
+                .with_render_layer(2)
+                .with_debug_name("sb_update_ready"));
+        div(ctx, mk(strip.ent(), 1),
+            ComponentConfig{}
+                .with_label("Update ready")
+                .with_size(ComponentSize{pixels(std::max(60.0f, r.width - 132.0f)),
+                                         pixels(kUpdateStripH)})
+                .with_margin(Margin{.left = pixels(footer_status::kFooterPadX)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::accent())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_render_layer(2)
+                .with_debug_name("sb_update_ready_label"));
+        const auto text_button = [&](int id, const char* label, float w, const char* dbg) {
+            return static_cast<bool>(button(ctx, mk(strip.ent(), id),
+                ComponentConfig{}
+                    .with_label(label)
+                    .with_size(ComponentSize{pixels(w), pixels(22)})
+                    .with_margin(Margin{.right = pixels(4)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_corner_radius(4.0f)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_render_layer(2)
+                    .with_debug_name(dbg)));
+        };
+        if (text_button(2, "Restart", 62.0f, "sb_update_restart")) {
+            app.updateRestartRequested = true;
+#if !defined(AFTER_HOURS_ENABLE_E2E_TESTING)
+            if (hanabi::update_ready::relaunch_after_exit(app.updateWatch.path))
+                afterhours::graphics::request_quit();
+            else
+                app.raise_toast("Could not restart Hanabi; quit and open it again.", std::string(),
+                                AppComponent::ToastUndo::None);
+#endif
+        }
+        if (text_button(3, "Later", 50.0f, "sb_update_later")) {
+            app.updateWatch.dismissed = app.updateWatch.pending_id;
+            app.updatePending = false;
+        }
+    }
+
     void render_footer(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, const LayoutComponent::Rect& r) {
         const bool viewsOpen = app.collapsedFolders.count(kViewsKey) == 0;
         if (!footer_status::footer_fits(r.height, kSbFooterH,
                                         scroll_top_offset(viewsOpen)))
             return;
+        render_update_strip(ctx, parent, app, r);
         const float top = r.height - kSbFooterH;
         // Test-only (HANABI_FOCUS_AUDIT=1): whether afterhours will paint a
         // focus ring this frame, read off the thickness the renderer itself

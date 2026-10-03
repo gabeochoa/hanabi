@@ -321,6 +321,7 @@ capture 07_hover_tab_dark "$TABS_DARK" HANABI_TEST_HOVER=tab:t6
 #  - a hovered sidebar FOOTER button: the chip sits 2 pt inside the band-tall
 #    target on both axes (afterhours_gaps.md #111), not the whole target.
 capture 07a_hover_footer_settings_dark "$NOTABS_DARK" HANABI_TEST_HOVER=footer:sb_settings_footer
+capture 07b_update_ready_strip_dark "$NOTABS_DARK" HANABI_TEST_UPDATE_READY=1
 #  - a hovered MESSAGE revealing its Copy action. m2 is the first assistant
 #    message of t2, so the bar appears under its body.
 capture 07b_hover_msg_copy_dark "$TABS_DARK" HANABI_TEST_HOVER=msg:m2

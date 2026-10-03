@@ -124,6 +124,26 @@ struct MemorySystem : afterhours::System<AppComponent> {
                 it = app.webFolderOps.erase(it);
             }
         }
+        // A newer build on disk (D44): a stat every 30 s. HANABI_TEST_UPDATE_READY
+        // stands in for a replaced binary in scripted runs.
+        {
+            const double now = static_cast<double>(std::time(nullptr));
+            auto& w = app.updateWatch;
+            if (w.path.empty()) {
+                w.path = hanabi::update_ready::running_executable();
+                w.at_launch = hanabi::update_ready::identity_of(w.path);
+            }
+            if (app.updateCheckedAt < 0.0 || now - app.updateCheckedAt >= 30.0) {
+                app.updateCheckedAt = now;
+                hanabi::update_ready::FileId cur = hanabi::update_ready::identity_of(w.path);
+                if (const char* t = std::getenv("HANABI_TEST_UPDATE_READY"); t != nullptr && *t == '1') {
+                    cur = w.at_launch;
+                    cur.mtime_ns += 1;
+                }
+                app.updatePending = w.pending(cur);
+                if (app.updatePending) w.pending_id = cur;
+            }
+        }
         // A move between Spaces (refile).
         if (!app.requestRefileId.empty()) {
             if (app.client && app.client->supports_refile()) {
