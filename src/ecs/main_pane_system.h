@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../ui/md_list_gap.h"
 #include "../ui/audio_player.h"
 #include "../api/ask_file.h"
 #include "../api/attachments.h"
@@ -11185,8 +11186,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return widest;
     }
 
-    static float rich_body_h(const std::string& body, float textW) {
+    static float rich_body_h(const std::string& bodyIn, float textW) {
         hanabi::prof::Scope _p("text.rich_body_h");
+        // A paragraph under a list gets a paragraph's gap (ui/md_list_gap.h);
+        // render_rich_body applies the same rule, so measure and draw agree.
+        std::string gapped;
+        const std::string& body = hanabi::md::list_gapped(bodyIn, gapped);
         float h = 0.0f;
         size_t start = 0;
         while (start <= body.size()) {
@@ -12272,11 +12277,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     void render_rich_body(UIContext<InputAction>& ctx, Entity& parent,
-                          const std::string& shown, float textW,
+                          const std::string& shownIn, float textW,
                           float winTop = 0.0f, float winBot = -1.0f,
                           float bodyStartY = 0.0f,
                           const std::string& findQuery = std::string(),
                           int messageIndex = -1) {
+        std::string gapped;
+        const std::string& shown = hanabi::md::list_gapped(shownIn, gapped);
         // The find text arrives from the caller, which is the only level that
         // knows WHICH message this body belongs to — and therefore whether an
         // operator has excluded it from the search.
