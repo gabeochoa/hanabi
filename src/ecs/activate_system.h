@@ -16,7 +16,7 @@ inline hanabi::activate::Surfaces activate_surfaces(const AppComponent& app,
     out.rename = app.renameOpen;
     out.viewer = !app.viewerImagePath.empty();
     out.recordingShortcut = app.shortcutRecording >= 0;
-    out.shortcuts = app.showShortcuts || app.showBugReport ||
+    out.shortcuts = app.showShortcuts || app.showBugReport || app.markupOpen ||
                     app.companion.open;  // all three are sheets
     out.settings = app.showSettings;
     out.auth = app.showAuth;

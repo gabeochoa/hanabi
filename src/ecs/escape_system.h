@@ -58,6 +58,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseShortcuts;
         else if (app->showBugReport)
             app->escape = EscapeIntent::CloseBugReport;
+        else if (app->markupOpen)
+            app->escape = EscapeIntent::CloseMarkup;
         else if (app->companion.open)
             app->escape = EscapeIntent::CloseCompanion;
         else if (app->showSettings)

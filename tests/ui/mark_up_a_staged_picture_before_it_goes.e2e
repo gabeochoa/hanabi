@@ -1,0 +1,51 @@
+# Mark up a staged picture before it goes (Knots kt-cimg; the reference's
+# markup canvas): clicking the staged picture's thumbnail opens the sheet;
+# a drag draws an arrow, Box switches the tool, Undo drops the newest mark;
+# Done burns the marks into a new PNG at full resolution and the staged file
+# becomes it ("sample-marked.png"). A click is not a mark.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ATTACH_DEMO=tests/fixtures/attachments/sample.png
+
+require_thread t2
+expect_text "sample.png"
+click_ui attach_thumb_0
+wait_frames 10
+expect_text "Mark up sample.png"
+expect_text "Drag on the picture to draw."
+
+# A click alone is not a mark.
+mouse_move 500 330
+mouse_down 500 330
+wait_frames 2
+mouse_up 500 330
+wait_frames 4
+expect_text "Drag on the picture to draw."
+
+# An arrow, then a box, then undo the box.
+mouse_move 460 300
+mouse_down 460 300
+wait_frames 2
+mouse_move 560 360
+wait_frames 2
+mouse_up 560 360
+wait_frames 4
+expect_text "1 mark — burned into the picture when you press Done."
+click_ui markup_tool_box
+wait_frames 2
+mouse_move 430 280
+mouse_down 430 280
+wait_frames 2
+mouse_move 520 340
+wait_frames 2
+mouse_up 520 340
+wait_frames 4
+expect_text "2 marks — burned into the picture when you press Done."
+click_ui markup_undo
+wait_frames 4
+expect_text "1 mark — burned into the picture when you press Done."
+
+click_ui markup_done
+wait_frames 10
+expect_no_text "Mark up sample.png"
+expect_text "sample-marked.png"

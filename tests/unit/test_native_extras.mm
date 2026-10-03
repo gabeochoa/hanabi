@@ -1,4 +1,5 @@
 #include <branding.h>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -6,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#import <AppKit/AppKit.h>
 #include "../../src/native_extras.h"
 #include "../../src/global_hotkeys.h"
 
@@ -94,7 +96,35 @@ static void test_a_background_app_registers_nothing_and_catches_up_on_focus() {
     CHECK(native_hotkey_test_registered_mask() == 0u);
 }
 
+// The markup flatten (Knots kt-cimg): the marks are burned in at full pixel
+// resolution, red ink where the stroke runs, the picture untouched elsewhere.
+static void test_markup_is_burned_into_the_pixels() {
+    const char* src = "tests/fixtures/attachments/sample.png";
+    const char* out = "/tmp/hanabi_test_markup_flatten.png";
+    std::filesystem::remove(out);
+    const float box[5] = {1.0f, 8.0f, 8.0f, 56.0f, 56.0f};
+    CHECK(!native_flatten_markup(src, box, 0, out));
+    CHECK(!native_flatten_markup("/tmp/does-not-exist.png", box, 1, out));
+    CHECK(native_flatten_markup(src, box, 1, out));
+    @autoreleasepool {
+        NSBitmapImageRep* before = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:@(src)]];
+        NSBitmapImageRep* after = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:@(out)]];
+        CHECK(after != nil && after.pixelsWide == 64 && after.pixelsHigh == 64);
+        if (after == nil || before == nil) return;
+        NSColor* edge = [[after colorAtX:8 y:32] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        CHECK(edge.redComponent > 0.75 && edge.greenComponent < 0.35 && edge.blueComponent < 0.35);
+        NSColor* mid0 = [[before colorAtX:32 y:32] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        NSColor* mid1 = [[after colorAtX:32 y:32] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        CHECK(std::abs(mid0.redComponent - mid1.redComponent) < 0.02 &&
+              std::abs(mid0.greenComponent - mid1.greenComponent) < 0.02);
+        // Top-left origin: the box's TOP edge is near row 8 counted from the top.
+        NSColor* top = [[after colorAtX:32 y:8] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        CHECK(top.redComponent > 0.75 && top.greenComponent < 0.35);
+    }
+}
+
 int main() {
+    test_markup_is_burned_into_the_pixels();
     char thread[128] = {};
     CHECK(!native_take_open_thread(thread, sizeof(thread)));
     native_simulate_notification_click("thread/from-notification");

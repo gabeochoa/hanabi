@@ -90,6 +90,7 @@
 #include "ecs/memory_system.h"
 #include "ecs/knots_system.h"
 #include "ecs/bug_report_system.h"
+#include "ecs/markup_system.h"
 #include "ecs/companion_system.h"
 #include "ecs/artifact_viewer_system.h"
 #include "ecs/capture_marker_system.h"
@@ -491,6 +492,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<ecs::SettingsSystem>());
     sm.register_update_system(std::make_unique<ecs::ShortcutsSystem>());
     sm.register_update_system(std::make_unique<ecs::BugReportSystem>());
+    sm.register_update_system(std::make_unique<ecs::MarkupSystem>());
     sm.register_update_system(std::make_unique<ecs::CompanionSystem>());
     sm.register_update_system(std::make_unique<ecs::NewThreadSystem>());
     sm.register_update_system(std::make_unique<ecs::PaletteSystem>());

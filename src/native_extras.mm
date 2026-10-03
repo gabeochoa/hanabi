@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "api/attachments.h"
+#include "ui/image_markup.h"
 #include "native_e2e_guard.h"
 #include "native_extras.h"
 
@@ -1215,6 +1216,80 @@ bool native_pick_file(const char* prompt, char* out, int cap) {
         std::strncpy(out, path, static_cast<size_t>(cap - 1));
         out[cap - 1] = '\0';
         return true;
+    }
+}
+
+static void markup_paint(CGContextRef cg, int tool, CGPoint s, CGPoint e, float width,
+                         const float rgba[4]) {
+    CGContextSetRGBStrokeColor(cg, rgba[0], rgba[1], rgba[2], rgba[3]);
+    CGContextSetRGBFillColor(cg, rgba[0], rgba[1], rgba[2], rgba[3]);
+    CGContextSetLineWidth(cg, width);
+    if (tool == 1) {
+        const auto r = hanabi::markup::box({(float)s.x, (float)s.y}, {(float)e.x, (float)e.y});
+        CGContextSetLineJoin(cg, kCGLineJoinRound);
+        CGContextStrokeRect(cg, CGRectMake(r.x, r.y, r.w, r.h));
+        return;
+    }
+    const auto head = hanabi::markup::arrow_head({(float)s.x, (float)s.y}, {(float)e.x, (float)e.y}, width);
+    CGContextSetLineCap(cg, kCGLineCapRound);
+    CGContextMoveToPoint(cg, s.x, s.y);
+    // The shaft stops inside the head, so a round cap never pokes out of the tip.
+    if (head.size() == 3)
+        CGContextAddLineToPoint(cg, (head[1].x + head[2].x) / 2, (head[1].y + head[2].y) / 2);
+    else
+        CGContextAddLineToPoint(cg, e.x, e.y);
+    CGContextStrokePath(cg);
+    if (head.size() != 3) return;
+    CGContextMoveToPoint(cg, head[0].x, head[0].y);
+    CGContextAddLineToPoint(cg, head[1].x, head[1].y);
+    CGContextAddLineToPoint(cg, head[2].x, head[2].y);
+    CGContextClosePath(cg);
+    CGContextFillPath(cg);
+}
+
+bool native_flatten_markup(const char* src, const float* strokes, int count, const char* out) {
+    if (src == nullptr || out == nullptr || strokes == nullptr || count <= 0) return false;
+    @autoreleasepool {
+        NSImage* image = [[NSImage alloc] initWithContentsOfFile:[NSString stringWithUTF8String:src]];
+        if (image == nil) return false;
+        // Real pixels, not points: a 2x screenshot's NSImage reports half.
+        NSInteger w = 0, h = 0;
+        for (NSImageRep* r in image.representations)
+            if (r.pixelsWide * r.pixelsHigh > w * h) {
+                w = r.pixelsWide;
+                h = r.pixelsHigh;
+            }
+        if (w <= 0 || h <= 0) {
+            w = (NSInteger)image.size.width;
+            h = (NSInteger)image.size.height;
+        }
+        if (w <= 0 || h <= 0) return false;
+        NSBitmapImageRep* rep = [[NSBitmapImageRep alloc]
+            initWithBitmapDataPlanes:nullptr pixelsWide:w pixelsHigh:h bitsPerSample:8
+                     samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace
+                         bytesPerRow:0 bitsPerPixel:0];
+        NSGraphicsContext* ctx = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+        if (rep == nil || ctx == nil) return false;
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:ctx];
+        [image drawInRect:NSMakeRect(0, 0, w, h)];
+        CGContextRef cg = ctx.CGContext;
+        CGContextSaveGState(cg);
+        CGContextTranslateCTM(cg, 0, h);  // strokes are top-left origin
+        CGContextScaleCTM(cg, 1, -1);
+        const float width = hanabi::markup::stroke_width((float)w, (float)h);
+        for (int i = 0; i < count; ++i) {
+            const float* k = strokes + i * 5;
+            const CGPoint s = CGPointMake(k[1], k[2]), e = CGPointMake(k[3], k[4]);
+            markup_paint(cg, (int)k[0], s, e, width * hanabi::markup::kCasingRatio,
+                         hanabi::markup::kCasing);
+            markup_paint(cg, (int)k[0], s, e, width, hanabi::markup::kInk);
+        }
+        CGContextRestoreGState(cg);
+        [NSGraphicsContext restoreGraphicsState];
+        NSData* png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+        if (png == nil) return false;
+        return [png writeToFile:[NSString stringWithUTF8String:out] atomically:YES];
     }
 }
 

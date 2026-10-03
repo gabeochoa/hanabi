@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <afterhours/src/core/base_component.h>
+#include "../ui/image_markup.h"
 #include "tab_find_state.h"
 #include "../api/auth.h"
 #include "../api/session_catalog.h"
@@ -83,6 +84,7 @@ enum class EscapeIntent {
     CancelShortcutRecording,
     CloseShortcuts,
     CloseBugReport,
+    CloseMarkup,
     CloseCompanion,
     CloseSettings,
     CloseFind,
@@ -1930,6 +1932,30 @@ struct AppComponent : public afterhours::BaseComponent {
     // Help > Report a Bug (bug_report_system.h): the sheet, its text, which
     // board, the window capture taken as it opened, and the filing.
     bool showBugReport = false;
+    // The markup sheet over a staged picture (ecs/markup_system.h): which
+    // staged attachment (composer target, index, and its path when opened --
+    // a different path there means it changed and the sheet closes), the
+    // marks so far, the tool, and the drag in flight (canvas points).
+    bool markupOpen = false;
+    api::OutgoingTarget markupTarget;
+    std::size_t markupIndex = 0;
+    std::string markupPath;
+    hanabi::markup::Markup markup;
+    hanabi::markup::Tool markupTool = hanabi::markup::Tool::Arrow;
+    bool markupDragging = false;
+    hanabi::markup::Point markupDragStart, markupDragNow;
+    std::string markupError;
+    int markupSerial = 0;
+    void open_markup(const api::OutgoingTarget& t, std::size_t index, const std::string& path) {
+        markupOpen = true;
+        markupTarget = t;
+        markupIndex = index;
+        markupPath = path;
+        markup = {};
+        markupTool = hanabi::markup::Tool::Arrow;
+        markupDragging = false;
+        markupError.clear();
+    }
     // The Companion (companion_system.h): a diff or a task, read in-app.
     CompanionState companion;
     std::string bugReportText;
@@ -2436,7 +2462,7 @@ inline bool overlay_up(const AppComponent& app) {
     // Settings is a click, the same as from any other tab -- and keyboard
     // owners behind it are not covering anything the reader cannot see.
     return app.renameOpen || app.showShortcuts || app.showAuth ||
-           app.paletteOpen || !app.viewerImagePath.empty() || app.showBugReport ||
+           app.paletteOpen || !app.viewerImagePath.empty() || app.showBugReport || app.markupOpen ||
            app.companion.open;
 }
 

@@ -6987,9 +6987,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // still says which file this is.
             const std::string path = att.path;
             const bool image = att.is_image();
-            div(ctx, mk(chip.ent(), 1),
+            auto thumb = button(ctx, mk(chip.ent(), 1),
                 ComponentConfig{}
                     .with_size(ComponentSize{pixels(22), pixels(22)})
+                    .with_cursor(image ? afterhours::ui::CursorType::Pointer
+                                       : afterhours::ui::CursorType::Default)
                     .with_margin(Margin{.right = pixels(6)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
@@ -7020,6 +7022,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             {r.x + 15.0f, r.y + 12.0f}, 1.0f, ink);
                     })
                     .with_debug_name("attach_thumb_" + idx));
+            // Clicking a staged picture opens the markup sheet over it (the
+            // reference's click-the-card-to-mark-up; Knots kt-cimg).
+            if (thumb && image) app.open_markup(target, i, att.path);
 
             div(ctx, mk(chip.ent(), 2),
                 ComponentConfig{}

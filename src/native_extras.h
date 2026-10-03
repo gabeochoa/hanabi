@@ -213,6 +213,12 @@ bool native_pick_directory(const char* prompt, char* out, int cap);
 // One FILE, for an agent's file question (api/ask_file.h): the same modal
 // contract as native_pick_directory. Never from the headless path.
 bool native_pick_file(const char* prompt, char* out, int cap);
+// Burn markup strokes (ui/image_markup.h) into the picture at `src` and write
+// the result as a PNG at `out` (Knots kt-cimg). `strokes` is 5 floats per
+// stroke -- tool (0 arrow, 1 box), start x, y, end x, y -- in the image's own
+// pixels, origin top-left. At full pixel resolution. False when the picture
+// cannot be read or the PNG cannot be written.
+bool native_flatten_markup(const char* src, const float* strokes, int count, const char* out);
 // ---- 4b. Open a URL in the user's browser ----------------------------------
 
 // Hand `url` (UTF-8, http/https) to the system's default handler. Used by the
