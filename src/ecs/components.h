@@ -732,6 +732,32 @@ struct AppComponent : public afterhours::BaseComponent {
     void queue_archive_write(const std::string& id, bool archived) {
         overlayWriteQueue.emplace_back(false, id, archived);
     }
+    // The viewer's web-app folders (api/folders_wire.h): the carve, read on
+    // launch and every ten minutes, and stamped on the catalogue as
+    // `web_folder`. Writes (create / rename / delete / file) are queued as
+    // WebFolderOps and carried off the frame; each one re-reads the carve
+    // when it lands, so the sidebar shows the server's answer.
+    api::folders::Carve webFolders;
+    double webFoldersAt = -1.0;
+    std::future<api::Result<api::folders::Carve>> webFoldersFuture;
+    struct WebFolderOp {
+        enum class Kind { Create, Rename, Delete, File } kind = Kind::File;
+        std::string id;       // folder id (Rename/Delete/File target; "" = out)
+        std::string name;     // Create/Rename
+        std::string session;  // File, or Create-then-file
+    };
+    std::vector<WebFolderOp> webFolderQueue;
+    struct WebFolderInFlight {
+        WebFolderOp op;
+        std::future<api::Result<std::string>> future;  // "" or the server's refusal
+    };
+    std::vector<WebFolderInFlight> webFolderOps;
+    void apply_web_folders(std::vector<api::SessionSummary>& rows) const {
+        for (auto& s : rows) {
+            const auto it = webFolders.membership.find(s.id);
+            s.web_folder = it == webFolders.membership.end() ? std::string() : "folder:" + it->second;
+        }
+    }
     // A thread being moved between Spaces (row menu > Move to Space, the
     // reference's refile): the request, and the move in flight. On success
     // the local filing moves at once; the next index walk confirms it.
@@ -1942,6 +1968,7 @@ struct AppComponent : public afterhours::BaseComponent {
         api::catalog::keep_one_row_per_id(replacement);
         carry_held_clocks(replacement, sessions);
         apply_space_filing(replacement);
+        apply_web_folders(replacement);
         note_titles(replacement);
         sessions = std::move(replacement);
         mark_session_catalog_changed();

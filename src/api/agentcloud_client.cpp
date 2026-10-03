@@ -2861,6 +2861,36 @@ Result<std::string> AgentcloudClient::rename_session(
     }
 }
 
+Result<Client::WebReply> AgentcloudClient::web_call(const std::string& method,
+                                                    const std::string& path,
+                                                    const std::string& body) {
+    if (!supports_inbox_state())
+        return Result<WebReply>::failure("the web app is not addressable from this orchestrator");
+    const auto& cfg = web_auth_.config();
+    std::string auth_error;
+    const auto token = web_auth_.get(&auth_error);
+    if (token.empty()) return Result<WebReply>::failure(auth_error);
+    httplib::Client client(("http://" + cfg.host).c_str());
+    if (!cfg.proxy_host.empty() && cfg.proxy_port > 0)
+        client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
+    client.set_follow_location(false);
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(20, 0);
+    const httplib::Headers headers{
+        {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
+        {inbox_state::kCsrfHeader, inbox_state::kCsrfHeaderValue},
+        {"Accept", "application/json"}};
+    httplib::Result res;
+    if (method == "GET") res = client.Get(path, headers);
+    else if (method == "POST") res = client.Post(path, headers, body, "application/json");
+    else if (method == "PATCH") res = client.Patch(path, headers, body, "application/json");
+    else if (method == "DELETE") res = client.Delete(path, headers);
+    else return Result<WebReply>::failure("unsupported method " + method);
+    if (!res) return Result<WebReply>::failure("the web app was unreachable: " + httplib::to_string(res.error()));
+    if (res->status == 401 || res->status == 403) web_auth_.invalidate();
+    return Result<WebReply>::success(WebReply{res->status, res->body});
+}
+
 // The web sidebar's pin: POST /api/session-overlay {sessionId, isPinned},
 // on the same origin, cookie and CSRF header as the inbox state route.
 // Never the Inbox star (inbox_session_state.starred_at): that is the Inbox's

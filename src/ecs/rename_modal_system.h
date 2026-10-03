@@ -74,7 +74,11 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
             ComponentConfig{}
                 .with_label(saving_view(*app)    ? "Save this filter as a view"
                             : renaming_view(*app) ? "Rename this view"
-                                                  : "Rename session")
+                            : model::prompt_arg(app->renameSessionId, model::kNewFolderPrefix)
+                                ? "New folder"
+                            : model::prompt_arg(app->renameSessionId, model::kRenameFolderPrefix)
+                                ? "Rename this folder"
+                                : "Rename session")
                 .with_size(ComponentSize{percent(1.0f),
                                          pixels(hanabi::surface::kTitleH)})
                 .with_transparent_bg()
@@ -203,7 +207,7 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
 
         auto confirmBtn = button(ctx, mk(row.ent(), 3),
             hanabi::surface::action_button(92.0f, true, 13)
-                .with_label(saving_view(app) ? "Save" : "Rename")
+                .with_label(saving_view(app) || model::prompt_arg(app.renameSessionId, model::kNewFolderPrefix) ? "Save" : "Rename")
                 .with_font_size(FontSize::Medium)
                 .with_justify_content(JustifyContent::Center)
                 .with_debug_name("rename_confirm"));
@@ -227,6 +231,28 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
     static void confirm(AppComponent& app) {
         if (app.renamePending) return;
         app.renameError.clear();
+        // A web-app folder's name (new, or renamed): checked here (trimmed,
+        // 1-100) so the field says so before a round trip; the server's own
+        // refusal ("Folder name already exists") arrives as a toast.
+        const auto newFor = model::prompt_arg(app.renameSessionId, model::kNewFolderPrefix);
+        const auto renameOf = model::prompt_arg(app.renameSessionId, model::kRenameFolderPrefix);
+        if (newFor || renameOf) {
+            const auto check = api::folders::validate_name(app.renameDraft);
+            if (!check.error.empty()) {
+                app.renameError = check.error;
+                ++app.renameRefusals;
+                return;
+            }
+            AppComponent::WebFolderOp op;
+            op.kind = newFor ? AppComponent::WebFolderOp::Kind::Create
+                             : AppComponent::WebFolderOp::Kind::Rename;
+            op.name = check.name;
+            if (newFor) op.session = std::string(*newFor);
+            else op.id = std::string(*renameOf);
+            app.webFolderQueue.push_back(op);
+            close(app);
+            return;
+        }
         if (const auto viewId = model::renaming_view(app.renameSessionId)) {
             // Local and immediate, like Save: the store validates (trimmed,
             // non-empty, not a built-in, actually different) and a refusal

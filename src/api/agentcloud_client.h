@@ -155,6 +155,9 @@ class AgentcloudClient : public Client {
     Result<bool> set_pinned(const std::string& session_id, bool pinned) override;
     Result<bool> set_archived(const std::string& session_id, bool archived) override;
     bool supports_refile() const override { return supports_inbox_state(); }
+    bool supports_web_routes() const override { return supports_inbox_state(); }
+    Result<WebReply> web_call(const std::string& method, const std::string& path,
+                              const std::string& body) override;
     Result<bool> refile_session(const std::string& session_id,
                                 const std::string& space_id) override;
     Result<nlohmann::json> graphql(const std::string& body) override;

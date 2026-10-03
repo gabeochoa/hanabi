@@ -81,4 +81,16 @@ inline constexpr std::string_view kRenameViewPrefix = "hanabi:view/rename/";
     return prompt.substr(kRenameViewPrefix.size());
 }
 
+// ... and two for the web-app folders (api/folders_wire.h): a NEW folder's
+// name, with the thread to file into it once it exists, and a folder's new
+// name, with its id.
+inline constexpr std::string_view kNewFolderPrefix = "hanabi:folder/new/";
+inline constexpr std::string_view kRenameFolderPrefix = "hanabi:folder/rename/";
+[[nodiscard]] inline std::optional<std::string_view> prompt_arg(std::string_view prompt,
+                                                                std::string_view prefix) {
+    if (prompt.size() < prefix.size() || prompt.substr(0, prefix.size()) != prefix)
+        return std::nullopt;
+    return prompt.substr(prefix.size());
+}
+
 }  // namespace ecs::model

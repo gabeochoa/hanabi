@@ -477,6 +477,10 @@ struct SessionSummary {
     // Set on the catalogue by AppComponent::replace_sessions, never by the
     // list row (the row does not carry it). The sidebar groups by it first.
     std::string space_group;
+    // "folder:<id>" when the thread is filed in one of the viewer's web-app
+    // folders (api/folders_wire.h); "" otherwise. Stamped by the app, like
+    // space_group.
+    std::string web_folder;
 
     // --- Brakes the SERVER holds ------------------------------------------
     //

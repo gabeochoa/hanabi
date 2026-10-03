@@ -1,0 +1,55 @@
+# The viewer's web-app folders (the reference's SessionFolders; the other half
+# of the feed's kt-im8t): under Group threads by > Folder the sidebar sections
+# by them, in the web app's order; a thread's row menu files it into one, out
+# of one, or into a new one; a folder's header renames or deletes it. Every
+# write goes to the web app's routes and the sidebar re-reads its answer. The
+# mock seeds two folders, with t2 filed in the first.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","session_grouping":"folder"}
+# env: HANABI_MOCK_WEB_FOLDERS=1
+
+wait_frames 30
+expect_text "LAUNCH WORK"
+expect_text "SOMEDAY"
+
+# File t6 into Someday.
+right_click_text "SKU backfill"
+wait_frames 8
+click_ui row_menu_move_folder
+wait_frames 6
+click_ui row_menu_move_folder_1
+wait_frames 30
+expect_overlay_write file t6 f2
+
+# A new folder, named in the prompt, with t8 filed into it.
+right_click_text "triaging row 212"
+wait_frames 8
+click_ui row_menu_move_folder
+wait_frames 6
+click_ui row_menu_move_folder_new
+wait_frames 8
+expect_text "New folder"
+type "Reading"
+key ENTER
+wait_frames 30
+expect_overlay_write folder create Reading
+expect_overlay_write file t8 f100
+expect_text "READING"
+
+# Rename Launch work from its header, then delete it.
+right_click_text "LAUNCH WORK"
+wait_frames 8
+click_ui folder_menu_rename
+wait_frames 8
+expect_text "Rename this folder"
+key CMD+A
+type "Shipping"
+key ENTER
+wait_frames 30
+expect_text "SHIPPING"
+right_click_text "SHIPPING"
+wait_frames 8
+click_ui folder_menu_delete
+wait_frames 30
+expect_overlay_write folder delete f1
+expect_no_text "SHIPPING"

@@ -26,6 +26,7 @@
 #include "memory_wire.h"
 #include "spaces_wire.h"
 #include "companion_wire.h"
+#include "folders_wire.h"
 #include "types.h"
 
 namespace api {
@@ -907,6 +908,22 @@ class Client {
         (void)session_id;
         (void)archived;
         return Result<bool>::failure("This backend keeps archives on this Mac only.");
+    }
+
+    // One call to the web app's own JSON routes (the folder routes in
+    // api/folders_wire.h): the HTTP status and body, or why there was no
+    // answer at all. Same origin, cookie and CSRF header as the inbox route.
+    struct WebReply {
+        int status = 0;
+        std::string body;
+    };
+    virtual bool supports_web_routes() const { return false; }
+    virtual Result<WebReply> web_call(const std::string& method, const std::string& path,
+                                      const std::string& body) {
+        (void)method;
+        (void)path;
+        (void)body;
+        return Result<WebReply>::failure("This backend has no web app.");
     }
 
     // Move a thread into a Metamate Space, or out of every Space (empty

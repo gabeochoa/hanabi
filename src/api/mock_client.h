@@ -143,6 +143,82 @@ class MockClient : public Client {
         return Result<bool>::success(archived);
     }
 
+    // The web app's folder routes, from an in-memory store seeded with two
+    // folders and one filed thread under HANABI_MOCK_WEB_FOLDERS=1 (empty
+    // otherwise). HANABI_MOCK_OVERLAY_FAIL=folder refuses every write with
+    // the server's own sentence.
+    bool supports_web_routes() const override { return true; }
+    struct MockFolders {
+        std::vector<folders::Folder> list;
+        std::unordered_map<std::string, std::string> filed;
+        int next = 100;
+        bool seeded = false;
+    };
+    static MockFolders& mock_folders() {
+        static MockFolders m;
+        return m;
+    }
+    Result<WebReply> web_call(const std::string& method, const std::string& path,
+                              const std::string& body) override {
+        using nlohmann::json;
+        std::lock_guard<std::mutex> lk(overlay_mu());
+        MockFolders& m = mock_folders();
+        if (!m.seeded) {
+            m.seeded = true;
+            if (const char* v = std::getenv("HANABI_MOCK_WEB_FOLDERS"); v != nullptr && *v == '1') {
+                m.list = {{"f1", "Launch work", 0}, {"f2", "Someday", 1}};
+                m.filed["t2"] = "f1";
+            }
+        }
+        const char* f = std::getenv("HANABI_MOCK_OVERLAY_FAIL");
+        const bool refuse = f != nullptr && std::string(f) == "folder" && method != "GET";
+        if (refuse) return Result<WebReply>::success({409, R"({"error":"Folder name already exists"})"});
+        const std::string folders = folders::kFoldersPath;
+        if (method == "GET" && path == folders) {
+            json rows = json::array();
+            for (const auto& x : m.list) rows.push_back({{"id", x.id}, {"name", x.name}, {"position", x.position}});
+            return Result<WebReply>::success({200, json{{"folders", rows}}.dump()});
+        }
+        if (method == "GET" && path == folders::kOverlayPath) {
+            json rows = json::array();
+            for (const auto& [sid, fid] : m.filed) rows.push_back({{"sessionId", sid}, {"folderId", fid}});
+            return Result<WebReply>::success({200, json{{"overlays", rows}}.dump()});
+        }
+        const json b = json::parse(body.empty() ? "{}" : body, nullptr, false);
+        if (method == "POST" && path == folders) {
+            const std::string name = b.is_object() ? b.value("name", std::string()) : "";
+            folders::Folder made{"f" + std::to_string(m.next++), name, static_cast<int>(m.list.size())};
+            m.list.push_back(made);
+            overlay_writes().push_back("folder create " + name);  // one-word names in scripts
+            return Result<WebReply>::success(
+                {200, json{{"folder", {{"id", made.id}, {"name", made.name}, {"position", made.position}}}}.dump()});
+        }
+        if (path.rfind(folders + "/", 0) == 0) {
+            const std::string id = path.substr(folders.size() + 1);
+            if (method == "PATCH") {
+                for (auto& x : m.list)
+                    if (x.id == id) x.name = b.value("name", x.name);
+                overlay_writes().push_back("folder rename " + id + " " + b.value("name", std::string()));
+                return Result<WebReply>::success({200, "{}"});
+            }
+            if (method == "DELETE") {
+                std::erase_if(m.list, [&](const folders::Folder& x) { return x.id == id; });
+                std::erase_if(m.filed, [&](const auto& kv) { return kv.second == id; });
+                overlay_writes().push_back("folder delete " + id);
+                return Result<WebReply>::success({200, "{}"});
+            }
+        }
+        if (method == "POST" && path == folders::kOverlayPath && b.is_object() && b.contains("folderId")) {
+            const std::string sid = b.value("sessionId", std::string());
+            if (b["folderId"].is_null()) m.filed.erase(sid);
+            else m.filed[sid] = b["folderId"].get<std::string>();
+            overlay_writes().push_back("file " + sid + " " +
+                                       (b["folderId"].is_null() ? std::string("none") : b["folderId"].get<std::string>()));
+            return Result<WebReply>::success({200, "{}"});
+        }
+        return Result<WebReply>::success({404, R"({"error":"not found"})"});
+    }
+
     // Refile, recorded as "refile <sid> <space|personal>" in overlay_writes;
     // HANABI_MOCK_OVERLAY_FAIL=refile refuses it.
     bool supports_refile() const override { return true; }
@@ -2130,7 +2206,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

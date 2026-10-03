@@ -1,0 +1,18 @@
+# A folder write the web app refuses says so in the server's own words (its
+# {"error": ...} sentence -- "Folder name already exists" is worth more than
+# anything the client could invent), and the sidebar keeps the server's state.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","session_grouping":"folder"}
+# env: HANABI_MOCK_WEB_FOLDERS=1 HANABI_MOCK_OVERLAY_FAIL=folder
+
+wait_frames 30
+right_click_text "SKU backfill"
+wait_frames 8
+click_ui row_menu_move_folder
+wait_frames 6
+click_ui row_menu_move_folder_new
+wait_frames 8
+type "Launch"
+key ENTER
+wait_frames 30
+expect_text "Folder name already exists"

@@ -113,7 +113,9 @@ inline const std::string& section_of(const api::SessionSummary& s,
                                      Grouping g = Grouping::Space) {
     static const std::string kNone;
     switch (g) {
-        case Grouping::Folder: return s.folder;
+        // Folder: the viewer's web-app folders (the reference's "Folder (web
+        // app)"); workspace folders still section under Space as before.
+        case Grouping::Folder: return s.web_folder;
         case Grouping::Status:
         case Grouping::Flat: return kNone;
         case Grouping::Space: break;
@@ -122,6 +124,7 @@ inline const std::string& section_of(const api::SessionSummary& s,
 }
 
 inline bool is_space_section(const std::string& key) { return key.rfind("space:", 0) == 0; }
+inline bool is_web_folder_section(const std::string& key) { return key.rfind("folder:", 0) == 0; }
 
 // Kept deliberately small and conservative so it cannot over-match a real
 // conversation title: a session is "automated" if its title starts with

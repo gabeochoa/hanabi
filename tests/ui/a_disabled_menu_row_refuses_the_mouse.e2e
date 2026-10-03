@@ -7,7 +7,7 @@ wait_frames 8
 
 expect_text "Rename…"
 assert_ui row_menu_rename x=124 w=176 h=36
-assert_ui row_menu h=666
+assert_ui row_menu h=702
 
 click_ui row_menu_rename
 wait_frames 10

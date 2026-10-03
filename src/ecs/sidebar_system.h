@@ -379,6 +379,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // then Metamate's rank, then name); then workspace folders by
             // name.
             const auto spaceRank = [app](const std::string& key) -> int {
+                if (model::is_web_folder_section(key)) {
+                    // Web folders in the web app's own order.
+                    const std::string id = key.substr(7);
+                    for (std::size_t i = 0; i < app->webFolders.folders.size(); ++i)
+                        if (app->webFolders.folders[i].id == id) return static_cast<int>(i);
+                    return static_cast<int>(app->webFolders.folders.size());
+                }
                 if (!model::is_space_section(key)) return -1;
                 const std::string id = key.substr(6);
                 for (std::size_t i = 0; i < app->spaces.size(); ++i)
@@ -805,6 +812,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 app.rowMenuNativeScope = want;
             }
         }
+        if (app.rowMenuViewId.rfind(kFolderMenuPrefix, 0) == 0) {
+            render_folder_menu(ctx, uiRoot, app);
+            return;
+        }
         if (!app.rowMenuViewId.empty()) {
             render_view_menu(ctx, uiRoot, app);
             return;
@@ -838,6 +849,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             HaltSubtree,
             Resume,
             MoveSpace,
+            MoveFolder,
             Divider,  // a group hairline; never activates
         };
         std::vector<Action> actions;
@@ -950,6 +962,40 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             }
             items.push_back(std::move(m));
             actions.push_back(Action::MoveSpace);
+        }
+        // Move to Folder: the viewer's web-app folders, a new one, and out of
+        // its folder when it is in one.
+        if (app.client && app.client->supports_web_routes()) {
+            hanabi::surface::MenuItem m{"Move to Folder", "row_menu_move_folder", false, false};
+            m.action_id = "move_folder";
+            const std::string current = target->web_folder.rfind("folder:", 0) == 0
+                                            ? target->web_folder.substr(7)
+                                            : std::string();
+            int k = 0;
+            for (const auto& f : app.webFolders.folders) {
+                hanabi::surface::MenuLeaf leaf;
+                leaf.label = f.name;
+                leaf.debug_name = "row_menu_move_folder_" + std::to_string(k++);
+                leaf.action_id = "folder:" + f.id;
+                leaf.disabled = f.id == current;
+                m.children.push_back(std::move(leaf));
+            }
+            if (!app.webFolders.folders.empty())
+                m.children.push_back(hanabi::surface::MenuLeaf::divider("row_menu_move_folder_div"));
+            hanabi::surface::MenuLeaf made;
+            made.label = "New Folder\xe2\x80\xa6";
+            made.debug_name = "row_menu_move_folder_new";
+            made.action_id = "folder:new";
+            m.children.push_back(std::move(made));
+            if (!current.empty()) {
+                hanabi::surface::MenuLeaf out;
+                out.label = "Out of its Folder";
+                out.debug_name = "row_menu_move_folder_out";
+                out.action_id = "folder:none";
+                m.children.push_back(std::move(out));
+            }
+            items.push_back(std::move(m));
+            actions.push_back(Action::MoveFolder);
         }
         divider("row_menu_divider_mute");
         const bool archivedNow = model::is_archived(*target);
@@ -1104,6 +1150,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 case Action::ResetOrder:
                     app.requestResetRowOrder = orderKey;
                     break;
+                case Action::MoveFolder:
+                    if (pickedAction == "folder:new") {
+                        app.renameOpen = true;
+                        app.renameSessionId = std::string(model::kNewFolderPrefix) + targetId;
+                        app.renameDraft.clear();
+                        app.renameError.clear();
+                    } else if (pickedAction.rfind("folder:", 0) == 0) {
+                        const std::string fid = pickedAction.substr(7);
+                        AppComponent::WebFolderOp op;
+                        op.kind = AppComponent::WebFolderOp::Kind::File;
+                        op.session = targetId;
+                        op.id = fid == "none" ? std::string() : fid;
+                        app.webFolderQueue.push_back(op);
+                    }
+                    break;
                 case Action::MoveSpace:
                     if (pickedAction.rfind("space:", 0) == 0) {
                         const std::string sp = pickedAction.substr(6);
@@ -1139,6 +1200,82 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
     static hanabi::surface::MenuKeys menu_keys_for(AppComponent& app) {
         return take_menu_keys(app);
+    }
+
+    static constexpr const char* kFolderMenuPrefix = "\x1f" "folder:";
+
+    // A web-app folder header's menu: Rename... and Delete Folder (the
+    // threads are not deleted; the server nulls their placement and they fall
+    // back to Recents).
+    void render_folder_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {
+        const std::string folderId = app.rowMenuViewId.substr(std::string(kFolderMenuPrefix).size());
+        const api::folders::Folder* target = app.webFolders.find(folderId);
+        if (target == nullptr) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, -1);
+            app.close_row_menu();
+            return;
+        }
+        std::vector<hanabi::surface::MenuItem> items;
+        {
+            hanabi::surface::MenuItem r{"Rename Folder\xe2\x80\xa6", "folder_menu_rename", false, false};
+            r.action_id = "rename";
+            items.push_back(std::move(r));
+            hanabi::surface::MenuItem d{"Delete Folder", "folder_menu_delete", true, false};
+            d.action_id = "delete";
+            items.push_back(std::move(d));
+        }
+        hanabi::surface::MenuMetrics metrics;
+        metrics.width = hanabi::surface::kContextMenuW;
+        const std::string scope = "folder:" + folderId;
+        const std::string folderName = target->name;
+        hanabi::surface::MenuResult result;
+        std::string pickedAction;
+        if (!app.rowMenuNativeTried) {
+            app.rowMenuNativeTried = true;
+            app.rowMenuFocusBefore = static_cast<long long>(ctx.focus_id);
+            hanabi::surface::native_menu_open(app.nativeRowMenu, scope, "folder_menu", items,
+                                              app.rowMenuX, app.rowMenuY,
+                                              static_cast<long long>(ctx.focus_id));
+        }
+        if (app.nativeRowMenu.open()) {
+            (void)menu_keys_for(app);
+            result = hanabi::surface::native_menu_frame(ctx, uiRoot, 8892, "folder_menu",
+                                                        app.nativeRowMenu, scope);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = app.nativeRowMenu.action_of(result.activated);
+        } else {
+            result = hanabi::surface::context_menu(
+                ctx, uiRoot, 8892, metrics, app.rowMenuX, app.rowMenuY, "FOLDER", "folder_menu",
+                items, app.menuCursor, menu_keys_for(app), hanabi::surface::kContextMenuLayer,
+                std::string_view());
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = items[result.activated].action_id;
+        }
+        if (result.activated != hanabi::surface::kNoMenuRow) {
+            if (pickedAction == "rename") {
+                app.renameOpen = true;
+                app.renameSessionId = std::string(model::kRenameFolderPrefix) + folderId;
+                app.renameDraft = folderName;
+                app.renameError.clear();
+            } else if (pickedAction == "delete") {
+                AppComponent::WebFolderOp op;
+                op.kind = AppComponent::WebFolderOp::Kind::Delete;
+                op.id = folderId;
+                app.webFolderQueue.push_back(op);
+            }
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
+            return;
+        }
+        if (result.dismissed || result.cancelled) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
+        }
     }
 
     // The shelf row's menu: the reference's SmartViewRow menu, item for item
@@ -3145,6 +3282,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // emoji: no loaded face has colour glyphs and a missing one draws
     // nothing, leaving a blank where the emoji was (afterhours_gaps.md #48).
     static std::string section_display_name(const AppComponent& app, const std::string& key) {
+        if (model::is_web_folder_section(key)) {
+            if (const auto* f = app.webFolders.find(key.substr(7))) return f->name;
+            return "Folder";
+        }
         if (!model::is_space_section(key)) return folder_display_name(key);
         const std::string id = key.substr(6);
         for (const auto& sp : app.spaces)
@@ -3553,6 +3694,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // query is active (results stay pinned open).
         head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
+        // A web-app folder's header offers Rename / Delete on right-click.
+        if (model::is_web_folder_section(key) && ctx.is_right_click(head.ent().id))
+            app.open_view_menu(std::string(kFolderMenuPrefix) + key.substr(7), ctx.mouse.pos.x,
+                               ctx.mouse.pos.y);
         if (q.empty() &&
             head.ent().get<afterhours::ui::HasClickListener>().down) {
             if (app.collapsedFolders.count(key)) {

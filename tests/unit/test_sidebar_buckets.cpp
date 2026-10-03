@@ -109,9 +109,12 @@ static void test_grouping_modes_and_only_ungrouped() {
     ecs::model::SidebarBuckets b;
     b.rebuild(1, sessions, "", false, none);  // Space (default): c by Space, a by folder
     CHECK(b.folders().size() == 2 && b.recent().size() == 1);
+    // Folder: the viewer's WEB-APP folders (web_folder), not workspace paths.
+    sessions[0].web_folder = "folder:f1";
+    sessions[2].web_folder = "folder:f1";
     b.set_grouping(Grouping::Folder, false);
-    b.rebuild(1, sessions, "", false, none);  // Folder: a and c share /work/x
-    CHECK(b.folders().size() == 1 && b.members("/work/x").size() == 2);
+    b.rebuild(2, sessions, "", false, none);
+    CHECK(b.folders().size() == 1 && b.members("folder:f1").size() == 2 && b.recent().size() == 1);
     b.set_grouping(Grouping::Status, false);
     b.rebuild(1, sessions, "", false, none);  // Status: no named sections
     CHECK(b.folders().empty() && b.recent().size() == 3);

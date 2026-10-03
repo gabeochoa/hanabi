@@ -20,6 +20,100 @@ struct MemorySystem : afterhours::System<AppComponent> {
             auto c = app.client;
             app.spacesFuture = std::async(std::launch::async, [c] { return c->list_spaces(); });
         }
+        // The web-app folders: read both halves off the frame (launch, every
+        // ten minutes, and after each write lands); a failed read keeps the
+        // last carve.
+        {
+            const double now = static_cast<double>(std::time(nullptr));
+            const auto read_carve = [](std::shared_ptr<api::Client> c) {
+                auto f = c->web_call("GET", api::folders::kFoldersPath, "");
+                if (!f.ok) return api::Result<api::folders::Carve>::failure(f.error);
+                auto o = c->web_call("GET", api::folders::kOverlayPath, "");
+                if (!o.ok) return api::Result<api::folders::Carve>::failure(o.error);
+                if (f.value.status != 200 || o.value.status != 200)
+                    return api::Result<api::folders::Carve>::failure("folders HTTP " +
+                                                                    std::to_string(f.value.status));
+                auto folders = api::folders::parse_folders(f.value.body);
+                auto members = api::folders::parse_membership(o.value.body);
+                if (!folders || !members)
+                    return api::Result<api::folders::Carve>::failure("folders unreadable");
+                return api::Result<api::folders::Carve>::success(
+                    api::folders::carve(std::move(*folders), *members));
+            };
+            if (!app.webFoldersFuture.valid() && app.client && app.client->supports_web_routes() &&
+                (app.webFoldersAt < 0.0 || now - app.webFoldersAt >= 600.0)) {
+                app.webFoldersAt = now;
+                auto c = app.client;
+                app.webFoldersFuture = std::async(std::launch::async, [c, read_carve] { return read_carve(c); });
+            }
+            if (app.webFoldersFuture.valid() &&
+                app.webFoldersFuture.wait_for(0s) == std::future_status::ready) {
+                auto r = app.webFoldersFuture.get();
+                if (r.ok && !(r.value == app.webFolders)) {
+                    app.webFolders = std::move(r.value);
+                    app.apply_web_folders(app.sessions);
+                    app.mark_session_catalog_changed();
+                }
+            }
+            if (!app.webFolderQueue.empty() && app.client && app.client->supports_web_routes()) {
+                for (auto& op : app.webFolderQueue) {
+                    AppComponent::WebFolderInFlight w;
+                    w.op = op;
+                    auto c = app.client;
+                    w.future = std::async(std::launch::async, [c, op]() -> api::Result<std::string> {
+                        using K = AppComponent::WebFolderOp::Kind;
+                        namespace fo = api::folders;
+                        const auto check = [](const api::Result<api::Client::WebReply>& r,
+                                              const char* fallback) -> std::string {
+                            if (!r.ok) return r.error;
+                            if (r.value.status != 200) return fo::refusal(r.value.body, fallback);
+                            return {};
+                        };
+                        switch (op.kind) {
+                            case K::Create: {
+                                auto r = c->web_call("POST", fo::kFoldersPath, fo::name_body(op.name));
+                                if (std::string why = check(r, "Could not make that folder."); !why.empty())
+                                    return api::Result<std::string>::success(why);
+                                const auto made = fo::parse_created(r.value.body);
+                                if (!made) return api::Result<std::string>::success("Could not make that folder.");
+                                if (!op.session.empty()) {
+                                    auto f = c->web_call("POST", fo::kOverlayPath, fo::file_body(op.session, made->id));
+                                    return api::Result<std::string>::success(check(f, "Could not file that thread."));
+                                }
+                                return api::Result<std::string>::success(std::string());
+                            }
+                            case K::Rename:
+                                return api::Result<std::string>::success(check(
+                                    c->web_call("PATCH", std::string(fo::kFoldersPath) + "/" + op.id,
+                                                fo::name_body(op.name)),
+                                    "Could not rename that folder."));
+                            case K::Delete:
+                                return api::Result<std::string>::success(check(
+                                    c->web_call("DELETE", std::string(fo::kFoldersPath) + "/" + op.id, ""),
+                                    "Could not delete that folder."));
+                            case K::File:
+                                return api::Result<std::string>::success(check(
+                                    c->web_call("POST", fo::kOverlayPath, fo::file_body(op.session, op.id)),
+                                    "Could not file that thread."));
+                        }
+                        return api::Result<std::string>::success(std::string());
+                    });
+                    app.webFolderOps.push_back(std::move(w));
+                }
+            }
+            app.webFolderQueue.clear();
+            for (auto it = app.webFolderOps.begin(); it != app.webFolderOps.end();) {
+                if (!it->future.valid() || it->future.wait_for(0s) != std::future_status::ready) {
+                    ++it;
+                    continue;
+                }
+                auto r = it->future.get();
+                if (!r.value.empty())
+                    app.raise_toast(r.value, std::string(), AppComponent::ToastUndo::None);
+                app.webFoldersAt = -1.0;  // re-read: the server's answer is the sidebar's
+                it = app.webFolderOps.erase(it);
+            }
+        }
         // A move between Spaces (refile).
         if (!app.requestRefileId.empty()) {
             if (app.client && app.client->supports_refile()) {
