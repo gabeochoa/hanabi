@@ -3562,6 +3562,37 @@ struct HandleMockWebArchiveCommand
     }
 };
 
+// mock_release_stream: streamed sends held by HANABI_MOCK_STREAM_HOLD go.
+// expect_queued <session> <text...>: the session's queued (unsent) messages,
+// oldest first, joined by " | " -- or `none`.
+struct HandleQueueCommands : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("mock_release_stream")) {
+            api::MockClient::release_streams();
+            cmd.consume();
+            return;
+        }
+        if (!cmd.is("expect_queued")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_queued requires <session> <text...|none>");
+            return;
+        }
+        auto* app = ecs::find_singleton<ecs::AppComponent>();
+        if (app == nullptr) return;
+        std::string got;
+        for (const auto* q : app->queued_for(cmd.arg(0))) {
+            if (!got.empty()) got += " | ";
+            got += q->message.text;
+        }
+        if (got.empty()) got = "none";
+        const std::string want = joined_args(cmd, 1);
+        if (got == want) cmd.consume();
+        else cmd.fail(std::format("expect_queued: '{}', expected '{}'", got, want));
+    }
+};
+
 // mm3_moving_reset / expect_mm3_moving <on|off>: whether any MM3 face played
 // a moving frame since the reset (ui/status_mark.h).
 struct HandleMm3MovingCommand : afterhours::System<afterhours::testing::PendingE2ECommand> {
@@ -4632,6 +4663,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleMockWebArchiveCommand>());
     sm.register_update_system(std::make_unique<HandleMockReleaseArchiveCommand>());
     sm.register_update_system(std::make_unique<HandleMm3MovingCommand>());
+    sm.register_update_system(std::make_unique<HandleQueueCommands>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());

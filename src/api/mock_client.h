@@ -1068,9 +1068,35 @@ class MockClient : public Client {
         sink.emit_done(plan.final);
     }
 
+    // HANABI_MOCK_STREAM_HOLD=1: a streamed send stays in flight (its worker
+    // waits) until the script says `mock_release_stream` -- so a second send
+    // queues deterministically, frame rate aside.
+    static std::mutex& stream_hold_mu() {
+        static std::mutex m;
+        return m;
+    }
+    static std::condition_variable& stream_hold_cv() {
+        static std::condition_variable cv;
+        return cv;
+    }
+    static bool& stream_released() {
+        static bool b = false;
+        return b;
+    }
+    static void release_streams() {
+        {
+            std::lock_guard<std::mutex> lk(stream_hold_mu());
+            stream_released() = true;
+        }
+        stream_hold_cv().notify_all();
+    }
     void send_message_streaming(const std::string& session_id,
                                 const OutgoingMessage& message,
                                 const StreamSink& sink) override {
+        if (const char* h = std::getenv("HANABI_MOCK_STREAM_HOLD"); h != nullptr && *h == '1') {
+            std::unique_lock<std::mutex> hl(stream_hold_mu());
+            stream_hold_cv().wait(hl, [] { return stream_released(); });
+        }
         if (message.interrupt) {
             auto result = steer(session_id, message);
             if (!result.ok) sink.emit_error(result.error);
@@ -2370,7 +2396,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
+        "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_MOCK_STREAM_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

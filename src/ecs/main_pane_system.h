@@ -8405,6 +8405,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
         std::optional<AppComponent::ComposerSubmission> slashSubmit;
         bool clearFieldAfterSubmit = false;
+        std::optional<std::string> restoreFieldAfterSubmit;
         // A submission is taken by the composer of the pane it targets, so
         // the field that was typed in is the one cleared; with one composer
         // on screen (no split) that composer takes whatever is pending.
@@ -8451,6 +8452,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     (app.mentionMenuOpen && app.mentionMenuPane == paneIndex &&
                      hanabi::mention::span_start(submitted.message.text))) {
                     slashSubmit = std::move(submitted);
+                } else if (model::PaneState& qs = staged_state(target);
+                           qs.editingQueued != 0 && app.queued_by_id(qs.editingQueued) != nullptr) {
+                    // A queued message open for editing: Return REWRITES it in
+                    // place -- same place in the queue, no new send -- and the
+                    // composer goes back to the draft the walk started from.
+                    AppComponent::PendingSend* q = app.queued_by_id(qs.editingQueued);
+                    const std::string text = submitted.message.text;
+                    if (!q->message.local_id.empty())
+                        api::disk_cache::outbox_remove_message(q->sessionId, q->message.local_id);
+                    q->message.text = text;
+                    q->prompt = text;
+                    api::disk_cache::outbox_add(q->sessionId, q->message);
+                    qs.editingQueued = 0;
+                    qs.walkIndex = 0;
+                    if (target == composerTarget) restoreFieldAfterSubmit = qs.stashedDraft;
+                    else qs.replyDraft = qs.stashedDraft;
+                    app.raise_toast("Queued message updated", std::string(),
+                                    AppComponent::ToastUndo::None);
                 } else if (canStream || canSend) {
                     remember_composer_snapshot(submitted.message);
                     consume_composer_snapshot(submitted.message);
@@ -8915,6 +8934,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             else
                 caption = "Uploading…";
         }
+        else if (history.editingQueued != 0)
+            caption = "Editing a queued message \xc2\xb7 Return saves it \xc2\xb7 \xe2\x86\x93 goes back";
         else if (sending && queued > 0)
             caption = "sending\xe2\x80\xa6  \xc2\xb7  " +
                       std::to_string(queued) + " queued";
@@ -9816,6 +9837,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // there is something that can write to it. The widget keeps its own
         // storage, so clearing replyDraft up there is not enough.
         if (clearFieldAfterSubmit) set_field("");
+        if (restoreFieldAfterSubmit) set_field(*restoreFieldAfterSubmit);
+        // The queue hold follows what this composer has open (a thread switch
+        // swaps the composer state, and with it the hold).
+        app.queuedEditing[static_cast<std::size_t>(std::clamp(paneIndex, 0, 1))] =
+            targetKickoff ? 0 : history.editingQueued;
 
         // Dismissing clears the slot AT ITS SOURCE. Clearing the rendered copy
         // alone would be undone on the very next frame, which is the shape of
@@ -10158,9 +10184,58 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 st.clear_selection();
                 replyDraft = text;
             };
+            // QUEUED FIRST (the reference's queued edit): Up from the draft
+            // lands on the newest queued (not yet sent) message, then older
+            // ones; Return there rewrites it in place (the router), and while
+            // it is open the thread's queue holds. Down past the newest goes
+            // back to the draft. A draft with files staged cannot step onto
+            // one -- the files have nowhere to go -- and says so.
+            const auto queuedHere = targetKickoff ? std::vector<const AppComponent::PendingSend*>{}
+                                                  : app.queued_for(openId);
+            std::size_t editingAt = queuedHere.size();
+            for (std::size_t q = 0; q < queuedHere.size(); ++q)
+                if (queuedHere[q]->qid == history.editingQueued) editingAt = q;
+            if (history.editingQueued != 0 && editingAt == queuedHere.size())
+                history.editingQueued = 0;  // it left the queue
+            bool walked = false;
+            if (walkBack && history.walkIndex == 0 && !queuedHere.empty()) {
+                if (history.editingQueued == 0) {
+                    if (!history.attachments.empty()) {
+                        app.composerRestore.target = composerTarget;
+                        app.composerRestore.notice =
+                            "Stash the draft's attachments before editing a queued message.";
+                        app.composerRestore.offerRetry = false;
+                        app.composerRestore.adopted = false;
+                        walked = true;
+                    } else {
+                        history.stashedDraft = typed;
+                        history.editingQueued = queuedHere.back()->qid;
+                        recall(queuedHere.back()->message.text);
+                        walked = true;
+                    }
+                } else if (editingAt > 0) {
+                    history.editingQueued = queuedHere[editingAt - 1]->qid;
+                    recall(queuedHere[editingAt - 1]->message.text);
+                    walked = true;
+                } else {
+                    // Past the oldest queued: into what was sent.
+                    history.editingQueued = 0;
+                }
+            } else if (walkForward && history.editingQueued != 0) {
+                if (editingAt + 1 < queuedHere.size()) {
+                    history.editingQueued = queuedHere[editingAt + 1]->qid;
+                    recall(queuedHere[editingAt + 1]->message.text);
+                } else {
+                    history.editingQueued = 0;
+                    recall(history.stashedDraft);
+                }
+                walked = true;
+            }
             const bool atOldest = history.walkIndex >= history.sent.size();
             const bool atDraft = history.walkIndex == 0;
-            if (walkBack && !atOldest) {
+            if (walked) {
+                // handled above
+            } else if (walkBack && !atOldest) {
                 if (atDraft) history.stashedDraft = typed;
                 history.walkIndex++;
                 recall(history.sent[history.sent.size() - history.walkIndex]);

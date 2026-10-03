@@ -1509,8 +1509,35 @@ struct AppComponent : public afterhours::BaseComponent {
         std::string sessionId;
         std::string prompt;
         api::OutgoingMessage message;
+        std::uint64_t qid = 0;  // stable, for an edit of this queued message
     };
     std::vector<PendingSend> pendingSendQueue;
+    std::uint64_t nextQueuedId = 1;
+    // A queued message being edited in a composer (the reference's queued
+    // edit, 0.8.4, and D122768095: it is not consumed mid-edit). Mirrored each
+    // frame from each pane's composer state; while a qid is here, that
+    // thread's queue holds -- the message, and everything behind it, waits.
+    std::array<std::uint64_t, 2> queuedEditing{0, 0};
+    [[nodiscard]] bool queue_held(const std::string& id) const {
+        for (std::uint64_t q : queuedEditing) {
+            if (q == 0) continue;
+            for (const auto& p : pendingSendQueue)
+                if (p.qid == q && p.sessionId == id) return true;
+        }
+        return false;
+    }
+    PendingSend* queued_by_id(std::uint64_t qid) {
+        for (auto& p : pendingSendQueue)
+            if (p.qid == qid) return &p;
+        return nullptr;
+    }
+    // The queued messages for `id`, oldest first.
+    std::vector<const PendingSend*> queued_for(const std::string& id) const {
+        std::vector<const PendingSend*> out;
+        for (const auto& p : pendingSendQueue)
+            if (p.sessionId == id) out.push_back(&p);
+        return out;
+    }
 
     // True while ANY send/stream is in flight for `id` (so the composer can
     // disable/queue and show a spinner). Covers the synchronous reply path
@@ -1542,14 +1569,14 @@ struct AppComponent : public afterhours::BaseComponent {
         }
         const std::string prompt = message.text;
         pendingSendQueue.push_back(
-            PendingSend{id, prompt, std::move(message)});
+            PendingSend{id, prompt, std::move(message), nextQueuedId++});
     }
 
     void enqueue_send(const std::string& id, const std::string& prompt) {
         api::OutgoingMessage message;
         message.text = prompt;
         message.target = api::OutgoingTarget{0, id, id};
-        pendingSendQueue.push_back(PendingSend{id, prompt, std::move(message)});
+        pendingSendQueue.push_back(PendingSend{id, prompt, std::move(message), nextQueuedId++});
     }
 
     // ==== Session rename (durable echo, never local optimism) =============

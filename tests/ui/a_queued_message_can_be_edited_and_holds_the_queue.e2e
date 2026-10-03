@@ -1,0 +1,39 @@
+# A queued (not yet sent) message can be rewritten from the composer, and is
+# not sent while it is open (the reference's queued edit, and D122768095):
+# Up from the draft lands on the newest queued message; Return rewrites it in
+# place and the draft comes back; while it is open the thread's queue holds,
+# so the turn finishing does not send it out from under the edit.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_OPEN=t1 HANABI_MOCK_STREAM_HOLD=1
+
+require_thread t1
+wait_frames 10
+click_ui composer_reply_input
+type "first, in flight"
+key ENTER
+wait_frames 6
+type "second, queued"
+key ENTER
+wait_frames 6
+expect_text "1 queued"
+expect_queued t1 second, queued
+type "my draft"
+key UP
+wait_frames 4
+expect_text "Editing a queued message"
+expect_reply_draft t1 0 second, queued
+# The turn finishes while the edit is open: the queue holds.
+mock_release_stream
+wait_frames 40
+expect_queued t1 second, queued
+key CMD+A
+type "second, rewritten"
+key ENTER
+wait_frames 6
+expect_text "Queued message updated"
+expect_reply_draft t1 0 my draft
+# Released, the rewritten text is what goes.
+wait_frames 40
+expect_queued t1 none
+expect_text "second, rewritten"

@@ -1,0 +1,27 @@
+# Down past the newest queued message goes back to the draft and lets the
+# queue go: the held message is sent, unchanged, once the turn finishes.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_OPEN=t1 HANABI_MOCK_STREAM_HOLD=1
+
+require_thread t1
+wait_frames 10
+click_ui composer_reply_input
+type "first, in flight"
+key ENTER
+wait_frames 6
+type "second, queued"
+key ENTER
+wait_frames 6
+type "my draft"
+key UP
+wait_frames 4
+expect_reply_draft t1 0 second, queued
+key DOWN
+wait_frames 4
+expect_reply_draft t1 0 my draft
+expect_no_text "Editing a queued message"
+mock_release_stream
+wait_frames 40
+expect_queued t1 none
+expect_text "second, queued"

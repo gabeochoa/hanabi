@@ -122,6 +122,7 @@ struct PaneState {
     std::vector<std::string> sent;   // oldest first
     std::size_t walkIndex = 0;       // steps back from the live draft
     std::string stashedDraft;        // the draft the walk started from
+    std::uint64_t editingQueued = 0; // the queued message this composer is rewriting (0 = none)
     std::vector<api::Attachment> attachments;
     std::vector<api::Attachment> persistedAttachments;
     std::string attachmentNotice;

@@ -2222,6 +2222,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
              it != app.pendingSendQueue.end(); ++it) {
             const std::string& id = it->sessionId;
             if (app.sending_for(id)) continue;
+            // A queued message open for editing holds its thread's queue: it
+            // is not sent mid-edit, and nothing behind it overtakes it.
+            if (app.queue_held(id)) continue;
             if (app.requestSend || app.requestStream) continue;
             api::OutgoingMessage message = std::move(it->message);
             app.pendingSendQueue.erase(it);
