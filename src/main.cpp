@@ -39,6 +39,8 @@
 #define HANABI_PROF_DEFINE_ALLOC_COUNTERS
 #include "util/prof.h"
 #include "frame_activity_collect.h"
+#include "api/mock_client.h"
+#include "ui/status_mark.h"
 #include "util/gpu_mem.h"
 #include "util/launch_curve.h"
 #include "util/prewarm.h"
@@ -825,6 +827,8 @@ static void app_frame_body() {
             now.time_since_epoch())
             .count());
     hanabi::FrameSignals frameSignals;
+    hanabi::status_mark::mm3_motion().sinceDrawUs =
+        framePolicy.started() ? nowUs - framePolicy.last_frame_us() : 0;
     const unsigned inputActivity = frame_input_activity();
     frameSignals.pointer_input = (inputActivity & 1u) != 0;
     frameSignals.key_input = (inputActivity & 2u) != 0;
@@ -868,6 +872,9 @@ static void app_frame_body() {
     float dt = afterhours::graphics::get_frame_time();
     if (framePolicy.started()) {
         dt = static_cast<float>(nowUs - framePolicy.last_frame_us()) / 1000000.0f;
+        // The MM3 faces keep real time across a frame gap the cap would
+        // shorten (a 4.5 s rest is one gap).
+        hanabi::status_mark::mm3_motion().clock += std::max(0.0f, dt - 0.1f);
         dt = std::min(dt, 0.1f);
     }
     framePolicy.rendered(nowUs);
@@ -2019,16 +2026,47 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
     const unsigned long long cpuStart = hanabi::prof::cpu_nanos();
     const unsigned long long allocStart = hanabi::prof::alloc_count();
     int rendered = 0;
+    int why[19] = {};
     constexpr std::uint64_t kCallbackUs = 8333;
 
     for (int i = 0; i < callbacks; ++i) {
         hanabi::FrameSignals signals;
+        {
+            const std::uint64_t nowUs = static_cast<std::uint64_t>(i) * kCallbackUs;
+            hanabi::status_mark::mm3_motion().sinceDrawUs =
+                policy.started() ? nowUs - policy.last_frame_us() : 0;
+        }
         auto query = afterhours::EntityQuery({.force_merge = true})
                          .whereHasComponent<ecs::AppComponent>()
                          .gen();
+        // HANABI_AUDIT_LIST_EVERY=<callbacks>: the session list lands again
+        // that often, unchanged -- what a live run's events cost the catalog
+        // (the loader refetches the list once a second while one streams).
+        static const int listEvery = [] {
+            const char* v = std::getenv("HANABI_AUDIT_LIST_EVERY");
+            return v ? std::atoi(v) : 0;
+        }();
+        // HANABI_AUDIT_SEND=<text>: a reply to t1 goes out at callback 30 --
+        // with HANABI_MOCK_STREAM_HOLD it stays in flight, so the run measures
+        // the thinking state a reader sits through while a turn runs.
+        static const char* auditSend = std::getenv("HANABI_AUDIT_SEND");
+        if (auditSend != nullptr && i == 30 && !query.empty()) {
+            auto& a = query[0].get().get<ecs::AppComponent>();
+            api::OutgoingMessage m;
+            m.text = auditSend;
+            m.target = api::OutgoingTarget{0, "t1", "t1"};
+            a.requestStream = std::move(m);
+        }
+        if (listEvery > 0 && i > 0 && i % listEvery == 0 && !query.empty()) {
+            auto& a = query[0].get().get<ecs::AppComponent>();
+            auto rows = a.sessions;
+            a.replace_sessions(std::move(rows));
+            a.requestListRefresh = false;
+            signals.async_ready = true;  // the list future landing wakes a frame
+        }
         if (!query.empty())
-            signals = hanabi::collect_app_frame_signals(
-                query[0].get().get<ecs::AppComponent>());
+            signals.merge_from(hanabi::collect_app_frame_signals(
+                query[0].get().get<ecs::AppComponent>()));
         hanabi::collect_ui_frame_signals(signals);
         if (fixedTenFps) {
             signals = {};
@@ -2038,9 +2076,14 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
         const std::uint64_t nowUs = static_cast<std::uint64_t>(i) * kCallbackUs;
         const auto decision = policy.decide(nowUs, signals);
         if (!decision.render) continue;
+        // Why this frame drew (HANABI_IDLE_WHY prints the tally): the bit
+        // that kept the loop awake, per rendered frame.
+        for (int b = 0; b < 19; ++b)
+            if (static_cast<std::uint32_t>(decision.activity) & (1u << b)) ++why[b];
         float dt = 1.0f / 120.0f;
         if (policy.started()) {
             dt = static_cast<float>(nowUs - policy.last_frame_us()) / 1000000.0f;
+            hanabi::status_mark::mm3_motion().clock += std::max(0.0f, dt - 0.1f);
             dt = std::min(dt, 0.1f);
         }
         policy.rendered(nowUs);
@@ -2052,6 +2095,9 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
         ++rendered;
     }
 
+    // A held audit send is let go, so the stream worker can finish and the
+    // process can exit.
+    if (std::getenv("HANABI_AUDIT_SEND") != nullptr) api::MockClient::release_streams();
     const double logicalSeconds =
         static_cast<double>(callbacks) * static_cast<double>(kCallbackUs) /
         1000000.0;
@@ -2059,6 +2105,16 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
                          1000000.0;
     const unsigned long long allocations =
         hanabi::prof::alloc_count() - allocStart;
+    if (std::getenv("HANABI_IDLE_WHY") != nullptr) {
+        static const char* kNames[19] = {"startup", "pointer", "key", "resize", "exposure", "native",
+                                         "async_ready", "sse", "state_request", "split", "animation",
+                                         "streaming", "thinking", "scrolling", "dragging", "caret",
+                                         "timer", "pending_future", "idle_pulse"};
+        std::printf("IdleWhy:");
+        for (int b = 0; b < 19; ++b)
+            if (why[b] > 0) std::printf(" %s=%d", kNames[b], why[b]);
+        std::printf("\n");
+    }
     std::printf("IdleTiming: callbacks=%d frames=%d logical_seconds=%.3f "
                 "cpu_ms_per_sec=%.3f allocs_per_sec=%.1f "
                 "cpu_ms_per_frame=%.4f allocs_per_frame=%.1f\n",

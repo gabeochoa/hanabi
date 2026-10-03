@@ -36,14 +36,32 @@ struct Mm3Motion {
     bool reduceMotion = false;
     bool appActive = true;
     bool windowVisible = true;
-    bool movedThisFrame = false;  // a moving face drew: the frame loop keeps ticking
-    unsigned long movedDraws = 0;  // every moving draw, for scripted checks
+    // A moving face drew in the last rendered frame, and how long until any
+    // face drawn there shows a different frame. The frame loop wakes THEN --
+    // not at the display rate: an angry loop changes ~20 times a second and a
+    // calm blink rests 4.5 s between plays, and a frame between changes would
+    // draw the same pixels (the reference's CoreAnimation keyframes cost no
+    // app redraw at all; this is the nearest a retained-frame loop gets).
+    bool movedLastFrame = false;
+    double nextChangeIn = 1e9;
+    std::uint64_t sinceDrawUs = 0;  // set by the frame loop before admission
+    unsigned long movedDraws = 0;   // every moving draw, for scripted checks
+    [[nodiscard]] bool change_due() const {
+        return movedLastFrame && static_cast<double>(sinceDrawUs) + 1000.0 >= nextChangeIn * 1e6;
+    }
 };
 inline Mm3Motion& mm3_motion() {
     static Mm3Motion m;
     return m;
 }
-inline void mm3_advance(double dt) { mm3_motion().clock += dt; }
+// At the start of a drawn frame: the clock moves, and this frame's faces will
+// say whether anything moves and when it next changes.
+inline void mm3_advance(double dt) {
+    auto& m = mm3_motion();
+    m.clock += dt;
+    m.movedLastFrame = false;
+    m.nextChangeIn = 1e9;
+}
 
 // A face's cells, `h` tall measured on the ROW box (mm3::kRow*: room for
 // every frame, so nothing is cut; the reference's 8pt, D123162830 / kt-tgsx),
@@ -84,7 +102,9 @@ inline void draw_mm3(const mm3::Mark& m, float cx, float cy, float h, theme::Col
         const auto frame = mm3::frame_at(a, mo.clock, m.urgent ? mm3::kUrgentRest : mm3::kRest);
         const auto cells = mm3::frame_cells(a, frame);
         draw_cells(cells.data, cells.size, cx, cy, h, c);
-        mo.movedThisFrame = true;
+        mo.movedLastFrame = true;
+        mo.nextChangeIn = std::min(mo.nextChangeIn,
+                                   mm3::next_change_in(a, mo.clock, m.urgent ? mm3::kUrgentRest : mm3::kRest));
         ++mo.movedDraws;
         return;
     }

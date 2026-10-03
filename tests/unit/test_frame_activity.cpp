@@ -63,17 +63,28 @@ static void key_input_wakes_on_the_next_callback() {
 }
 
 static void active_work_stays_at_sixty_frames_per_second() {
-    for (int kind = 0; kind < 5; ++kind) {
+    for (int kind = 0; kind < 4; ++kind) {
         FrameSignals s;
         if (kind == 0) s.animation = true;
         if (kind == 1) s.streaming = true;
-        if (kind == 2) s.thinking = true;
-        if (kind == 3) s.scrolling = true;
-        if (kind == 4) s.dragging = true;
+        if (kind == 2) s.scrolling = true;
+        if (kind == 3) s.dragging = true;
         const int frames = run_for_one_second(s);
         CHECK(frames >= 59);
         CHECK(frames <= 61);
     }
+}
+
+// A thinking turn pulses at 30 fps (its one slow dot does not need 60), and
+// thinking WITH text arriving is streaming, at the display rate.
+static void thinking_pulses_at_thirty_frames_per_second() {
+    FrameSignals s;
+    s.thinking = true;
+    const int frames = run_for_one_second(s);
+    CHECK(frames >= 29);
+    CHECK(frames <= 31);
+    s.streaming = true;
+    CHECK(run_for_one_second(s) >= 59);
 }
 
 static void periodic_work_stays_at_ten_frames_per_second() {
@@ -129,15 +140,17 @@ static void caret_thinking_scroll_and_stream_keep_their_cadence() {
     caret.caret = true;
     CHECK(run_for_one_second(caret) >= 10);
 
-    for (int kind = 0; kind < 3; ++kind) {
+    for (int kind = 1; kind < 3; ++kind) {
         FrameSignals active;
-        if (kind == 0) active.thinking = true;
         if (kind == 1) active.scrolling = true;
         if (kind == 2) active.streaming = true;
         const int frames = run_for_one_second(active);
         CHECK(frames >= 59);
         CHECK(frames <= 61);
     }
+    FrameSignals thinking;
+    thinking.thinking = true;
+    CHECK(run_for_one_second(thinking) >= 29);
 }
 
 static void split_and_native_notification_wake_in_one_callback() {
@@ -371,6 +384,7 @@ int main() {
     external_transitions_wake_immediately();
     fixed_ten_fps_prototype_adds_visible_input_latency();
     caret_thinking_scroll_and_stream_keep_their_cadence();
+    thinking_pulses_at_thirty_frames_per_second();
     split_and_native_notification_wake_in_one_callback();
     lazy_cache_and_search_transitions_wake();
     lifecycle_transitions_wake_without_idle_delay();

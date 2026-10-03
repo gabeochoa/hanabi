@@ -27,9 +27,21 @@ bool any_frame_future_ready(std::vector<std::future<T>>& futures) {
     return false;
 }
 
+// A pending open-at-bottom only wants a frame while the thread it names is
+// the one on this pane: it is consumed by the pane's own draw, so a pending
+// for a tab behind another (the restore sets it on the last tab opened), for
+// a surface tab (Settings has no transcript to pin), or for a thread not yet
+// loaded is kept for when it comes on screen -- and does not hold the frame
+// loop awake meanwhile. It did: five restored tabs, or Settings, or a split,
+// redrew at the display rate forever (cpu_audit: 1,200 full frames in 10 s).
+inline bool scroll_bottom_due(const ecs::Pane& pane) {
+    return !pane.scrollBottomPending.empty() && pane.openSession &&
+           pane.openSession->summary.id == pane.scrollBottomPending;
+}
+
 inline bool pane_has_request(const ecs::Pane& pane) {
     return !pane.requestOpenId.empty() || pane.requestLoadOlder ||
-           pane.findScrollPending || !pane.scrollBottomPending.empty();
+           pane.findScrollPending || scroll_bottom_due(pane);
 }
 
 inline bool pane_has_pending_future(ecs::Pane& pane) {
@@ -125,14 +137,10 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
               Settings::get().is_settings_dirty() ||
               Settings::get().get_theme_rotate_secs() > 0;
     s.caret = ecs::any_text_field_focused();
-    // An MM3 face moved last frame (ui/status_mark.h): keep drawing so it
-    // keeps moving. Only a face that actually drew counts -- a row scrolled
+    // An MM3 face is due to change (ui/status_mark.h): draw then, and only
+    // then. Only a moving face that actually drew counts -- a row scrolled
     // away, a still face, or a paused one costs no frames.
-    {
-        auto& mo = hanabi::status_mark::mm3_motion();
-        s.animation = s.animation || mo.movedThisFrame;
-        mo.movedThisFrame = false;
-    }
+    s.animation = s.animation || hanabi::status_mark::mm3_motion().change_due();
     s.tooltip_dwell = ecs::pending_reveal();
     return s;
 }

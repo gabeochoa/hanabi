@@ -65,3 +65,26 @@ HANABI_IDLE_DISABLE=1 make idle-gate
 HANABI_IDLE_DIAG_SECS=10 HANABI_PROF=1 ./output/hanabi.exe
 HANABI_IDLE_FIXED_10FPS=1 HANABI_IDLE_DIAG_SECS=10 HANABI_PROF=1 ./output/hanabi.exe
 ```
+
+## Audit across idle states (2026-10-03)
+
+`scripts/cpu_audit.sh` runs the same deterministic harness (`HANABI_IDLE_TIMING`, 1,200 simulated 120 Hz callbacks = 10 logical seconds, the real system tree and frame-admission policy) in the states a reader actually leaves Hanabi in, and prints frames, thread CPU per logical second, and allocations per logical second, with `IdleWhy:` naming the activity bit that admitted each frame. It mirrors the reference's 0.8.9 CPU work (idle redraws, hidden-pane work, polling, scroll). Measured on Aspen, mock catalog, before and after on the same binary build except for the fix:
+
+| arm | before: frames / cpu ms/s / allocs/s | after | what kept it awake |
+|---|---|---|---|
+| home | 20 / 1.02 / 1,732 | 20 / 1.11 / 1,732 | idle pulse only (unchanged) |
+| tabs5 (five restored tabs) | **1,200 / 41.8–50.4 / 73,205** | 20 / 0.92 / 1,810 | `state_request` every callback |
+| split (two panes) | **1,200 / 52.5–60.1 / 103,206** | 20 / 1.09 / 2,310 | `state_request` every callback |
+| settings (search focused) | **1,200 / 39.8–47.0 / 95,526** | 93 / 3.45 / 7,958 | `state_request` + caret |
+| thinking (reply in flight) | 586 / 22.6 / 34,593 | 294 / 10.2 / 17,657 | `thinking` at the display rate |
+| mm3 (needs-you rows, faces moving) | faces frozen (see 2); "draw while moving" = 600 / 22.9 / 33,603 | 252 / 9.6 / 14,462 | `animation` |
+| list1hz2000 (list lands every second, 2,000 threads) | 20 / 1.29 / 9,164 | -- | not a finding: main-thread cost flat |
+| sidebar scroll (scroll gate, 2,000 threads, list expanded) | 0.62 ms/frame min-of-half, 288 entities | -- | not a finding: bounded by the viewport |
+
+The three fixes:
+
+1. **A stale open-at-bottom request held the loop at the display rate.** `Pane::scrollBottomPending` is consumed by the pane's own draw when the thread it names is on screen. The restore sets it on the last tab opened; with another tab showing, or a surface (Settings has no transcript), or a split's second pane, it was never consumed -- and `pane_has_request` counted it, so every callback was an immediate wake. Now `scroll_bottom_due` counts it only while that thread is the pane's open session; the request itself is kept for when the tab comes on screen. 38-48x less idle CPU in those states.
+2. **MM3 faces now wake the loop when their frame changes, not every callback.** The moving faces (an angry loop on rows waiting on you, the calm blink on a run) set a "moved" flag the collector cleared on EVERY display callback, rendered or not -- so in a real window the faces drew at the 2 fps idle pulse (frozen-looking); the scripted fixture passed only because scripted runs force full cadence. Now each drawn face reports when its frame next changes (`mm3::next_change_in`), the loop wakes at that deadline (`Mm3Motion::change_due`), and the face clock keeps real time across a long frame gap (a 4.5 s rest is one gap). Against the naive fix ("keep drawing while anything moves"): 600 -> 252 frames, 22.9 -> 9.6 ms/s.
+3. **A thinking turn pulses at 30 fps.** Its one slow dot (1.4 s period) and seconds counter do not need the display rate, and the state lasts minutes. `FrameCadence::Pulse` (33 ms); text arriving is still `streaming`, at the display rate. 586 -> 294 frames, 22.6 -> 10.2 ms/s.
+
+Not fixed, measured: a focused text field still holds 10 fps for the caret (afterhours' text_area advances its blink by a fixed 0.016 per FRAME, so a toggle-deadline wake would slow the blink; an app-side blink clock is the follow-up). Hidden live tabs refetch on a 1 s debounce with no `since` seq (a full window, then a disk write on the main thread) -- the mock has no event stream, so it could not be measured here; recorded as the next candidate.

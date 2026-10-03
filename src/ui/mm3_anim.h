@@ -99,6 +99,28 @@ inline std::size_t frame_at(const Anim& a, double t, double rest) {
     return a.timeline[step];
 }
 
+// Seconds from `t` until the frame shown changes (the next key time in the
+// play, or the play's end / the rest's end). Never less than a millisecond.
+inline double next_change_in(const Anim& a, double t, double rest) {
+    const double total = a.duration + rest;
+    if (total <= 0.0) return 1e9;
+    if (t < 0.0) t = 0.0;
+    const double into = t - total * static_cast<double>(static_cast<long long>(t / total));
+    double wait = total - into;  // in the rest: until the loop starts again
+    if (into < a.duration) {
+        wait = a.duration - into;  // the play's end
+        const std::size_t cur = frame_at(a, t, rest);
+        for (std::size_t i = 0; i < a.steps; ++i) {
+            const double at = a.keyTimes[i] * a.duration;
+            if (at > into && a.timeline[i] != cur) {
+                wait = at - into;
+                break;
+            }
+        }
+    }
+    return wait < 0.001 ? 0.001 : wait;
+}
+
 struct Cells2 {
     const Cell* data;
     std::size_t size;

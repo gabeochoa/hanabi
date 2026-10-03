@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cmath>
 
 #include "../../src/ui/mm3_marks.h"
 
@@ -50,6 +51,11 @@ int main() {
     CHECK(blink.frameCount == 6 && blink.duration == 1.4);
     CHECK(m::frame_at(blink, 0.56, m::kRest) == 2);  // 0.4 of 1.4 s
     CHECK(m::frame_at(blink, 3.0, m::kRest) == 0);   // resting
+    // When the frame next changes: the loop wakes then, not at the display rate.
+    CHECK(std::abs(m::next_change_in(angry, 0.0, m::kUrgentRest) - 0.04) < 1e-6);   // step 1 at 0.02*2s
+    CHECK(std::abs(m::next_change_in(blink, 0.0, m::kRest) - 0.52) < 1e-6);        // 0.371429*1.4
+    CHECK(std::abs(m::next_change_in(blink, 2.0, m::kRest) - 3.9) < 1e-6);         // resting: until the loop
+    CHECK(m::next_change_in(angry, 1.999, m::kUrgentRest) >= 0.001);
     // Every frame of both fits the row box whole -- the point of the box.
     for (const m::Anim& a : {angry, blink})
         for (std::size_t f = 0; f < a.frameCount; ++f) {
