@@ -1,0 +1,16 @@
+# Two references stack with no count and no "Show all" (the reference's
+# threshold is three). When nothing answers, no card draws and the plain ids
+# stay as they were.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_LINK_PREVIEW_DEMO=two HANABI_OPEN=t1
+
+wait_frames 40
+expect_text "[puffin] Cmd+click on an artifact opens it on the web"
+expect_text "Sidebar rows stay single-line"
+expect_no_ui link_strip_count
+expect_no_ui link_strip_more
+reset_link_opened
+click_ui link_card_D117423523
+wait_frames 4
+expect_link_opened https://www.internalfb.com/diff/D117423523

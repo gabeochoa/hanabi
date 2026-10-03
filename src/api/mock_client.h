@@ -1510,6 +1510,48 @@ class MockClient : public Client {
     // comments. HANABI_MOCK_COMPANION_COMMENTS_FAIL=1 refuses the comments
     // read alone, so the page fails and the card does not.
     bool supports_graphql() const override { return true; }
+
+    // Link previews (HANABI_LINK_PREVIEW_DEMO): three cards in the server's
+    // own shapes, decoded by the real decoders; any other id is one this
+    // viewer may not see. HANABI_MOCK_LINK_PREVIEW_FAIL=1: nothing answers.
+    bool supports_link_previews() const override {
+        const char* v = std::getenv("HANABI_LINK_PREVIEW_DEMO");
+        return v != nullptr && *v;
+    }
+    Result<std::optional<link_preview::Card>> fetch_link_preview(const link_preview::Ref& r,
+                                                                 int* ttl) override {
+        using R = Result<std::optional<link_preview::Card>>;
+        namespace lp = link_preview;
+        if (const char* f = std::getenv("HANABI_MOCK_LINK_PREVIEW_FAIL"); f != nullptr && *f == '1')
+            return R::failure("link preview unreachable");
+        if (ttl) *ttl = 3600;
+        const auto field = [](const nlohmann::json& data) {
+            return nlohmann::json{{"success", true}, {"data", data.dump()}};
+        };
+        if (r.id == "D117423523")
+            return R::success(lp::decode(
+                field({{"success", true}, {"link_type", "diff"}, {"ttl_seconds", 3600},
+                       {"common_data", {{"title", "[puffin] Cmd+click on an artifact opens it on the web"},
+                                        {"url", "https://www.internalfb.com/diff/D117423523"},
+                                        {"authorName", "Gabe Ochoa"},
+                                        {"creationTime", 1781400000}}},
+                       {"type_data", {{"status", "NEEDS_REVIEW"}}}}),
+                r));
+        if (r.id == "T275363905")
+            return R::success(lp::decode(
+                field({{"success", true}, {"link_type", "task"}, {"ttl_seconds", 3600},
+                       {"common_data", {{"title", "Sidebar rows stay single-line"},
+                                        {"url", "https://www.internalfb.com/tasks/?t=275363905"},
+                                        {"authorName", "Gabe Ochoa"}}},
+                       {"type_data", {{"status", "in-progress"}, {"priority", "hi-pri"}}}}),
+                r));
+        if (r.id == "kt-lgsh")
+            return R::success(lp::decode_knot(
+                R"({"id":"kt-lgsh","namespace":"agentcloud/puffin","url":"https://knots.internalmeta.com/agentcloud/puffin/issues/kt-lgsh"})",
+                R"({"id":"kt-lgsh","title":"Render knots as cards in the transcript","status":"in_progress","priority":"1","type":"feature"})",
+                r));
+        return R::success(std::nullopt);
+    }
     Result<nlohmann::json> graphql(const std::string& body) override {
         using nlohmann::json;
         const json b = json::parse(body, nullptr, false);
@@ -2328,7 +2370,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
+        "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",
@@ -2912,6 +2954,21 @@ class MockClient : public Client {
                 if (mode == "hidden") chart.artifact.hidden = true;
                 s.messages.push_back(std::move(chart));
                 s.messages.push_back(std::move(clip));
+            }
+            // HANABI_LINK_PREVIEW_DEMO: a reply naming a diff, a task and a
+            // knot (and a diff this viewer may not see) for the link cards;
+            // "two" names only the diff and the task.
+            if (const char* lpd = std::getenv("HANABI_LINK_PREVIEW_DEMO"); lpd != nullptr && *lpd) {
+                Message m;
+                m.id = "m-links";
+                m.role = Role::Assistant;
+                m.kind = EventKind::Text;
+                m.text = std::string(lpd) == "two"
+                             ? "Landed D117423523; the follow-up is T275363905."
+                             : "Landed D117423523; the follow-up is T275363905, and I filed "
+                               "kt-lgsh for the cards. D99990000 is someone else's.";
+                m.created_at = mins_ago(8);
+                s.messages.push_back(std::move(m));
             }
             // HANABI_CHANGES_DEMO: applied edit/write calls for the
             // files-changed chip and panel -- a write then an edit to one

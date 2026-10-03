@@ -815,6 +815,35 @@ struct AppComponent : public afterhours::BaseComponent {
             s.web_folder = it == webFolders.membership.end() ? std::string() : "folder:" + it->second;
         }
     }
+    // Link-preview cards (api/link_preview.h; puffin_gaps.md D53): what each
+    // diff / task / knot reference resolved to, the fetches out, and which
+    // message strips are showing every card. `revision` moves when a card
+    // that is drawn changes, so the transcript re-measures.
+    struct LinkPreviews {
+        std::map<std::string, api::link_preview::Entry> entries;
+        struct Pending {
+            api::link_preview::Ref ref;
+            std::future<std::pair<api::Result<std::optional<api::link_preview::Card>>, int>> f;
+        };
+        std::vector<Pending> pending;
+        std::vector<api::link_preview::Ref> wanted;
+        std::map<std::string, std::string> scanned;  // pane -> what was scanned
+        double rescanAt = 0.0;
+        std::uint64_t revision = 0;
+        std::set<std::string> expanded;
+    };
+    LinkPreviews linkPreviews;
+    // The cards a message's text earns, in the order written (a dictionary
+    // read per reference; nothing is fetched here).
+    std::vector<api::link_preview::Card> link_cards(const std::string& text) const {
+        std::vector<api::link_preview::Card> out;
+        if (linkPreviews.entries.empty()) return out;
+        for (const auto& r : api::link_preview::refs_in(text))
+            if (const auto it = linkPreviews.entries.find(r.id);
+                it != linkPreviews.entries.end() && it->second.card)
+                out.push_back(*it->second.card);
+        return out;
+    }
     // A newer build waiting on a restart (util/update_ready.h; D44): the
     // watch, when it was last checked, and whether the strip is up.
     hanabi::update_ready::Watch updateWatch;

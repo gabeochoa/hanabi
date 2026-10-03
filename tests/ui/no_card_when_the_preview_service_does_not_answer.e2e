@@ -1,0 +1,10 @@
+# When the preview service does not answer, nothing draws: no card, no
+# spinner, no error -- the ids stay plain text in the reply.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_LINK_PREVIEW_DEMO=1 HANABI_MOCK_LINK_PREVIEW_FAIL=1 HANABI_OPEN=t1
+
+wait_frames 40
+expect_text "Landed D117423523; the follow-up is T275363905, and I filed kt-lgsh for the cards. D99990000 is someone else's."
+expect_no_ui link_strip
+expect_no_text "Needs Review"

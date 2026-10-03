@@ -103,6 +103,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         auto* layout = find_singleton<LayoutComponent>();
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;
+        // A link card landed or changed: the rows under it re-measure.
+        if (app->linkPreviews.revision != linkRevisionSeen_) {
+            linkRevisionSeen_ = app->linkPreviews.revision;
+            model::transcript_ledgers().mark_all_dirty();
+        }
         app->focusBeforeLastPress = app->focusAtFrameStart;
         app->focusAtFrameStart = static_cast<long long>(ctx.focus_id);
         for (Pane& p : app->panes) hanabi::tab_find::sync_pane(app->findStates, p, p.selectedId);
@@ -11514,7 +11519,203 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                  4.0f;
         if (!m.attachments.empty())
             h += 6.0f + 22.0f * static_cast<float>(m.attachments.size());
+        if (!isLive && app) h += link_strip_h(*app, m, mkey);
         return h;
+    }
+
+    // ---- Link-preview cards (api/link_preview.h; puffin_gaps.md D53) -------
+    // A diff, task or knot named in a reply draws as a card under it: an id row
+    // (id, then a task's or knot's priority badge, then the status badge), the
+    // title, and a footer (board, type, owner, "Created 3d ago"). The card is
+    // PowerTools' layout, capped at its 320px. A message with three or more
+    // shows a count and the first two, with "Show all N" -- the reference
+    // scrolls such a run sideways, which afterhours has no gesture for; the
+    // point either way is that a pasted list of fifty diffs cannot push the
+    // rest of the conversation a hundred screens away. A card is a link: a
+    // click opens its page. Nothing draws while a reply streams, and a
+    // reference with no card (not fetched yet, or not one this viewer may
+    // see) draws nothing at all -- the plain id stays.
+    static constexpr float kCardMaxW = 320.0f;
+    static constexpr float kCardPadV = 8.0f;
+    static constexpr float kCardIdRowH = 16.0f;
+    static constexpr float kCardTitleH = 17.0f;
+    static constexpr float kCardFooterH = 14.0f;
+    static constexpr float kCardGap = 4.0f;
+    static constexpr float kStripTop = 8.0f;
+    static constexpr float kStripCountH = 16.0f;
+    static constexpr float kStripMoreH = 22.0f;
+    static constexpr std::size_t kStripCollapsed = 2;
+    std::uint64_t linkRevisionSeen_ = 0;
+
+    static float link_card_h(const api::link_preview::Card& c) {
+        const bool footer = !api::link_preview::footer(c, capture_clock::display_now()).empty();
+        return kCardPadV + kCardIdRowH + kCardGap + kCardTitleH +
+               (footer ? 3.0f + kCardFooterH : 0.0f) + kCardPadV;
+    }
+    static float link_strip_h(const AppComponent& app, const api::Message& m,
+                              const std::string& mkey) {
+        if (m.role != api::Role::Assistant) return 0.0f;
+        const auto cards = app.link_cards(m.text);
+        if (cards.empty()) return 0.0f;
+        const bool run = cards.size() > kStripCollapsed;
+        const bool all = !run || app.linkPreviews.expanded.count(mkey) != 0;
+        const std::size_t shown = all ? cards.size() : kStripCollapsed;
+        float h = kStripTop + (run ? kStripCountH + kCardGap : 0.0f);
+        for (std::size_t i = 0; i < shown; ++i) h += link_card_h(cards[i]) + kCardGap;
+        if (run) h += kStripMoreH;
+        return h;
+    }
+
+    static theme::Color tone_color(api::link_preview::Tone t) {
+        switch (t) {
+            case api::link_preview::Tone::Settled: return theme::status_review();
+            case api::link_preview::Tone::Active: return theme::accent();
+            case api::link_preview::Tone::Wrong: return theme::status_blocked();
+            case api::link_preview::Tone::Quiet: break;
+        }
+        return theme::text_faint();
+    }
+
+    void render_link_strip(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app,
+                           const api::Message& m, const std::string& mkey, float textW) {
+        namespace lp = api::link_preview;
+        if (m.role != api::Role::Assistant) return;
+        const auto cards = app.link_cards(m.text);
+        if (cards.empty()) return;
+        const bool run = cards.size() > kStripCollapsed;
+        const bool all = !run || app.linkPreviews.expanded.count(mkey) != 0;
+        const std::size_t shown = all ? cards.size() : kStripCollapsed;
+        const float cardW = std::min(kCardMaxW, textW);
+        auto strip = div(ctx, mk(parent, 8),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(textW), children()})
+                .with_margin(Margin{.top = pixels(kStripTop)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("link_strip"));
+        if (run)
+            div(ctx, mk(strip.ent(), 1),
+                ComponentConfig{}
+                    .with_label(lp::count_label(cards))
+                    .with_size(ComponentSize{pixels(cardW), pixels(kStripCountH)})
+                    .with_margin(Margin{.bottom = pixels(kCardGap)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::XS)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("link_strip_count"));
+        const auto cardBg = theme::over(theme::panel_bg_2(), theme::panel_bg());
+        const auto now = capture_clock::display_now();
+        for (std::size_t i = 0; i < shown; ++i) {
+            const lp::Card& c = cards[i];
+            const std::string footer = lp::footer(c, now);
+            const float h = link_card_h(c);
+            // button(), not a held-press listener: a press that expanded the
+            // strip must not land on the card that appears under it.
+            auto card = button(ctx, mk(strip.ent(), 10 + static_cast<int>(i)),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(cardW), pixels(h)})
+                    .with_margin(Margin{.bottom = pixels(kCardGap)})
+                    .with_padding(Padding{.top = pixels(kCardPadV), .right = pixels(10),
+                                          .bottom = pixels(kCardPadV), .left = pixels(10)})
+                    .with_flex_direction(FlexDirection::Column)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_custom_background(cardBg)
+                    .with_custom_hover_bg(theme::hover_over(cardBg))
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_corner_radius(8.0f)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_debug_name("link_card_" + c.id));
+            if (card) hanabi::links::open(c.url);
+            auto idRow = div(ctx, mk(card.ent(), 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(kCardIdRowH)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("link_card_idrow"));
+            div(ctx, mk(idRow.ent(), 1),
+                ComponentConfig{}
+                    .with_label(c.id)
+                    .with_size(ComponentSize{children(), pixels(kCardIdRowH)})
+                    .with_margin(Margin{.right = pixels(6)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font("mono", theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("link_card_id"));
+            const auto badge = [&](int id, const std::string& label, lp::Tone tone, const char* dbg) {
+                if (label.empty()) return;
+                const theme::Color fg = tone_color(tone);
+                div(ctx, mk(idRow.ent(), id),
+                    ComponentConfig{}
+                        .with_label(label)
+                        .with_size(ComponentSize{children(), pixels(14)})
+                        .with_margin(Margin{.right = pixels(4)})
+                        .with_padding(Padding{.right = pixels(5), .left = pixels(5)})
+                        .with_custom_background(
+                            theme::over(theme::Color{fg.r, fg.g, fg.b, 38}, cardBg))
+                        .with_custom_text_color(fg)
+                        .with_font_size(theme::type::MICRO)
+                        .with_alignment(TextAlignment::Center)
+                        .with_roundness(1.0f)
+                        .with_debug_name(dbg));
+            };
+            badge(2, lp::priority_label(c), lp::priority_tone(c), "link_card_priority");
+            badge(3, lp::status_label(c), lp::status_tone(c), "link_card_status");
+            div(ctx, mk(card.ent(), 2),
+                ComponentConfig{}
+                    .with_label(c.title)
+                    .with_size(ComponentSize{percent(1.0f), pixels(kCardTitleH)})
+                    .with_margin(Margin{.top = pixels(kCardGap)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::MD)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("link_card_title"));
+            if (!footer.empty())
+                div(ctx, mk(card.ent(), 3),
+                    ComponentConfig{}
+                        .with_label(footer)
+                        .with_size(ComponentSize{percent(1.0f), pixels(kCardFooterH)})
+                        .with_margin(Margin{.top = pixels(3)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_faint())
+                        .with_font_size(theme::type::XS)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_roundness(0.0f)
+                        .with_debug_name("link_card_footer"));
+        }
+        if (run) {
+            const std::string label = all ? "Show fewer"
+                                          : "Show all " + std::to_string(cards.size());
+            if (button(ctx, mk(strip.ent(), 2),
+                       ComponentConfig{}
+                           .with_label(label)
+                           .with_size(ComponentSize{children(), pixels(kStripMoreH)})
+                           .with_padding(Padding{.right = pixels(11), .left = pixels(11)})
+                           .with_custom_background(theme::panel_bg_2())
+                           .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                           .with_custom_text_color(theme::text_secondary())
+                           .with_font_size(theme::type::SM)
+                           .with_alignment(TextAlignment::Center)
+                           .with_cursor(afterhours::ui::CursorType::Pointer)
+                           .with_roundness(0.35f)
+                           .with_debug_name("link_strip_more"))) {
+                if (all) app.linkPreviews.expanded.erase(mkey);
+                else app.linkPreviews.expanded.insert(mkey);
+                invalidate_item_geometry(-1);
+            }
+        }
     }
 
     // Max bubble content width — caps the reading column so a conversational
@@ -13293,6 +13494,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 invalidate_item_geometry(index);
             }
         }
+        if (app && !isLive) render_link_strip(ctx, turn.ent(), *app, m, mkey, textW);
         message_actions(ctx, asstBubble.ent(), turn.ent(),
                         asst_bubble_w(paneWidth), chat_colors::asst_bubble(),
                         index, mkey, m.text, m.created_at);

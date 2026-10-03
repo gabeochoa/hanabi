@@ -9,6 +9,71 @@
 
 namespace ecs {
 
+// Link-preview cards (D53): scan the newest rows of each open thread when
+// they change (and once a minute, for expiry), then fetch what is unknown or
+// stale -- at most kFetchesPerPass at once, off the frame. Nothing on the
+// draw path starts a fetch; the transcript only reads `entries`.
+inline void service_link_previews(AppComponent& app) {
+    namespace lp = api::link_preview;
+    auto& L = app.linkPreviews;
+    if (!app.client || !app.client->supports_link_previews()) return;
+    const auto now = static_cast<std::int64_t>(std::time(nullptr));
+    // Land what finished.
+    for (auto it = L.pending.begin(); it != L.pending.end();) {
+        if (it->f.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            ++it;
+            continue;
+        }
+        auto [r, ttl] = it->f.get();
+        std::optional<lp::Entry> old;
+        if (const auto e = L.entries.find(it->ref.id); e != L.entries.end()) old = e->second;
+        const std::optional<lp::Card> card = r.ok ? r.value : std::nullopt;
+        const lp::Entry next = lp::merged(old, card, now, ttl);
+        if (!old || old->card != next.card) ++L.revision;
+        L.entries[it->ref.id] = next;
+        it = L.pending.erase(it);
+    }
+    // Scan.
+    const double t = static_cast<double>(now);
+    const bool timer = t >= L.rescanAt;
+    if (timer) L.rescanAt = t + 60.0;
+    for (std::size_t p = 0; p < app.panes.size(); ++p) {
+        const Pane& pane = app.panes[p];
+        if (!pane.openSession) continue;
+        const auto& msgs = pane.openSession->messages;
+        const std::string sig = pane.openSession->summary.id + "|" + std::to_string(msgs.size()) +
+                                "|" + (msgs.empty() ? std::string() : msgs.back().id) + "|" +
+                                std::to_string(msgs.empty() ? 0 : msgs.back().text.size());
+        std::string& seen = L.scanned[std::to_string(p)];
+        if (seen == sig && !timer) continue;
+        seen = sig;
+        const std::size_t from = msgs.size() > lp::kRowsScanned ? msgs.size() - lp::kRowsScanned : 0;
+        for (std::size_t i = from; i < msgs.size(); ++i) {
+            const auto& m = msgs[i];
+            if (m.role == api::Role::Tool || m.role == api::Role::System) continue;
+            for (const auto& ref : lp::refs_in(m.text)) {
+                const auto e = L.entries.find(ref.id);
+                if (e != L.entries.end() && e->second.fresh(now)) continue;
+                bool queued = false;
+                for (const auto& w : L.wanted) queued = queued || w.id == ref.id;
+                for (const auto& q : L.pending) queued = queued || q.ref.id == ref.id;
+                if (!queued) L.wanted.push_back(ref);
+            }
+        }
+    }
+    // Fetch.
+    while (!L.wanted.empty() && L.pending.size() < lp::kFetchesPerPass) {
+        const lp::Ref ref = L.wanted.front();
+        L.wanted.erase(L.wanted.begin());
+        std::shared_ptr<api::Client> c = app.client;
+        L.pending.push_back({ref, std::async(std::launch::async, [c, ref] {
+                                 int ttl = lp::kFallbackTtl;
+                                 auto r = c->fetch_link_preview(ref, &ttl);
+                                 return std::make_pair(std::move(r), ttl);
+                             })});
+    }
+}
+
 struct MemorySystem : afterhours::System<AppComponent> {
     void for_each_with(afterhours::Entity&, AppComponent& app, float) override {
         service_memory(app.memory, app.client);
@@ -124,6 +189,7 @@ struct MemorySystem : afterhours::System<AppComponent> {
                 it = app.webFolderOps.erase(it);
             }
         }
+        service_link_previews(app);
         // A newer build on disk (D44): a stat every 30 s. HANABI_TEST_UPDATE_READY
         // stands in for a replaced binary in scripted runs.
         {

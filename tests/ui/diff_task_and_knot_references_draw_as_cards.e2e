@@ -1,0 +1,29 @@
+# A diff, a task and a knot named in a reply draw as cards under it (the
+# reference's LinkPreview, kt-ghu5 + kt-lgsh; puffin_gaps.md D53): the id, its
+# badges, the title and a footer. Three or more show a count and the first
+# two, with "Show all N". A diff this viewer may not see draws no card, and
+# neither does one the server could not name. A card is a link.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_LINK_PREVIEW_DEMO=1 HANABI_OPEN=t1
+
+wait_frames 40
+expect_text "3 references"
+expect_text "[puffin] Cmd+click on an artifact opens it on the web"
+expect_text "Needs Review"
+expect_text "Sidebar rows stay single-line"
+expect_text "High"
+expect_text "In Progress"
+expect_no_text "Render knots as cards in the transcript"
+expect_no_ui link_card_D99990000
+expect_no_ui link_card_D948120
+click_ui link_strip_more
+wait_frames 10
+expect_text "Render knots as cards in the transcript"
+expect_text "agentcloud/puffin · feature"
+expect_text "P1"
+expect_text "Show fewer"
+reset_link_opened
+click_ui link_card_kt-lgsh
+wait_frames 4
+expect_link_opened https://knots.internalmeta.com/agentcloud/puffin/issues/kt-lgsh

@@ -1,3 +1,4 @@
+#include "knots_runner.h"
 #include "agentcloud_client.h"
 #include "wire_clock.h"
 #include "disk_cache.h"
@@ -529,6 +530,32 @@ Result<nlohmann::json> AgentcloudClient::graphql(const std::string& body) {
     std::string error;
     if (!memory_post(body, nullptr, &data, &error)) return Result<nlohmann::json>::failure(error);
     return Result<nlohmann::json>::success(std::move(data));
+}
+
+Result<std::optional<link_preview::Card>> AgentcloudClient::fetch_link_preview(
+    const link_preview::Ref& r, int* ttl) {
+    using R = Result<std::optional<link_preview::Card>>;
+    namespace lp = link_preview;
+    if (r.kind == lp::Kind::Knot) {
+        // The knots CLI, as the reader (knots_runner.h; an E2E build never
+        // spawns it). Where the id lives, then what it says.
+        const auto place = knots::run(lp::knot_locate_args(r));
+        if (!place.spawned) return R::failure(place.spawnError);
+        if (place.exitCode != 0) return R::success(std::nullopt);
+        const std::string ns = lp::knot_namespace(place.out);
+        if (ns.empty()) return R::success(std::nullopt);
+        const auto issue = knots::run(lp::knot_get_args(r, ns));
+        if (!issue.spawned) return R::failure(issue.spawnError);
+        if (issue.exitCode != 0) return R::success(std::nullopt);
+        if (ttl) *ttl = lp::kKnotTtl;
+        return R::success(lp::decode_knot(place.out, issue.out, r));
+    }
+    nlohmann::json v;
+    std::string error;
+    if (!memory_post(lp::request_body(r), "xfb_gchat_powertools_json_config", &v, &error))
+        return R::failure(error);
+    if (ttl) *ttl = lp::ttl_seconds(v, lp::kFallbackTtl);
+    return R::success(lp::decode(v, r));
 }
 
 Result<std::vector<spaces::Space>> AgentcloudClient::list_spaces() {

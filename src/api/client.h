@@ -28,6 +28,7 @@
 #include "companion_wire.h"
 #include "folders_wire.h"
 #include "pins_wire.h"
+#include "link_preview.h"
 #include "types.h"
 
 namespace api {
@@ -946,6 +947,17 @@ class Client {
     virtual Result<nlohmann::json> graphql(const std::string& body) {
         (void)body;
         return Result<nlohmann::json>::failure("This backend has no GraphQL route.");
+    }
+
+    // A diff, task or knot named in a message, as a card (api/link_preview.h):
+    // the card (nullopt = this viewer gets none -- a result, not an error)
+    // and the server's freshness in *ttl. Failure = could not ask.
+    virtual bool supports_link_previews() const { return false; }
+    virtual Result<std::optional<link_preview::Card>> fetch_link_preview(const link_preview::Ref& r,
+                                                                         int* ttl) {
+        (void)r;
+        (void)ttl;
+        return Result<std::optional<link_preview::Card>>::failure("This backend has no link previews.");
     }
 
     // The viewer's Metamate Spaces (api/spaces_wire.h), for the @ picker.
