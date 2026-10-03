@@ -1,0 +1,21 @@
+# MM3 faces for the states the library had none for (the reference's
+# D123182666, GENERATED in the library's grid, landed 2026-10-03), and the
+# timed faces (D123167028 / D123182666): a live run quiet for 3 minutes is
+# thinking (eyes up, three dots); a paused row sleeps (a z rising); a frozen
+# row is confused; an idle row untouched for a day is tired, still. A live
+# run with news under 3 minutes old keeps its blink.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","icon_set":"mm3"}
+
+wait_frames 20
+set_session_state t5 running 200
+set_session_state t3 running 30
+set_session_state t6 paused
+set_session_state t8 frozen
+set_session_state t1 idle 90000
+wait_frames 10
+expect_row_mm3 t5 thinking neutral
+expect_row_mm3 t3 blink blink
+expect_row_mm3 t6 sleeping sleeping
+expect_row_mm3 t8 confused confused
+expect_row_mm3 t1 still tired

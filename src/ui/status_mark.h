@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <unordered_map>
+
 // The status mark, drawn.
 //
 // One picture per status, in one place, because two surfaces draw it: the
@@ -54,6 +57,16 @@ inline Mm3Motion& mm3_motion() {
     static Mm3Motion m;
     return m;
 }
+// What each sidebar row's MM3 mark was last frame, by session id, and
+// whether it was moving (scripted checks only: written under E2E builds).
+struct RowMarkSeen {
+    mm3::Mark mark;
+    bool moving = false;
+};
+inline std::unordered_map<std::string, RowMarkSeen>& row_marks_seen() {
+    static std::unordered_map<std::string, RowMarkSeen> m;
+    return m;
+}
 // At the start of a drawn frame: the clock moves, and this frame's faces will
 // say whether anything moves and when it next changes.
 inline void mm3_advance(double dt) {
@@ -95,20 +108,68 @@ inline void draw_face_boxed(mm3::Face f, float cx, float cy, float h, theme::Col
     }
 }
 // A mark: its moving frame when it plays, else its still face.
+// Cells in an explicit box (chrome draws an animation in its face's own box).
+inline void draw_cells_in(const mm3::Cell* cells, std::size_t n, mm3::Box b, float cx, float cy, float h,
+                          theme::Color c) {
+    const float scale = h / b.h;
+    const float x0 = cx - (b.x + b.w * 0.5f) * scale;
+    const float y0 = cy - (b.y + b.h * 0.5f) * scale;
+    for (std::size_t i = 0; i < n; ++i) {
+        const mm3::Cell& k = cells[i];
+        afterhours::draw_rectangle(RectangleType{x0 + k.x * scale, y0 + k.y * scale, k.w * scale, k.h * scale}, c);
+    }
+}
+
+// The frame a moving mark shows now, and when it next changes. A finish wave
+// is a once-play on its own clock; everything else loops on the shared one.
+struct MovingFrame {
+    std::size_t frame = 0;
+    double nextChangeIn = 1e9;
+};
+inline MovingFrame moving_frame(const mm3::Mark& m, const mm3::Anim& a, double clock) {
+    if (m.once) {
+        MovingFrame f{mm3::frame_once(a, m.onceT), 1e9};
+        if (m.onceT < a.duration)
+            f.nextChangeIn = std::min(mm3::next_change_in(a, m.onceT, 0.0), a.duration - m.onceT);
+        return f;
+    }
+    const double rest = mm3::rest_for(a, m.urgent);
+    return {mm3::frame_at(a, clock, rest), mm3::next_change_in(a, clock, rest)};
+}
+
 inline void draw_mm3(const mm3::Mark& m, float cx, float cy, float h, theme::Color c) {
     Mm3Motion& mo = mm3_motion();
     if (mm3::plays(m, mo.reduceMotion, mo.appActive, mo.windowVisible)) {
         const mm3::Anim a = mm3::anim(*m.moves);
-        const auto frame = mm3::frame_at(a, mo.clock, m.urgent ? mm3::kUrgentRest : mm3::kRest);
-        const auto cells = mm3::frame_cells(a, frame);
+        const MovingFrame f = moving_frame(m, a, mo.clock);
+        const auto cells = mm3::frame_cells(a, f.frame);
         draw_cells(cells.data, cells.size, cx, cy, h, c);
         mo.movedLastFrame = true;
-        mo.nextChangeIn = std::min(mo.nextChangeIn,
-                                   mm3::next_change_in(a, mo.clock, m.urgent ? mm3::kUrgentRest : mm3::kRest));
+        mo.nextChangeIn = std::min(mo.nextChangeIn, f.nextChangeIn);
         ++mo.movedDraws;
         return;
     }
     draw_face(m.still, cx, cy, h, c);
+}
+
+// A VIEWS-list face (chrome): Home and Pinned blink calmly in their face's
+// own box (D123182666); every other shelf face is still.
+inline void draw_shelf_face(mm3::Face f, float cx, float cy, float h, theme::Color c) {
+    Mm3Motion& mo = mm3_motion();
+    if (const auto motion = mm3::shelf_motion(f)) {
+        const mm3::Mark m{f, motion};
+        if (mm3::plays(m, mo.reduceMotion, mo.appActive, mo.windowVisible)) {
+            const mm3::Anim a = mm3::anim(*motion);
+            const MovingFrame fr = moving_frame(m, a, mo.clock);
+            const auto cells = mm3::frame_cells(a, fr.frame);
+            draw_cells_in(cells.data, cells.size, a.box, cx, cy, h, c);
+            mo.movedLastFrame = true;
+            mo.nextChangeIn = std::min(mo.nextChangeIn, fr.nextChangeIn);
+            ++mo.movedDraws;
+            return;
+        }
+    }
+    draw_face_boxed(f, cx, cy, h, c);
 }
 
 inline theme::Color color_for(Glyph glyph) {
@@ -185,12 +246,12 @@ inline constexpr float kMarkDy = -1.0f;
 // row's own fill changes under the pointer, so the caller passes it rather
 // than this assuming the sidebar's.
 inline void draw(RectangleType rect, Glyph glyph,
-             theme::Color bg, bool failed = false) {
+             theme::Color bg, bool failed = false, const mm3::Moment& moment = {}) {
     const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(kMarkDx);
     const float cy = rect.y + rect.height * 0.5f + hanabi::viewport::px(kMarkDy);
     const theme::Color c = color_for(glyph);
     if (mm3_on()) {
-        if (const auto mark = mm3::mark_for(glyph, failed)) {
+        if (const auto mark = mm3::mark_for(glyph, failed, moment)) {
             draw_mm3(*mark, cx, cy, hanabi::viewport::px(kMm3FaceH), c);
             return;
         }

@@ -75,6 +75,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto* layout = find_singleton<LayoutComponent>();
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;
+        sweep_row_phases();
 
         // text_input takes its TEXT colour from theme.font, which is global
         // (afterhours_gaps.md #105: ctx.theme is one struct read at render
@@ -725,8 +726,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                    .with_transparent_bg()
                    .with_on_draw_fg(
                        [glyph = sidebar_glyph(child),
-                        failed = child.tag == api::ThreadTag::Failed](RectangleType rect) {
-                           draw_mark(rect, glyph, theme::chrome::sidebar(), failed);
+                        failed = child.tag == api::ThreadTag::Failed,
+                        moment = row_moment(child, sidebar_glyph(child),
+                                            child.tag == api::ThreadTag::Failed)](RectangleType rect) {
+                           draw_mark(rect, glyph, theme::chrome::sidebar(), failed, moment);
                        }));
            auto text =
                div(ctx, mk(row.ent(), 2),
@@ -1932,8 +1935,77 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // The mark's ink lives in src/ui/status_mark.h so the tab strip draws the
     // same picture from the same source rather than a second copy of it.
     static void draw_mark(RectangleType rect, SidebarGlyph glyph,
-                          theme::Color bg, bool failed = false) {
-        hanabi::status_mark::draw(rect, glyph, bg, failed);
+                          theme::Color bg, bool failed = false,
+                          const hanabi::mm3::Moment& moment = {}) {
+        hanabi::status_mark::draw(rect, glyph, bg, failed, moment);
+    }
+
+    // ---- MM3 row moments (ui/mm3_marks.h; the reference's SessionRowView,
+    // D123167028 / D123182666): the finish wave, thinking, stale. Only a row
+    // being drawn has a memory, as only a row on screen has a SwiftUI @State:
+    // a row scrolled away and back starts fresh and never waves late.
+    struct RowPhaseMemo {
+        hanabi::mm3::RunPhase phase;
+        double waveStart = -1.0;
+        unsigned seen = 0;
+    };
+    std::unordered_map<std::string, RowPhaseMemo> rowPhases_;
+    unsigned rowPhaseFrame_ = 1;
+
+    void sweep_row_phases() {
+        if (!hanabi::status_mark::mm3_on()) {
+            if (!rowPhases_.empty()) rowPhases_.clear();
+            return;
+        }
+        ++rowPhaseFrame_;
+        for (auto it = rowPhases_.begin(); it != rowPhases_.end();)
+            if (it->second.seen + 1 < rowPhaseFrame_) {
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+                hanabi::status_mark::row_marks_seen().erase(it->first);  // not drawn: nothing seen
+#endif
+                it = rowPhases_.erase(it);
+            } else {
+                ++it;
+            }
+    }
+
+    hanabi::mm3::Moment row_moment(const api::SessionSummary& s, SidebarGlyph glyph, bool failed) {
+        namespace m3 = hanabi::mm3;
+        if (!hanabi::status_mark::mm3_on()) return {};
+        // The row's OWN run (never a child's: the last event is its own clock).
+        const bool runOpen = s.state == api::ThreadState::Running || s.state == api::ThreadState::Working;
+        const m3::RunPhase now{glyph, runOpen};
+        const double clock = hanabi::status_mark::mm3_motion().clock;
+        RowPhaseMemo& memo = rowPhases_[s.id];
+        if (memo.seen != 0 && memo.phase != now)
+            // Only a real finish waves; anything else clears a wave in progress.
+            memo.waveStart = m3::finishes(memo.phase, now) ? clock : -1.0;
+        memo.phase = now;
+        memo.seen = rowPhaseFrame_;
+        m3::Moment mo;
+        if (memo.waveStart >= 0.0) {
+            const double t = clock - memo.waveStart;
+            if (t < m3::anim(m3::Animation::Wave).duration) {
+                mo.finishing = true;
+                mo.finishSince = static_cast<float>(t);
+            } else {
+                memo.waveStart = -1.0;
+            }
+        }
+        const std::int64_t lastEventMs = s.last_event_unix_ms.value_or(s.updated_at * 1000);
+        const std::int64_t nowMs = static_cast<std::int64_t>(std::time(nullptr)) * 1000;
+        mo.thinking = m3::thinking_now(glyph, runOpen, lastEventMs, nowMs);
+        mo.stale = m3::stale_now(glyph, lastEventMs, nowMs);
+#ifdef AFTER_HOURS_ENABLE_E2E_TESTING
+        if (const auto mk = m3::mark_for(glyph, failed, mo)) {
+            const auto& motion = hanabi::status_mark::mm3_motion();
+            hanabi::status_mark::row_marks_seen()[s.id] = {
+                *mk, m3::plays(*mk, motion.reduceMotion, motion.appActive, motion.windowVisible)};
+        }
+#else
+        (void)failed;
+#endif
+        return mo;
     }
 
     // ---- Blocked smart-view nav icon (defect #5) ----
@@ -3382,8 +3454,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // state column wear its faces (ui/mm3_faces.h shelf_face).
         if (hanabi::mm3::Face face; hanabi::status_mark::mm3_on() &&
                                     hanabi::mm3::shelf_face(icon_name.c_str(), &face))
+            // Home and Pinned blink calmly (D123182666); the rest are still.
             iconDraw = [face, iconInk](RectangleType r) {
-                hanabi::status_mark::draw_face_boxed(face, r.x + r.width * 0.5f, r.y + r.height * 0.5f,
+                hanabi::status_mark::draw_shelf_face(face, r.x + r.width * 0.5f, r.y + r.height * 0.5f,
                                                      hanabi::viewport::px(10.0f), iconInk);
             };
         div(ctx, mk(row.ent(), 1),
@@ -4447,11 +4520,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_font_size(FontSize::Small)
                     .with_roundness(0.0f)
                     .with_on_draw_fg([mark, rowHot,
-                                      failed = s.tag == api::ThreadTag::Failed](RectangleType rect) {
+                                      failed = s.tag == api::ThreadTag::Failed,
+                                      moment = row_moment(s, mark, s.tag == api::ThreadTag::Failed)](RectangleType rect) {
                         draw_mark(rect, mark,
                                   rowHot ? theme::hover_over(theme::chrome::sidebar())
                                          : theme::chrome::sidebar(),
-                                  failed);
+                                  failed, moment);
                     })
                     .with_debug_name("row_glyph"));
         } else {

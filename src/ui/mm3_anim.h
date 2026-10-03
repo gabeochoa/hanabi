@@ -1,12 +1,14 @@
 #pragma once
 
-// The MM3 library's animations (the reference's MM3Animation, D123023215 /
-// D123162830 drafts; puffin_gaps.md D51): each is the `values` list of its
-// source SVG's <animate> composed with the file's still paths, so the frames
-// and their timing are the library's own -- copied as numbers from the
-// reference's base64 tables (decoded: per frame, a rectangle count, then x, y,
-// w, h). `timeline` names the distinct frame shown at each of `keyTimes`,
-// fractions of `duration`. Pure: no clock, no drawing.
+// The MM3 library's animations (the reference's MM3Animation, landed in
+// D123023215, D123162830, D123167028 and D123182666; puffin_gaps.md D51): each
+// is the `values` list of its source SVG's <animate> composed with the file's
+// still paths, so the frames and their timing are the library's own -- copied
+// as numbers from the reference's base64 tables (decoded: per frame, a
+// rectangle count, then x, y, w, h). `timeline` names the distinct frame shown
+// at each of `keyTimes`, fractions of `duration`. Thinking, Sleeping and
+// Confused are GENERATED in the library's grid by the reference (not from the
+// library's sheet), as it says. Pure: no clock, no drawing.
 
 #include <array>
 #include <cstddef>
@@ -16,7 +18,7 @@
 
 namespace hanabi::mm3 {
 
-enum class Animation { Blink, Angry, SmileBlink, Wave, Tired };
+enum class Animation { Blink, Angry, SmileBlink, Wave, Tired, Wink, HeartBlink, Thinking, Sleeping, Confused };
 
 struct Anim {
     const Cell* cells;
@@ -26,6 +28,9 @@ struct Anim {
     const std::uint8_t* timeline;
     std::size_t steps;
     double duration;
+    Box box;     // chrome draws it in this box (the face's own)
+    Box rowBox;  // rows and tabs draw it in this one
+    bool loops;  // a cycle (dots, a rising z): no rest between plays
 };
 
 inline constexpr std::array<Cell, 104> kBlinkCells{{{6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 20}, {46, 64, 9, 8}, {46, 72, 9, 4}, {46, 76, 9, 8}, {54, 93, 20, 9}, {74, 25, 28, 20}, {74, 64, 9, 8}, {74, 72, 9, 4}, {74, 76, 9, 8}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 20}, {45, 65, 1, 18}, {46, 65, 9, 7}, {46, 72, 9, 4}, {46, 76, 9, 7}, {54, 93, 20, 9}, {73, 65, 1, 18}, {74, 25, 28, 20}, {74, 65, 9, 7}, {74, 72, 9, 4}, {74, 76, 9, 7}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 20}, {43, 71, 3, 6}, {46, 71, 9, 1}, {46, 72, 9, 4}, {46, 76, 9, 1}, {54, 93, 20, 9}, {55, 71, 2, 6}, {71, 71, 3, 6}, {74, 25, 28, 20}, {74, 71, 9, 1}, {74, 72, 9, 4}, {74, 76, 9, 1}, {83, 71, 2, 6}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 20}, {43, 71, 3, 6}, {46, 71, 9, 1}, {46, 72, 9, 4}, {46, 76, 9, 1}, {54, 93, 20, 9}, {55, 71, 3, 6}, {71, 71, 3, 6}, {74, 25, 28, 20}, {74, 71, 9, 1}, {74, 72, 9, 4}, {74, 76, 9, 1}, {83, 71, 3, 6}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 20}, {43, 72, 3, 4}, {46, 72, 9, 4}, {54, 93, 20, 9}, {55, 72, 3, 4}, {71, 72, 3, 4}, {74, 25, 28, 20}, {74, 72, 9, 4}, {83, 72, 3, 4}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 20}, {45, 66, 1, 16}, {46, 66, 9, 6}, {46, 72, 9, 4}, {46, 76, 9, 6}, {54, 93, 20, 9}, {55, 66, 1, 16}, {73, 66, 1, 16}, {74, 25, 28, 20}, {74, 66, 9, 6}, {74, 72, 9, 4}, {74, 76, 9, 6}, {83, 66, 1, 16}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}}};
@@ -58,32 +63,81 @@ inline constexpr std::array<double, 33> kTiredKeys{{0.0, 0.02, 0.04, 0.06, 0.08,
 inline constexpr std::array<std::uint8_t, 33> kTiredTimeline{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 14, 13, 16, 11, 10, 8, 17, 7, 18, 19, 20, 21, 2, 1, 0, 22, 23}};
 inline constexpr double kTiredDuration = 2.0;
 
+inline constexpr std::array<Cell, 386> kWinkCells{{{6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 26, 28, 19}, {45, 85, 9, 10}, {50, 54, 9, 20}, {54, 88, 20, 10}, {69, 54, 9, 20}, {74, 26, 28, 19}, {74, 85, 9, 10}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 65, 10, 19}, {16, 45, 10, 20}, {16, 84, 10, 19}, {26, 26, 28, 20}, {45, 86, 9, 10}, {50, 56, 9, 19}, {54, 89, 20, 10}, {69, 56, 9, 19}, {74, 26, 28, 20}, {74, 86, 9, 10}, {102, 45, 10, 20}, {102, 84, 10, 19}, {112, 65, 10, 19}, {6, 65, 10, 19}, {16, 46, 10, 19}, {16, 84, 10, 19}, {26, 27, 28, 19}, {45, 87, 9, 10}, {50, 56, 9, 20}, {54, 90, 20, 10}, {69, 56, 9, 20}, {74, 27, 28, 19}, {74, 87, 9, 10}, {102, 46, 10, 19}, {102, 84, 10, 19}, {112, 65, 10, 19}, {6, 65, 10, 19}, {16, 46, 10, 19}, {16, 84, 10, 19}, {26, 26, 28, 20}, {45, 87, 9, 9}, {50, 56, 9, 19}, {54, 90, 20, 9}, {69, 56, 9, 19}, {74, 26, 28, 20}, {74, 87, 9, 9}, {102, 46, 10, 19}, {102, 84, 10, 19}, {112, 65, 10, 19}, {6, 63, 10, 19}, {16, 44, 10, 19}, {16, 82, 10, 20}, {26, 25, 28, 19}, {45, 83, 9, 9}, {50, 52, 9, 19}, {54, 86, 20, 9}, {69, 52, 9, 19}, {74, 25, 28, 19}, {74, 83, 9, 9}, {102, 44, 10, 19}, {102, 82, 10, 20}, {112, 63, 10, 19}, {6, 61, 10, 20}, {16, 42, 10, 19}, {16, 81, 10, 19}, {26, 23, 28, 19}, {45, 78, 9, 10}, {50, 47, 9, 20}, {54, 81, 20, 10}, {69, 47, 9, 20}, {74, 23, 28, 19}, {74, 78, 9, 10}, {102, 42, 10, 19}, {102, 81, 10, 19}, {112, 61, 10, 20}, {6, 61, 10, 19}, {16, 42, 10, 19}, {16, 80, 10, 19}, {26, 22, 28, 20}, {45, 76, 9, 10}, {50, 46, 9, 19}, {54, 79, 20, 10}, {69, 46, 9, 19}, {74, 22, 28, 20}, {74, 76, 9, 10}, {102, 42, 10, 19}, {102, 80, 10, 19}, {112, 61, 10, 19}, {6, 60, 10, 20}, {16, 41, 10, 19}, {16, 80, 10, 19}, {26, 22, 28, 19}, {45, 75, 9, 10}, {50, 45, 9, 19}, {54, 78, 20, 10}, {69, 45, 9, 19}, {74, 22, 28, 19}, {74, 75, 9, 10}, {102, 41, 10, 19}, {102, 80, 10, 19}, {112, 60, 10, 20}, {6, 60, 10, 19}, {16, 41, 10, 19}, {16, 79, 10, 20}, {26, 22, 28, 19}, {45, 75, 9, 9}, {50, 44, 9, 19}, {54, 78, 20, 9}, {69, 44, 9, 19}, {74, 22, 28, 19}, {74, 75, 9, 9}, {102, 41, 10, 19}, {102, 79, 10, 20}, {112, 60, 10, 19}, {6, 60, 10, 19}, {16, 41, 10, 19}, {16, 79, 10, 19}, {26, 22, 28, 19}, {45, 75, 9, 9}, {50, 44, 9, 19}, {54, 78, 20, 9}, {69, 44, 9, 19}, {74, 22, 28, 19}, {74, 75, 9, 9}, {102, 41, 10, 19}, {102, 79, 10, 19}, {112, 60, 10, 19}, {6, 60, 10, 19}, {16, 41, 10, 19}, {16, 79, 10, 19}, {26, 22, 28, 19}, {45, 75, 9, 9}, {50, 44, 9, 19}, {54, 77, 20, 10}, {69, 44, 9, 19}, {74, 22, 28, 19}, {74, 75, 9, 9}, {102, 41, 10, 19}, {102, 79, 10, 19}, {112, 60, 10, 19}, {6, 60, 10, 20}, {16, 41, 10, 19}, {16, 80, 10, 19}, {26, 22, 28, 19}, {44, 75, 10, 10}, {50, 45, 9, 19}, {54, 78, 20, 10}, {69, 45, 9, 19}, {74, 22, 28, 19}, {74, 75, 10, 10}, {102, 41, 10, 19}, {102, 80, 10, 19}, {112, 60, 10, 20}, {6, 61, 10, 20}, {16, 42, 9, 19}, {16, 81, 10, 19}, {25, 43, 1, 18}, {26, 23, 28, 19}, {43, 79, 10, 9}, {50, 48, 9, 19}, {53, 81, 22, 10}, {69, 48, 9, 19}, {74, 23, 28, 19}, {75, 79, 10, 9}, {102, 42, 10, 19}, {102, 81, 10, 19}, {112, 61, 10, 20}, {6, 63, 10, 19}, {16, 44, 10, 19}, {16, 82, 10, 20}, {26, 25, 28, 19}, {40, 83, 10, 10}, {47, 56, 5, 4}, {47, 65, 5, 5}, {50, 86, 28, 10}, {52, 58, 5, 10}, {57, 60, 5, 5}, {69, 53, 9, 19}, {74, 25, 28, 19}, {78, 83, 10, 10}, {102, 44, 10, 19}, {102, 82, 10, 20}, {112, 63, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 20}, {40, 85, 10, 9}, {47, 57, 5, 5}, {47, 67, 5, 4}, {50, 87, 28, 10}, {52, 59, 5, 10}, {57, 62, 5, 5}, {69, 54, 9, 19}, {74, 25, 28, 20}, {78, 85, 1, 10}, {79, 85, 9, 9}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 26, 28, 19}, {40, 85, 10, 10}, {47, 58, 5, 5}, {47, 67, 5, 5}, {50, 88, 28, 10}, {52, 60, 5, 10}, {57, 62, 5, 5}, {69, 55, 9, 19}, {74, 26, 28, 19}, {78, 85, 10, 10}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 20}, {26, 26, 28, 19}, {40, 86, 10, 9}, {47, 58, 5, 5}, {47, 68, 5, 5}, {50, 88, 28, 10}, {52, 61, 5, 9}, {57, 63, 5, 5}, {69, 55, 9, 19}, {74, 26, 28, 19}, {78, 86, 10, 9}, {102, 45, 10, 19}, {102, 83, 10, 20}, {112, 64, 10, 19}, {6, 64, 10, 20}, {16, 45, 10, 19}, {16, 84, 10, 19}, {26, 26, 28, 19}, {40, 86, 10, 9}, {47, 58, 5, 5}, {47, 68, 5, 5}, {50, 89, 28, 9}, {52, 61, 5, 9}, {57, 63, 5, 5}, {69, 55, 9, 19}, {74, 26, 28, 19}, {78, 86, 10, 9}, {102, 45, 10, 19}, {102, 84, 10, 19}, {112, 64, 10, 20}, {6, 64, 10, 20}, {16, 45, 10, 20}, {16, 84, 10, 19}, {26, 26, 28, 19}, {40, 86, 10, 10}, {47, 59, 5, 4}, {47, 68, 5, 5}, {50, 89, 28, 10}, {52, 61, 5, 10}, {57, 63, 5, 5}, {69, 55, 9, 20}, {74, 26, 28, 19}, {78, 86, 10, 10}, {102, 46, 1, 18}, {102, 84, 10, 19}, {103, 45, 9, 19}, {112, 64, 10, 20}, {6, 64, 10, 20}, {16, 45, 10, 20}, {16, 84, 10, 19}, {26, 26, 28, 19}, {40, 86, 10, 10}, {47, 59, 5, 5}, {47, 69, 1, 4}, {48, 68, 4, 5}, {50, 89, 28, 10}, {52, 61, 5, 10}, {57, 64, 5, 4}, {69, 55, 9, 20}, {74, 26, 28, 19}, {78, 86, 10, 10}, {102, 46, 1, 19}, {102, 84, 10, 19}, {103, 45, 9, 20}, {112, 64, 10, 20}, {6, 64, 10, 20}, {16, 45, 9, 20}, {16, 84, 10, 19}, {25, 46, 1, 19}, {26, 26, 28, 19}, {40, 86, 10, 10}, {47, 59, 5, 4}, {47, 68, 5, 5}, {50, 89, 28, 10}, {52, 61, 5, 10}, {57, 63, 5, 5}, {69, 55, 9, 20}, {74, 26, 28, 19}, {78, 86, 10, 10}, {102, 46, 1, 18}, {102, 84, 10, 19}, {103, 45, 9, 19}, {112, 64, 10, 20}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 20}, {26, 26, 28, 19}, {40, 86, 10, 9}, {47, 58, 5, 5}, {47, 67, 5, 5}, {50, 88, 28, 10}, {52, 60, 5, 10}, {57, 63, 5, 4}, {69, 55, 9, 19}, {74, 26, 28, 19}, {78, 86, 10, 9}, {102, 45, 10, 19}, {102, 83, 10, 20}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 20}, {41, 84, 9, 10}, {47, 61, 14, 6}, {50, 87, 28, 10}, {69, 54, 9, 19}, {74, 25, 28, 20}, {78, 84, 9, 10}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 63, 10, 20}, {16, 44, 9, 20}, {16, 83, 10, 19}, {25, 45, 1, 19}, {26, 25, 28, 19}, {44, 84, 10, 10}, {49, 54, 10, 18}, {54, 87, 20, 10}, {69, 53, 9, 20}, {74, 25, 28, 19}, {74, 84, 10, 10}, {102, 44, 10, 20}, {102, 83, 10, 19}, {112, 63, 10, 20}, {6, 63, 10, 20}, {16, 44, 10, 19}, {16, 83, 10, 19}, {26, 25, 28, 19}, {45, 84, 9, 10}, {50, 53, 9, 20}, {54, 87, 20, 9}, {69, 53, 9, 20}, {74, 25, 28, 19}, {74, 84, 9, 10}, {102, 44, 10, 19}, {102, 83, 10, 19}, {112, 63, 10, 20}, {6, 64, 10, 19}, {16, 44, 10, 20}, {16, 83, 10, 19}, {26, 25, 28, 19}, {45, 84, 9, 10}, {50, 54, 9, 19}, {54, 87, 20, 10}, {69, 54, 9, 19}, {74, 25, 28, 19}, {74, 84, 9, 10}, {102, 44, 10, 20}, {102, 83, 10, 19}, {112, 64, 10, 19}, {6, 64, 10, 19}, {16, 45, 10, 19}, {16, 83, 10, 19}, {26, 26, 28, 19}, {45, 85, 9, 10}, {50, 54, 9, 19}, {54, 88, 20, 9}, {69, 54, 9, 19}, {74, 26, 28, 19}, {74, 85, 9, 10}, {102, 45, 10, 19}, {102, 83, 10, 19}, {112, 64, 10, 19}}};
+inline constexpr std::array<std::uint16_t, 28> kWinkStarts{{0, 13, 26, 39, 52, 65, 78, 91, 104, 117, 130, 143, 156, 170, 186, 203, 219, 235, 251, 268, 286, 304, 320, 333, 347, 360, 373, 386}};
+inline constexpr std::array<double, 29> kWinkKeys{{0.0, 0.131579, 0.157895, 0.184211, 0.210526, 0.236842, 0.263158, 0.289474, 0.315789, 0.342105, 0.368421, 0.394737, 0.421053, 0.447368, 0.473684, 0.5, 0.526316, 0.552632, 0.578947, 0.605263, 0.631579, 0.657895, 0.684211, 0.710526, 0.736842, 0.763158, 0.815789, 0.842105, 0.868421}};
+inline constexpr std::array<std::uint8_t, 29> kWinkTimeline{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 8, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 0}};
+inline constexpr double kWinkDuration = 1.52;
+
+inline constexpr std::array<Cell, 87> kHeartBlinkCells{{{28, 16, 24, 11}, {76, 16, 24, 11}, {16, 27, 12, 13}, {52, 27, 24, 13}, {100, 27, 12, 13}, {4, 40, 12, 24}, {112, 40, 12, 24}, {70, 53, 11, 7}, {47, 55, 11, 5}, {16, 64, 12, 12}, {100, 64, 12, 12}, {28, 76, 12, 11}, {88, 76, 12, 11}, {40, 87, 12, 13}, {76, 87, 12, 13}, {52, 100, 24, 11}, {47, 45, 11, 10}, {70, 45, 11, 8}, {47, 60, 11, 10}, {70, 60, 11, 10}, {28, 16, 24, 11}, {76, 16, 24, 11}, {16, 27, 12, 13}, {52, 27, 24, 13}, {100, 27, 12, 13}, {4, 40, 12, 24}, {112, 40, 12, 24}, {70, 53, 11, 7}, {47, 55, 11, 5}, {16, 64, 12, 12}, {100, 64, 12, 12}, {28, 76, 12, 11}, {88, 76, 12, 11}, {40, 87, 12, 13}, {76, 87, 12, 13}, {52, 100, 24, 11}, {45, 46, 2, 23}, {47, 46, 11, 9}, {58, 46, 1, 22}, {69, 46, 1, 23}, {70, 46, 11, 7}, {81, 46, 2, 23}, {47, 60, 11, 9}, {70, 60, 11, 9}, {28, 16, 24, 11}, {76, 16, 24, 11}, {16, 27, 12, 13}, {52, 27, 24, 13}, {100, 27, 12, 13}, {4, 40, 12, 24}, {112, 40, 12, 24}, {70, 53, 11, 7}, {47, 55, 11, 5}, {16, 64, 12, 12}, {100, 64, 12, 12}, {28, 76, 12, 11}, {88, 76, 12, 11}, {40, 87, 12, 13}, {76, 87, 12, 13}, {52, 100, 24, 11}, {66, 53, 4, 7}, {81, 53, 4, 7}, {43, 55, 4, 5}, {58, 55, 4, 5}, {28, 16, 24, 11}, {76, 16, 24, 11}, {16, 27, 12, 13}, {52, 27, 24, 13}, {100, 27, 12, 13}, {4, 40, 12, 24}, {112, 40, 12, 24}, {70, 53, 11, 7}, {47, 55, 11, 5}, {16, 64, 12, 12}, {100, 64, 12, 12}, {28, 76, 12, 11}, {88, 76, 12, 11}, {40, 87, 12, 13}, {76, 87, 12, 13}, {52, 100, 24, 11}, {44, 53, 3, 8}, {47, 53, 11, 2}, {58, 53, 2, 8}, {68, 53, 2, 8}, {81, 53, 4, 8}, {47, 60, 11, 1}, {70, 60, 11, 1}}};
+inline constexpr std::array<std::uint16_t, 5> kHeartBlinkStarts{{0, 20, 44, 64, 87}};
+inline constexpr std::array<double, 9> kHeartBlinkKeys{{0.0, 0.214286, 0.25, 0.285714, 0.321429, 0.428571, 0.464286, 0.5, 0.535714}};
+inline constexpr std::array<std::uint8_t, 9> kHeartBlinkTimeline{{0, 1, 2, 3, 0, 3, 2, 1, 0}};
+inline constexpr double kHeartBlinkDuration = 1.12;
+
+inline constexpr std::array<Cell, 46> kThinkingCells{{{26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {50, 58, 9, 16}, {78, 58, 9, 16}, {50, 95, 6, 6}, {26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {50, 58, 9, 16}, {78, 58, 9, 16}, {50, 95, 6, 6}, {61, 95, 6, 6}, {26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {50, 58, 9, 16}, {78, 58, 9, 16}, {50, 95, 6, 6}, {61, 95, 6, 6}, {72, 95, 6, 6}, {26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {50, 58, 9, 16}, {78, 58, 9, 16}}};
+inline constexpr std::array<std::uint16_t, 5> kThinkingStarts{{0, 11, 23, 36, 46}};
+inline constexpr std::array<double, 4> kThinkingKeys{{0.0, 0.25, 0.5, 0.75}};
+inline constexpr std::array<std::uint8_t, 4> kThinkingTimeline{{0, 1, 2, 3}};
+inline constexpr double kThinkingDuration = 1.6;
+
+inline constexpr std::array<Cell, 56> kSleepingCells{{{26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {42, 74, 15, 3}, {71, 74, 15, 3}, {58, 94, 12, 6}, {26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {42, 74, 15, 3}, {71, 74, 15, 3}, {58, 94, 12, 6}, {106, 32, 9, 3}, {112, 35, 3, 3}, {109, 38, 3, 3}, {106, 41, 9, 3}, {26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {42, 74, 15, 3}, {71, 74, 15, 3}, {58, 94, 12, 6}, {110, 18, 12, 4}, {118, 22, 4, 4}, {114, 26, 4, 4}, {110, 30, 12, 4}, {26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {42, 74, 15, 3}, {71, 74, 15, 3}, {58, 94, 12, 6}, {114, 6, 12, 4}, {122, 10, 4, 4}, {118, 14, 4, 4}, {114, 18, 12, 4}}};
+inline constexpr std::array<std::uint16_t, 5> kSleepingStarts{{0, 11, 26, 41, 56}};
+inline constexpr std::array<double, 4> kSleepingKeys{{0.0, 0.25, 0.5, 0.75}};
+inline constexpr std::array<std::uint8_t, 4> kSleepingTimeline{{0, 1, 2, 3}};
+inline constexpr double kSleepingDuration = 2.4;
+
+inline constexpr std::array<Cell, 28> kConfusedCells{{{26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {46, 64, 9, 20}, {76, 70, 6, 8}, {50, 94, 8, 4}, {58, 98, 8, 4}, {66, 94, 8, 4}, {74, 98, 4, 4}, {26, 25, 28, 20}, {74, 25, 28, 20}, {16, 45, 10, 19}, {102, 45, 10, 19}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {48, 70, 6, 8}, {74, 64, 9, 20}, {50, 98, 8, 4}, {58, 94, 8, 4}, {66, 98, 8, 4}, {74, 94, 4, 4}}};
+inline constexpr std::array<std::uint16_t, 3> kConfusedStarts{{0, 14, 28}};
+inline constexpr std::array<double, 5> kConfusedKeys{{0.0, 0.2, 0.4, 0.6, 0.8}};
+inline constexpr std::array<std::uint8_t, 5> kConfusedTimeline{{0, 1, 0, 1, 0}};
+inline constexpr double kConfusedDuration = 1.6;
+
 inline Anim anim(Animation a) {
+    const Box face{kBoxX, kBoxY, kBoxW, kBoxH}, row{kRowX, kRowY, kRowW, kRowH};
+    const Box heart{kHeartX, kHeartY, kHeartW, kHeartH};
     switch (a) {
         case Animation::Blink:
             return {kBlinkCells.data(), kBlinkStarts.data(), kBlinkStarts.size() - 1, kBlinkKeys.data(),
-                    kBlinkTimeline.data(), kBlinkTimeline.size(), kBlinkDuration};
+                    kBlinkTimeline.data(), kBlinkTimeline.size(), kBlinkDuration, face, row, false};
         case Animation::Angry:
             return {kAngryCells.data(), kAngryStarts.data(), kAngryStarts.size() - 1, kAngryKeys.data(),
-                    kAngryTimeline.data(), kAngryTimeline.size(), kAngryDuration};
+                    kAngryTimeline.data(), kAngryTimeline.size(), kAngryDuration, face, row, false};
         case Animation::SmileBlink:
             return {kSmileBlinkCells.data(), kSmileBlinkStarts.data(), kSmileBlinkStarts.size() - 1, kSmileBlinkKeys.data(),
-                    kSmileBlinkTimeline.data(), kSmileBlinkTimeline.size(), kSmileBlinkDuration};
+                    kSmileBlinkTimeline.data(), kSmileBlinkTimeline.size(), kSmileBlinkDuration, face, row, false};
         case Animation::Wave:
             return {kWaveCells.data(), kWaveStarts.data(), kWaveStarts.size() - 1, kWaveKeys.data(),
-                    kWaveTimeline.data(), kWaveTimeline.size(), kWaveDuration};
+                    kWaveTimeline.data(), kWaveTimeline.size(), kWaveDuration, face, row, false};
         case Animation::Tired:
             return {kTiredCells.data(), kTiredStarts.data(), kTiredStarts.size() - 1, kTiredKeys.data(),
-                    kTiredTimeline.data(), kTiredTimeline.size(), kTiredDuration};
+                    kTiredTimeline.data(), kTiredTimeline.size(), kTiredDuration, face, row, false};
+        case Animation::Wink:
+            return {kWinkCells.data(), kWinkStarts.data(), kWinkStarts.size() - 1, kWinkKeys.data(),
+                    kWinkTimeline.data(), kWinkTimeline.size(), kWinkDuration, face, row, false};
+        case Animation::HeartBlink:
+            return {kHeartBlinkCells.data(), kHeartBlinkStarts.data(), kHeartBlinkStarts.size() - 1, kHeartBlinkKeys.data(),
+                    kHeartBlinkTimeline.data(), kHeartBlinkTimeline.size(), kHeartBlinkDuration, heart, heart, false};
+        case Animation::Thinking:
+            return {kThinkingCells.data(), kThinkingStarts.data(), kThinkingStarts.size() - 1, kThinkingKeys.data(),
+                    kThinkingTimeline.data(), kThinkingTimeline.size(), kThinkingDuration, face, row, true};
+        case Animation::Sleeping:
+            return {kSleepingCells.data(), kSleepingStarts.data(), kSleepingStarts.size() - 1, kSleepingKeys.data(),
+                    kSleepingTimeline.data(), kSleepingTimeline.size(), kSleepingDuration, face, row, true};
+        case Animation::Confused:
+            return {kConfusedCells.data(), kConfusedStarts.data(), kConfusedStarts.size() - 1, kConfusedKeys.data(),
+                    kConfusedTimeline.data(), kConfusedTimeline.size(), kConfusedDuration, face, row, false};
     }
     return {kBlinkCells.data(), kBlinkStarts.data(), kBlinkStarts.size() - 1, kBlinkKeys.data(),
-            kBlinkTimeline.data(), kBlinkTimeline.size(), kBlinkDuration};
+            kBlinkTimeline.data(), kBlinkTimeline.size(), kBlinkDuration, face, row, false};
 }
 
 // A calm face (a live run) plays then rests; an urgent one (a row waiting on
-// you) loops end to end at the library's own timing (D123162830, kt-p22h).
+// you) loops end to end at the library's own timing (D123162830, kt-p22h); a
+// cycle (thinking dots, a sleeping z) never rests; a once-play is not a loop.
 inline constexpr double kRest = 4.5;
 inline constexpr double kUrgentRest = 0.0;
+inline double rest_for(const Anim& a, bool urgent) { return urgent || a.loops ? kUrgentRest : kRest; }
 
 // The distinct frame shown `t` seconds into the loop (play + rest); the first
 // frame holds through the rest.
@@ -97,6 +151,13 @@ inline std::size_t frame_at(const Anim& a, double t, double rest) {
     for (std::size_t i = 0; i < a.steps; ++i)
         if (a.keyTimes[i] <= frac) step = i;
     return a.timeline[step];
+}
+
+// A once-play (the wave a row gives as its run finishes, D123167028): `t`
+// seconds after it started, the frame shown -- the last one held once done.
+inline std::size_t frame_once(const Anim& a, double t) {
+    if (t >= a.duration) return a.timeline[a.steps - 1];
+    return frame_at(a, t < 0.0 ? 0.0 : t, 0.0);
 }
 
 // Seconds from `t` until the frame shown changes (the next key time in the

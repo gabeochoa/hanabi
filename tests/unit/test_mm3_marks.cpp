@@ -26,9 +26,60 @@ int main() {
     CHECK(failed && !failed->moves && failed->still == m::Face::Angry);
     const auto working = m::mark_for(G::Running, false);
     CHECK(working && working->moves == m::Animation::Blink && !working->urgent);
-    CHECK(m::mark_for(G::Done, false)->still == m::Face::Wink);
+    // As landed (D123167028, D123182666): review winks calmly; paused sleeps
+    // (a cycle); frozen is confused (calm); idle smiles, still.
+    const auto review = m::mark_for(G::Done, false);
+    CHECK(review && review->still == m::Face::Wink && review->moves == m::Animation::Wink && !review->urgent);
     CHECK(m::mark_for(G::Idle, false)->still == m::Face::Smile && !m::mark_for(G::Idle, false)->moves);
-    CHECK(!m::mark_for(G::Frozen, false) && !m::mark_for(G::Paused, false));
+    const auto paused = m::mark_for(G::Paused, false);
+    CHECK(paused && paused->still == m::Face::Sleeping && paused->moves == m::Animation::Sleeping);
+    CHECK(m::anim(m::Animation::Sleeping).loops && m::anim(m::Animation::Thinking).loops);
+    CHECK(m::rest_for(m::anim(m::Animation::Sleeping), false) == 0.0);
+    CHECK(m::rest_for(m::anim(m::Animation::Wink), false) == m::kRest);
+    const auto frozen = m::mark_for(G::Frozen, false);
+    CHECK(frozen && frozen->still == m::Face::Confused && frozen->moves == m::Animation::Confused);
+
+    // Moments. Thinking: a live run quiet 3 minutes, its OWN run open.
+    const std::int64_t now = 2'000'000'000'000;
+    CHECK(m::thinking_now(G::Running, true, now - 181'000, now));
+    CHECK(!m::thinking_now(G::Running, true, now - 179'000, now));
+    CHECK(!m::thinking_now(G::Running, false, now - 600'000, now));  // a child's run, not its own
+    CHECK(!m::thinking_now(G::Idle, true, now - 600'000, now));
+    m::Moment think;
+    think.thinking = true;
+    const auto thinking = m::mark_for(G::Running, false, think);
+    CHECK(thinking && thinking->moves == m::Animation::Thinking && thinking->still == m::Face::Neutral);
+    // Stale: an idle row untouched a day turns tired, still.
+    CHECK(m::stale_now(G::Idle, now - 86'401'000, now) && !m::stale_now(G::Idle, now - 86'399'000, now));
+    CHECK(!m::stale_now(G::Done, now - 999'999'000, now));
+    m::Moment stale;
+    stale.stale = true;
+    CHECK(m::mark_for(G::Idle, false, stale)->still == m::Face::Tired && !m::mark_for(G::Idle, false, stale)->moves);
+    // The finish wave: only a real completion, once, then the settled face.
+    using P = m::RunPhase;
+    CHECK(m::finishes(P{G::Running, true}, P{G::Idle, false}));
+    CHECK(m::finishes(P{G::Running, true}, P{G::Done, false}));
+    CHECK(!m::finishes(P{G::Running, true}, P{G::Waiting, false}));  // asking
+    CHECK(!m::finishes(P{G::Running, true}, P{G::Blocked, false}));  // blocked or failed
+    CHECK(!m::finishes(P{G::Running, true}, P{G::Done, true}));      // the run is still open
+    CHECK(!m::finishes(P{G::Idle, false}, P{G::Done, false}));       // never live
+    m::Moment finish;
+    finish.finishing = true;
+    finish.finishSince = 0.5f;
+    const auto wave = m::mark_for(G::Done, false, finish);
+    CHECK(wave && wave->moves == m::Animation::Wave && wave->once && !wave->urgent && wave->still == m::Face::Wink);
+    CHECK(m::plays(*wave, false, false, true));  // a finish waves behind another app too
+    finish.finishSince = 2.01f;                   // past the wave: the settled face
+    CHECK(m::mark_for(G::Done, false, finish)->moves == m::Animation::Wink);
+    finish.finishSince = 0.5f;
+    CHECK(m::mark_for(G::Waiting, false, finish)->moves == m::Animation::Angry);  // asking never waves
+    const m::Anim waveAnim = m::anim(m::Animation::Wave);
+    CHECK(m::frame_once(waveAnim, 5.0) == waveAnim.timeline[waveAnim.steps - 1]);  // holds the last frame
+    // The shelf: Home and Pinned blink, in their own boxes.
+    CHECK(m::shelf_motion(m::Face::Smile) == m::Animation::SmileBlink);
+    CHECK(m::shelf_motion(m::Face::Heart) == m::Animation::HeartBlink);
+    CHECK(!m::shelf_motion(m::Face::Tired) && !m::shelf_motion(m::Face::Wink));
+    CHECK(m::anim(m::Animation::HeartBlink).box.y == m::kHeartY && m::anim(m::Animation::HeartBlink).box.h == m::kHeartH);
 
     // Motion gates: urgent keeps moving behind another app, calm does not;
     // hidden or Reduce Motion stills both.
@@ -56,8 +107,11 @@ int main() {
     CHECK(std::abs(m::next_change_in(blink, 0.0, m::kRest) - 0.52) < 1e-6);        // 0.371429*1.4
     CHECK(std::abs(m::next_change_in(blink, 2.0, m::kRest) - 3.9) < 1e-6);         // resting: until the loop
     CHECK(m::next_change_in(angry, 1.999, m::kUrgentRest) >= 0.001);
-    // Every frame of both fits the row box whole -- the point of the box.
-    for (const m::Anim& a : {angry, blink})
+    // Every frame of every row animation fits the row box whole -- the point
+    // of the box.
+    for (const m::Anim& a : {angry, blink, m::anim(m::Animation::Wink), m::anim(m::Animation::Wave),
+                             m::anim(m::Animation::Thinking), m::anim(m::Animation::Sleeping),
+                             m::anim(m::Animation::Confused)})
         for (std::size_t f = 0; f < a.frameCount; ++f) {
             const auto c = m::frame_cells(a, f);
             CHECK(c.size > 0);
@@ -66,7 +120,8 @@ int main() {
                 CHECK(c.data[i].y >= m::kRowY && c.data[i].y + c.data[i].h <= m::kRowY + m::kRowH);
             }
         }
-    for (m::Face f : {m::Face::Wave, m::Face::Tired, m::Face::Angry, m::Face::Smile, m::Face::Wink, m::Face::Blink}) {
+    for (m::Face f : {m::Face::Wave, m::Face::Tired, m::Face::Angry, m::Face::Smile, m::Face::Wink, m::Face::Blink,
+                      m::Face::Sleeping, m::Face::Confused, m::Face::Neutral}) {
         const auto c = m::cells(f);
         for (std::size_t i = 0; i < c.size; ++i)
             CHECK(c.data[i].y >= m::kRowY && c.data[i].y + c.data[i].h <= m::kRowY + m::kRowH);

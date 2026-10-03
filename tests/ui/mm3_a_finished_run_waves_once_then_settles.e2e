@@ -1,0 +1,24 @@
+# MM3 moments (the reference's D123167028, landed 2026-10-03): a row whose run
+# really finishes waves once -- the library's one-handed wave -- then wears its
+# settled face (ready for review winks, at the calm cadence). A run that ends
+# asking for you does not wave: only a completion does.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","icon_set":"mm3"}
+
+wait_frames 20
+set_session_state t5 running
+wait_frames 10
+expect_row_mm3 t5 blink blink
+set_session_state t5 review
+wait_frames 6
+expect_row_mm3 t5 wave wink
+wait 2.6
+expect_row_mm3 t5 wink wink
+set_session_state t5 running
+wait_frames 10
+set_session_state t5 asking
+wait_frames 6
+expect_row_mm3 t5 angry wave
+set_session_state t5 idle
+wait_frames 6
+expect_row_mm3 t5 still smile

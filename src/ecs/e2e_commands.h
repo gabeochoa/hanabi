@@ -3707,6 +3707,68 @@ struct HandleMm3MovingCommand : afterhours::System<afterhours::testing::PendingE
     }
 };
 
+// set_session_state <sid> <running|idle|review|asking|blocked|paused|frozen> [quiet_seconds]
+//   The catalog row says so now (and its last event was quiet_seconds ago,
+//   default 0) -- what the next list landing would bring.
+// expect_row_mm3 <sid> <animation|still> <face>
+//   The sidebar row's MM3 mark last frame: moving with that animation, or
+//   still on that face (ui/mm3_marks.h names). Retries a while.
+struct HandleRowMm3Commands : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd, float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("set_session_state")) {
+            if (!cmd.has_args(2)) return cmd.fail("set_session_state <sid> <state> [quiet_seconds]");
+            auto* app = ecs::find_singleton<ecs::AppComponent>();
+            if (!app) return cmd.fail("set_session_state: no app");
+            const std::string want = cmd.arg(1);
+            const long quiet = cmd.args.size() > 2 ? std::stol(cmd.arg(2)) : 0;
+            bool found = false;
+            for (auto& s : app->sessions) {
+                if (s.id != cmd.arg(0)) continue;
+                found = true;
+                s.state = api::ThreadState::Parked;
+                s.tag = api::ThreadTag::None;
+                s.frozen = false;
+                s.replies_paused = false;
+                if (want == "running") s.state = api::ThreadState::Running;
+                else if (want == "review") s.tag = api::ThreadTag::Review;
+                else if (want == "asking") s.tag = api::ThreadTag::Waiting;
+                else if (want == "blocked") s.tag = api::ThreadTag::Blocked;
+                else if (want == "paused") s.replies_paused = true;
+                else if (want == "frozen") s.frozen = true;
+                else if (want != "idle") return cmd.fail("set_session_state: unknown state " + want);
+                const std::int64_t nowMs = static_cast<std::int64_t>(std::time(nullptr)) * 1000;
+                s.last_event_unix_ms = nowMs - quiet * 1000;
+                s.updated_at = (nowMs - quiet * 1000) / 1000;
+            }
+            if (!found) return cmd.fail("set_session_state: no session " + cmd.arg(0));
+            app->mark_session_catalog_changed();
+            cmd.consume();
+            return;
+        }
+        if (!cmd.is("expect_row_mm3")) return;
+        if (!cmd.has_args(3)) return cmd.fail("expect_row_mm3 <sid> <animation|still> <face>");
+        const auto& seen = hanabi::status_mark::row_marks_seen();
+        const auto it = seen.find(cmd.arg(0));
+        std::string got = "nothing";
+        if (it != seen.end()) {
+            const auto& m = it->second.mark;
+            got = it->second.moving && m.moves ? std::string(hanabi::mm3::name_of(*m.moves)) + " " +
+                                                     hanabi::mm3::name_of(m.still)
+                                               : std::string("still ") + hanabi::mm3::name_of(m.still);
+        }
+        if (got == cmd.arg(1) + " " + cmd.arg(2)) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("expect_row_mm3 {}: drew '{}', wanted '{} {}'", cmd.arg(0), got, cmd.arg(1), cmd.arg(2)));
+    }
+};
+
 // mock_release_archive: archive writes held by HANABI_MOCK_ARCHIVE_HOLD go.
 struct HandleMockReleaseArchiveCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
@@ -4754,6 +4816,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleQueueCommands>());
     sm.register_update_system(std::make_unique<HandleExpectMockSpaceWriteCommand>());
     sm.register_update_system(std::make_unique<HandleMockLiveCommands>());
+    sm.register_update_system(std::make_unique<HandleRowMm3Commands>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());
