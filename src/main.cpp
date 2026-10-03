@@ -1194,6 +1194,10 @@ static void app_cleanup() {
     // quit through sokol never returns from run().
     hanabi::prof::dump();
     persist_app_state();
+    // Queued transcript writes reach the disk before the process goes
+    // (bounded: a stalled disk must not hang the quit).
+    if (!api::disk_cache::flush_transcript_writes(std::chrono::milliseconds(3000)))
+        std::fprintf(stderr, "[cache] quit: transcript writes did not finish in 3 s\n");
 
     // FAST, non-hanging quit. AppComponent holds ~9 std::future<>s from
     // std::async (transcript/list/send/stream/steer/split/settings-sync). A
@@ -2084,6 +2088,23 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
             // HANABI_AUDIT_WARM_TABS=1: every restored tab is in the
             // transcript cache, as it is once a reader has clicked through
             // them (the live pool only subscribes cached tabs).
+            // HANABI_AUDIT_CACHE_FILES=<n>: the disk cache already holds n
+            // transcripts (~4 KB each), as a reader's does after weeks -- what
+            // the cap check walks when it scans.
+            static bool seeded = false;
+            if (!seeded && i == 0) {
+                seeded = true;
+                if (const char* nf = std::getenv("HANABI_AUDIT_CACHE_FILES"); nf && std::atoi(nf) > 0) {
+                    const std::string dir = api::disk_cache::cache_dir();
+                    std::error_code ec;
+                    std::filesystem::create_directories(dir, ec);
+                    const std::string body(4000, 'x');
+                    for (int k = 0; k < std::atoi(nf); ++k) {
+                        std::ofstream o(std::filesystem::path(dir) / ("tx_seed" + std::to_string(k) + ".json"));
+                        o << "{\"summary\":{},\"pad\":\"" << body << "\"}";
+                    }
+                }
+            }
             static bool warmed = false;
             if (!warmed && i >= 10 && std::getenv("HANABI_AUDIT_WARM_TABS") && a.client) {
                 warmed = true;
@@ -2152,6 +2173,13 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
         std::printf("LiveFetch: full=%ld incremental=%ld rows=%ld persists=%ld subs=%s\n", st.full.load(),
                     st.incremental.load(), st.rows.load(), ecs::LoaderSystem::persist_requests().load(),
                     subs.c_str());
+        const auto& pc = ecs::LoaderSystem::persist_cost();
+        api::disk_cache::flush_transcript_writes();
+        const auto ws = api::disk_cache::transcript_writer_stats();
+        std::printf("PersistCost: frame_thread_calls=%ld total_ms=%.3f max_ms=%.3f writer_written=%llu "
+                    "coalesced=%llu writer_ms=%.3f writer_max_ms=%.3f\n",
+                    pc.calls, pc.totalMs, pc.maxMs, static_cast<unsigned long long>(ws.written),
+                    static_cast<unsigned long long>(ws.coalesced), ws.workerMs, ws.maxWriteMs);
     }
     if (std::getenv("HANABI_IDLE_WHY") != nullptr) {
         static const char* kNames[19] = {"startup", "pointer", "key", "resize", "exposure", "native",

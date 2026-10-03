@@ -19,6 +19,7 @@
 // it never stores tokens or credentials.
 
 #include <cstdint>
+#include <chrono>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -57,6 +58,38 @@ std::unordered_map<std::string, std::int64_t> load_created_at();
 // --- Transcripts (one file per session id) ------------------------------
 void save_transcript(const Session& session);
 std::optional<Session> load_transcript(const std::string& id);
+
+// --- Transcript writes off the frame thread -----------------------------
+// save_transcript_async hands a snapshot to ONE background writer and
+// returns: the JSON build, the file write and the cap check (trim_to_cap)
+// run there, not in the frame that landed a fetch.
+//   * Coalesced: a thread's snapshots queued before its write starts
+//     collapse into the newest; a burst is written once, at most
+//     kTranscriptCoalesce after its first snapshot.
+//   * Ordered per thread: one writer, so a thread's files land in the order
+//     their snapshots were taken (a newer snapshot queued during a write is
+//     written after it).
+//   * Read-through: load_transcript answers from a queued or in-flight
+//     snapshot before the file, so nothing reads an older copy than was
+//     handed over.
+//   * Clear-safe: wipe_all_report drops the queue and waits out the write
+//     in flight before deleting -- a queued write can never resurrect a
+//     cleared cache. set_namespace flushes first (queued snapshots belong to
+//     the namespace they were taken in).
+//   * Flushed on quit: flush_transcript_writes (app_cleanup; an atexit hook
+//     covers the other exits), bounded so a stalled disk cannot hang a quit.
+inline constexpr std::chrono::milliseconds kTranscriptCoalesce{150};
+void save_transcript_async(Session session, std::uint64_t cap_bytes);
+// Waits until every queued write (and the cap check after them) is done, or
+// `limit` passes; true when done.
+bool flush_transcript_writes(std::chrono::milliseconds limit = std::chrono::milliseconds(3000));
+struct TranscriptWriterStats {
+    std::uint64_t enqueued = 0, written = 0, coalesced = 0, discarded = 0;
+    double workerMs = 0.0, maxWriteMs = 0.0;  // the writer thread's wall time
+};
+TranscriptWriterStats transcript_writer_stats();
+// Test seam: hold the writer (nothing is written until released).
+void transcript_writer_pause(bool paused);
 
 // --- Owned durable export (local-first idea #4) -------------------------
 // Write every cached transcript as human-readable Markdown into a USER-OWNED

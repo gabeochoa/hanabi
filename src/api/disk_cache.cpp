@@ -11,6 +11,10 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <optional>
+#include <thread>
+#include <deque>
+#include <condition_variable>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -64,6 +68,9 @@ static fs::path flat_cache_base() {
 namespace { void invalidate_cache_size_estimate(); }
 
 void set_namespace(const std::string& key) {
+    // Queued snapshots belong to the namespace they were taken in, and the
+    // writer reads the namespace when it writes.
+    flush_transcript_writes(std::chrono::milliseconds(5000));
     invalidate_content_index();  // a different namespace is a different corpus
     g_epoch.fetch_add(1, std::memory_order_relaxed);
     g_namespace = key.empty() ? std::string() : ns_token(key);
@@ -664,7 +671,150 @@ void save_transcript(const Session& session) {
     invalidate_content_index();  // the corpus changed under the search memo
 }
 
+// ---- the background transcript writer (see disk_cache.h) -----------------
+namespace {
+struct TranscriptWriter {
+    std::mutex mu;
+    std::condition_variable work;  // the worker waits here
+    std::condition_variable idle;  // flushes and discards wait here
+    struct Pending {
+        Session session;
+        std::chrono::steady_clock::time_point first;  // when the burst began
+    };
+    std::unordered_map<std::string, Pending> pending;
+    std::deque<std::string> order;  // ids, in first-snapshot order
+    std::optional<Session> inflight;  // being written (read-through)
+    std::string inflightId;
+    std::uint64_t cap = 0;
+    bool trimDue = false;
+    bool busy = false;
+    bool paused = false;
+    bool started = false;
+    int flushers = 0;
+    TranscriptWriterStats stats;
+    [[nodiscard]] bool quiet() const { return order.empty() && !trimDue && !busy; }
+};
+
+// Leaked on purpose: its thread is detached and may outlive static teardown.
+TranscriptWriter& writer() {
+    static auto* w = new TranscriptWriter;
+    return *w;
+}
+
+void writer_loop() {
+    TranscriptWriter& w = writer();
+    std::unique_lock<std::mutex> lk(w.mu);
+    for (;;) {
+        w.work.wait(lk, [&] { return !w.paused && (!w.order.empty() || w.trimDue); });
+        if (!w.order.empty()) {
+            // Coalesce: let a burst finish (unless someone is waiting).
+            const auto due = w.pending[w.order.front()].first + kTranscriptCoalesce;
+            if (w.flushers == 0 && std::chrono::steady_clock::now() < due) {
+                w.work.wait_until(lk, due, [&] { return w.flushers > 0 || w.paused; });
+                continue;
+            }
+            const std::string id = w.order.front();
+            w.order.pop_front();
+            auto node = w.pending.extract(id);
+            w.inflight = std::move(node.mapped().session);
+            w.inflightId = id;
+            w.busy = true;
+            lk.unlock();
+            const auto t0 = std::chrono::steady_clock::now();
+            save_transcript(*w.inflight);  // read-only while readers may copy it
+            const double ms =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            lk.lock();
+            w.inflight.reset();
+            w.inflightId.clear();
+            w.busy = false;
+            w.trimDue = true;
+            ++w.stats.written;
+            w.stats.workerMs += ms;
+            w.stats.maxWriteMs = std::max(w.stats.maxWriteMs, ms);
+        } else if (w.trimDue) {
+            // Once per drained queue, not once per write.
+            w.trimDue = false;
+            w.busy = true;
+            const std::uint64_t cap = w.cap;
+            lk.unlock();
+            const auto t0 = std::chrono::steady_clock::now();
+            trim_to_cap(cap);
+            const double ms =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            lk.lock();
+            w.busy = false;
+            w.stats.workerMs += ms;
+        }
+        if (w.quiet()) w.idle.notify_all();
+    }
+}
+
+void discard_transcript_writes() {
+    TranscriptWriter& w = writer();
+    std::unique_lock<std::mutex> lk(w.mu);
+    w.stats.discarded += w.order.size();
+    w.pending.clear();
+    w.order.clear();
+    w.trimDue = false;
+    w.idle.wait(lk, [&] { return !w.busy; });
+}
+}  // namespace
+
+void save_transcript_async(Session session, std::uint64_t cap_bytes) {
+    if (session.summary.id.empty()) return;
+    TranscriptWriter& w = writer();
+    std::lock_guard<std::mutex> lk(w.mu);
+    if (!w.started) {
+        w.started = true;
+        std::thread(writer_loop).detach();
+        std::atexit([] { flush_transcript_writes(); });
+    }
+    const std::string id = session.summary.id;
+    ++w.stats.enqueued;
+    w.cap = cap_bytes;
+    if (auto it = w.pending.find(id); it != w.pending.end()) {
+        it->second.session = std::move(session);  // the newest wins; its place and clock stay
+        ++w.stats.coalesced;
+    } else {
+        w.pending.emplace(id, TranscriptWriter::Pending{std::move(session), std::chrono::steady_clock::now()});
+        w.order.push_back(id);
+    }
+    w.work.notify_one();
+}
+
+bool flush_transcript_writes(std::chrono::milliseconds limit) {
+    TranscriptWriter& w = writer();
+    std::unique_lock<std::mutex> lk(w.mu);
+    if (!w.started || w.quiet()) return true;
+    ++w.flushers;
+    w.work.notify_all();
+    const bool done = w.idle.wait_for(lk, limit, [&] { return w.quiet(); });
+    --w.flushers;
+    return done;
+}
+
+TranscriptWriterStats transcript_writer_stats() {
+    TranscriptWriter& w = writer();
+    std::lock_guard<std::mutex> lk(w.mu);
+    return w.stats;
+}
+
+void transcript_writer_pause(bool paused) {
+    TranscriptWriter& w = writer();
+    std::lock_guard<std::mutex> lk(w.mu);
+    w.paused = paused;
+    w.work.notify_all();
+}
+
 std::optional<Session> load_transcript(const std::string& id) {
+    // A snapshot handed to the writer is newer than any file.
+    {
+        TranscriptWriter& w = writer();
+        std::lock_guard<std::mutex> lk(w.mu);
+        if (auto it = w.pending.find(id); it != w.pending.end()) return it->second.session;
+        if (w.inflight && w.inflightId == id) return *w.inflight;
+    }
     const std::string path = transcript_file(id);
     if (path.empty()) return std::nullopt;
     std::ifstream in(path);
@@ -808,7 +958,7 @@ int export_all_markdown(const std::string& dst) {
 // only the previous `true`s need re-reading. Narrowing a search re-reads the
 // hits, not the catalog.
 namespace {
-std::uint64_t g_corpus_gen = 0;   // bumped when any transcript file changes
+std::atomic<std::uint64_t> g_corpus_gen{0};  // bumped when any transcript file changes (the writer thread too)
 std::string g_match_query;        // the query g_match_cache holds answers for
 std::uint64_t g_match_gen = 0;    // the generation those answers were taken at
 std::unordered_map<std::string, bool> g_match_cache;
@@ -841,14 +991,15 @@ bool scan_transcript(const std::string& id, const std::string& lowerQuery) {
 }
 }  // namespace
 
-void invalidate_content_index() { ++g_corpus_gen; }
-std::uint64_t content_generation() { return g_corpus_gen; }
+void invalidate_content_index() { g_corpus_gen.fetch_add(1); }
+std::uint64_t content_generation() { return g_corpus_gen.load(); }
 
 bool content_matches(const std::string& id, const std::string& lowerQuery) {
     if (lowerQuery.empty()) return false;
 
-    if (lowerQuery != g_match_query || g_corpus_gen != g_match_gen) {
-        const bool narrowing = g_corpus_gen == g_match_gen &&
+    const std::uint64_t gen = g_corpus_gen.load();
+    if (lowerQuery != g_match_query || gen != g_match_gen) {
+        const bool narrowing = gen == g_match_gen &&
                                !g_match_query.empty() &&
                                lowerQuery.find(g_match_query) !=
                                    std::string::npos;
@@ -863,7 +1014,7 @@ bool content_matches(const std::string& id, const std::string& lowerQuery) {
             g_match_cache.clear();
         }
         g_match_query = lowerQuery;
-        g_match_gen = g_corpus_gen;
+        g_match_gen = gen;
     }
 
     if (auto it = g_match_cache.find(id); it != g_match_cache.end())
@@ -953,6 +1104,7 @@ std::uint64_t epoch() {
 }
 
 WipeResult wipe_all_report() {
+    discard_transcript_writes();  // a queued write must not resurrect what is cleared
     g_epoch.fetch_add(1, std::memory_order_relaxed);
     invalidate_content_index();  // the corpus changed under the search memo
     const std::uint64_t before = total_bytes();
@@ -1323,6 +1475,10 @@ bool trim_transcript_file(const fs::path& p, std::size_t keep_tail) {
 
 std::uint64_t trim_to_cap(std::uint64_t cap_bytes, std::size_t keep_tail) {
     if (cap_bytes == 0) return 0;  // unlimited — never evict
+    // The writer thread trims after its writes; Settings trims when the cap
+    // changes. One at a time.
+    static std::mutex trimMu;
+    std::lock_guard<std::mutex> trimLock(trimMu);
     invalidate_content_index();  // the corpus may change under the search memo
     const std::string dir = cache_dir();
     if (dir.empty()) return 0;

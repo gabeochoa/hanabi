@@ -23,6 +23,7 @@ S_HOME='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"",
 S_THREAD='{"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}'
 S_TABS='{"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4","t5"],"active_tab":"t1","theme":"dark"}'
 S_SPLIT='{"window_width":1400,"window_height":860,"open_tabs":["t1","t2"],"active_tab":"t2","split_open":true,"split_ratio":0.5,"split_panes":["t1","t2"],"split_focused_pane":1,"theme":"dark"}'
+S_BIG='{"window_width":1100,"window_height":760,"open_tabs":["rbig"],"active_tab":"rbig","theme":"dark"}'
 S_MM3='{"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","icon_set":"mm3"}'
 S_MM3T='{"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark","icon_set":"mm3"}'
 
@@ -35,7 +36,7 @@ arm() {  # name settings env...
     mkdir -p "$home/Library/Application Support/hanabi"
     printf '%s\n' "$settings" >"$home/Library/Application Support/hanabi/settings.json"
     env HOME="$home" HANABI_BACKEND=mock HANABI_CONFIG=/nonexistent/hanabi/audit.json HANABI_PROF=1 \
-        HANABI_IDLE_TIMING="$CALLBACKS" HANABI_IDLE_WHY=1 "$@" timeout 180 "$EXE" --screenshot "$home/a.png" >"$log" 2>&1
+        HANABI_IDLE_TIMING="${HANABI_AUDIT_CB:-$CALLBACKS}" HANABI_IDLE_WHY=1 "$@" timeout 180 "$EXE" --screenshot "$home/a.png" >"$log" 2>&1
     local line
     line="$(grep '^IdleTiming:' "$log" | tail -1)"
     if [ -z "$line" ]; then
@@ -45,7 +46,7 @@ arm() {  # name settings env...
             for (i=1;i<=NF;++i){split($i,p,"="); v[p[1]]=p[2]}
             printf "frames=%-5s cpu_ms/s=%-9s allocs/s=%s", v["frames"], v["cpu_ms_per_sec"], v["allocs_per_sec"]}')"
     fi
-    grep '^LiveFetch:' "$log" | sed 's/^/                 /'
+    grep '^LiveFetch:\|^PersistCost:' "$log" | sed 's/^/                 /'
     if [ -n "${HANABI_AUDIT_WHY:-}" ]; then grep '^IdleWhy:' "$log" | sed 's/^/                 /'; fi
     rm -rf "$home" "$log"
 }
@@ -66,6 +67,11 @@ for a in $ARMS; do
         mm3thread) arm mm3thread "$S_MM3T" HANABI_OPEN=t1 ;;
         # Five tabs, all with a live run (2 events/s each), one on screen; real time.
         live5) arm live5 "$S_TABS" HANABI_OPEN=t1 HANABI_MOCK_LIVE=2 HANABI_IDLE_REALTIME=1 HANABI_AUDIT_WARM_TABS=1 ;;
+        # Persisting: the disk cache on, a long thread on screen with a live
+        # run (one write a second); and five live tabs over 20 s with 2,000
+        # cached transcripts (the hidden tabs' 15 s catch-ups land together).
+        persist1) arm persist1 "$S_BIG" HANABI_OPEN=rbig HANABI_BIG_TRANSCRIPT=1 HANABI_MOCK_LIVE=2 HANABI_MOCK_DISK_CACHE=1 HANABI_IDLE_REALTIME=1 ;;
+        persist5) HANABI_AUDIT_CB=2400 arm persist5 "$S_TABS" HANABI_OPEN=t1 HANABI_MOCK_LIVE=2 HANABI_MOCK_DISK_CACHE=1 HANABI_IDLE_REALTIME=1 HANABI_AUDIT_WARM_TABS=1 HANABI_AUDIT_CACHE_FILES=2000 ;;
         # A reply in flight on the open thread (the thinking state).
         thinking) arm thinking "$S_THREAD" HANABI_OPEN=t1 HANABI_MOCK_STREAM_HOLD=1 HANABI_AUDIT_SEND=hello ;;
         # The list landing once a second, unchanged (a live run's events).

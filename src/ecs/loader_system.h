@@ -46,8 +46,15 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // every disk-cache read/write is gated on the http backend being active.
     // Any real backend, not a named list -- the mock is synthetic and
     // regenerated each run, so persisting it would cache fiction.
+    // The mock never touches the disk cache -- except under
+    // HANABI_MOCK_DISK_CACHE=1, which audits use to measure what persisting
+    // costs (scripts/cpu_audit.sh `persist*`).
     static bool disk_cache_enabled(const AppComponent& app) {
-        return app.backend_label != "mock";
+        static const bool mockDisk = [] {
+            const char* v = std::getenv("HANABI_MOCK_DISK_CACHE");
+            return v != nullptr && *v == '1';
+        }();
+        return app.backend_label != "mock" || mockDisk;
     }
 
     // Lay the user's machine-local per-session state back over a freshly
@@ -447,11 +454,29 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         static std::atomic<long> n{0};
         return n;
     }
+    // What persisting costs THIS thread (the frame thread): wall time per
+    // call, summed and worst (audit counters; HANABI_IDLE_TIMING prints them).
+    struct PersistCost {
+        long calls = 0;
+        double totalMs = 0.0, maxMs = 0.0;
+    };
+    static PersistCost& persist_cost() {
+        static PersistCost c;
+        return c;
+    }
     static void save_and_trim(const AppComponent& app, const api::Session& s) {
         persist_requests().fetch_add(1);
         if (!disk_cache_enabled(app)) return;
-        api::disk_cache::save_transcript(s);
-        api::disk_cache::trim_to_cap(Settings::get().get_cache_cap_bytes());
+        const auto t0 = std::chrono::steady_clock::now();
+        // A snapshot to the background writer (api/disk_cache.h): the JSON
+        // build, the write and the cap check leave the frame thread. It used
+        // to do all three here -- up to 13-16 ms in one frame.
+        api::disk_cache::save_transcript_async(s, Settings::get().get_cache_cap_bytes());
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        auto& c = persist_cost();
+        ++c.calls;
+        c.totalMs += ms;
+        c.maxMs = std::max(c.maxMs, ms);
     }
 
     // Flip the optimistic user bubble's sync badge (LocalOnly/Persisting ->
