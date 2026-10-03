@@ -1,0 +1,14 @@
+# An order that could not be READ is never written: pushing a list nobody read
+# would overwrite the reader's web arrangement with a guess. The pin itself
+# still goes.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_WEB_PINS=t3,t7 HANABI_MOCK_WEB_PIN_ORDER=t7,t3 HANABI_MOCK_WEB_PREFS_FAIL=1
+
+wait_frames 30
+right_click_text "SKU backfill"
+wait_frames 6
+click_ui row_menu_pin
+wait_frames 20
+expect_overlay_write pin t6 true
+expect_no_text "Pin order kept on this Mac"

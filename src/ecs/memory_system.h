@@ -155,6 +155,91 @@ struct MemorySystem : afterhours::System<AppComponent> {
             }
             it = app.refiles.erase(it);
         }
+        // Pins read back from the web, once a minute (kt-if8e).
+        {
+            auto& ps = app.pinSync;
+            const double now = static_cast<double>(std::time(nullptr));
+            if (!ps.future.valid() && app.client && app.client->supports_web_routes() &&
+                (ps.at < 0.0 || now - ps.at >= 60.0)) {
+                ps.at = now;
+                const auto& st = Settings::get().get_starred();
+                ps.asked = std::set<std::string>(st.begin(), st.end());
+                // Retry pins whose write never landed and is not in flight.
+                for (const auto& [id, on] : ps.unlanded) {
+                    bool flying = false;
+                    for (const auto& w : app.overlayWrites)
+                        if (w.pin && w.id == id) flying = true;
+                    for (const auto& q : app.overlayWriteQueue)
+                        if (std::get<0>(q) && std::get<1>(q) == id) flying = true;
+                    if (!flying) app.overlayWriteQueue.emplace_back(true, id, on);
+                }
+                auto c = app.client;
+                ps.future = std::async(std::launch::async, [c] {
+                    api::pins::Read r;
+                    auto o = c->web_call("GET", api::pins::kOverlayPath, "");
+                    if (o.ok && o.value.status == 200) r.overlays = api::pins::parse_overlays(o.value.body);
+                    auto p = c->web_call("GET", api::pins::kPreferencesPath, "");
+                    if (p.ok && p.value.status == 200) r.order = api::pins::parse_order(p.value.body);
+                    return r;
+                });
+            }
+            if (ps.future.valid() && ps.future.wait_for(0s) == std::future_status::ready) {
+                api::pins::Read r = ps.future.get();
+                bool changed = false;
+                if (r.overlays) {
+                    const std::vector<std::string> current = Settings::get().get_starred();
+                    const auto rec = api::pins::reconcile(current, ps.asked, r.overlays->pinned,
+                                                          ps.serverKnown, r.overlays->known,
+                                                          ps.unlanded);
+                    for (const auto& id : rec.dropped) {
+                        app.apply_starred(id, false);
+                        Settings::get().set_starred(id, false);
+                        changed = true;
+                    }
+                    for (const auto& id : rec.arrived) {
+                        app.apply_starred(id, true);
+                        Settings::get().set_starred(id, true);
+                        changed = true;
+                    }
+                    ps.serverKnown = rec.server_known;
+                    ps.localOnly = rec.local_only.size();
+                }
+                if (r.order) {
+                    ps.orderRead = true;
+                    if (!ps.orderPending) ps.order = *r.order;
+                }
+                if ((changed || r.order) && ps.orderRead && !ps.order.empty()) {
+                    const auto next = api::pins::arranged(Settings::get().get_starred(), ps.order);
+                    auto it = app.rowOrder.find("pinned");
+                    if (it == app.rowOrder.end() || it->second != next) {
+                        app.rowOrder["pinned"] = next;
+                        ++app.rowOrderRevision;
+                        Settings::get().set_row_order("pinned", next);
+                    }
+                }
+            }
+            if (ps.orderPending && !ps.orderFuture.valid() && app.client &&
+                app.client->supports_web_routes()) {
+                auto c = app.client;
+                const std::string body = api::pins::order_body(*ps.orderPending);
+                ps.orderPending.reset();
+                ps.orderFuture = std::async(std::launch::async, [c, body]() -> api::Result<bool> {
+                    auto r = c->web_call("PUT", api::pins::kPreferencesPath, body);
+                    if (!r.ok) return api::Result<bool>::failure(r.error);
+                    if (r.value.status != 200)
+                        return api::Result<bool>::failure("the web app answered " +
+                                                          std::to_string(r.value.status));
+                    return api::Result<bool>::success(true);
+                });
+            }
+            if (ps.orderFuture.valid() && ps.orderFuture.wait_for(0s) == std::future_status::ready) {
+                auto r = ps.orderFuture.get();
+                if (!r.ok)
+                    app.raise_toast("Pin order kept on this Mac; the web app did not take it (" +
+                                        r.error + ")",
+                                    std::string(), AppComponent::ToastUndo::None);
+            }
+        }
         // Pins and archives on their way to the server (kt-if8e).
         if (!app.overlayWriteQueue.empty() && app.client && app.client->supports_overlay_writes()) {
             for (auto& [pin, id, on] : app.overlayWriteQueue) {
@@ -179,7 +264,20 @@ struct MemorySystem : afterhours::System<AppComponent> {
                 continue;
             }
             auto r = it->future.get();
-            if (!r.ok)
+            if (it->pin) {
+                auto& ps = app.pinSync;
+                if (r.ok) {
+                    if (const auto u = ps.unlanded.find(it->id);
+                        u != ps.unlanded.end() && u->second == it->on)
+                        ps.unlanded.erase(u);
+                    if (it->on) ps.serverKnown.insert(it->id);
+                    else ps.serverKnown.erase(it->id);
+                    ps.failToasted.erase(it->id);
+                }
+            }
+            // A refused pin is retried on the next poll; it says so once.
+            const bool sayIt = !r.ok && (!it->pin || app.pinSync.failToasted.insert(it->id).second);
+            if (sayIt)
                 app.raise_toast(std::string(it->pin ? (it->on ? "Pinned" : "Unpinned")
                                                     : (it->on ? "Archived" : "Unarchived")) +
                                     " on this Mac; the server did not take it (" + r.error + ")",

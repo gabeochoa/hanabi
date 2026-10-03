@@ -3417,19 +3417,22 @@ struct HandleExpectMockCreateSensitiveCommand
     }
 };
 
-// expect_overlay_write <pin|archive> <id> <true|false>: that server-side
-// write was made (the mock records them; kt-if8e).
+// expect_overlay_write <kind> <args...>: that server-side write was made (the
+// mock records them: "pin t6 true", "archive t6 true", "order t6,t7,t3",
+// "refile t6 personal", "file t6 f2", "folder delete f1").
 struct HandleExpectOverlayWriteCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
         if (cmd.is_consumed() || !cmd.is("expect_overlay_write")) return;
-        if (!cmd.has_args(3)) {
-            cmd.fail("expect_overlay_write requires <pin|archive> <id> <true|false>");
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_overlay_write requires <kind> <args...> (e.g. pin t6 true, order t6,t7)");
             return;
         }
-        const std::string want = cmd.arg(0) + " " + cmd.arg(1) + " " + cmd.arg(2);
+        std::string want;
+        for (const auto& a : cmd.args)
+            if (!a.empty()) want += (want.empty() ? "" : " ") + a;
         {
             std::lock_guard<std::mutex> lk(api::MockClient::overlay_mu());
             for (const auto& w : api::MockClient::overlay_writes())
@@ -3478,6 +3481,47 @@ struct HandleExpectMockResolveHasCommand
         }
         cmd.fail("expect_mock_resolve_has: '" + cmd.arg(0) + "' not in " +
                  (got.empty() ? std::string("(no resolve)") : got.substr(0, 300)));
+    }
+};
+
+// expect_row_order <key> <csv>: the sidebar's manual order for that section
+// ("pinned", a folder key) is exactly that list.
+struct HandleExpectRowOrderCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_row_order")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_row_order requires <key> <csv>");
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        std::string got;
+        if (app != nullptr)
+            if (const auto it = app->rowOrder.find(cmd.arg(0)); it != app->rowOrder.end())
+                for (const auto& id : it->second) got += (got.empty() ? "" : ",") + id;
+        if (got == cmd.arg(1)) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail("expect_row_order " + cmd.arg(0) + ": got '" + got + "', want '" + cmd.arg(1) + "'");
+    }
+};
+
+// refresh_web_pins: read the web's pins now, rather than at the next minute.
+struct HandleRefreshWebPinsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("refresh_web_pins")) return;
+        if (auto* app = app_component()) app->pinSync.at = -1.0;
+        cmd.consume();
     }
 };
 
@@ -4508,6 +4552,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOverlayWriteCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockResolveHasCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectRowOrderCommand>());
+    sm.register_update_system(std::make_unique<HandleRefreshWebPinsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());

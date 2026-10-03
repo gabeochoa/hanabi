@@ -2884,6 +2884,7 @@ Result<Client::WebReply> AgentcloudClient::web_call(const std::string& method,
     if (method == "GET") res = client.Get(path, headers);
     else if (method == "POST") res = client.Post(path, headers, body, "application/json");
     else if (method == "PATCH") res = client.Patch(path, headers, body, "application/json");
+    else if (method == "PUT") res = client.Put(path, headers, body, "application/json");
     else if (method == "DELETE") res = client.Delete(path, headers);
     else return Result<WebReply>::failure("unsupported method " + method);
     if (!res) return Result<WebReply>::failure("the web app was unreachable: " + httplib::to_string(res.error()));

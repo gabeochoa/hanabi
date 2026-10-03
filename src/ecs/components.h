@@ -728,8 +728,41 @@ struct AppComponent : public afterhours::BaseComponent {
     };
     std::vector<OverlayWrite> overlayWrites;
     std::vector<std::tuple<bool, std::string, bool>> overlayWriteQueue;
+    // Pins read back from the web (api/pins_wire.h; kt-if8e): polled every
+    // minute. `serverKnown` is what the server has demonstrably seen,
+    // `unlanded` the pins this Mac asked for that have not landed (they
+    // outrank an answer computed before the gesture, and are retried), and
+    // the arranged order -- written only once it has been READ.
+    struct PinSync {
+        std::set<std::string> serverKnown;
+        std::map<std::string, bool> unlanded;
+        std::set<std::string> failToasted;
+        std::vector<std::string> order;
+        bool orderRead = false;
+        double at = -1.0;
+        std::set<std::string> asked;
+        std::future<api::pins::Read> future;
+        std::size_t localOnly = 0;
+        std::optional<std::vector<std::string>> orderPending;
+        std::future<api::Result<bool>> orderFuture;
+    } pinSync;
     void queue_pin_write(const std::string& id, bool pinned) {
         overlayWriteQueue.emplace_back(true, id, pinned);
+        pinSync.unlanded[id] = pinned;
+        // The arranged order follows a pin made here (the web's after_pin /
+        // after_unpin) -- only once it has been read and only when one exists.
+        if (pinSync.orderRead && !pinSync.order.empty()) {
+            pinSync.order = pinned ? api::pins::after_pin(pinSync.order, id)
+                                   : api::pins::after_unpin(pinSync.order, id);
+            pinSync.orderPending = pinSync.order;
+        }
+    }
+    // A drag in the PINNED section: the new arrangement goes to the web too,
+    // once the stored one has been read.
+    void note_pin_arrangement(const std::vector<std::string>& ids) {
+        if (!pinSync.orderRead) return;
+        pinSync.order = api::pins::normalize(ids);
+        pinSync.orderPending = pinSync.order;
     }
     void queue_archive_write(const std::string& id, bool archived) {
         overlayWriteQueue.emplace_back(false, id, archived);

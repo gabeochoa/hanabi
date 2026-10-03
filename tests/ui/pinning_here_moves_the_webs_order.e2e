@@ -1,0 +1,18 @@
+# The arranged order follows a pin made here (the web's after_pin): once the
+# stored order has been read and is not empty, a fresh pin goes to its front
+# and the order is written back (PUT, never before it has been read).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_WEB_PINS=t3,t7 HANABI_MOCK_WEB_PIN_ORDER=t7,t3
+
+wait_frames 30
+expect_row_order pinned t7,t3
+right_click_text "SKU backfill"
+wait_frames 6
+click_ui row_menu_pin
+wait_frames 20
+expect_overlay_write pin t6 true
+expect_overlay_write order t6,t7,t3
+refresh_web_pins
+wait_frames 20
+expect_row_order pinned t6,t7,t3

@@ -3991,6 +3991,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                             drag.dropIndex);
             app.rowOrder[key] = next;
             ++app.rowOrderRevision;
+            if (key == "pinned") app.note_pin_arrangement(next);
             Settings::get().set_row_order(key, std::move(next));
             drag = AppComponent::RowDrag{};
         }

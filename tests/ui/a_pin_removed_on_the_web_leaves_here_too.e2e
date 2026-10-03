@@ -1,0 +1,12 @@
+# What an absence means (the reference's InboxSetSync policy): a thread pinned
+# here that the web now says is NOT pinned (its overlay row names it with
+# isPinned false) is unpinned here too; a thread pinned here that the web has
+# never heard of stays pinned -- it was pinned before syncing existed, and
+# dropping it would destroy the reader's work.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","starred":["t3","t6"]}
+# env: HANABI_MOCK_WEB_PINS_KNOWN=t3
+
+wait_frames 30
+expect_starred t3 no
+expect_starred t6 yes

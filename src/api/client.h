@@ -27,6 +27,7 @@
 #include "spaces_wire.h"
 #include "companion_wire.h"
 #include "folders_wire.h"
+#include "pins_wire.h"
 #include "types.h"
 
 namespace api {

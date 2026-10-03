@@ -131,6 +131,10 @@ class MockClient : public Client {
         if (f != nullptr && std::string(f) == "pin")
             return Result<bool>::failure("the web app answered 500");
         std::lock_guard<std::mutex> lk(overlay_mu());
+        MockFolders& m = seeded_web_store();
+        if (pinned) m.pinned.insert(session_id);
+        else m.pinned.erase(session_id);
+        m.known.insert(session_id);
         overlay_writes().push_back("pin " + session_id + (pinned ? " true" : " false"));
         return Result<bool>::success(pinned);
     }
@@ -153,7 +157,43 @@ class MockClient : public Client {
         std::unordered_map<std::string, std::string> filed;
         int next = 100;
         bool seeded = false;
+        // The web's pins (session overlay isPinned) and arranged order
+        // (pinnedSessionOrderIds): HANABI_MOCK_WEB_PINS=<csv> pinned there,
+        // HANABI_MOCK_WEB_PINS_KNOWN=<csv> rows that say NOT pinned,
+        // HANABI_MOCK_WEB_PIN_ORDER=<csv> the stored order.
+        std::set<std::string> pinned, known;
+        std::vector<std::string> pin_order;
     };
+    static std::vector<std::string> csv_env(const char* name) {
+        std::vector<std::string> out;
+        const char* v = std::getenv(name);
+        if (v == nullptr) return out;
+        std::string cur;
+        for (const char* c = v;; ++c) {
+            if (*c == ',' || *c == '\0') {
+                if (!cur.empty()) out.push_back(cur);
+                cur.clear();
+                if (*c == '\0') break;
+            } else {
+                cur += *c;
+            }
+        }
+        return out;
+    }
+    // Caller holds overlay_mu().
+    static MockFolders& seeded_web_store() {
+        MockFolders& m = mock_folders();
+        if (m.seeded) return m;
+        m.seeded = true;
+        if (const char* v = std::getenv("HANABI_MOCK_WEB_FOLDERS"); v != nullptr && *v == '1') {
+            m.list = {{"f1", "Launch work", 0}, {"f2", "Someday", 1}};
+            m.filed["t2"] = "f1";
+        }
+        for (const auto& id : csv_env("HANABI_MOCK_WEB_PINS")) m.pinned.insert(id);
+        for (const auto& id : csv_env("HANABI_MOCK_WEB_PINS_KNOWN")) m.known.insert(id);
+        m.pin_order = csv_env("HANABI_MOCK_WEB_PIN_ORDER");
+        return m;
+    }
     static MockFolders& mock_folders() {
         static MockFolders m;
         return m;
@@ -162,14 +202,7 @@ class MockClient : public Client {
                               const std::string& body) override {
         using nlohmann::json;
         std::lock_guard<std::mutex> lk(overlay_mu());
-        MockFolders& m = mock_folders();
-        if (!m.seeded) {
-            m.seeded = true;
-            if (const char* v = std::getenv("HANABI_MOCK_WEB_FOLDERS"); v != nullptr && *v == '1') {
-                m.list = {{"f1", "Launch work", 0}, {"f2", "Someday", 1}};
-                m.filed["t2"] = "f1";
-            }
-        }
+        MockFolders& m = seeded_web_store();
         const char* f = std::getenv("HANABI_MOCK_OVERLAY_FAIL");
         const bool refuse = f != nullptr && std::string(f) == "folder" && method != "GET";
         if (refuse) return Result<WebReply>::success({409, R"({"error":"Folder name already exists"})"});
@@ -180,9 +213,35 @@ class MockClient : public Client {
             return Result<WebReply>::success({200, json{{"folders", rows}}.dump()});
         }
         if (method == "GET" && path == folders::kOverlayPath) {
+            std::set<std::string> ids(m.known);
+            ids.insert(m.pinned.begin(), m.pinned.end());
+            for (const auto& [sid, fid] : m.filed) ids.insert(sid);
             json rows = json::array();
-            for (const auto& [sid, fid] : m.filed) rows.push_back({{"sessionId", sid}, {"folderId", fid}});
+            for (const auto& sid : ids) {
+                const auto f = m.filed.find(sid);
+                rows.push_back({{"sessionId", sid},
+                                {"isPinned", m.pinned.count(sid) != 0},
+                                {"folderId", f == m.filed.end() ? json() : json(f->second)}});
+            }
             return Result<WebReply>::success({200, json{{"overlays", rows}}.dump()});
+        }
+        if (method == "GET" && path == pins::kPreferencesPath) {
+            if (std::getenv("HANABI_MOCK_WEB_PREFS_FAIL") != nullptr)
+                return Result<WebReply>::success({500, R"({"error":"preferences unavailable"})"});
+            return Result<WebReply>::success(
+                {200, json{{"exists", true}, {"preferences", {{pins::kOrderKey, m.pin_order}}}}.dump()});
+        }
+        if (method == "PUT" && path == pins::kPreferencesPath) {
+            const json b = json::parse(body.empty() ? "{}" : body, nullptr, false);
+            std::vector<std::string> ids;
+            if (b.is_object() && b.contains(pins::kOrderKey) && b[pins::kOrderKey].is_array())
+                for (const auto& v : b[pins::kOrderKey])
+                    if (v.is_string()) ids.push_back(v.get<std::string>());
+            m.pin_order = ids;
+            std::string csv;
+            for (const auto& id : ids) csv += (csv.empty() ? "" : ",") + id;
+            overlay_writes().push_back("order " + csv);
+            return Result<WebReply>::success({200, "{}"});
         }
         const json b = json::parse(body.empty() ? "{}" : body, nullptr, false);
         if (method == "POST" && path == folders) {
@@ -2216,7 +2275,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",
