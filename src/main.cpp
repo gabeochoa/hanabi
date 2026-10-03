@@ -1020,10 +1020,18 @@ static void app_frame_body() {
                 }
             }
 
-            int blocked = 0;
-            for (const auto& s : app.sessions)
+            int blocked = 0, needsYou = 0, working = 0;
+            for (const auto& s : app.sessions) {
                 if (ecs::model::in_blocked_view(s)) ++blocked;
+                const auto g = ecs::model::status_glyph(s);
+                if (g == ecs::model::StatusGlyph::Waiting || g == ecs::model::StatusGlyph::Blocked) ++needsYou;
+                if (g == ecs::model::StatusGlyph::Running) ++working;
+            }
             menubar_set_blocked(blocked);
+            // The MM3 face says what the catalog adds up to (ui/mm3_menubar.h);
+            // an unreadable catalog outranks its rows.
+            menubar_set_mm3_mood(needsYou, working,
+                                 app.listState == ecs::LoadState::Error || app.showAuth);
             menubar_set_mm3(Settings::get().get_icon_set() == "mm3");
 
             if (app.listState == ecs::LoadState::Loaded &&

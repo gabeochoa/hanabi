@@ -24,6 +24,8 @@
 
 #include "menubar.h"
 #include "ui/mm3_faces.h"
+#include "ui/mm3_menubar.h"
+#include <vector>
 #include "resize_drive.h"
 #include "settings.h"
 #include "edit_verbs.h"
@@ -505,45 +507,173 @@ bool menubar_command_enabled(int command) {
     return g_command_enabled[static_cast<std::size_t>(command)].load() != 2;
 }
 
+// ---- The MM3 face, moving (ui/mm3_menubar.h; the reference's MM3MenuBar) ----
+// One NSTimer at most, and only while a frame or a play is due; none at rest,
+// under Reduce Motion, while the screens sleep or the session is switched
+// away, or under the Normal set. A generation number stops a stale timer from
+// drawing over a newer state. A frame whose pixels at the screen's scale match
+// the one showing is not handed to the status item.
 static int g_mm3_state = -1;
+namespace {
+namespace mb = hanabi::mm3::menubar;
+struct Mm3MenuBar {
+    bool active = false;
+    mb::Mood mood = mb::Mood::Idle;
+    bool screensAwake = true, sessionActive = true, appActive = true;
+    NSTimer* timer = nil;
+    unsigned generation = 0;
+    std::vector<std::uint64_t> shownKey;
+    std::string shownName;
+    unsigned long swaps = 0, timersArmed = 0;
+    NSMutableDictionary<NSString*, NSImage*>* images = nil;
+};
+Mm3MenuBar g_mm3;
+
+bool native_log() {
+    const char* v = getenv("HANABI_NATIVE_LOG");
+    return v && v[0] && v[0] != '0';
+}
+
+NSImage* mm3_image(const hanabi::mm3::Cell* cells, std::size_t n, hanabi::mm3::Box b, NSString* name) {
+    if (g_mm3.images == nil) g_mm3.images = [[NSMutableDictionary alloc] init];
+    if (NSImage* hit = g_mm3.images[name]) return hit;
+    const CGFloat side = mb::kSide;
+    const CGFloat scale = (side * 0.8) / b.h;
+    const NSSize size = NSMakeSize(mb::image_width(), side);
+    std::vector<hanabi::mm3::Cell> copy(cells, cells + n);
+    NSImage* image = [NSImage imageWithSize:size
+                                    flipped:YES
+                             drawingHandler:^BOOL(NSRect) {
+                                 [[NSColor blackColor] setFill];
+                                 const CGFloat dy = side * 0.1;
+                                 for (const auto& k : copy)
+                                     NSRectFill(NSMakeRect((k.x - b.x) * scale, dy + (k.y - b.y) * scale,
+                                                           k.w * scale, k.h * scale));
+                                 return YES;
+                             }];
+    [image setTemplate:YES];
+    g_mm3.images[name] = image;
+    return image;
+}
+
+void mm3_show(const hanabi::mm3::Cell* cells, std::size_t n, hanabi::mm3::Box b, const std::string& name) {
+    if (name == g_mm3.shownName || g_status_item == nil) return;
+    g_mm3.shownName = name;
+    const double scale = NSScreen.mainScreen != nil ? NSScreen.mainScreen.backingScaleFactor : 2.0;
+    auto key = mb::pixel_key(cells, n, b, scale);
+    if (key == g_mm3.shownKey) return;  // the same pixels: no status-bar redraw
+    g_mm3.shownKey = std::move(key);
+    ++g_mm3.swaps;
+    g_status_item.button.image = mm3_image(cells, n, b, [NSString stringWithUTF8String:name.c_str()]);
+    if (native_log()) NSLog(@"menubar: mm3 frame %s (swap %lu)", name.c_str(), g_mm3.swaps);
+}
+
+void mm3_show_rest() {
+    const auto face = mb::plan_for(g_mm3.mood).rest;
+    const auto cells = hanabi::mm3::cells(face);
+    mm3_show(cells.data, cells.size, hanabi::mm3::box_of(face), "rest-" + std::to_string(static_cast<int>(face)));
+}
+
+void mm3_play(std::size_t step);
+
+void mm3_schedule(double seconds, std::size_t step) {
+    const unsigned gen = g_mm3.generation;
+    [g_mm3.timer invalidate];
+    ++g_mm3.timersArmed;
+    g_mm3.timer = [NSTimer scheduledTimerWithTimeInterval:std::max(0.01, seconds)
+                                                  repeats:NO
+                                                    block:^(NSTimer*) {
+                                                        g_mm3.timer = nil;
+                                                        if (!g_mm3.active || g_mm3.generation != gen) return;
+                                                        mm3_play(step);
+                                                    }];
+}
+
+double mm3_every(const mb::Plan& p) {
+    return p.everyLo + (p.everyHi - p.everyLo) * (static_cast<double>(arc4random_uniform(1000)) / 1000.0);
+}
+
+void mm3_play(std::size_t step) {
+    const mb::Plan plan = mb::plan_for(g_mm3.mood);
+    const hanabi::mm3::Anim a = hanabi::mm3::anim(plan.animation);
+    const mb::Step s = mb::step_at(a, step);
+    if (s.done) {
+        mm3_show_rest();
+        if (plan.repeats()) mm3_schedule(mm3_every(plan), 0);  // the next play
+        return;
+    }
+    const auto cells = hanabi::mm3::frame_cells(a, s.frame);
+    mm3_show(cells.data, cells.size, mb::frame_box(),
+             "anim-" + std::to_string(static_cast<int>(plan.animation)) + "-" + std::to_string(s.frame));
+    mm3_schedule(s.seconds, s.last + 1);
+}
+
+void mm3_restart() {
+    [g_mm3.timer invalidate];
+    g_mm3.timer = nil;
+    ++g_mm3.generation;
+    g_mm3.shownName.clear();
+    g_mm3.shownKey.clear();
+    if (!g_mm3.active) return;
+    mm3_show_rest();
+    const bool reduce = [NSWorkspace sharedWorkspace].accessibilityDisplayShouldReduceMotion;
+    if (!mb::moves(g_mm3.mood, g_mm3.screensAwake && g_mm3.sessionActive, reduce, g_mm3.appActive)) return;
+    const mb::Plan plan = mb::plan_for(g_mm3.mood);
+    // HANABI_TEST_MM3_MENUBAR_SOON: the first play starts at once (a smoke run).
+    const bool soon = getenv("HANABI_TEST_MM3_MENUBAR_SOON") != nullptr;
+    mm3_schedule(soon || !plan.repeats() ? 0.2 : mm3_every(plan), 0);
+}
+
+void mm3_observe_once() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    NSNotificationCenter* ws = [NSWorkspace sharedWorkspace].notificationCenter;
+    NSNotificationCenter* nc = [NSNotificationCenter defaultCenter];
+    const auto on = [](NSNotificationCenter* c, NSNotificationName name, void (^body)(void)) {
+        [c addObserverForName:name object:nil queue:[NSOperationQueue mainQueue]
+                   usingBlock:^(NSNotification*) { body(); }];
+    };
+    on(ws, NSWorkspaceScreensDidSleepNotification, ^{ g_mm3.screensAwake = false; mm3_restart(); });
+    on(ws, NSWorkspaceScreensDidWakeNotification, ^{ g_mm3.screensAwake = true; mm3_restart(); });
+    on(ws, NSWorkspaceSessionDidResignActiveNotification, ^{ g_mm3.sessionActive = false; mm3_restart(); });
+    on(ws, NSWorkspaceSessionDidBecomeActiveNotification, ^{ g_mm3.sessionActive = true; mm3_restart(); });
+    on(ws, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification, ^{ mm3_restart(); });
+    on(nc, NSApplicationDidBecomeActiveNotification, ^{ g_mm3.appActive = true; mm3_restart(); });
+    on(nc, NSApplicationDidResignActiveNotification, ^{ g_mm3.appActive = false; mm3_restart(); });
+}
+}  // namespace
+
 void menubar_set_mm3(bool on) {
     if ((on ? 1 : 0) == g_mm3_state) return;
     @autoreleasepool {
         if (g_status_item == nil) return;
         g_mm3_state = on ? 1 : 0;
+        g_mm3.active = on;
         if (!on) {
+            mm3_restart();  // stops the timer
             g_status_item.button.image = nil;
             g_status_item.button.title = title_for_blocked(g_last_blocked < 0 ? 0 : g_last_blocked);
             return;
         }
-        // The neutral face's source rectangles (ui/mm3_faces.h kNeutral), in a
-        // flipped template image 16pt tall with a little air top and bottom.
-        const CGFloat side = 16.0;
-        const auto b = hanabi::mm3::box_of(hanabi::mm3::Face::Neutral);
-        const CGFloat scale = (side * 0.8) / b.h;
-        const NSSize size = NSMakeSize(b.w * scale, side);
-        NSImage* image = [NSImage imageWithSize:size
-                                        flipped:YES
-                                 drawingHandler:^BOOL(NSRect) {
-                                     [[NSColor blackColor] setFill];
-                                     const auto cells = hanabi::mm3::cells(hanabi::mm3::Face::Neutral);
-                                     const CGFloat dy = side * 0.1;
-                                     for (std::size_t i = 0; i < cells.size; ++i) {
-                                         const auto& k = cells.data[i];
-                                         NSRectFill(NSMakeRect((k.x - b.x) * scale, dy + (k.y - b.y) * scale,
-                                                               k.w * scale, k.h * scale));
-                                     }
-                                     return YES;
-                                 }];
-        [image setTemplate:YES];
-        g_status_item.button.image = image;
+        mm3_observe_once();
+        g_mm3.appActive = [NSApp isActive];
         g_status_item.button.imagePosition = NSImageLeft;
         const int n = g_last_blocked < 0 ? 0 : g_last_blocked;
         g_status_item.button.title = n > 0 ? [NSString stringWithFormat:@" %d", n] : @"";
-        if (const char* v = getenv("HANABI_NATIVE_LOG"); v && v[0] && v[0] != '0')
-            NSLog(@"menubar: mm3 face %.1fx%.1f template=%d", image.size.width, image.size.height,
-                  (int)image.isTemplate);
+        mm3_restart();
+        if (native_log())
+            NSLog(@"menubar: mm3 face %.1fx%.1f template=%d", g_status_item.button.image.size.width,
+                  g_status_item.button.image.size.height, (int)g_status_item.button.image.isTemplate);
     }
+}
+
+void menubar_set_mm3_mood(int needsYou, int working, bool offline) {
+    const mb::Mood m = mb::mood_of(needsYou, working, offline);
+    if (m == g_mm3.mood) return;
+    g_mm3.mood = m;
+    if (native_log()) NSLog(@"menubar: mm3 mood %d", static_cast<int>(m));
+    if (g_mm3.active) mm3_restart();
 }
 
 void menubar_set_blocked(int n) {

@@ -19,6 +19,9 @@ void menubar_set_blocked(int n);
 // MM3: the status item wears the resting face (the reference's MenuBarIcon.mm3,
 // a template image of MM3Face.neutral) instead of the spark; off restores it.
 void menubar_set_mm3(bool on);
+// What the MM3 face says (ui/mm3_menubar.h): threads waiting on you, runs in
+// flight, and whether the catalog can be read. Change-guarded; call per frame.
+void menubar_set_mm3_mood(int needsYou, int working, bool offline);
 
 // Action flags set by the menu items, polled + cleared by the C++ side once
 // per frame. Each returns true exactly once per fire, then clears.
