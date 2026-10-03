@@ -67,6 +67,7 @@
 #include <unordered_map>
 
 #include <afterhours/src/plugins/clipboard.h>
+#include "e2e_coord_args.h"
 #include "../api/attachments.h"
 #include "../api/disk_cache.h"
 #include "../api/mock_client.h"
@@ -3049,6 +3050,24 @@ struct HandleWithinDeadlineSystem
     }
 };
 
+// A coordinate command whose x/y are missing or not numbers fails at its line
+// (afterhours_gaps.md #611) instead of aborting the run out of the library's
+// stof. Registered LAST among the pre-handlers, after
+// LatencyInputEventSystem: that system's once() merges the entity arrays, and
+// a command dispatched this frame is not visible to any system before the
+// merge -- registered first, this check never saw the command it was for.
+struct HandleCoordArgsCheckCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !hanabi::e2e::is_coord_command(cmd.name)) return;
+        if (hanabi::e2e::coord_args_ok(cmd.args)) return;
+        cmd.fail(std::format("`{}` needs x y as numbers (or N%), e.g. `{} 400 300`", cmd.name,
+                             cmd.name));
+    }
+};
+
 inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleWithinDeadlineSystem>());
     sm.register_update_system(std::make_unique<HandleResizeDeferredCommand>());
@@ -3057,6 +3076,7 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
     sm.register_update_system(
         std::make_unique<HandleExpectResizesAppliedCommand>());
     sm.register_update_system(std::make_unique<LatencyInputEventSystem>());
+    sm.register_update_system(std::make_unique<HandleCoordArgsCheckCommand>());
 }
 
 // ---------------------------------------------------------------------------

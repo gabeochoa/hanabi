@@ -26,10 +26,10 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **283** (recount at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610; the number 604 is unused) |
-| Distinct numeric gap numbers | **278** (271 at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610; several numbers are used twice, #31 three times - §5) |
+| Numbered headings parsed by the reference checker | **284** (recount at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610 + #611; the number 604 is unused) |
+| Distinct numeric gap numbers | **279** (271 at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610 + #611; several numbers are used twice, #31 three times - §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **281** rows, **281** unique identifiers - includes index-only ids with no detailed entry |
+| **Rows in the triage table (§6)** | **282** rows, **282** unique identifiers - includes index-only ids with no detailed entry |
 | Standalone live asks | not recounted; see §6 verdicts |
 | **Live with NO app-side workaround** (status pass 2026-10-02) | **6** — #36 #54 #92 #155 #212 #336, each judged not app-fixable (migration risk / library seam / vendor renderer / library-level); every other live row's status now names what Hanabi does instead (app workaround, proof patch, negative result, or perf finding) |
 | Live but subsumed into a family canonical | **56** (§3) |
@@ -900,6 +900,7 @@ correction narrows them rather than closing them.
 | 608 | A binding cannot say "exactly these modifiers": a bare key matches under any modifiers and an explicit chord matches any superset, so Ctrl Tab also fires the bare-Tab focus ring and Cmd Opt Left also fires Cmd Left (tab-chord port, c1d0e0b) | INPUT / MISSING | MED | S | live - Tab guarded app-side (`TabChordGuard`); superset case unguarded |
 | 609 | The character queue outlives the frame: characters typed at a disabled field are neither read nor dropped and land in the next live field (paged ask card port, c1d0e0b) | INPUT / FOOTGUN | MED | S | live - worked around app-side (`CharBacklogSystem` drains while a sheet owns the keyboard) |
 | 610 | A scripted click cannot carry a modifier: no e2e command holds Ctrl/Shift/Alt across a click (Cmd+click artifact port, c1d0e0b) | TESTING / MISSING | LOW | S | live - worked around app-side (`hold_modifier` / `release_modifier` e2e commands) |
+| 611 | A coordinate command with no coordinates aborts the whole run: empty args reach `coord_arg`, `stof` throws, no line is reported (markup drag fixture, c1d0e0b) | TESTING / FOOTGUN | MED | XS | live - worked around app-side (`HandleCoordArgsCheckCommand`, registered after the entity merge) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

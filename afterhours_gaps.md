@@ -14464,3 +14464,23 @@ CLASS: INPUT / FOOTGUN
 **Hanabi reference.** `src/ecs/e2e_commands.h` (`HandleHoldModifierCommand`), `tests/ui/cmd_click_an_artifact_opens_its_web_page.e2e`.
 
 CLASS: TESTING / MISSING
+
+### #611 — a coordinate command with no coordinates aborts the whole run: the parser hands the handler empty args, `coord_arg` throws out of `stof`, and nothing reports the line
+
+**Class:** TESTING / FOOTGUN (`plugins/e2e_testing/runner.h` :162-169 -- a `coord_commands` line pushes `args.next()` twice whether or not the line had values, so a bare `mouse_down` carries `{"", ""}`; `command_handlers.h` :361-369 `HandleMouseDownCommand` checks `has_args(2)`, which two empty strings pass, then calls `coord_arg`, and `pending_command.h` :166-175 `coord_arg` is `std::stof` with no guard; the same handler shape covers click, double_click, triple_click, mouse_move, middle_click, middle_down; pin c1d0e0b).
+
+**What happens.** A script line `mouse_down` (or `click`, `mouse_move`, ... without x y) does not fail at its line. `std::stof("")` throws `std::invalid_argument`, nothing in the handler chain catches it, and the process dies with `libc++abi: terminating due to uncaught exception of type std::invalid_argument: stof: no conversion` (exit 134). The log has no script name and no line number; the run's earlier output looks healthy. In a directory run every later script is lost too.
+
+**How Hanabi hit it.** Writing the markup sheet's drag fixture (kt-cimg) with `mouse_move X Y` then bare `mouse_down` / `mouse_up`. The run aborted before any assertion. A backtrace (terminate handler + `backtrace_symbols_fd`) put the throw in `HandleMouseDownCommand::for_each_with`.
+
+**Why an app-side guard did not work at first, and the second footgun inside this one.** A Hanabi pre-handler that refuses a coordinate command without numbers, registered FIRST, never saw the command: a command dispatched this frame lives in the entity system's pending array until something merges it, and in Hanabi's chain the first merge is `LatencyInputEventSystem::once()` (`EntityHelper::merge_entity_arrays()`). Every system registered before that merge runs over last frame's entities, so "registered ahead of the library's handlers" is not the same as "sees the command ahead of them". The guard works registered AFTER the merging system.
+
+**Workaround.** `HandleCoordArgsCheckCommand` (`src/ecs/e2e_commands.h`, predicate in `src/ecs/e2e_coord_args.h`), registered last among `register_hanabi_pre_handlers` -- after the merge, before the library's handlers -- fails the command with ``mouse_down` needs x y as numbers (or N%)`` at its line. Verified: the bare-`mouse_down` probe now reports `[E2E ERROR] mouse_down (line 4): ...` and exits 1 instead of aborting.
+
+**Ask.** Make the parser record a parse error (the `ParsedCommand::parse_error` field `dispatch_command` already reports with the script name and line) when a coordinate command's x or y is missing or not a number; and/or make `coord_arg` not throw.
+
+**Upstream acceptance test.** A script whose line 2 is a bare `mouse_down` fails with `<script>:2: mouse_down: ...` and the runner continues to the next script.
+
+**Hanabi reference.** `src/ecs/e2e_commands.h` (`HandleCoordArgsCheckCommand`), `src/ecs/e2e_coord_args.h` (`coord_args_ok`), `tests/unit/test_e2e_coord_args.cpp`.
+
+CLASS: TESTING / FOOTGUN
