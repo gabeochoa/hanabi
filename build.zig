@@ -160,7 +160,7 @@ const tests = [_]TestSpec{
     .{ .name = "test_agentcloud", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_agentcloud.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
     .{ .name = "test_menubar", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_menubar.mm", "src/menubar.mm", "src/settings.cpp", "src/afterhours_files.cpp" }, .frameworks = &.{ "AppKit", "Carbon" } },
     .{ .name = "test_agentcloud_local", .kind = .unit, .arc = true, .srcs = &.{ "tests/e2e/test_agentcloud_local.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
-    .{ .name = "test_native_extras", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_native_extras.mm", "src/native_extras.mm" }, .frameworks = &.{ "AppKit", "Carbon", "CoreSpotlight", "CoreText", "MetalKit", "UniformTypeIdentifiers", "UserNotifications" } },
+    .{ .name = "test_native_extras", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_native_extras.mm", "src/native_extras.mm" }, .frameworks = &.{ "AppKit", "AVFoundation", "Carbon", "CoreSpotlight", "CoreText", "MetalKit", "UniformTypeIdentifiers", "UserNotifications" } },
     .{ .name = "test_spotlight_catalog", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_spotlight_catalog.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_div_move", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_div_move.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_agentcloud_real", .kind = .unit, .arc = true, .srcs = &.{ "tests/e2e/test_agentcloud_real.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
@@ -314,7 +314,7 @@ const app_arc_sources = [_][]const u8{ "src/native_menu.mm", "src/ws_socket.mm" 
 const frameworks = [_][]const u8{
     "CoreFoundation", "CoreServices", "CoreText",           "Metal",        "MetalKit",
     "Cocoa",          "QuartzCore",   "Carbon",             "CoreSpotlight", "UniformTypeIdentifiers",
-    "UserNotifications",
+    "UserNotifications", "AVFoundation",
 };
 
 const cxx_std = "-std=c++23";

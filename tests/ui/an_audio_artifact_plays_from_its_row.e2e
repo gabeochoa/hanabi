@@ -1,0 +1,20 @@
+# An audio artifact plays from its row (Knots kt-nmbp, the audio half; the
+# reference's media artifact renderer): the clip is fetched like a picture,
+# the row shows Play, the length up front ("0:00 / 0:02" for the 1.5 s
+# fixture), and a bar; Play turns into Pause while it plays and the clock
+# moves; it stops at the end and offers Play again. Scripted builds play
+# silently (wall-clock stand-in), so nothing here makes a sound.
+#
+# settings: {"window_width":1100,"window_height":900,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_ARTIFACT_DEMO=1
+
+require_thread t1
+expect_text_drawn "approval-note.wav" within=120
+expect_text_drawn "0:00 / 0:02" within=120
+expect_text "Play"
+click_ui artifact_audio_play
+wait_frames 4
+expect_text "Pause"
+wait 2
+expect_text_drawn "0:02 / 0:02" within=60
+expect_text "Play"

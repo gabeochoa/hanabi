@@ -2275,7 +2275,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",
@@ -2842,8 +2842,10 @@ class MockClient : public Client {
                 Message chart = artifact_demo_row(
                     "m6", "art-chart", "price-tiers.png", "image/png",
                     kArtifactDemoImage, resolved, mins_ago(10));
+                const char* clipType = std::getenv("HANABI_ARTIFACT_DEMO_AUDIO_TYPE");
                 Message clip = artifact_demo_row(
-                    "m7", "art-clip", "approval-note.wav", "audio/wav",
+                    "m7", "art-clip", "approval-note.wav",
+                    clipType != nullptr && *clipType != '\0' ? clipType : "audio/wav",
                     kArtifactDemoAudio, resolved, mins_ago(9));
                 if (mode == "typeless") {
                     for (Message* m : {&chart, &clip}) {

@@ -1,18 +1,17 @@
 # A shown artifact whose create/version event is outside the loaded page
 # arrives with no file name and no mime. The fetch does not need them: the
 # id and version address the content, the response's type and name fill the
-# row, and the image draws. The bare id is what a typeless row shows: the
-# image row is typed within a frame by the mock, so the id is asserted on the
-# audio row, which the non-drawable fetch leaves un-named.
+# row, and the image draws. Both rows type themselves from the response --
+# the audio row too, now that a clip is fetched to be played (kt-nmbp).
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_ARTIFACT_DEMO=typeless HANABI_OPEN=t1
 require_thread t1
-expect_text "art-clip"
+expect_text_drawn "approval-note.wav" within=120
 expect_text_drawn "price-tiers.png" within=120
 expect_text_drawn "image/png" within=60
 assert_ui artifact_image hidden=false
-# The audio row types itself too (audio/wav from the response) and then says
-# it is not played here -- an honest unavailable state, not a bare header.
-expect_text_drawn "audio is not played in this build" within=120
+# The audio row types itself too (audio/wav from the response) and then
+# offers its player.
+expect_text_drawn "0:00 / 0:02" within=120
 expect_no_ui artifact_clip
 expect_no_text "fetching"

@@ -219,6 +219,22 @@ bool native_pick_file(const char* prompt, char* out, int cap);
 // pixels, origin top-left. At full pixel resolution. False when the picture
 // cannot be read or the PNG cannot be written.
 bool native_flatten_markup(const char* src, const float* strokes, int count, const char* out);
+
+// One audio clip at a time through AVAudioPlayer (ui/audio_player.h; Knots
+// kt-nmbp). play resumes a paused clip at its place, or loads a different one
+// from the start (stopping the first). native_audio_probe reads a file's
+// duration without playing it (0 when AVFoundation cannot read it).
+struct NativeAudioState {
+    char path[1024];
+    bool playing;
+    double position;
+    double duration;
+};
+bool native_audio_play(const char* path);
+void native_audio_pause(void);
+void native_audio_stop(void);
+void native_audio_state(NativeAudioState* out);
+double native_audio_probe(const char* path);
 // ---- 4b. Open a URL in the user's browser ----------------------------------
 
 // Hand `url` (UTF-8, http/https) to the system's default handler. Used by the

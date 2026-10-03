@@ -123,7 +123,20 @@ static void test_markup_is_burned_into_the_pixels() {
     }
 }
 
+// The audio player reads a clip's length without playing it (kt-nmbp); a
+// file that is not audio reads 0. Nothing here makes a sound.
+static void test_an_audio_clip_probes_its_duration() {
+    const double d = native_audio_probe("tests/fixtures/artifacts/clip.wav");
+    CHECK(d > 1.4 && d < 1.6);
+    CHECK(native_audio_probe("tests/fixtures/attachments/sample.txt") == 0.0);
+    CHECK(native_audio_probe("/tmp/does-not-exist.wav") == 0.0);
+    NativeAudioState st{};
+    native_audio_state(&st);
+    CHECK(!st.playing && st.path[0] == '\0');
+}
+
 int main() {
+    test_an_audio_clip_probes_its_duration();
     test_markup_is_burned_into_the_pixels();
     char thread[128] = {};
     CHECK(!native_take_open_thread(thread, sizeof(thread)));

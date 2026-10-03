@@ -30,10 +30,15 @@ int main() {
     ArtifactFetch st{};
     std::string why;
 
+    // Audio the player can play settles Ready once cached and is fetched
+    // otherwise (kt-nmbp); audio it cannot play says so without a fetch.
     CHECK(ap::settle_without_fetch(ref("audio/wav", "/cache/artifacts/a.wav"), st, why));
-    CHECK(st == ArtifactFetch::Unavailable && why == "audio is not played in this build");
-    CHECK(ap::settle_without_fetch(ref("audio/wav"), st, why));
-    CHECK(st == ArtifactFetch::Unavailable && why == "audio is not played in this build");
+    CHECK(st == ArtifactFetch::Ready && why.empty());
+    CHECK(!ap::settle_without_fetch(ref("audio/wav"), st, why));
+    CHECK(!ap::settle_without_fetch(ref("audio/mpeg"), st, why));
+    CHECK(ap::settle_without_fetch(ref("audio/webm"), st, why));
+    CHECK(st == ArtifactFetch::Unavailable && why == "this audio format cannot be played here");
+    CHECK(ap::playable_audio("audio/x-m4a") && !ap::playable_audio("audio/ogg"));
 
     CHECK(ap::settle_without_fetch(ref("image/png", "/cache/artifacts/a.png"), st, why));
     CHECK(st == ArtifactFetch::Ready && why.empty());

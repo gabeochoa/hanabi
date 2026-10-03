@@ -10,6 +10,7 @@
 // it only touches a std::atomic flag — no ECS mutation from the callback.
 
 #import <AppKit/AppKit.h>
+#import <AVFoundation/AVFoundation.h>
 #import <Carbon/Carbon.h>
 #include "global_hotkeys.h"   // RegisterEventHotKey, kVK_ANSI_N, event handler
 #import <CoreText/CoreText.h>
@@ -1290,6 +1291,73 @@ bool native_flatten_markup(const char* src, const float* strokes, int count, con
         NSData* png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
         if (png == nil) return false;
         return [png writeToFile:[NSString stringWithUTF8String:out] atomically:YES];
+    }
+}
+
+static AVAudioPlayer* g_audio = nil;
+static std::string g_audio_path;
+
+bool native_audio_play(const char* path) {
+    if (path == nullptr || path[0] == '\0') return false;
+    @autoreleasepool {
+        if (g_audio == nil || g_audio_path != path) {
+            if (g_audio != nil) {
+                [g_audio stop];
+                [g_audio release];
+                g_audio = nil;
+            }
+            NSError* err = nil;
+            NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
+            AVAudioPlayer* p = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:&err];
+            if (p == nil) {
+                g_audio_path.clear();
+                return false;
+            }
+            g_audio = p;
+            g_audio_path = path;
+            [g_audio prepareToPlay];
+        }
+        // A clip that ran to the end plays again from the start.
+        if (!g_audio.playing && g_audio.currentTime >= g_audio.duration - 0.01)
+            g_audio.currentTime = 0;
+        return [g_audio play];
+    }
+}
+
+void native_audio_pause(void) {
+    if (g_audio != nil) [g_audio pause];
+}
+
+void native_audio_stop(void) {
+    if (g_audio == nil) return;
+    [g_audio stop];
+    [g_audio release];
+    g_audio = nil;
+    g_audio_path.clear();
+}
+
+void native_audio_state(NativeAudioState* out) {
+    if (out == nullptr) return;
+    std::memset(out, 0, sizeof(*out));
+    if (g_audio == nil) return;
+    std::strncpy(out->path, g_audio_path.c_str(), sizeof(out->path) - 1);
+    out->playing = g_audio.playing;
+    out->duration = g_audio.duration;
+    // AVAudioPlayer resets currentTime to 0 when a clip finishes; show it as
+    // played through.
+    out->position = g_audio.currentTime;
+}
+
+double native_audio_probe(const char* path) {
+    if (path == nullptr || path[0] == '\0') return 0.0;
+    @autoreleasepool {
+        NSError* err = nil;
+        NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
+        AVAudioPlayer* p = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:&err];
+        if (p == nil) return 0.0;
+        const double d = p.duration;
+        [p release];
+        return d;
     }
 }
 

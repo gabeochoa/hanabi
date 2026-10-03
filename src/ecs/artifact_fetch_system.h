@@ -53,11 +53,13 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
         if (media_type == "audio/wav" || media_type == "audio/x-wav") return ".wav";
         if (media_type == "audio/mpeg") return ".mp3";
         if (media_type == "audio/mp4" || media_type == "audio/x-m4a") return ".m4a";
+        if (media_type == "audio/aac") return ".aac";
+        if (media_type == "audio/aiff" || media_type == "audio/x-aiff") return ".aiff";
         return "";
     }
 
     static bool drawable(std::string_view media_type) {
-        return hanabi::artifact_policy::drawable(media_type);
+        return hanabi::artifact_policy::fetchable(media_type);
     }
     static std::string unsupported_reason(std::string_view media_type) {
         return hanabi::artifact_policy::unsupported_reason(media_type);

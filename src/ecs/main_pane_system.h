@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../ui/audio_player.h"
 #include "../api/ask_file.h"
 #include "../api/attachments.h"
 #include "../api/compaction.h"
@@ -96,7 +97,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr size_t kMaxSection = 20;
     static constexpr float kPageHeaderH = 46.0f;
 
-    void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
+    void for_each_with(Entity&, UIContext<InputAction>& ctx, float dt) override {
+        hanabi::audio::advance(dt);
         auto* layout = find_singleton<LayoutComponent>();
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;
@@ -14541,9 +14543,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static float artifact_image_width(float colW) {
         return std::min(kArtifactImageMaxW, artifact_inner_width(colW));
     }
+    static constexpr float kArtifactAudioH = 30.0f;
+    static bool artifact_playable(const api::Message& m) {
+        return m.artifact.is_audio() && m.artifact.fetch == api::ArtifactFetch::Ready &&
+               !m.artifact.local_path.empty();
+    }
     static float artifact_height(const api::Message& m, float colW) {
         float h = event_row_height();
         if (m.artifact.hidden) return h;
+        if (artifact_playable(m)) return h + kArtifactAudioH + kArtifactImageGapBot;
         if (m.artifact.is_image() && !m.image_path.empty() &&
             hanabi::inline_image::available(m.image_path))
             h += kArtifactImageGapTop +
@@ -14626,6 +14634,79 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         if (m.artifact.hidden) return;
+        // An audio clip plays from its row (kt-nmbp): Play / Pause, a bar
+        // that fills as it plays, and the time. One clip at a time.
+        if (artifact_playable(m)) {
+            const std::string clip = m.artifact.local_path;
+            const hanabi::audio::State st = hanabi::audio::state();
+            const bool mine = st.path == clip;
+            const bool playing = mine && st.playing;
+            const double duration = mine && st.duration > 0 ? st.duration : 0.0;
+            const double position = mine ? st.position : 0.0;
+            auto row = div(ctx, mk(wrap.ent(), 3),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(artifact_image_width(colW)),
+                                             pixels(kArtifactAudioH)})
+                    .with_margin(Margin{.bottom = pixels(kArtifactImageGapBot),
+                                        .left = pixels(kThinkingInset)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("artifact_audio"));
+            if (button(ctx, mk(row.ent(), 1),
+                       ComponentConfig{}
+                           .with_label(playing ? "Pause" : "Play")
+                           .with_size(ComponentSize{pixels(64), pixels(26)})
+                           .with_custom_background(theme::panel_bg_2())
+                           .with_border(theme::border_raised(), pixels(1.0f))
+                           .with_corner_radius(6.0f)
+                           .with_font_size(theme::type::SM)
+                           .with_cursor(afterhours::ui::CursorType::Pointer)
+                           .with_debug_name("artifact_audio_play"))) {
+                if (playing) {
+                    hanabi::audio::pause();
+                } else if (!hanabi::audio::play(clip)) {
+                    app.raise_toast("This clip could not be played.", std::string(),
+                                    AppComponent::ToastUndo::None);
+                }
+            }
+            const float barW = std::max(40.0f, artifact_image_width(colW) - 64.0f - 120.0f);
+            const float frac = duration > 0 ? static_cast<float>(std::min(1.0, position / duration))
+                                            : 0.0f;
+            div(ctx, mk(row.ent(), 2),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(barW), pixels(kArtifactAudioH)})
+                    .with_margin(Margin{.left = pixels(10)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_bg([frac](RectangleType r) {
+                        const float y = r.y + r.height * 0.5f - 2.0f;
+                        afterhours::draw_rectangle(RectangleType{r.x, y, r.width, 4.0f},
+                                                   theme::border());
+                        if (frac > 0.0f)
+                            afterhours::draw_rectangle(
+                                RectangleType{r.x, y, r.width * frac, 4.0f}, theme::accent());
+                    })
+                    .with_debug_name("artifact_audio_bar"));
+            const double shownDuration =
+                duration > 0 ? duration : hanabi::audio::known_duration(clip);
+            div(ctx, mk(row.ent(), 3),
+                ComponentConfig{}
+                    .with_label(hanabi::audio::clock(position) + " / " +
+                                (shownDuration > 0 ? hanabi::audio::clock(shownDuration)
+                                                   : std::string("--:--")))
+                    .with_size(ComponentSize{pixels(100), pixels(kArtifactAudioH)})
+                    .with_margin(Margin{.left = pixels(10)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("artifact_audio_time"));
+            return;
+        }
         if (m.artifact.is_image() && !m.image_path.empty() &&
             hanabi::inline_image::available(m.image_path)) {
             const std::string ip = m.image_path;

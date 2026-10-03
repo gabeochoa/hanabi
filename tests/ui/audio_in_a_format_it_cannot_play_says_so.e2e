@@ -1,0 +1,9 @@
+# Audio the player cannot play (webm, ogg) says so on its row instead of a
+# player that would do nothing; nothing is fetched for it.
+#
+# settings: {"window_width":1100,"window_height":900,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_ARTIFACT_DEMO=1 HANABI_ARTIFACT_DEMO_AUDIO_TYPE=audio/webm
+
+require_thread t1
+expect_text_drawn "unavailable: this audio format cannot be played here" within=120
+expect_no_ui artifact_audio_play

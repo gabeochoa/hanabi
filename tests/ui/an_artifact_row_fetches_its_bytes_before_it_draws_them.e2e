@@ -11,6 +11,7 @@ expect_text "price-tiers.png"
 expect_text "approval-note.wav"
 wait_frames 30
 assert_ui artifact_image hidden=false
-# Audio is not played in this build: the row says so and draws no player.
-expect_text_drawn "audio is not played in this build" within=60
+# The audio clip is fetched too and plays from its row (kt-nmbp).
+expect_text_drawn "0:00 / 0:02" within=60
+assert_ui artifact_audio_play hidden=false
 expect_no_ui artifact_clip

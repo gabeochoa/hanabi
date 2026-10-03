@@ -10,5 +10,5 @@ expect_text_drawn "hidden" within=60
 expect_no_ui artifact_image
 expect_no_ui artifact_viewer_image
 expect_text "approval-note.wav"
-expect_text_drawn "audio is not played in this build" within=60
+expect_text_drawn "0:00 / 0:02" within=60
 expect_no_ui artifact_clip
