@@ -883,6 +883,7 @@ static void app_frame_body() {
     const unsigned long long frameCpu0 = hanabi::prof::cpu_nanos();
     afterhours::graphics::begin_drawing();
     afterhours::graphics::clear_background(theme::window_bg());
+    ecs::drive_caret_clocks(dt);
     app_state::systemManager->run(dt);
     afterhours::graphics::end_drawing();
     // The windowed loop is a profiled path too (HANABI_PROF=1, dumped when
@@ -2029,8 +2030,17 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
     int why[19] = {};
     constexpr std::uint64_t kCallbackUs = 8333;
 
+    // HANABI_IDLE_REALTIME=1: each callback waits for its wall-clock slot, so
+    // 1,200 callbacks are ten real seconds -- the live stream, the refetch
+    // debounce and any other real-time clock run as they do in the app.
+    static const bool realtime = std::getenv("HANABI_IDLE_REALTIME") != nullptr;
+    const auto wallStart = std::chrono::steady_clock::now();
+    long long lastEventSeen = 0;
     for (int i = 0; i < callbacks; ++i) {
         hanabi::FrameSignals signals;
+        if (realtime)
+            std::this_thread::sleep_until(wallStart + std::chrono::microseconds(
+                                                          static_cast<long long>(i) * kCallbackUs));
         {
             const std::uint64_t nowUs = static_cast<std::uint64_t>(i) * kCallbackUs;
             hanabi::status_mark::mm3_motion().sinceDrawUs =
@@ -2064,9 +2074,30 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
             a.requestListRefresh = false;
             signals.async_ready = true;  // the list future landing wakes a frame
         }
-        if (!query.empty())
-            signals.merge_from(hanabi::collect_app_frame_signals(
-                query[0].get().get<ecs::AppComponent>()));
+        if (!query.empty()) {
+            auto& a = query[0].get().get<ecs::AppComponent>();
+            signals.merge_from(hanabi::collect_app_frame_signals(a));
+            // As app_frame does: a live event wakes a frame.
+            const long long ev = a.lastEventMs.load();
+            signals.sse_event = signals.sse_event || (ev != 0 && ev != lastEventSeen);
+            lastEventSeen = ev;
+            // HANABI_AUDIT_WARM_TABS=1: every restored tab is in the
+            // transcript cache, as it is once a reader has clicked through
+            // them (the live pool only subscribes cached tabs).
+            static bool warmed = false;
+            if (!warmed && i >= 10 && std::getenv("HANABI_AUDIT_WARM_TABS") && a.client) {
+                warmed = true;
+                int n = 0;
+                for (const auto& sid : Settings::get().get_open_tabs()) {
+                    auto r = a.client->get_session(sid, 40);
+                    if (r.ok) {
+                        a.transcriptCache.put(std::move(r.value));
+                        ++n;
+                    }
+                }
+                std::fprintf(stderr, "audit: warmed %d tabs\n", n);
+            }
+        }
         hanabi::collect_ui_frame_signals(signals);
         if (fixedTenFps) {
             signals = {};
@@ -2090,6 +2121,7 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
         const hanabi::AutoreleaseFrame framePool;
         hanabi::gfx::begin_frame();
         afterhours::graphics::clear_background(theme::window_bg());
+        ecs::drive_caret_clocks(dt);
         sm.run(dt);
         afterhours::graphics::end_frame();
         ++rendered;
@@ -2105,6 +2137,22 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
                          1000000.0;
     const unsigned long long allocations =
         hanabi::prof::alloc_count() - allocStart;
+    if (std::getenv("HANABI_MOCK_LIVE") != nullptr) {
+        auto& st = api::MockClient::live_stats();
+        {
+            auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<ecs::AppComponent>().gen();
+            if (!q.empty())
+                for (auto& [id, ls] : q[0].get().get<ecs::AppComponent>().liveSubs)
+                    if (ls.sub) ls.sub->stop();  // the scripted workers end before the process does
+        }
+        std::string subs;
+        auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<ecs::AppComponent>().gen();
+        if (!q.empty())
+            for (const auto& [id, ls] : q[0].get().get<ecs::AppComponent>().liveSubs) subs += (subs.empty() ? "" : ",") + id;
+        std::printf("LiveFetch: full=%ld incremental=%ld rows=%ld persists=%ld subs=%s\n", st.full.load(),
+                    st.incremental.load(), st.rows.load(), ecs::LoaderSystem::persist_requests().load(),
+                    subs.c_str());
+    }
     if (std::getenv("HANABI_IDLE_WHY") != nullptr) {
         static const char* kNames[19] = {"startup", "pointer", "key", "resize", "exposure", "native",
                                          "async_ready", "sse", "state_request", "split", "animation",

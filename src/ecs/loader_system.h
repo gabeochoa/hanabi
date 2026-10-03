@@ -441,7 +441,14 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // Trimming right after a save is the natural "cache grew" trigger; the cap
     // comes from Settings (0 = Unlimited => trim_to_cap is a no-op). Archived +
     // least-recently-opened threads are evicted first (see disk_cache).
+    // Every transcript write a refetch asks for -- counted before the mock's
+    // no-disk rule, so an audit run says what a real backend would write.
+    static std::atomic<long>& persist_requests() {
+        static std::atomic<long> n{0};
+        return n;
+    }
     static void save_and_trim(const AppComponent& app, const api::Session& s) {
+        persist_requests().fetch_add(1);
         if (!disk_cache_enabled(app)) return;
         api::disk_cache::save_transcript(s);
         api::disk_cache::trim_to_cap(Settings::get().get_cache_cap_bytes());
@@ -2442,16 +2449,26 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         if (!app.client) return;
         const auto now = std::chrono::steady_clock::now();
         for (auto& [id, ls] : app.liveSubs) {
-            // 1) Kick a background refetch when this thread's worker flagged
-            //    activity, it's not already fetching, and past the debounce.
-            if (ls.dirty->load() && !ls.pending &&
-                now - ls.lastRefetch >= kEventDebounce) {
+            // Is a reader looking at it? (ecs LiveSub: what an event costs
+            // depends on this.)
+            ls.shown = false;
+            for (std::size_t paneIndex = 0; paneIndex < app.active_pane_count(); ++paneIndex)
+                if (app.panes[paneIndex].selectedId == id) ls.shown = true;
+            ls.shownFlag->store(ls.shown);
+            // 1) Kick a refetch when this thread's worker flagged activity,
+            //    it's not already fetching, and it is due: shown, past the
+            //    debounce or just come on screen; hidden, past the catch-up.
+            const bool due = ls.refetch_due(now);
+            ls.wasShown = ls.shown;
+            if (due) {
                 ls.dirty->store(false);
                 ls.lastRefetch = now;
                 if (id == app.pane().selectedId) app.requestListRefresh = true;
                 std::shared_ptr<api::Client> c = app.client;
                 std::string sid = id;
                 ls.askLoadStamp = app.next_ask_load_stamp();
+                // Resume from the newest row held: the pane's, else the
+                // cached copy's. Only a thread held nowhere asks for a window.
                 std::uint64_t since = 0;
                 for (std::size_t paneIndex = 0;
                      paneIndex < app.active_pane_count(); ++paneIndex) {
@@ -2460,6 +2477,9 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         pane.openSession->summary.id == id)
                         since = model::newest_seq(pane.openSession->messages);
                 }
+                if (since == 0)
+                    if (const api::Session* held = app.transcriptCache.peek(id))
+                        since = model::newest_seq(held->messages);
                 ls.future = std::async(std::launch::async, [c, sid, since] {
                     return c->get_session_since(sid, since, kMessagesWindow);
                 });
@@ -2475,10 +2495,34 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 if (r.refused) app.apply_attach_refusal(id, r.error);
                 if (r.ok) {
                     app.clear_attach_refusal(id);
-                    // Persist fresh transcript for ANY open tab (instant
-                    // switch).
-                    save_and_trim(app, r.value);
-                    app.transcriptCache.put(r.value);
+                    bool landedOnPane = false;
+                    for (std::size_t paneIndex = 0; paneIndex < app.active_pane_count(); ++paneIndex) {
+                        const Pane& pane = app.panes[paneIndex];
+                        if (pane.selectedId == r.value.summary.id && !pane.loadingOlder) landedOnPane = true;
+                    }
+                    // Hidden: fold the reply (a resume, so maybe only the new
+                    // rows) into the cached copy and keep THAT -- writing the
+                    // reply alone would replace a thread with its tail. A pane
+                    // that shows it keeps and persists its own copy below.
+                    if (!landedOnPane) {
+                        if (const api::Session* held = app.transcriptCache.peek(id)) {
+                            api::Session merged = *held;
+                            model::reconcile_transcript(merged.messages, std::move(r.value.messages));
+                            merged.summary = r.value.summary;
+                            merged.pending_asks = r.value.pending_asks;
+                            merged.plan = r.value.plan;
+                            merged.goal = r.value.goal;
+                            merged.sub_agents = r.value.sub_agents;
+                            merged.halted = r.value.halted;
+                            merged.halted_by = r.value.halted_by;
+                            merged.halted_reason = r.value.halted_reason;
+                            app.transcriptCache.put(merged);
+                            save_and_trim(app, merged);
+                        } else {
+                            save_and_trim(app, r.value);
+                            app.transcriptCache.put(r.value);
+                        }
+                    }
                     for (std::size_t paneIndex = 0;
                          paneIndex < app.active_pane_count(); ++paneIndex) {
                         Pane& pane = app.panes[paneIndex];
@@ -2574,17 +2618,23 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             AppComponent::LiveSub ls;
             std::shared_ptr<std::atomic<bool>> dirty = ls.dirty;
             std::atomic<long long>* stamp = &app.lastEventMs;
+            std::shared_ptr<std::atomic<bool>> shown = ls.shownFlag;
             api::EventSink sink;
-            // Worker-thread callback: flip THIS thread's dirty flag + stamp the
-            // global last-event time. Never touches the ECS (thread-safe).
-            sink.on_activity = [dirty, stamp](const std::string&) {
+            // Worker-thread callback: flip THIS thread's dirty flag, and stamp
+            // the last-event time (which wakes a frame) only for a thread a
+            // reader can see. Never touches the ECS (thread-safe).
+            sink.on_activity = [dirty, stamp, shown](const std::string&) {
                 dirty->store(true);
+                if (!shown->load()) return;
                 stamp->store(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now().time_since_epoch())
                         .count());
             };
             ls.sub = app.client->subscribe_events(id, std::move(sink));
+            // A hidden tab's first catch-up is 15 s out (it was just loaded);
+            // a shown one's first event still refetches at once.
+            ls.subscribedAt = std::chrono::steady_clock::now();
             app.liveSubs.emplace(id, std::move(ls));
         }
         // The open thread is "live" iff it has an active subscription.

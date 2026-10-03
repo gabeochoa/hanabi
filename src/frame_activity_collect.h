@@ -122,21 +122,28 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
     s.async_ready = s.async_ready || lifecycle.async_ready;
     s.timer = s.timer || lifecycle.timer;
 
-    for (auto& [id, live] : app.liveSubs) {
-        (void)id;
-        const bool dirty = live.dirty->load();
-        const FrameSignals lifecycleDirty =
-            lifecycle_frame_signals({.sse_dirty = dirty});
-        s.sse_event = s.sse_event || lifecycleDirty.sse_event;
-        s.timer = s.timer || lifecycleDirty.timer;
-        s.pending_future = s.pending_future || live.pending;
-        s.async_ready = s.async_ready || frame_future_ready(live.future);
+    // A live thread wakes a frame when its refetch is DUE (ecs LiveSub), not
+    // for as long as it is dirty: a dirty flag waiting out a debounce used to
+    // be an immediate wake on every display callback.
+    if (!app.liveSubs.empty()) {
+        const auto now = std::chrono::steady_clock::now();
+        for (auto& [id, live] : app.liveSubs) {
+            (void)id;
+            s.sse_event = s.sse_event || live.refetch_due(now);
+            s.pending_future = s.pending_future || live.pending;
+            s.async_ready = s.async_ready || frame_future_ready(live.future);
+        }
     }
 
     s.timer = s.timer || app.showAuth || !app.outboxRetry.empty() ||
               Settings::get().is_settings_dirty() ||
               Settings::get().get_theme_rotate_secs() > 0;
-    s.caret = ecs::any_text_field_focused();
+    // A focused field wants a frame when its caret toggles (ui/caret_clock.h),
+    // not ten times a second; until a frame has placed it, at once.
+    if (ecs::any_text_field_focused()) {
+        const double next = hanabi::caret::next_toggle_at();
+        s.caret = next == 0.0 || hanabi::caret::due(hanabi::caret::wall_seconds());
+    }
     // An MM3 face is due to change (ui/status_mark.h): draw then, and only
     // then. Only a moving face that actually drew counts -- a row scrolled
     // away, a still face, or a paused one costs no frames.

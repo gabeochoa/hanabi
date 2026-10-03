@@ -479,14 +479,39 @@ struct AppComponent : public afterhours::BaseComponent {
     // loader polls the flags on the UI thread, debounces, and refetches the
     // dirty thread(s) on worker futures. Subscriptions are opened when a tab
     // appears and reaped (off the UI thread) when its tab closes.
+    // One open tab's live subscription. What its events cost depends on
+    // whether a reader can SEE the thread:
+    //   * on a pane: refetch what arrived since the newest row held, at most
+    //     once a second while events keep coming;
+    //   * behind another tab: events only mark it stale -- no fetch, no
+    //     frame. It catches up (incrementally, from the cached copy) every
+    //     15 s, and at once when it comes on screen.
+    // It used to refetch a full 40-row window for every hidden tab every
+    // second a run was live, persist it, and wake a frame on every display
+    // callback while the debounce ran (cpu_audit `live5`).
     struct LiveSub {
+        static constexpr std::chrono::milliseconds kShownDebounce{1000};
+        static constexpr std::chrono::seconds kHiddenCatchUp{15};
         std::unique_ptr<api::EventSubscription> sub;
         std::shared_ptr<std::atomic<bool>> dirty =
             std::make_shared<std::atomic<bool>>(false);
+        // Read by the event worker: only a shown thread's events wake a frame.
+        std::shared_ptr<std::atomic<bool>> shownFlag =
+            std::make_shared<std::atomic<bool>>(false);
         std::chrono::steady_clock::time_point lastRefetch{};
+        std::chrono::steady_clock::time_point subscribedAt{};
         bool pending = false;  // a background refetch for this id is in flight
+        bool shown = false, wasShown = false;
         std::future<api::Result<api::Session>> future;
         std::uint64_t askLoadStamp = 0;
+        // Whether a refetch should start now -- also what wakes a frame for
+        // it, so nothing redraws while a debounce or a catch-up waits.
+        [[nodiscard]] bool refetch_due(std::chrono::steady_clock::time_point now) const {
+            if (pending || !dirty->load()) return false;
+            if (shown && !wasShown) return true;  // it just came on screen
+            if (shown) return now - lastRefetch >= kShownDebounce;
+            return now - std::max(lastRefetch, subscribedAt) >= kHiddenCatchUp;
+        }
     };
     std::map<std::string, LiveSub> liveSubs;  // session id -> live subscription
     // Steady-clock ms of the last live event across ANY subscription (0=none),

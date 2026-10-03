@@ -9,6 +9,8 @@
 // anything focused" is three chances to answer it differently.
 
 #include "ui_imports.h"
+#include "../ui/caret_clock.h"
+#include <unordered_map>
 
 namespace ecs {
 
@@ -53,6 +55,39 @@ inline afterhours::text_input::HasTextAreaState* focused_text_area() {
         if (a.is_focused) return &a;
     }
     return nullptr;
+}
+
+// Before a drawn frame: every focused field's caret is placed on the wall
+// clock, and the soonest toggle becomes the frame loop's next caret deadline
+// (ui/caret_clock.h). `dt` is the step a text INPUT will add this frame; a
+// text AREA adds a fixed 0.016.
+inline void drive_caret_clocks(float dt) {
+    static std::unordered_map<afterhours::EntityID, hanabi::caret::Anchor> anchors;
+    static std::unordered_map<afterhours::EntityID, hanabi::caret::Anchor> seen;
+    seen.clear();
+    const double now = hanabi::caret::wall_seconds();
+    double soonest = 0.0;
+    const auto drive = [&](afterhours::EntityID id, auto& st, float step) {
+        if (!st.is_focused) return;
+        auto it = anchors.find(id);
+        hanabi::caret::Anchor a = it == anchors.end() ? hanabi::caret::Anchor{} : it->second;
+        const auto set = hanabi::caret::place(a, now, st.cursor_blink_timer, step, st.cursor_blink_rate);
+        st.cursor_blink_timer = set.timer;
+        seen[id] = a;
+        const double at = now + set.toggleIn;
+        if (soonest == 0.0 || at < soonest) soonest = at;
+    };
+    for (const auto& e : afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+        if (!e) continue;
+        if (e->has<afterhours::text_input::HasTextAreaState>()) {
+            drive(e->id, e->get<afterhours::text_input::HasTextAreaState>(), 0.016f);
+            continue;
+        }
+        if (e->has<afterhours::text_input::HasTextInputState>())
+            drive(e->id, e->get<afterhours::text_input::HasTextInputState>(), dt > 0.f ? dt : 1.f / 60.f);
+    }
+    anchors.swap(seen);
+    hanabi::caret::next_toggle_at() = soonest;
 }
 
 inline bool any_text_field_focused() {

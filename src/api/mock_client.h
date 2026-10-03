@@ -494,6 +494,7 @@ class MockClient : public Client {
             if (s.summary.id == id) {
                 Session copy = s;
                 drop_resolved_asks(copy);
+                append_live_tail(copy);
                 return Result<Session>::success(std::move(copy));
             }
         }
@@ -544,6 +545,164 @@ class MockClient : public Client {
     static std::atomic<int>& session_reads() {
         static std::atomic<int> n{0};
         return n;
+    }
+
+    // ---- A scripted live stream (HANABI_MOCK_LIVE=<events per second>) ----
+    // Every subscribed thread gets a worker that appends one assistant row
+    // (numeric id, so seqs resume) and fires on_activity at that rate, the
+    // way a running turn does. get_session_since then answers like the real
+    // attach: the rows after `since` (plus the one at it, the overlap), or
+    // the newest window when since is 0. Counted, so a run can say what it
+    // pulled: live_fetches() = {full, incremental, rows returned}.
+    struct LiveStats {
+        std::atomic<long> full{0}, incremental{0}, rows{0};
+    };
+    static LiveStats& live_stats() {
+        static LiveStats s;
+        return s;
+    }
+    static std::mutex& live_mu() {
+        static std::mutex m;
+        return m;
+    }
+    static std::map<std::string, std::vector<Message>>& live_tail() {
+        static std::map<std::string, std::vector<Message>> t;
+        return t;
+    }
+    // HANABI_MOCK_LIVE=manual: no worker; a script fires each event
+    // (mock_live_event), so a fixture never races a wall clock.
+    static double live_rate() {
+        const char* v = std::getenv("HANABI_MOCK_LIVE");
+        return v ? std::atof(v) : 0.0;
+    }
+    static bool live_on() {
+        const char* v = std::getenv("HANABI_MOCK_LIVE");
+        return v != nullptr && *v != '\0' && (std::string_view(v) == "manual" || std::atof(v) > 0.0);
+    }
+    struct LiveSink {
+        std::string id;
+        EventSink sink;
+        std::shared_ptr<std::atomic<bool>> alive;
+    };
+    static std::vector<LiveSink>& live_sinks() {
+        static std::vector<LiveSink> v;
+        return v;
+    }
+    static std::map<std::string, long>& live_fetches_by_id() {
+        static std::map<std::string, long> m;
+        return m;
+    }
+    static std::uint64_t append_live_row(const std::string& sid) {
+        static std::atomic<std::uint64_t> nextSeq{900000};
+        std::lock_guard<std::mutex> lk(live_mu());
+        const std::uint64_t seq = nextSeq.fetch_add(1);
+        live_tail()[sid].push_back(
+            Message(std::to_string(seq), Role::Assistant, "Working on it: step " + std::to_string(seq) + ".",
+                    1790000000, ""));
+        return seq;
+    }
+    // A script's event: one new row on `sid`, then its subscribers hear it.
+    static void mock_live_event(const std::string& sid) {
+        append_live_row(sid);
+        std::vector<EventSink> hear;
+        {
+            std::lock_guard<std::mutex> lk(live_mu());
+            for (const auto& s : live_sinks())
+                if (s.id == sid && s.alive->load()) hear.push_back(s.sink);
+        }
+        for (auto& s : hear)
+            if (s.on_activity) s.on_activity("message");
+    }
+    static std::uint64_t live_newest(const std::string& sid) {
+        std::lock_guard<std::mutex> lk(live_mu());
+        const auto it = live_tail().find(sid);
+        if (it == live_tail().end() || it->second.empty()) return 0;
+        return std::stoull(it->second.back().id);
+    }
+    static long live_fetch_count(const std::string& sid) {
+        std::lock_guard<std::mutex> lk(live_mu());
+        const auto it = live_fetches_by_id().find(sid);
+        return it == live_fetches_by_id().end() ? 0 : it->second;
+    }
+    static void live_counts_reset() {
+        std::lock_guard<std::mutex> lk(live_mu());
+        live_fetches_by_id().clear();
+    }
+    bool supports_events() const override { return live_on(); }
+    std::unique_ptr<EventSubscription> subscribe_events(const std::string& session_id,
+                                                        EventSink sink) override {
+        struct LiveSub : EventSubscription {
+            std::atomic<bool> stopping{false};
+            std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>>(true);
+            std::thread worker;
+            void stop() override {
+                alive->store(false);
+                stopping.store(true);
+                if (worker.joinable()) worker.join();
+            }
+            ~LiveSub() override { stop(); }
+        };
+        auto sub = std::make_unique<LiveSub>();
+        if (!live_on()) return sub;
+        {
+            std::lock_guard<std::mutex> lk(live_mu());
+            live_sinks().push_back({session_id, sink, sub->alive});
+        }
+        const double hz = live_rate();
+        if (hz <= 0.0) return sub;  // manual: a script fires the events
+        auto* raw = sub.get();
+        raw->worker = std::thread([raw, session_id, sink, hz] {
+            const auto period = std::chrono::microseconds(static_cast<long long>(1e6 / hz));
+            auto due = std::chrono::steady_clock::now() + period;
+            while (!raw->stopping.load()) {
+                std::this_thread::sleep_until(due);
+                due += period;
+                if (raw->stopping.load()) break;
+                append_live_row(session_id);
+                if (sink.on_activity) sink.on_activity("message");
+            }
+        });
+        return sub;
+    }
+    static void append_live_tail(Session& s) {
+        std::lock_guard<std::mutex> lk(live_mu());
+        const auto it = live_tail().find(s.summary.id);
+        if (it == live_tail().end()) return;
+        s.messages.insert(s.messages.end(), it->second.begin(), it->second.end());
+    }
+    Result<Session> get_session_since(const std::string& id, std::uint64_t since_seq, int window) override {
+        auto r = get_session(id);
+        if (!r.ok) return r;
+        auto& msgs = r.value.messages;
+        if (since_seq == 0) {
+            live_stats().full.fetch_add(1);
+            if (window > 0 && static_cast<int>(msgs.size()) > window) {
+                msgs.erase(msgs.begin(), msgs.end() - static_cast<std::ptrdiff_t>(window));
+                r.value.has_more_older = true;
+            }
+        } else {
+            live_stats().incremental.fetch_add(1);
+            std::vector<Message> after;
+            for (const auto& m : msgs) {
+                std::uint64_t seq = 0;
+                bool numeric = !m.id.empty();
+                for (char c : m.id) {
+                    if (c < '0' || c > '9') {
+                        numeric = false;
+                        break;
+                    }
+                    seq = seq * 10 + static_cast<std::uint64_t>(c - '0');
+                }
+                if (numeric && seq >= since_seq) after.push_back(m);
+            }
+            msgs = std::move(after);
+        }
+        live_stats().rows.fetch_add(static_cast<long>(msgs.size()));
+        {
+            std::lock_guard<std::mutex> lk(live_mu());
+            ++live_fetches_by_id()[id];
+        }
+        return r;
     }
 
     // Every OUTBOUND call a test can count: a send, a steer, a create. The
@@ -2553,7 +2712,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_MOCK_SPACE_ADMIN", "HANABI_MOCK_SPACE_DENY", "HANABI_MOCK_SPACE_SENSITIVE", "HANABI_MOCK_PHOTO_FAIL", "HANABI_TEST_SPACE_SETTINGS", "HANABI_MOCK_STREAM_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
+        "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_MOCK_SPACE_ADMIN", "HANABI_MOCK_SPACE_DENY", "HANABI_MOCK_SPACE_SENSITIVE", "HANABI_MOCK_LIVE", "HANABI_MOCK_PHOTO_FAIL", "HANABI_TEST_SPACE_SETTINGS", "HANABI_MOCK_STREAM_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

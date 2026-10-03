@@ -1,0 +1,30 @@
+# A live run on a tab behind another costs nothing until it is shown
+# (ecs LiveSub; docs/perf/IDLE.md): its events only mark it stale -- no
+# fetch, no frame -- and showing the tab fetches what arrived since the
+# newest row it holds, at once. The tab on screen still follows its run.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_MOCK_LIVE=manual
+
+wait_frames 30
+click_ui tab_t2
+wait_frames 30
+click_ui tab_t1
+wait_frames 30
+mock_live_counts_reset
+mock_live_event t2
+wait_frames 10
+mock_live_event t2
+wait_frames 10
+mock_live_event t2
+wait_frames 30
+expect_mock_live_fetches t2 0 0
+mock_live_event t1
+wait_frames 20
+expect_mock_live_fetches t1 1 1
+expect_live_caught_up t1
+click_ui tab_t2
+wait_frames 20
+expect_live_caught_up t2
+expect_mock_live_fetches t2 1 1
+expect_text "Working on it: step"

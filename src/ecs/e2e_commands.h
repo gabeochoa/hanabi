@@ -3562,6 +3562,64 @@ struct HandleMockWebArchiveCommand
     }
 };
 
+// The scripted live stream (HANABI_MOCK_LIVE=manual):
+//   mock_live_event <sid>            one new row on that thread, heard by its subscribers
+//   mock_live_counts_reset           forget how often each thread was fetched
+//   expect_mock_live_fetches <sid> <min> <max>   fetches since the reset
+//   expect_live_caught_up <sid>      a pane shows that thread through its newest row
+struct HandleMockLiveCommands : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd, float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("mock_live_event")) {
+            if (cmd.args.empty()) return cmd.fail("mock_live_event: needs a session id");
+            api::MockClient::mock_live_event(cmd.args[0]);
+            cmd.consume();
+            return;
+        }
+        if (cmd.is("mock_live_counts_reset")) {
+            api::MockClient::live_counts_reset();
+            cmd.consume();
+            return;
+        }
+        if (cmd.is("expect_mock_live_fetches")) {
+            if (cmd.args.size() < 3) return cmd.fail("expect_mock_live_fetches: <sid> <min> <max>");
+            const long n = api::MockClient::live_fetch_count(cmd.args[0]);
+            const long lo = std::stol(cmd.args[1]), hi = std::stol(cmd.args[2]);
+            if (n >= lo && n <= hi) {
+                cmd.consume();
+                return;
+            }
+            if (n < lo && cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("expect_mock_live_fetches {}: {} fetch(es), wanted {}..{}", cmd.args[0], n, lo, hi));
+            return;
+        }
+        if (cmd.is("expect_live_caught_up")) {
+            if (cmd.args.empty()) return cmd.fail("expect_live_caught_up: needs a session id");
+            const std::uint64_t want = api::MockClient::live_newest(cmd.args[0]);
+            std::uint64_t have = 0;
+            if (auto* app = ecs::find_singleton<ecs::AppComponent>())
+                for (std::size_t i = 0; i < app->active_pane_count(); ++i) {
+                    const auto& p = app->panes[i];
+                    if (p.openSession && p.openSession->summary.id == cmd.args[0])
+                        have = std::max(have, ecs::model::newest_seq(p.openSession->messages));
+                }
+            if (want != 0 && have == want) {
+                cmd.consume();
+                return;
+            }
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("expect_live_caught_up {}: pane holds through {}, newest is {}", cmd.args[0], have, want));
+            return;
+        }
+    }
+};
+
 // expect_mock_space_write <words...>: the mock's Metamate took this write
 // ("rename <id> <name>", "role <id> <fbid> <ROLE>", ...). Retries a while.
 struct HandleExpectMockSpaceWriteCommand
@@ -4695,6 +4753,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleMm3MovingCommand>());
     sm.register_update_system(std::make_unique<HandleQueueCommands>());
     sm.register_update_system(std::make_unique<HandleExpectMockSpaceWriteCommand>());
+    sm.register_update_system(std::make_unique<HandleMockLiveCommands>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());

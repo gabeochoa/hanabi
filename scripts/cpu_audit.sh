@@ -45,11 +45,12 @@ arm() {  # name settings env...
             for (i=1;i<=NF;++i){split($i,p,"="); v[p[1]]=p[2]}
             printf "frames=%-5s cpu_ms/s=%-9s allocs/s=%s", v["frames"], v["cpu_ms_per_sec"], v["allocs_per_sec"]}')"
     fi
+    grep '^LiveFetch:' "$log" | sed 's/^/                 /'
     if [ -n "${HANABI_AUDIT_WHY:-}" ]; then grep '^IdleWhy:' "$log" | sed 's/^/                 /'; fi
     rm -rf "$home" "$log"
 }
 
-ARMS="${HANABI_AUDIT_ARMS:-home home2000 thread tabs5 split settings mm3 mm3thread thinking list1hz list1hz2000}"
+ARMS="${HANABI_AUDIT_ARMS:-home home2000 thread tabs5 split settings caret live5 mm3 mm3thread thinking list1hz list1hz2000}"
 echo "=== hanabi idle CPU audit ($CALLBACKS callbacks) ==="
 for a in $ARMS; do
     case "$a" in
@@ -59,8 +60,12 @@ for a in $ARMS; do
         tabs5) arm tabs5 "$S_TABS" HANABI_OPEN=t1 ;;
         split) arm split "$S_SPLIT" HANABI_OPEN=t1 HANABI_SPLIT=t2 ;;
         settings) arm settings "$S_HOME" HANABI_TEST_OVERLAY=settings ;;
+        # A focused field, in real time (the caret runs on the wall clock).
+        caret) arm caret "$S_HOME" HANABI_TEST_OVERLAY=settings HANABI_IDLE_REALTIME=1 ;;
         mm3) arm mm3 "$S_MM3" ;;
         mm3thread) arm mm3thread "$S_MM3T" HANABI_OPEN=t1 ;;
+        # Five tabs, all with a live run (2 events/s each), one on screen; real time.
+        live5) arm live5 "$S_TABS" HANABI_OPEN=t1 HANABI_MOCK_LIVE=2 HANABI_IDLE_REALTIME=1 HANABI_AUDIT_WARM_TABS=1 ;;
         # A reply in flight on the open thread (the thinking state).
         thinking) arm thinking "$S_THREAD" HANABI_OPEN=t1 HANABI_MOCK_STREAM_HOLD=1 HANABI_AUDIT_SEND=hello ;;
         # The list landing once a second, unchanged (a live run's events).
