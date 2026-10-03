@@ -1262,6 +1262,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 AppComponent::WebFolderOp op;
                 op.kind = AppComponent::WebFolderOp::Kind::Delete;
                 op.id = folderId;
+                op.name = folderName;
+                for (const auto& [sid, fid] : app.webFolders.membership)
+                    if (fid == folderId) op.members.push_back(sid);
+                std::sort(op.members.begin(), op.members.end());
                 app.webFolderQueue.push_back(op);
             }
             if (!app.nativeRowMenu.open())

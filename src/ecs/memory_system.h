@@ -76,9 +76,14 @@ struct MemorySystem : afterhours::System<AppComponent> {
                                     return api::Result<std::string>::success(why);
                                 const auto made = fo::parse_created(r.value.body);
                                 if (!made) return api::Result<std::string>::success("Could not make that folder.");
-                                if (!op.session.empty()) {
-                                    auto f = c->web_call("POST", fo::kOverlayPath, fo::file_body(op.session, made->id));
-                                    return api::Result<std::string>::success(check(f, "Could not file that thread."));
+                                std::vector<std::string> file = op.members;
+                                if (!op.session.empty()) file.push_back(op.session);
+                                // One write per thread, in sequence (the overlay route takes
+                                // one session; no batch on this lane).
+                                for (const std::string& sid : file) {
+                                    auto f = c->web_call("POST", fo::kOverlayPath, fo::file_body(sid, made->id));
+                                    if (std::string why = check(f, "Could not file that thread."); !why.empty())
+                                        return api::Result<std::string>::success(why);
                                 }
                                 return api::Result<std::string>::success(std::string());
                             }
@@ -108,8 +113,13 @@ struct MemorySystem : afterhours::System<AppComponent> {
                     continue;
                 }
                 auto r = it->future.get();
-                if (!r.value.empty())
+                if (!r.value.empty()) {
                     app.raise_toast(r.value, std::string(), AppComponent::ToastUndo::None);
+                } else if (it->op.kind == AppComponent::WebFolderOp::Kind::Delete) {
+                    app.folderUndo = AppComponent::DeletedFolder{it->op.name, it->op.members};
+                    app.raise_toast("Deleted folder \xe2\x80\x9c" + it->op.name + "\xe2\x80\x9d",
+                                    "folder-undo", AppComponent::ToastUndo::FolderDelete);
+                }
                 app.webFoldersAt = -1.0;  // re-read: the server's answer is the sidebar's
                 it = app.webFolderOps.erase(it);
             }

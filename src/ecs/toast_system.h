@@ -139,6 +139,19 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
                     case AppComponent::ToastUndo::Star:
                         app->requestToggleStar = app->toastUndoSessionId;
                         break;
+                    case AppComponent::ToastUndo::FolderDelete:
+                        if (app->folderUndo) {
+                            AppComponent::WebFolderOp op;
+                            op.kind = AppComponent::WebFolderOp::Kind::Create;
+                            op.name = app->folderUndo->name;
+                            // Members filed somewhere else since stay put.
+                            for (const auto& sid : app->folderUndo->members)
+                                if (app->webFolders.membership.count(sid) == 0)
+                                    op.members.push_back(sid);
+                            app->webFolderQueue.push_back(op);
+                            app->folderUndo.reset();
+                        }
+                        break;
                     case AppComponent::ToastUndo::None:
                         break;
                 }

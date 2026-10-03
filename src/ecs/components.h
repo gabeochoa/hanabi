@@ -778,9 +778,22 @@ struct AppComponent : public afterhours::BaseComponent {
     struct WebFolderOp {
         enum class Kind { Create, Rename, Delete, File } kind = Kind::File;
         std::string id;       // folder id (Rename/Delete/File target; "" = out)
-        std::string name;     // Create/Rename
+        std::string name;     // Create/Rename; Delete: the name, for the undo
         std::string session;  // File, or Create-then-file
+        // Create: threads to file into it once it exists (the undo of a
+        // delete); Delete: who was in it, for that undo.
+        std::vector<std::string> members;
     };
+    // The last folder deleted, for the toast's Undo (ten seconds, like every
+    // undo here): its name and members. Undo makes a NEW folder of that name
+    // and files the members back -- the server nulls a deleted folder's
+    // placements, so there is no id to reinstate. A member filed somewhere
+    // else since is left where it is: undo must not overwrite newer work.
+    struct DeletedFolder {
+        std::string name;
+        std::vector<std::string> members;
+    };
+    std::optional<DeletedFolder> folderUndo;
     std::vector<WebFolderOp> webFolderQueue;
     struct WebFolderInFlight {
         WebFolderOp op;
@@ -1605,7 +1618,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // Which toggle Undo re-runs is carried HERE rather than inferred from the
     // message text: the bar knew only how to unarchive, so a mute toast wired
     // to the same button would have archived the thread instead of unmuting it.
-    enum class ToastUndo { None, Archive, Mute, Star, CopyText };
+    enum class ToastUndo { None, Archive, Mute, Star, CopyText, FolderDelete };
     static constexpr float kToastSeconds = 10.0f;
     std::string toastMessage;
     std::string toastUndoSessionId;  // empty = no Undo affordance

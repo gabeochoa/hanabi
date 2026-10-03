@@ -1,0 +1,22 @@
+# A deleted web-app folder can be put back for ten seconds (the reference's
+# DeletedFolder / restore): the toast offers Undo, which makes a NEW folder of
+# the same name and files its threads back (the server nulls a deleted
+# folder's placements, so there is no id to reinstate).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","session_grouping":"folder"}
+# env: HANABI_MOCK_WEB_FOLDERS=1
+
+wait_frames 30
+expect_text "LAUNCH WORK"
+right_click_text "LAUNCH WORK"
+wait_frames 8
+click_ui folder_menu_delete
+wait_frames 30
+expect_overlay_write folder delete f1
+expect_no_text "LAUNCH WORK"
+expect_text "Deleted folder “Launch work”"
+click_ui toast_undo
+wait_frames 30
+expect_overlay_write folder create Launch work
+expect_overlay_write file t2 f100
+expect_text "LAUNCH WORK"
