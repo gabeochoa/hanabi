@@ -11,6 +11,7 @@
 
 #include <string>
 
+#include "../ui/sidebar_query.h"
 #include "../keys.h"
 #include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
@@ -78,6 +79,8 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                                 ? "New folder"
                             : model::prompt_arg(app->renameSessionId, model::kRenameFolderPrefix)
                                 ? "Rename this folder"
+                            : app->renameSessionId == model::kLastActiveDatePrompt
+                                ? "Last active on"
                                 : "Rename session")
                 .with_size(ComponentSize{percent(1.0f),
                                          pixels(hanabi::surface::kTitleH)})
@@ -89,7 +92,9 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("rename_title"));
         div(ctx, mk(header.ent(), 2),
             ComponentConfig{}
-                .with_label("Use a short title you can recognize later")
+                .with_label(app->renameSessionId == model::kLastActiveDatePrompt
+                                ? "A day, as YYYY-MM-DD"
+                                : "Use a short title you can recognize later")
                 .with_size(ComponentSize{percent(1.0f),
                                          pixels(hanabi::surface::kSubtitleH)})
                 .with_margin(Margin{.top = pixels(4)})
@@ -207,7 +212,9 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
 
         auto confirmBtn = button(ctx, mk(row.ent(), 3),
             hanabi::surface::action_button(92.0f, true, 13)
-                .with_label(saving_view(app) || model::prompt_arg(app.renameSessionId, model::kNewFolderPrefix) ? "Save" : "Rename")
+                .with_label(app.renameSessionId == model::kLastActiveDatePrompt ? "Show"
+                            : saving_view(app) || model::prompt_arg(app.renameSessionId, model::kNewFolderPrefix) ? "Save"
+                                                                                                                   : "Rename")
                 .with_font_size(FontSize::Medium)
                 .with_justify_content(JustifyContent::Center)
                 .with_debug_name("rename_confirm"));
@@ -234,6 +241,22 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
         // A web-app folder's name (new, or renamed): checked here (trimmed,
         // 1-100) so the field says so before a round trip; the server's own
         // refusal ("Folder name already exists") arrives as a toast.
+        // The list options menu's "Choose date…": a real calendar day, written
+        // as the same `last_active:` token the sidebar search reads.
+        if (app.renameSessionId == model::kLastActiveDatePrompt) {
+            std::string day = app.renameDraft;
+            while (!day.empty() && day.back() == ' ') day.pop_back();
+            while (!day.empty() && day.front() == ' ') day.erase(day.begin());
+            std::int64_t start = 0;
+            if (!hanabi::sidebar_query::parse_date(day, &start)) {
+                app.renameError = "Use a date like 2026-10-02.";
+                ++app.renameRefusals;
+                return;
+            }
+            app.searchQuery = hanabi::sidebar_query::with_last_active(app.searchQuery, day);
+            close(app);
+            return;
+        }
         const auto newFor = model::prompt_arg(app.renameSessionId, model::kNewFolderPrefix);
         const auto renameOf = model::prompt_arg(app.renameSessionId, model::kRenameFolderPrefix);
         if (newFor || renameOf) {

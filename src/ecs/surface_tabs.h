@@ -86,6 +86,8 @@ inline constexpr std::string_view kRenameViewPrefix = "hanabi:view/rename/";
 // name, with its id.
 inline constexpr std::string_view kNewFolderPrefix = "hanabi:folder/new/";
 inline constexpr std::string_view kRenameFolderPrefix = "hanabi:folder/rename/";
+// The list options menu's "Choose date…": the prompt takes a YYYY-MM-DD.
+inline constexpr std::string_view kLastActiveDatePrompt = "hanabi:last_active/date";
 [[nodiscard]] inline std::optional<std::string_view> prompt_arg(std::string_view prompt,
                                                                 std::string_view prefix) {
     if (prompt.size() < prefix.size() || prompt.substr(0, prefix.size()) != prefix)

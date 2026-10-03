@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 // Sidebar search operators (the reference's 0.8.4: "Sidebar search by
 // `last_active:` today, yesterday, or a date").
 //
@@ -113,6 +115,55 @@ inline Query parse(std::string_view q, std::int64_t now) {
         i = j;
     }
     out.text = std::move(rest);
+    return out;
+}
+
+// The `last_active:` value in a query as typed ("today", "yesterday",
+// "2026-10-02"), lower-cased; "" when there is none. The list options menu
+// reads it to tick the row that is in force.
+inline std::string last_active_value(std::string_view q) {
+    std::size_t i = 0;
+    while (i < q.size()) {
+        while (i < q.size() && q[i] == ' ') ++i;
+        std::size_t j = i;
+        while (j < q.size() && q[j] != ' ') ++j;
+        if (j == i) break;
+        std::string word(q.substr(i, j - i));
+        for (char& c : word)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        if (word.size() > kLastActive.size() && word.rfind(kLastActive, 0) == 0)
+            return word.substr(kLastActive.size());
+        i = j;
+    }
+    return {};
+}
+
+// The query with every `last_active:` token removed and, when `value` is not
+// empty, one `last_active:<value>` appended -- what the menu's rows write, so
+// the menu and a typed token are the same filter. The rest of the query is
+// kept word for word.
+inline std::string with_last_active(std::string_view q, std::string_view value) {
+    std::string out;
+    std::size_t i = 0;
+    while (i < q.size()) {
+        while (i < q.size() && q[i] == ' ') ++i;
+        std::size_t j = i;
+        while (j < q.size() && q[j] != ' ') ++j;
+        if (j == i) break;
+        const std::string_view word = q.substr(i, j - i);
+        std::string head(word.substr(0, std::min(word.size(), kLastActive.size())));
+        for (char& c : head)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        if (!(word.size() > kLastActive.size() && head == kLastActive)) {
+            if (!out.empty()) out += ' ';
+            out.append(word);
+        }
+        i = j;
+    }
+    if (!value.empty()) {
+        if (!out.empty()) out += ' ';
+        out += std::string(kLastActive) + std::string(value);
+    }
     return out;
 }
 

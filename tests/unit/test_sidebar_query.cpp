@@ -67,7 +67,21 @@ static void test_a_value_it_does_not_know_stays_search_text() {
     CHECK(!bare.hasDay && bare.text == "last_active:");
 }
 
+// The list options menu writes the same token the field reads (D54).
+static void test_the_menu_writes_the_typed_token() {
+    namespace sq = hanabi::sidebar_query;
+    CHECK(sq::last_active_value("shard LAST_ACTIVE:Today") == "today");
+    CHECK(sq::last_active_value("shard").empty());
+    CHECK(sq::with_last_active("shard", "today") == "shard last_active:today");
+    CHECK(sq::with_last_active("shard last_active:today more", "2026-09-30") ==
+          "shard more last_active:2026-09-30");
+    CHECK(sq::with_last_active("Last_Active:yesterday", "") == "");
+    CHECK(sq::with_last_active("", "yesterday") == "last_active:yesterday");
+    CHECK(sq::with_last_active("last_active: x", "") == "last_active: x");  // a bare word is prose
+}
+
 int main() {
+    test_the_menu_writes_the_typed_token();
     setenv("TZ", "America/New_York", 1);
     tzset();
     test_plain_words_pass_through();

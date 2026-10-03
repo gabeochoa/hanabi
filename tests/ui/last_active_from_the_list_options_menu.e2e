@@ -1,0 +1,39 @@
+# The Last active filter lives in the list options menu (the reference's
+# 0.8.9 D123028453; puffin_gaps.md D54): the filter button by the search
+# field opens it; Today / Yesterday / Choose date write the same
+# `last_active:` token the field reads, Any time clears it, the row in force
+# carries a tick, and the rest of the query is kept.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 20
+click_ui sb_search_text
+type "shard"
+wait_frames 4
+click_ui sb_search_filter
+wait_frames 6
+expect_text "Any time  ✓"
+click_ui list_menu_today
+wait_frames 6
+expect_text "shard last_active:today"
+click_ui sb_search_filter
+wait_frames 6
+expect_text "Today  ✓"
+click_ui list_menu_choose_date
+wait_frames 6
+expect_text "Last active on"
+type "2026-13-40"
+key ENTER
+wait_frames 4
+expect_text "Use a date like 2026-10-02."
+key CMD+A
+type "2026-09-30"
+key ENTER
+wait_frames 6
+expect_text "shard last_active:2026-09-30"
+click_ui sb_search_filter
+wait_frames 6
+expect_text "On 2026-09-30…  ✓"
+click_ui list_menu_any_time
+wait_frames 6
+expect_no_text "last_active:"

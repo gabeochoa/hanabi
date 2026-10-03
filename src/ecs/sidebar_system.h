@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../ui/sidebar_query.h"
 #include "../test_hooks.h"
 #include "../settings.h"
 #include "../util/clipboard.h"
@@ -818,6 +819,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             render_folder_menu(ctx, uiRoot, app);
             return;
         }
+        if (app.rowMenuViewId == kListMenuId) {
+            render_list_menu(ctx, uiRoot, app);
+            return;
+        }
         if (!app.rowMenuViewId.empty()) {
             render_view_menu(ctx, uiRoot, app);
             return;
@@ -1209,6 +1214,91 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // A web-app folder header's menu: Rename... and Delete Folder (the
     // threads are not deleted; the server nulls their placement and they fall
     // back to Recents).
+    // The list options menu (the filter button by the sidebar search; the
+    // reference's List options, 0.8.9 D123028453 / puffin_gaps.md D54): the
+    // automated-threads filter, then a Last active section -- Any time /
+    // Today / Yesterday / Choose date… -- that writes the same `last_active:`
+    // token the search field reads, so typing it and picking it are one
+    // filter. The row in force carries a tick.
+    static constexpr const char* kListMenuId = "\x1f" "list";
+    void render_list_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {
+        const bool hidingAuto = app.collapsedFolders.count(kHideAutoKey) > 0;
+        const std::string active = hanabi::sidebar_query::last_active_value(app.searchQuery);
+        const bool isDate = !active.empty() && active != "today" && active != "yesterday";
+        const auto tick = [](std::string label, bool on) {
+            return on ? label + "  \xe2\x9c\x93" : label;
+        };
+        std::vector<hanabi::surface::MenuItem> items;
+        const auto add = [&](std::string label, const char* dbg, const char* action) {
+            hanabi::surface::MenuItem m{std::move(label), dbg, false, false};
+            m.action_id = action;
+            items.push_back(std::move(m));
+        };
+        add(tick("Hide automated threads", hidingAuto), "list_menu_hide_auto", "hide_auto");
+        items.push_back(hanabi::surface::MenuItem::divider("list_menu_rule"));
+        {
+            hanabi::surface::MenuItem head{"Last active", "list_menu_last_active", false, true};
+            items.push_back(std::move(head));
+        }
+        add(tick("Any time", active.empty()), "list_menu_any_time", "any");
+        add(tick("Today", active == "today"), "list_menu_today", "today");
+        add(tick("Yesterday", active == "yesterday"), "list_menu_yesterday", "yesterday");
+        add(tick(isDate ? "On " + active + "\xe2\x80\xa6" : std::string("Choose date\xe2\x80\xa6"), isDate),
+            "list_menu_choose_date", "date");
+        hanabi::surface::MenuMetrics metrics;
+        metrics.width = hanabi::surface::kContextMenuW;
+        const std::string scope = "list";
+        hanabi::surface::MenuResult result;
+        std::string pickedAction;
+        if (!app.rowMenuNativeTried) {
+            app.rowMenuNativeTried = true;
+            app.rowMenuFocusBefore = static_cast<long long>(ctx.focus_id);
+            hanabi::surface::native_menu_open(app.nativeRowMenu, scope, "list_menu", items, app.rowMenuX,
+                                              app.rowMenuY, static_cast<long long>(ctx.focus_id));
+        }
+        if (app.nativeRowMenu.open()) {
+            (void)menu_keys_for(app);
+            result = hanabi::surface::native_menu_frame(ctx, uiRoot, 8893, "list_menu", app.nativeRowMenu,
+                                                        scope);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = app.nativeRowMenu.action_of(result.activated);
+        } else {
+            result = hanabi::surface::context_menu(ctx, uiRoot, 8893, metrics, app.rowMenuX, app.rowMenuY,
+                                                   "LIST", "list_menu", items, app.menuCursor,
+                                                   menu_keys_for(app), hanabi::surface::kContextMenuLayer,
+                                                   std::string_view());
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = items[result.activated].action_id;
+        }
+        if (result.activated != hanabi::surface::kNoMenuRow) {
+            namespace sq = hanabi::sidebar_query;
+            if (pickedAction == "hide_auto") {
+                if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);
+                else app.collapsedFolders.insert(kHideAutoKey);
+            } else if (pickedAction == "any") {
+                app.searchQuery = sq::with_last_active(app.searchQuery, "");
+            } else if (pickedAction == "today" || pickedAction == "yesterday") {
+                app.searchQuery = sq::with_last_active(app.searchQuery, pickedAction);
+            } else if (pickedAction == "date") {
+                app.renameOpen = true;
+                app.renameSessionId = std::string(model::kLastActiveDatePrompt);
+                app.renameDraft = isDate ? active : std::string();
+                app.renameError.clear();
+            }
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
+            return;
+        }
+        if (result.dismissed || result.cancelled) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
+        }
+    }
+
     void render_folder_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {
         const std::string folderId = app.rowMenuViewId.substr(std::string(kFolderMenuPrefix).size());
         const api::folders::Folder* target = app.webFolders.find(folderId);
@@ -2838,10 +2928,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     hanabi::glyph::filter_rules(r, fg, theme::chrome::raised());
                 })
                 .with_debug_name("sb_search_filter"));
-        hanabi::a11y::set_name(filt.ent(), "Hide automated threads");
+        hanabi::a11y::set_name(filt.ent(), "List options");
         if (filt) {
-            if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);
-            else app.collapsedFolders.insert(kHideAutoKey);
+            const auto r = filt.ent().get<afterhours::ui::UIComponent>().rect();
+            app.open_view_menu(kListMenuId, r.x, r.y + r.height + 2.0f);
         }
     }
 
