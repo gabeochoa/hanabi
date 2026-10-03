@@ -177,10 +177,38 @@ inline void service_space_settings(AppComponent& app) {
     }
 }
 
+// People's photos: land what finished, start what was wanted (four at once).
+inline void service_people_photos(AppComponent& app) {
+    using namespace std::chrono_literals;
+    auto& P = app.peoplePhotos;
+    if (!app.client) return;
+    for (auto it = P.pending.begin(); it != P.pending.end();) {
+        if (it->second.wait_for(0s) != std::future_status::ready) {
+            ++it;
+            continue;
+        }
+        auto r = it->second.get();
+        if (r.ok) P.ready[it->first] = r.value;
+        else {
+            P.none.insert(it->first);
+            if (r.error != "no picture") std::fprintf(stderr, "[photos] %s: %s\n", it->first.c_str(), r.error.c_str());
+        }
+        it = P.pending.erase(it);
+    }
+    while (!P.wanted.empty() && P.pending.size() < 4) {
+        const std::string fbid = P.wanted.front();
+        P.wanted.erase(P.wanted.begin());
+        auto c = app.client;
+        const std::string dir = api::disk_cache::cache_dir();
+        P.pending.emplace(fbid, std::async(std::launch::async, [c, fbid, dir] { return c->fetch_person_photo(fbid, dir); }));
+    }
+}
+
 struct MemorySystem : afterhours::System<AppComponent> {
     void for_each_with(afterhours::Entity&, AppComponent& app, float) override {
         service_memory(app.memory, app.client);
         service_space_settings(app);
+        if (!app.peoplePhotos.pending.empty() || !app.peoplePhotos.wanted.empty()) service_people_photos(app);
         // The Spaces list for the @ picker: asked once, off the frame; a
         // failure leaves the picker with threads only.
         using namespace std::chrono_literals;

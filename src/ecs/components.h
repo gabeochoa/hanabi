@@ -902,6 +902,23 @@ struct AppComponent : public afterhours::BaseComponent {
         void reset() { *this = SpaceSettings{}; }
     };
     SpaceSettings spaceSettings;
+    // People's photos (fbid -> a local file, or none), asked for by whoever
+    // draws a person: at most four in flight, each asked once a launch.
+    struct PeoplePhotos {
+        std::map<std::string, std::string> ready;  // fbid -> path
+        std::set<std::string> none;                // asked; no picture (or it failed)
+        std::map<std::string, std::future<api::Result<std::string>>> pending;
+        std::vector<std::string> wanted;
+        [[nodiscard]] const std::string* path_for(const std::string& fbid) const {
+            const auto it = ready.find(fbid);
+            return it == ready.end() ? nullptr : &it->second;
+        }
+        void want(const std::string& fbid) {
+            if (fbid.empty() || ready.count(fbid) || none.count(fbid) || pending.count(fbid)) return;
+            if (std::find(wanted.begin(), wanted.end(), fbid) == wanted.end()) wanted.push_back(fbid);
+        }
+    };
+    PeoplePhotos peoplePhotos;
     void open_space_settings(const std::string& id) {
         spaceSettings.reset();
         spaceSettings.open = true;

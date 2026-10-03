@@ -959,6 +959,16 @@ class Client {
         return Result<nlohmann::json>::failure("This backend has no GraphQL route.");
     }
 
+    // A person's profile photo, as a local image file (api/space_manage.h):
+    // the path, or a failure -- "no picture" for a person who has none (a
+    // monogram is the right drawing), anything else a fault to log.
+    // `cacheDir` is where kept photos live (the caller's disk cache root).
+    virtual Result<std::string> fetch_person_photo(const std::string& fbid, const std::string& cacheDir) {
+        (void)fbid;
+        (void)cacheDir;
+        return Result<std::string>::failure("This backend has no photos.");
+    }
+
     // A diff, task or knot named in a message, as a card (api/link_preview.h):
     // the card (nullopt = this viewer gets none -- a result, not an error)
     // and the server's freshness in *ttl. Failure = could not ask.

@@ -188,6 +188,50 @@ inline std::optional<std::vector<Person>> parse_people(const json& data) {
     return out;
 }
 
+// ---- A person's photo ------------------------------------------------------
+// The web client's avatar: InternGraph's `profile_picture`, asked for at the
+// size it is drawn (the 20pt circle, doubled), by fbid. The answer is a
+// SIGNED scontent URL that expires in days, so the URL is used once and the
+// IMAGE is what is kept (on disk, a day). The image needs no credential -- the
+// signature is the authorization -- and only an https fbcdn host is fetched.
+
+inline constexpr int kPhotoPx = 40;
+inline constexpr const char* kPhotoDoc =
+    "query HanabiOtherPhoto($id: String!, $size: Int!) { intern_user_for_fbid_or_unixname("
+    "fbid_or_unixname: $id) { profile_picture(height: $size, width: $size) { uri } } }";
+
+inline std::string photo_body(const std::string& fbid) {
+    return json{{"query_text", kPhotoDoc}, {"variables", json{{"id", fbid}, {"size", kPhotoPx}}.dump()}}.dump();
+}
+// The field's object -> the uri ("" = this person has no picture).
+inline std::string parse_photo_uri(const json& person) {
+    if (!person.is_object() || !person.contains("profile_picture") || !person["profile_picture"].is_object())
+        return {};
+    const json& p = person["profile_picture"];
+    return p.contains("uri") && p["uri"].is_string() ? p["uri"].get<std::string>() : std::string();
+}
+// https, and an fbcdn host (scontent-*.xx.fbcdn.net): anything else is not a
+// picture this client fetches. Splits it into host and path for the fetch.
+inline bool photo_url_ok(const std::string& uri, std::string* host, std::string* path) {
+    const std::string scheme = "https://";
+    if (uri.rfind(scheme, 0) != 0) return false;
+    const auto slash = uri.find('/', scheme.size());
+    const std::string h = uri.substr(scheme.size(), slash == std::string::npos ? std::string::npos : slash - scheme.size());
+    if (h.empty() || h.find('@') != std::string::npos || h.find(':') != std::string::npos) return false;
+    const std::string suffix = ".fbcdn.net";
+    if (h.size() <= suffix.size() || h.compare(h.size() - suffix.size(), suffix.size(), suffix) != 0) return false;
+    if (host) *host = h;
+    if (path) *path = slash == std::string::npos ? "/" : uri.substr(slash);
+    return true;
+}
+// The monogram drawn until (or instead of) a photo: the name's first letter.
+inline std::string initial_of(const std::string& name) {
+    for (char c : name)
+        if (std::isalnum(static_cast<unsigned char>(c)))
+            return std::string(1, static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+    return "?";
+}
+
 // ---- The writes ------------------------------------------------------------
 
 enum class Write { Rename, Emoji, Visibility, AddMember, RemoveMember, Leave, Role, Archive };

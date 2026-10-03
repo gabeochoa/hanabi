@@ -18,6 +18,7 @@
 
 #include "../api/space_manage.h"
 #include "../ui/edged_field.h"
+#include "../ui/inline_image.h"
 #include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
 #include "ui_imports.h"
@@ -137,7 +138,8 @@ struct SpaceSettingsSheet {
             // The action column is reserved on every row an admin sees, so the
             // role words line up whether or not a row can be acted on.
             const float actionsW = admin ? 180.0f : 0.0f;
-            label(ctx, r.ent(), 1, m.name.empty() ? m.id : m.name, innerW - 12 - 64 - actionsW, kRowH,
+            face(ctx, r.ent(), 0, *app, m.fbid, m.name);
+            label(ctx, r.ent(), 1, m.name.empty() ? m.id : m.name, innerW - 12 - 64 - actionsW - kFace - 8, kRowH,
                   theme::text_primary(), theme::type::SM, "space_member_name");
             label(ctx, r.ent(), 2, isAdmin ? "Admin" : "Member", 64, kRowH, theme::text_faint(), theme::type::SM,
                   "space_member_role");
@@ -171,8 +173,11 @@ struct SpaceSettingsSheet {
                     const sm::Person& p = S.people[i];
                     hanabi::control::State st;
                     st.disabled = !idle;
-                    auto b = button(ctx, mk(P, 40 + static_cast<int>(i)),
-                                    hanabi::surface::action_button(innerW, false, kLayer, st)
+                    auto prow = row(ctx, P, 40 + static_cast<int>(i), innerW, hanabi::surface::kButtonH + 2,
+                                    "space_person_row_" + p.fbid);
+                    face(ctx, prow.ent(), 0, *app, p.fbid, p.name);
+                    auto b = button(ctx, mk(prow.ent(), 1),
+                                    hanabi::surface::action_button(innerW - kFace - 8, false, kLayer, st)
                                         .with_label(p.subtitle.empty() ? p.name : p.name + "  \xc2\xb7  " + p.subtitle)
                                         .with_alignment(TextAlignment::Left)
                                         .with_font_size(theme::type::SM)
@@ -229,6 +234,43 @@ struct SpaceSettingsSheet {
 
   private:
     std::string lastQuery_;
+
+    // A person's face, 20pt: the photo when one has arrived (masked to a
+    // circle by a ring in the sheet's colour -- afterhours has no clip), else
+    // the monogram (the first letter in a filled circle). The name never waits
+    // for the face: the row draws at once and the photo replaces the letter.
+    static constexpr float kFace = 20.0f;
+    static void face(UIContext<InputAction>& ctx, Entity& parent, int id, AppComponent& app,
+                     const std::string& fbid, const std::string& name) {
+        app.peoplePhotos.want(fbid);
+        const std::string* path = app.peoplePhotos.path_for(fbid);
+        const std::string photo = path ? *path : std::string();
+        const std::string letter = api::space_manage::initial_of(name);
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_label(photo.empty() ? letter : std::string(" "))
+                .with_size(ComponentSize{pixels(kFace), pixels(kFace)})
+                .with_margin(Margin{.right = pixels(8)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::XS)
+                .with_alignment(TextAlignment::Center)
+                .with_roundness(0.0f)
+                .with_render_layer(kLayer)
+                .with_on_draw_fg([photo](RectangleType r) {
+                    const float cx = r.x + r.width * 0.5f, cy = r.y + r.height * 0.5f, rad = r.width * 0.5f;
+                    if (!photo.empty() && hanabi::inline_image::available(photo)) {
+                        hanabi::inline_image::draw(photo, r.x, r.y, r.width, r.height);
+                        afterhours::draw_ring_segment(cx, cy, rad, rad * 1.5f, 0.0f, 360.0f, 48, theme::panel_bg());
+                    }
+                })
+                .with_on_draw_bg([photo](RectangleType r) {
+                    if (!photo.empty() && hanabi::inline_image::available(photo)) return;
+                    afterhours::draw_ring_segment(r.x + r.width * 0.5f, r.y + r.height * 0.5f, 0.0f, r.width * 0.5f,
+                                                  0.0f, 360.0f, 32, theme::over(theme::text_faint(), theme::panel_bg()));
+                })
+                .with_debug_name(photo.empty() ? "person_monogram_" + fbid : "person_photo_" + fbid));
+    }
 
     static hanabi::control::State disabled_if(bool d) {
         hanabi::control::State st;

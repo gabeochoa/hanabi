@@ -1,0 +1,13 @@
+# When no photo arrives, every person keeps their monogram and their name.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SPACE_FILING=t9:1593993452358360 HANABI_MOCK_PHOTO_FAIL=1
+
+wait_frames 30
+right_click_text "SUBS"
+wait_frames 6
+click_ui space_menu_settings
+wait_frames 30
+assert_ui person_monogram_100000000000001 hidden=false
+expect_no_ui person_photo_100000000000001
+expect_text "Ana Lopez"

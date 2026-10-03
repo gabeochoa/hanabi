@@ -21,6 +21,8 @@
 #include <unordered_map>
 #include <utility>
 #include <string>
+#include <filesystem>
+#include <fstream>
 #include <cstdlib>
 #include <string_view>
 #include <cstdio>
@@ -537,6 +539,65 @@ Result<nlohmann::json> AgentcloudClient::graphql_field(const std::string& body, 
     std::string error;
     if (!memory_post(body, field, &v, &error)) return Result<nlohmann::json>::failure(error);
     return Result<nlohmann::json>::success(std::move(v));
+}
+
+// A person's photo: a day-fresh copy on disk, else the graph's signed URL
+// (used once), fetched without a credential from an https fbcdn host through
+// the same proxy, capped at 2 MB, written atomically. The decode is the
+// texture cache's, from the file.
+Result<std::string> AgentcloudClient::fetch_person_photo(const std::string& fbid, const std::string& cacheDir) {
+    using R = Result<std::string>;
+    namespace sm = space_manage;
+    if (!spaces::valid_id(fbid)) return R::failure("not an fbid");
+    const std::string& dir = cacheDir;
+    if (dir.empty()) return R::failure("no cache directory");
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(dir) / "people", ec);
+    const std::filesystem::path file = std::filesystem::path(dir) / "people" / (fbid + ".jpg");
+    if (const auto t = std::filesystem::last_write_time(file, ec); !ec) {
+        const auto age = std::filesystem::file_time_type::clock::now() - t;
+        if (age >= std::chrono::seconds(0) && age < std::chrono::hours(24)) return R::success(file.string());
+    }
+    auto person = graphql_field(sm::photo_body(fbid), "intern_user_for_fbid_or_unixname");
+    if (!person.ok) return R::failure(person.error);
+    const std::string uri = sm::parse_photo_uri(person.value);
+    if (uri.empty()) return R::failure("no picture");
+    std::string host, path;
+    if (!sm::photo_url_ok(uri, &host, &path)) return R::failure("the picture's address is not one this client fetches");
+#ifdef HANABI_ENABLE_TLS
+    const auto& cfg = web_auth_.config();
+    httplib::SSLClient client(host.c_str(), 443);
+    if (!cfg.proxy_host.empty() && cfg.proxy_port > 0) client.set_proxy(cfg.proxy_host.c_str(), cfg.proxy_port);
+    client.set_follow_location(true);  // the signed URL 302s to the origin cache
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(15, 0);
+    constexpr std::size_t kCap = 2u << 20;
+    std::string body;
+    bool tooLarge = false;
+    auto res = client.Get(path.c_str(), httplib::Headers{},
+                          [&](const char* data, std::size_t n) {
+                              if (body.size() + n > kCap) {
+                                  tooLarge = true;
+                                  return false;
+                              }
+                              body.append(data, n);
+                              return true;
+                          });
+    if (tooLarge) return R::failure("the picture is larger than 2 MB");
+    if (!res) return R::failure("the picture did not arrive: " + httplib::to_string(res.error()));
+    if (res->status != 200 || body.empty()) return R::failure("the picture answered HTTP " + std::to_string(res->status));
+    const std::filesystem::path tmp = file.string() + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        out.write(body.data(), static_cast<std::streamsize>(body.size()));
+        if (!out) return R::failure("could not write the picture");
+    }
+    std::filesystem::rename(tmp, file, ec);
+    if (ec) return R::failure("could not keep the picture");
+    return R::success(file.string());
+#else
+    return R::failure("this build has no TLS");
+#endif
 }
 
 Result<std::optional<link_preview::Card>> AgentcloudClient::fetch_link_preview(

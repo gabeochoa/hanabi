@@ -79,6 +79,20 @@ int main() {
                       "no data.x (Field implementation threw an exception. Owned by oncalls: metamate)") ==
           "Could not rename this Space.");
     CHECK(sm::refusal(sm::Write::Leave, "memory HTTP 503") == "Could not leave this Space.");
+    // Photos: the variables, the uri, and only https fbcdn hosts are fetched.
+    const json phv = vars_of(sm::photo_body("100"));
+    CHECK(phv["id"] == "100" && phv["size"] == 40);
+    CHECK(sm::parse_photo_uri({{"profile_picture", {{"uri", "https://scontent-sjc3-1.xx.fbcdn.net/v/p.jpg?oh=1&oe=2"}}}}) ==
+          "https://scontent-sjc3-1.xx.fbcdn.net/v/p.jpg?oh=1&oe=2");
+    CHECK(sm::parse_photo_uri({{"profile_picture", nullptr}}).empty());
+    std::string host, path;
+    CHECK(sm::photo_url_ok("https://scontent-sjc3-1.xx.fbcdn.net/v/p.jpg?oh=1", &host, &path) &&
+          host == "scontent-sjc3-1.xx.fbcdn.net" && path == "/v/p.jpg?oh=1");
+    CHECK(!sm::photo_url_ok("http://scontent.xx.fbcdn.net/p.jpg", nullptr, nullptr));
+    CHECK(!sm::photo_url_ok("https://evil.example.com/p.jpg", nullptr, nullptr));
+    CHECK(!sm::photo_url_ok("https://fbcdn.net.evil.com/p.jpg", nullptr, nullptr));
+    CHECK(!sm::photo_url_ok("https://user@scontent.xx.fbcdn.net/p.jpg", nullptr, nullptr));
+    CHECK(sm::initial_of("  ana lopez") == "A" && sm::initial_of("") == "?");
     api::spaces::Space s;
     s.sensitivity = "SENSITIVE";
     CHECK(sm::visibility_locked(s));
