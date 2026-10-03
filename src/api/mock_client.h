@@ -1698,12 +1698,160 @@ class MockClient : public Client {
 
     // Two Spaces (one pinned) for the @ picker; HANABI_MOCK_SPACES=0 none.
     bool supports_spaces() const override { return true; }
+    // The mock's Metamate: Spaces, rosters, and what each write stores.
+    // HANABI_MOCK_SPACE_ADMIN=0: the viewer administers no Space (controls
+    // are not offered). HANABI_MOCK_SPACE_DENY=1: every Space write is refused
+    // in Metamate's words. HANABI_MOCK_SPACE_SENSITIVE=1: Subs is sensitive.
+    struct MockSpaces {
+        std::mutex mu;
+        bool seeded = false;
+        std::vector<spaces::Space> list;
+        std::map<std::string, std::vector<space_manage::Member>> rosters;
+        std::vector<std::string> writes;  // "rename <id> <name>", ...
+    };
+    static MockSpaces& mock_spaces() {
+        static MockSpaces m;
+        std::lock_guard<std::mutex> lk(m.mu);
+        if (!m.seeded) {
+            m.seeded = true;
+            const char* a = std::getenv("HANABI_MOCK_SPACE_ADMIN");
+            const bool admin = !(a != nullptr && *a == '0');
+            const char* sen = std::getenv("HANABI_MOCK_SPACE_SENSITIVE");
+            spaces::Space subs;
+            subs.id = "1593993452358360";
+            subs.name = "Subs";
+            subs.emoji = "\xf0\x9f\x90\xa6";
+            subs.pinned = true;
+            subs.rank = 0;
+            subs.visibility = "PRIVATE";
+            subs.sensitivity = sen != nullptr && *sen == '1' ? "SENSITIVE" : "NON_SENSITIVE";
+            subs.canAdmin = admin;
+            subs.myRole = admin ? "ADMIN" : "MEMBER";
+            spaces::Space infra;
+            infra.id = "2200000000000001";
+            infra.name = "Infra notes";
+            infra.rank = 3;
+            infra.visibility = "PUBLIC";
+            infra.myRole = "MEMBER";
+            m.list = {subs, infra};
+            m.rosters["1593993452358360"] = {
+                {"n-viewer", "1015795541", "Mock Viewer", admin ? "ADMIN" : "MEMBER"},
+                {"n-ana", "100000000000001", "Ana Lopez", "MEMBER"},
+                {"n-bot", "", "Space Bot", "MEMBER"},
+                {"n-kim", "100000000000002", "Kim Park", "OWNER"}};
+            m.rosters["2200000000000001"] = {{"n-viewer", "1015795541", "Mock Viewer", "MEMBER"}};
+        }
+        return m;
+    }
     Result<std::vector<spaces::Space>> list_spaces() override {
         const char* v = std::getenv("HANABI_MOCK_SPACES");
         if (v != nullptr && *v == '0') return Result<std::vector<spaces::Space>>::success({});
-        return Result<std::vector<spaces::Space>>::success(
-            {{"1593993452358360", "Subs", "\xf0\x9f\x90\xa6", true, 0},
-             {"2200000000000001", "Infra notes", "", false, 3}});
+        auto& m = mock_spaces();
+        std::lock_guard<std::mutex> lk(m.mu);
+        return Result<std::vector<spaces::Space>>::success(m.list);
+    }
+    Result<nlohmann::json> graphql_field(const std::string& body, const char* field) override {
+        using nlohmann::json;
+        using R = Result<json>;
+        const json b = json::parse(body, nullptr, false);
+        const std::string doc = b.is_object() ? b.value("query_text", std::string()) : "";
+        const json vars = b.is_object() && b.contains("variables") && b["variables"].is_string()
+                              ? json::parse(b["variables"].get<std::string>(), nullptr, false)
+                              : json::object();
+        const std::string f = field;
+        auto& m = mock_spaces();
+        std::lock_guard<std::mutex> lk(m.mu);
+        const auto refuse = [&](const std::string& words) { return R::failure("no data." + f + " (" + words + ")"); };
+        if (f == "xfb_metamate_project") {
+            const std::string id = vars.value("spaceId", std::string());
+            const auto it = m.rosters.find(id);
+            if (it == m.rosters.end()) return refuse("not found");
+            json edges = json::array();
+            for (const auto& mem : it->second) {
+                json node{{"id", mem.id}, {"name", mem.name}};
+                if (!mem.fbid.empty()) node["fbid"] = mem.fbid;
+                edges.push_back({{"role", mem.role}, {"node", node}});
+            }
+            return R::success(json{{"team_members", {{"count", it->second.size()}, {"edges", edges}}}});
+        }
+        if (f == "viewer_intern_user")
+            return R::success(json{{"intern_user", {{"unencoded_id", "1015795541"}}}});
+        if (f == "intern_typeahead_query") {
+            const std::string q = vars.value("query", std::string());
+            json nodes = json::array();
+            if (q.rfind("Dev", 0) == 0 || q.rfind("dev", 0) == 0)
+                nodes.push_back({{"fbid", "100000000000003"}, {"title", "Devon Reyes"}, {"subtitle", "Infra"}});
+            return R::success(json{{"results", {{"nodes", nodes}}}});
+        }
+        // A write.
+        const json d = vars.contains("data") ? vars["data"] : json::object();
+        if (const char* deny = std::getenv("HANABI_MOCK_SPACE_DENY"); deny != nullptr && *deny == '1')
+            return refuse("Only admins of this Space can change it (permission denied)");
+        const std::string space = d.value("metamate_project_id", d.value("project_id", std::string()));
+        spaces::Space* s = nullptr;
+        for (auto& x : m.list)
+            if (x.id == space) s = &x;
+        if (s == nullptr) return refuse("not found");
+        auto& roster = m.rosters[space];
+        if (f == "xfb_update_metamate_project") {
+            std::string name = d.value("name", std::string());
+            while (!name.empty() && name.back() == ' ') name.pop_back();  // Metamate normalizes
+            s->name = name;
+            m.writes.push_back("rename " + space + " " + name);
+            return R::success(json{{"metamate_project", {{"id", space}, {"name", name}}}});
+        }
+        if (f == "xfb_set_emoji_metamate_project") {
+            s->emoji = d.contains("emoji") && d["emoji"].is_string() ? d["emoji"].get<std::string>() : "";
+            m.writes.push_back("emoji " + space + " " + (s->emoji.empty() ? "<none>" : s->emoji));
+            return R::success(json{{"metamate_project", {{"id", space}, {"emoji", s->emoji.empty() ? json() : json(s->emoji)}}}});
+        }
+        if (f == "xfb_set_visibility_metamate_project") {
+            const std::string v = d.value("visibility", std::string());
+            if (s->sensitivity == "SENSITIVE" && v == "PUBLIC") return refuse("A sensitive Space cannot be public");
+            s->visibility = v;
+            m.writes.push_back("visibility " + space + " " + v);
+            return R::success(json{{"metamate_project", {{"id", space}, {"visibility", v}}}});
+        }
+        if (f == "xfb_add_member_metamate_project") {
+            const std::string fbid = d.value("member", std::string());
+            roster.push_back({"n-" + fbid, fbid, fbid == "100000000000003" ? "Devon Reyes" : fbid, "MEMBER"});
+            m.writes.push_back("add " + space + " " + fbid);
+            return R::success(json{{"metamate_project", {{"id", space}}}});
+        }
+        if (f == "xfb_remove_member_metamate_project") {
+            const std::string fbid = d.value("member", std::string());
+            roster.erase(std::remove_if(roster.begin(), roster.end(),
+                                        [&](const space_manage::Member& x) { return x.fbid == fbid; }),
+                         roster.end());
+            m.writes.push_back("remove " + space + " " + fbid);
+            if (fbid == "1015795541")
+                m.list.erase(std::remove_if(m.list.begin(), m.list.end(),
+                                            [&](const spaces::Space& x) { return x.id == space; }),
+                             m.list.end());
+            return R::success(json{{"metamate_project", {{"id", space}}}});
+        }
+        if (f == "xfb_upsert_metamate_project_membership") {
+            const std::string fbid = d.value("member_id", std::string());
+            const std::string role = d.value("role", std::string());
+            for (auto& x : roster)
+                if (x.fbid == fbid) x.role = role;
+            m.writes.push_back("role " + space + " " + fbid + " " + role);
+            return R::success(json{{"metamate_project_membership", {{"role", role}}}});
+        }
+        if (f == "xfb_archive_metamate_project") {
+            m.writes.push_back("archive " + space);
+            m.list.erase(std::remove_if(m.list.begin(), m.list.end(),
+                                        [&](const spaces::Space& x) { return x.id == space; }),
+                         m.list.end());
+            return R::success(json{{"metamate_project", {{"id", space}, {"is_archived", true}}}});
+        }
+        (void)doc;
+        return refuse("unknown field");
+    }
+    static std::vector<std::string> space_writes() {
+        auto& m = mock_spaces();
+        std::lock_guard<std::mutex> lk(m.mu);
+        return m.writes;
     }
     Result<memory::Listing> memory_list(const std::string& path) override {
         if (memory_refused()) return Result<memory::Listing>::failure("memory HTTP 503");
@@ -2396,7 +2544,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_MOCK_STREAM_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
+        "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_MOCK_SPACE_ADMIN", "HANABI_MOCK_SPACE_DENY", "HANABI_MOCK_SPACE_SENSITIVE", "HANABI_TEST_SPACE_SETTINGS", "HANABI_MOCK_STREAM_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

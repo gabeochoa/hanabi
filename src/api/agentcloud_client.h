@@ -162,6 +162,7 @@ class AgentcloudClient : public Client {
                                 const std::string& space_id) override;
     Result<nlohmann::json> graphql(const std::string& body) override;
     bool supports_link_previews() const override { return supports_graphql(); }
+    Result<nlohmann::json> graphql_field(const std::string& body, const char* field) override;
     Result<std::optional<link_preview::Card>> fetch_link_preview(const link_preview::Ref& r,
                                                                  int* ttl) override;
     Result<std::vector<spaces::Space>> list_spaces() override;

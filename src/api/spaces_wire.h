@@ -27,7 +27,7 @@ using json = nlohmann::json;
 inline constexpr const char* kDoc =
     "query HanabiViewerMetamateSpaces { viewer_intern_user { metamate_projects(first: 100, "
     "is_archived: false) { edges { node { id name emoji project_type if_viewer_has_pinned "
-    "viewer_rank } } } } }";
+    "viewer_rank visibility sensitivity_mode if_viewer_can_write_to_project_as_admin { id } my_role } } } } }";
 inline constexpr const char* kNamedAgent = "NAMED_AGENT";
 
 struct Space {
@@ -36,6 +36,12 @@ struct Space {
     std::string emoji;
     bool pinned = false;
     int rank = -1;  // -1 = none
+    // For Space settings (api/space_manage.h): which controls to OFFER --
+    // never what is allowed; Metamate decides that on every write.
+    std::string visibility;   // PUBLIC / PRIVATE, untyped
+    std::string sensitivity;  // only "SENSITIVE" is acted on (locks visibility)
+    bool canAdmin = false;    // if_viewer_can_write_to_project_as_admin is non-null
+    std::string myRole;
 };
 
 // What a mention writes for a Space: `space:<id> ` -- an fbid of 1-64 ASCII
@@ -117,6 +123,13 @@ inline std::optional<std::vector<Space>> parse(const json& data) {
                    n["if_viewer_has_pinned"].get<bool>();
         if (n.contains("viewer_rank") && n["viewer_rank"].is_number_integer())
             s.rank = n["viewer_rank"].get<int>();
+        s.visibility = n.contains("visibility") && n["visibility"].is_string() ? n["visibility"].get<std::string>() : "";
+        s.sensitivity = n.contains("sensitivity_mode") && n["sensitivity_mode"].is_string()
+                            ? n["sensitivity_mode"].get<std::string>()
+                            : "";
+        s.canAdmin = n.contains("if_viewer_can_write_to_project_as_admin") &&
+                     n["if_viewer_can_write_to_project_as_admin"].is_object();
+        s.myRole = n.contains("my_role") && n["my_role"].is_string() ? n["my_role"].get<std::string>() : "";
         out.push_back(std::move(s));
     }
     std::stable_sort(out.begin(), out.end(), [](const Space& a, const Space& b) {

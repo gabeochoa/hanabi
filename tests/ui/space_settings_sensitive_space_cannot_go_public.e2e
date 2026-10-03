@@ -1,0 +1,15 @@
+# Space settings: a SENSITIVE Space can never be shown to the whole company, so the
+# visibility control is locked and says why, instead of offering a refusal.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SPACE_FILING=t9:1593993452358360 HANABI_MOCK_SPACE_SENSITIVE=1
+
+wait_frames 30
+right_click_text "SUBS"
+wait_frames 6
+click_ui space_menu_settings
+wait_frames 20
+expect_text "Sensitive Spaces cannot be shown to the whole company."
+click_ui space_settings_vis_PUBLIC
+wait_frames 20
+expect_mock_space_write_none

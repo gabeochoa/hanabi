@@ -82,6 +82,7 @@ enum class EscapeIntent {
     CloseSessionSearch,
     CloseContextMenu,
     CloseRename,
+    CloseSpaceSettings,
     CancelShortcutRecording,
     CloseShortcuts,
     CloseBugReport,
@@ -871,6 +872,51 @@ struct AppComponent : public afterhours::BaseComponent {
             const auto it = sessionSpace.find(s.id);
             s.space_group = it == sessionSpace.end() ? std::string() : "space:" + it->second;
         }
+    }
+    // Space settings (api/space_manage.h; ecs/space_settings_system.h;
+    // puffin_gaps.md D10): one Space's sheet -- name, icon, visibility, the
+    // roster with role and remove, add by name, leave, archive.
+    struct SpaceSettings {
+        bool open = false;
+        std::string spaceId;
+        std::string name, emoji;  // the fields as typed
+        std::string visibility;   // what the control shows
+        api::space_manage::Roster roster;
+        bool rosterLoaded = false, rosterFailed = false, rosterAsked = false;
+        std::string viewerFbid;
+        bool viewerAsked = false;
+        std::string query, searchedFor;
+        std::vector<api::space_manage::Person> people;
+        bool peopleFailed = false, searching = false;
+        int sinceTyped = 0;  // frames since the query last changed (the search's debounce)
+        std::string busy;     // the write in flight ("" = none)
+        std::string failure;  // the last refusal, in the server's words
+        bool confirmLeave = false, confirmArchive = false;
+        std::future<api::Result<nlohmann::json>> rosterFuture, viewerFuture, peopleFuture;
+        struct Pending {
+            api::space_manage::Write kind;
+            std::string arg;  // the visibility asked for, the previous one, ...
+            std::future<api::Result<nlohmann::json>> f;
+        };
+        std::optional<Pending> write;
+        void reset() { *this = SpaceSettings{}; }
+    };
+    SpaceSettings spaceSettings;
+    void open_space_settings(const std::string& id) {
+        spaceSettings.reset();
+        spaceSettings.open = true;
+        spaceSettings.spaceId = id;
+        for (const auto& s : spaces)
+            if (s.id == id) {
+                spaceSettings.name = s.name;
+                spaceSettings.emoji = s.emoji;
+                spaceSettings.visibility = s.visibility;
+            }
+    }
+    const api::spaces::Space* find_space(const std::string& id) const {
+        for (const auto& s : spaces)
+            if (s.id == id) return &s;
+        return nullptr;
     }
     // The viewer's Spaces for the @ picker, read once (memory_system.h).
     std::vector<api::spaces::Space> spaces;

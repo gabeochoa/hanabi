@@ -1,0 +1,21 @@
+# Space settings: an admin adds someone by name. The search runs after typing
+# stops (a short last token is closed, InternGraph's rule), the rows are
+# people, and a pick IS the write; the roster re-reads and the field clears.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SPACE_FILING=t9:1593993452358360
+
+wait_frames 30
+right_click_text "SUBS"
+wait_frames 6
+click_ui space_menu_settings
+wait_frames 20
+click_ui space_settings_add
+type "Dev"
+wait_frames 40
+expect_text "Devon Reyes  ·  Infra"
+click_ui space_person_100000000000003
+wait_frames 20
+expect_mock_space_write add 1593993452358360 100000000000003
+expect_text "Members (5)"
+expect_no_text "Devon Reyes  ·  Infra"

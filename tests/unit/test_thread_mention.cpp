@@ -100,9 +100,9 @@ static void test_a_thread_url_in_text_is_a_thread_link() {
 
 static void test_spaces_follow_threads_and_write_space_ids() {
     const std::vector<api::SessionSummary> cat{thread("t", "subs migration", 9)};
-    const std::vector<api::spaces::Space> spaces{{"1593993452358360", "Subs", "\xf0\x9f\x90\xa6", true, 0},
-                                                 {"22", "Infra", "", false, 1},
-                                                 {"bad", "Subs bad id", "", false, 2}};
+    const std::vector<api::spaces::Space> spaces{{"1593993452358360", "Subs", "\xf0\x9f\x90\xa6", true, 0, "", "", false, ""},
+                                                 {"22", "Infra", "", false, 1, "", "", false, ""},
+                                                 {"bad", "Subs bad id", "", false, 2, "", "", false, ""}};
     const auto none = [](const api::SessionSummary&) { return false; };
     const auto r = mn::rows(cat, "@sub", "https://web.test/chat", "", none, spaces);
     CHECK(r.size() == 2);

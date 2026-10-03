@@ -1,0 +1,39 @@
+# Space settings (the reference's SpaceSettingsSheet; puffin_gaps.md D10):
+# right-click a Space's header -> Space settings… The sheet shows the roster
+# (admins first, Metamate's count), and an admin can rename (the field then
+# shows what Metamate STORED -- trailing spaces trimmed), change a member's
+# role and remove one; a member with no Employee arm is listed but not
+# actionable. Every write reaches the mock's Metamate.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SPACE_FILING=t9:1593993452358360
+
+wait_frames 30
+expect_text "SUBS"
+right_click_text "SUBS"
+wait_frames 6
+click_ui space_menu_settings
+wait_frames 20
+expect_text "Space settings"
+expect_text "Members (4)"
+expect_text "Kim Park"
+expect_text "Space Bot"
+expect_no_ui space_member_remove_
+assert_ui space_member_remove_100000000000001 hidden=false
+click_ui space_settings_name
+key CMD+A
+type "Subs team  "
+click_ui space_settings_save_name
+wait_frames 20
+expect_mock_space_write rename 1593993452358360 Subs team
+click_ui space_member_role_btn_100000000000001
+wait_frames 20
+expect_mock_space_write role 1593993452358360 100000000000001 ADMIN
+click_ui space_member_remove_100000000000002
+wait_frames 20
+expect_mock_space_write remove 1593993452358360 100000000000002
+expect_text "Members (3)"
+expect_no_text "Kim Park"
+click_ui space_settings_done
+wait_frames 6
+expect_no_text "Space settings"

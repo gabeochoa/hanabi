@@ -29,6 +29,7 @@
 #include "folders_wire.h"
 #include "pins_wire.h"
 #include "link_preview.h"
+#include "space_manage.h"
 #include "types.h"
 
 namespace api {
@@ -946,6 +947,15 @@ class Client {
     virtual bool supports_graphql() const { return false; }
     virtual Result<nlohmann::json> graphql(const std::string& body) {
         (void)body;
+        return Result<nlohmann::json>::failure("This backend has no GraphQL route.");
+    }
+
+    // One /api/graphql call whose answer is ONE field's object (a mutation's
+    // payload, a read's root): the object, or why not -- a refusal arrives as
+    // "no data.<field> (<the server's words>)" (api/space_manage.h reads it).
+    virtual Result<nlohmann::json> graphql_field(const std::string& body, const char* field) {
+        (void)body;
+        (void)field;
         return Result<nlohmann::json>::failure("This backend has no GraphQL route.");
     }
 

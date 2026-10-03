@@ -324,6 +324,7 @@ capture 07a_hover_footer_settings_dark "$NOTABS_DARK" HANABI_TEST_HOVER=footer:s
 capture 07b_update_ready_strip_dark "$NOTABS_DARK" HANABI_TEST_UPDATE_READY=1
 capture 07m_mm3_faces_dark '{"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark","icon_set":"mm3"}'
 capture 07n_link_cards_dark "$NOTABS_DARK" HANABI_LINK_PREVIEW_DEMO=1 HANABI_OPEN=t1
+capture 07o_space_settings_dark "$NOTABS_DARK" HANABI_MOCK_SPACE_FILING=t9:1593993452358360 HANABI_TEST_SPACE_SETTINGS=1593993452358360
 #  - a hovered MESSAGE revealing its Copy action. m2 is the first assistant
 #    message of t2, so the bar appears under its body.
 capture 07b_hover_msg_copy_dark "$TABS_DARK" HANABI_TEST_HOVER=msg:m2

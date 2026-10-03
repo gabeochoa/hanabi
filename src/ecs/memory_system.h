@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+
 #include <ctime>
 
 // Services Settings > Memory's requests (memory_page.h) once a frame.
@@ -74,9 +76,111 @@ inline void service_link_previews(AppComponent& app) {
     }
 }
 
+// Space settings: the roster and the viewer's fbid on open, the people search
+// a beat after typing stops, and one write at a time; every answer lands here,
+// off the frame. A write Metamate confirmed re-reads the Spaces list (and the
+// roster, for member writes); a refusal is shown in the server's words and
+// the control goes back to what the server holds.
+inline void service_space_settings(AppComponent& app) {
+    namespace sm = api::space_manage;
+    using namespace std::chrono_literals;
+    auto& S = app.spaceSettings;
+    // HANABI_TEST_SPACE_SETTINGS=<id>: open that Space's sheet once the
+    // catalog has it (screenshot captures; the mock only).
+    static bool testOpened = false;
+    if (!testOpened && app.backend_label == "mock")
+        if (const char* t = std::getenv("HANABI_TEST_SPACE_SETTINGS"); t != nullptr && *t && app.find_space(t)) {
+            testOpened = true;
+            app.open_space_settings(t);
+        }
+    if (!S.open || !app.client) return;
+    const auto ready = [](auto& f) { return f.valid() && f.wait_for(0s) == std::future_status::ready; };
+    auto c = app.client;
+    if (!S.rosterAsked) {
+        S.rosterAsked = true;
+        const std::string body = sm::roster_body(S.spaceId);
+        S.rosterFuture = std::async(std::launch::async, [c, body] { return c->graphql_field(body, "xfb_metamate_project"); });
+    }
+    if (!S.viewerAsked) {
+        S.viewerAsked = true;
+        S.viewerFuture = std::async(std::launch::async, [c] { return c->graphql_field(sm::viewer_body(), "viewer_intern_user"); });
+    }
+    if (ready(S.rosterFuture)) {
+        auto r = S.rosterFuture.get();
+        const auto parsed = r.ok ? sm::parse_roster(nlohmann::json{{"xfb_metamate_project", r.value}}) : std::nullopt;
+        if (parsed) {
+            S.roster = *parsed;
+            S.rosterLoaded = true;
+            S.rosterFailed = false;
+        } else {
+            S.rosterFailed = true;  // the rows stay what they were: unreadable is not empty
+        }
+    }
+    if (ready(S.viewerFuture)) {
+        auto r = S.viewerFuture.get();
+        if (r.ok) S.viewerFbid = sm::parse_viewer(nlohmann::json{{"viewer_intern_user", r.value}});
+    }
+    // People search, ~300 ms (18 frames) after the last keystroke.
+    ++S.sinceTyped;
+    if (!sm::worth_searching(S.query)) {
+        S.people.clear();
+        S.searching = false;
+        S.peopleFailed = false;
+        S.searchedFor.clear();
+    } else if (S.query != S.searchedFor && !S.peopleFuture.valid() && S.sinceTyped >= 18) {
+        S.searchedFor = S.query;
+        S.searching = true;
+        const std::string body = sm::people_body(S.query);
+        S.peopleFuture = std::async(std::launch::async, [c, body] { return c->graphql_field(body, "intern_typeahead_query"); });
+    }
+    if (ready(S.peopleFuture)) {
+        auto r = S.peopleFuture.get();
+        S.searching = false;
+        const auto parsed = r.ok ? sm::parse_people(nlohmann::json{{"intern_typeahead_query", r.value}}) : std::nullopt;
+        if (S.searchedFor == S.query) {  // an answer for an older query is not shown
+            S.peopleFailed = !parsed;
+            S.people = parsed ? *parsed : std::vector<sm::Person>{};
+        }
+    }
+    // A write landed.
+    if (S.write && ready(S.write->f)) {
+        auto r = S.write->f.get();
+        const sm::Write kind = S.write->kind;
+        const std::string arg = S.write->arg;
+        S.write.reset();
+        S.busy.clear();
+        const auto got = r.ok ? sm::stored(kind, r.value) : std::nullopt;
+        if (!got) {
+            S.failure = r.ok ? sm::fallback(kind) : sm::refusal(kind, r.error);
+            if (kind == sm::Write::Visibility) S.visibility = arg;  // put back what the server holds
+        } else {
+            S.failure.clear();
+            switch (kind) {
+                case sm::Write::Rename: S.name = *got; break;  // what Metamate stored, never what was typed
+                case sm::Write::Emoji: S.emoji = *got; break;
+                case sm::Write::Visibility: S.visibility = *got; break;
+                case sm::Write::AddMember:
+                    S.query.clear();
+                    S.people.clear();
+                    [[fallthrough]];
+                case sm::Write::RemoveMember:
+                case sm::Write::Role: S.rosterAsked = false; break;  // re-read
+                case sm::Write::Leave:
+                case sm::Write::Archive:
+                    app.raise_toast(kind == sm::Write::Leave ? "You left the Space" : "Space archived",
+                                    std::string(), AppComponent::ToastUndo::None);
+                    S.reset();
+                    break;
+            }
+            app.spacesRequested = false;  // the catalog says what changed
+        }
+    }
+}
+
 struct MemorySystem : afterhours::System<AppComponent> {
     void for_each_with(afterhours::Entity&, AppComponent& app, float) override {
         service_memory(app.memory, app.client);
+        service_space_settings(app);
         // The Spaces list for the @ picker: asked once, off the frame; a
         // failure leaves the picker with threads only.
         using namespace std::chrono_literals;

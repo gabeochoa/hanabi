@@ -52,6 +52,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseContextMenu;
         else if (app->renameOpen && !app->renamePending)
             app->escape = EscapeIntent::CloseRename;
+        else if (app->spaceSettings.open && app->spaceSettings.busy.empty())
+            app->escape = EscapeIntent::CloseSpaceSettings;
         else if (app->shortcutRecording >= 0)
             app->escape = EscapeIntent::CancelShortcutRecording;
         else if (app->showShortcuts)

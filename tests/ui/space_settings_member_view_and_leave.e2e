@@ -1,0 +1,25 @@
+# Space settings as a member, not an admin: the roster is shown with no role
+# or remove controls, there is no add field and no Archive; Leave asks first
+# ("Leave this Space?") and, confirmed, names the viewer, the Space leaves the
+# list and the sheet closes.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SPACE_FILING=t9:1593993452358360 HANABI_MOCK_SPACE_ADMIN=0
+
+wait_frames 30
+right_click_text "SUBS"
+wait_frames 6
+click_ui space_menu_settings
+wait_frames 20
+expect_text "Members (4)"
+expect_no_ui space_member_remove_100000000000001
+expect_no_ui space_settings_add
+expect_no_ui space_settings_archive
+click_ui space_settings_leave
+wait_frames 6
+expect_text "Leave this Space?"
+click_ui space_settings_leave_yes
+wait_frames 30
+expect_mock_space_write remove 1593993452358360 1015795541
+expect_text "You left the Space"
+expect_no_text "Space settings"

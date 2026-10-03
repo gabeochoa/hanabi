@@ -824,6 +824,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             render_list_menu(ctx, uiRoot, app);
             return;
         }
+        if (app.rowMenuViewId.rfind(kSpaceMenuPrefix, 0) == 0) {
+            render_space_menu(ctx, uiRoot, app);
+            return;
+        }
         if (!app.rowMenuViewId.empty()) {
             render_view_menu(ctx, uiRoot, app);
             return;
@@ -1222,6 +1226,46 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // token the search field reads, so typing it and picking it are one
     // filter. The row in force carries a tick.
     static constexpr const char* kListMenuId = "\x1f" "list";
+    static constexpr const char* kSpaceMenuPrefix = "\x1f" "space:";
+    // A Space header's menu: Space settings… (the reference's header menu).
+    void render_space_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {
+        const std::string spaceId = app.rowMenuViewId.substr(std::string(kSpaceMenuPrefix).size());
+        std::vector<hanabi::surface::MenuItem> items;
+        hanabi::surface::MenuItem settings{"Space settings\xe2\x80\xa6", "space_menu_settings", false, false};
+        settings.action_id = "settings";
+        items.push_back(std::move(settings));
+        hanabi::surface::MenuMetrics metrics;
+        metrics.width = hanabi::surface::kContextMenuW;
+        const std::string scope = "space:" + spaceId;
+        hanabi::surface::MenuResult result;
+        std::string pickedAction;
+        if (!app.rowMenuNativeTried) {
+            app.rowMenuNativeTried = true;
+            app.rowMenuFocusBefore = static_cast<long long>(ctx.focus_id);
+            hanabi::surface::native_menu_open(app.nativeRowMenu, scope, "space_menu", items, app.rowMenuX,
+                                              app.rowMenuY, static_cast<long long>(ctx.focus_id));
+        }
+        if (app.nativeRowMenu.open()) {
+            (void)menu_keys_for(app);
+            result = hanabi::surface::native_menu_frame(ctx, uiRoot, 8894, "space_menu", app.nativeRowMenu, scope);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = app.nativeRowMenu.action_of(result.activated);
+        } else {
+            result = hanabi::surface::context_menu(ctx, uiRoot, 8894, metrics, app.rowMenuX, app.rowMenuY,
+                                                   "SPACE", "space_menu", items, app.menuCursor,
+                                                   menu_keys_for(app), hanabi::surface::kContextMenuLayer,
+                                                   std::string_view());
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = items[result.activated].action_id;
+        }
+        if (result.activated != hanabi::surface::kNoMenuRow || result.dismissed || result.cancelled) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.close_row_menu();
+            if (pickedAction == "settings") app.open_space_settings(spaceId);
+        }
+    }
     void render_list_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {
         const bool hidingAuto = app.collapsedFolders.count(kHideAutoKey) > 0;
         const std::string active = hanabi::sidebar_query::last_active_value(app.searchQuery);
@@ -3869,6 +3913,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // query is active (results stay pinned open).
         head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
+        // A Space's header offers Space settings… on right-click.
+        if (model::is_space_section(key) && ctx.is_right_click(head.ent().id))
+            app.open_view_menu(std::string(kSpaceMenuPrefix) + key.substr(6), ctx.mouse.pos.x,
+                               ctx.mouse.pos.y);
         // A web-app folder's header offers Rename / Delete on right-click.
         if (model::is_web_folder_section(key) && ctx.is_right_click(head.ent().id))
             app.open_view_menu(std::string(kFolderMenuPrefix) + key.substr(7), ctx.mouse.pos.x,

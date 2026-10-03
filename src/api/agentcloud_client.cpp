@@ -532,6 +532,13 @@ Result<nlohmann::json> AgentcloudClient::graphql(const std::string& body) {
     return Result<nlohmann::json>::success(std::move(data));
 }
 
+Result<nlohmann::json> AgentcloudClient::graphql_field(const std::string& body, const char* field) {
+    nlohmann::json v;
+    std::string error;
+    if (!memory_post(body, field, &v, &error)) return Result<nlohmann::json>::failure(error);
+    return Result<nlohmann::json>::success(std::move(v));
+}
+
 Result<std::optional<link_preview::Card>> AgentcloudClient::fetch_link_preview(
     const link_preview::Ref& r, int* ttl) {
     using R = Result<std::optional<link_preview::Card>>;

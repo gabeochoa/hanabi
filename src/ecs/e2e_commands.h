@@ -3562,6 +3562,36 @@ struct HandleMockWebArchiveCommand
     }
 };
 
+// expect_mock_space_write <words...>: the mock's Metamate took this write
+// ("rename <id> <name>", "role <id> <fbid> <ROLE>", ...). Retries a while.
+struct HandleExpectMockSpaceWriteCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("expect_mock_space_write_none")) {
+            const auto made = api::MockClient::space_writes();
+            if (made.empty()) cmd.consume();
+            else cmd.fail(std::format("expect_mock_space_write_none: {} write(s), first '{}'", made.size(), made[0]));
+            return;
+        }
+        if (!cmd.is("expect_mock_space_write")) return;
+        const std::string want = joined_args(cmd, 0);
+        for (const auto& w : api::MockClient::space_writes())
+            if (w == want) {
+                cmd.consume();
+                return;
+            }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        std::string all;
+        for (const auto& w : api::MockClient::space_writes()) all += (all.empty() ? "" : " | ") + w;
+        cmd.fail(std::format("expect_mock_space_write: no '{}' (made: {})", want, all.empty() ? "none" : all));
+    }
+};
+
 // mock_release_stream: streamed sends held by HANABI_MOCK_STREAM_HOLD go.
 // expect_queued <session> <text...>: the session's queued (unsent) messages,
 // oldest first, joined by " | " -- or `none`.
@@ -4664,6 +4694,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleMockReleaseArchiveCommand>());
     sm.register_update_system(std::make_unique<HandleMm3MovingCommand>());
     sm.register_update_system(std::make_unique<HandleQueueCommands>());
+    sm.register_update_system(std::make_unique<HandleExpectMockSpaceWriteCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());

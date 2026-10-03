@@ -19,13 +19,16 @@
 #include "../ui/edged_field.h"
 #include "ui_imports.h"
 #include <afterhours/src/plugins/ui/text_input/text_input.h>
+#include "space_settings_system.h"
 
 namespace ecs {
 
 struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
+    SpaceSettingsSheet spaceSettings_;  // the other sheet (ecs/space_settings_system.h)
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
         auto* app = find_singleton<AppComponent>();
         if (!app) return;
+        if (app->spaceSettings.open) spaceSettings_.run(ctx, app);
 
         const bool justOpened = app->renameOpen && !wasOpen_;
         wasOpen_ = app->renameOpen;
