@@ -284,12 +284,18 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
         const Rect parentRow{metrics.row_x(at.x), metrics.row_y(at.y, k, seps),
                              metrics.row_width(), metrics.row_h};
         const bool keyboardOpen = cursor.row == k && cursor.submenu_open;
+        // Over its own submenu keeps it open -- but only while no OTHER row
+        // holds an open submenu: two adjacent submenu rows place overlapping
+        // submenus, and the later one (drawn on top) would otherwise open
+        // under a pointer travelling through the first one's rows and take
+        // its click (found with Move to Space above Move to Folder).
         const bool pointerOpen =
             keys.pointer_moved && cursor.hover_allowed(ctx.mouse.pos.x, ctx.mouse.pos.y) &&
             (hanabi::overlay::inside(parentRow, ctx.mouse.pos.x,
                                      ctx.mouse.pos.y) ||
-             hanabi::overlay::inside(subRect, ctx.mouse.pos.x,
-                                     ctx.mouse.pos.y));
+             (hanabi::overlay::inside(subRect, ctx.mouse.pos.x,
+                                      ctx.mouse.pos.y) &&
+              (!cursor.submenu_open || cursor.row == k)));
         const bool open =
             !item.disabled &&
             (keyboardOpen || pointerOpen ||
