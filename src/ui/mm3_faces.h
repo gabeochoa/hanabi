@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstddef>
+#include <string_view>
 
 namespace hanabi::mm3 {
 
@@ -18,7 +19,7 @@ struct Cell {
     float x, y, w, h;
 };
 
-enum class Face { Neutral, Blink, Wink, Wave, Tired, Angry, Smile };
+enum class Face { Neutral, Blink, Wink, Wave, Tired, Angry, Smile, Heart };
 
 inline constexpr float kBoxX = 5.0f, kBoxY = 23.0f, kBoxW = 120.0f, kBoxH = 81.0f;
 // The box a ROW or TAB draws a face in (the reference's MM3Face.rowBox,
@@ -36,6 +37,11 @@ inline constexpr std::array<Cell, 22> kAngry{{{24, 26, 29, 19}, {72, 26, 29, 19}
 
 inline constexpr std::array<Cell, 13> kSmile{{{26, 26, 28, 19}, {74, 26, 28, 19}, {16, 45, 10, 19}, {102, 45, 10, 19}, {50, 54, 9, 20}, {69, 54, 9, 20}, {6, 64, 10, 19}, {112, 64, 10, 19}, {16, 83, 10, 19}, {102, 83, 10, 19}, {45, 85, 9, 10}, {74, 85, 9, 10}, {54, 88, 20, 10}}};
 
+// `mm-face-heart-blink-still.svg`, the heart-shaped head (the reference's
+// D123023215): its own box, (4,16) 120x95.
+inline constexpr std::array<Cell, 16> kHeart{{{28, 16, 24, 11}, {76, 16, 24, 11}, {16, 27, 12, 13}, {52, 27, 24, 13}, {100, 27, 12, 13}, {4, 40, 12, 24}, {112, 40, 12, 24}, {47, 45, 11, 25}, {70, 45, 11, 25}, {16, 64, 12, 12}, {100, 64, 12, 12}, {28, 76, 12, 11}, {88, 76, 12, 11}, {40, 87, 12, 13}, {76, 87, 12, 13}, {52, 100, 24, 11}}};
+inline constexpr float kHeartX = 4.0f, kHeartY = 16.0f, kHeartW = 120.0f, kHeartH = 95.0f;
+
 struct Cells {
     const Cell* data;
     std::size_t size;
@@ -50,8 +56,31 @@ inline Cells cells(Face f) {
         case Face::Tired: return {kTired.data(), kTired.size()};
         case Face::Angry: return {kAngry.data(), kAngry.size()};
         case Face::Smile: return {kSmile.data(), kSmile.size()};
+        case Face::Heart: return {kHeart.data(), kHeart.size()};
     }
     return {kNeutral.data(), kNeutral.size()};
+}
+
+// A face's own box (chrome draws a face in it; rows use the row box).
+struct Box {
+    float x, y, w, h;
+};
+inline Box box_of(Face f) {
+    if (f == Face::Heart) return {kHeartX, kHeartY, kHeartW, kHeartH};
+    return {kBoxX, kBoxY, kBoxW, kBoxH};
+}
+
+// The shelf faces (the reference's IconTable chrome column under MM3,
+// D123023215): Home smiles, Blocked is tired, Review winks, Pinned is the
+// heart. Archived keeps its box and Settings its gear: no face says those.
+inline bool shelf_face(const char* iconName, Face* out) {
+    const std::string_view n(iconName);
+    if (n == "home") *out = Face::Smile;
+    else if (n == "hand") *out = Face::Tired;
+    else if (n == "check_circle") *out = Face::Wink;
+    else if (n == "pin") *out = Face::Heart;
+    else return false;
+    return true;
 }
 
 }  // namespace hanabi::mm3

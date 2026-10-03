@@ -3334,6 +3334,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         auto attnColor = iconInk;
         auto iconDraw = hanabi::icons::draw_fg(icon_name, fallback_glyph,
                                                iconInk, kViewIconPx, -1.0f);
+        // MM3 (Settings > Appearance > Icons): the shelf rows that mirror the
+        // state column wear its faces (ui/mm3_faces.h shelf_face).
+        if (hanabi::mm3::Face face; hanabi::status_mark::mm3_on() &&
+                                    hanabi::mm3::shelf_face(icon_name.c_str(), &face))
+            iconDraw = [face, iconInk](RectangleType r) {
+                hanabi::status_mark::draw_face_boxed(face, r.x + r.width * 0.5f, r.y + r.height * 0.5f,
+                                                     hanabi::viewport::px(10.0f), iconInk);
+            };
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(" ")

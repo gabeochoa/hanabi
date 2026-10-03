@@ -63,6 +63,19 @@ inline void draw_face(mm3::Face f, float cx, float cy, float h, theme::Color c) 
     const auto cells = mm3::cells(f);
     draw_cells(cells.data, cells.size, cx, cy, h, c);
 }
+// A face in its own box (chrome: the shelf), `h` tall, centred on (cx, cy).
+inline void draw_face_boxed(mm3::Face f, float cx, float cy, float h, theme::Color c) {
+    const mm3::Box b = mm3::box_of(f);
+    const float scale = h / b.h;
+    const float x0 = cx - (b.x + b.w * 0.5f) * scale;
+    const float y0 = cy - (b.y + b.h * 0.5f) * scale;
+    const auto cells = mm3::cells(f);
+    for (std::size_t i = 0; i < cells.size; ++i) {
+        const mm3::Cell& k = cells.data[i];
+        afterhours::draw_rectangle(
+            RectangleType{x0 + k.x * scale, y0 + k.y * scale, k.w * scale, k.h * scale}, c);
+    }
+}
 // A mark: its moving frame when it plays, else its still face.
 inline void draw_mm3(const mm3::Mark& m, float cx, float cy, float h, theme::Color c) {
     Mm3Motion& mo = mm3_motion();

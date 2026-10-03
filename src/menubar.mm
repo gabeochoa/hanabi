@@ -23,6 +23,7 @@
 #include <string>
 
 #include "menubar.h"
+#include "ui/mm3_faces.h"
 #include "resize_drive.h"
 #include "settings.h"
 #include "edit_verbs.h"
@@ -504,6 +505,47 @@ bool menubar_command_enabled(int command) {
     return g_command_enabled[static_cast<std::size_t>(command)].load() != 2;
 }
 
+static int g_mm3_state = -1;
+void menubar_set_mm3(bool on) {
+    if ((on ? 1 : 0) == g_mm3_state) return;
+    @autoreleasepool {
+        if (g_status_item == nil) return;
+        g_mm3_state = on ? 1 : 0;
+        if (!on) {
+            g_status_item.button.image = nil;
+            g_status_item.button.title = title_for_blocked(g_last_blocked < 0 ? 0 : g_last_blocked);
+            return;
+        }
+        // The neutral face's source rectangles (ui/mm3_faces.h kNeutral), in a
+        // flipped template image 16pt tall with a little air top and bottom.
+        const CGFloat side = 16.0;
+        const auto b = hanabi::mm3::box_of(hanabi::mm3::Face::Neutral);
+        const CGFloat scale = (side * 0.8) / b.h;
+        const NSSize size = NSMakeSize(b.w * scale, side);
+        NSImage* image = [NSImage imageWithSize:size
+                                        flipped:YES
+                                 drawingHandler:^BOOL(NSRect) {
+                                     [[NSColor blackColor] setFill];
+                                     const auto cells = hanabi::mm3::cells(hanabi::mm3::Face::Neutral);
+                                     const CGFloat dy = side * 0.1;
+                                     for (std::size_t i = 0; i < cells.size; ++i) {
+                                         const auto& k = cells.data[i];
+                                         NSRectFill(NSMakeRect((k.x - b.x) * scale, dy + (k.y - b.y) * scale,
+                                                               k.w * scale, k.h * scale));
+                                     }
+                                     return YES;
+                                 }];
+        [image setTemplate:YES];
+        g_status_item.button.image = image;
+        g_status_item.button.imagePosition = NSImageLeft;
+        const int n = g_last_blocked < 0 ? 0 : g_last_blocked;
+        g_status_item.button.title = n > 0 ? [NSString stringWithFormat:@" %d", n] : @"";
+        if (const char* v = getenv("HANABI_NATIVE_LOG"); v && v[0] && v[0] != '0')
+            NSLog(@"menubar: mm3 face %.1fx%.1f template=%d", image.size.width, image.size.height,
+                  (int)image.isTemplate);
+    }
+}
+
 void menubar_set_blocked(int n) {
     // Change-guard: skip all AppKit work when the count is unchanged. Called
     // every frame, so this is the common path.
@@ -511,7 +553,8 @@ void menubar_set_blocked(int n) {
     @autoreleasepool {
         if (g_status_item == nil) return;
         g_last_blocked = n;
-        g_status_item.button.title = title_for_blocked(n);
+        g_status_item.button.title = g_mm3_state == 1 ? (n > 0 ? [NSString stringWithFormat:@" %d", n] : @"")
+                                                      : title_for_blocked(n);
         if (g_status_row != nil) g_status_row.title = status_for_blocked(n);
         // Chatty (fires on every blocked-count change) — silent unless
         // HANABI_NATIVE_LOG=1 (Gabe: turn off the working-as-expected logging).

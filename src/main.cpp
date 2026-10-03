@@ -1024,6 +1024,7 @@ static void app_frame_body() {
             for (const auto& s : app.sessions)
                 if (ecs::model::in_blocked_view(s)) ++blocked;
             menubar_set_blocked(blocked);
+            menubar_set_mm3(Settings::get().get_icon_set() == "mm3");
 
             if (app.listState == ecs::LoadState::Loaded &&
                 app.backend_label != "mock" && app.backend_label != "none") {

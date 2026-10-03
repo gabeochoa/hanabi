@@ -16,6 +16,9 @@ void menubar_install(void);
 // Update the menu-bar title + the live status row to reflect the blocked
 // count. Cheap; safe to call every frame (the .mm no-ops if unchanged).
 void menubar_set_blocked(int n);
+// MM3: the status item wears the resting face (the reference's MenuBarIcon.mm3,
+// a template image of MM3Face.neutral) instead of the spark; off restores it.
+void menubar_set_mm3(bool on);
 
 // Action flags set by the menu items, polled + cleared by the C++ side once
 // per frame. Each returns true exactly once per fire, then clears.
