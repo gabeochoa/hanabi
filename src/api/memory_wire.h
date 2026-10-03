@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdlib>
+
+#include <cctype>
+
 // Agent memory over the agentcloud web app's GraphQL route (the reference's
 // 0.8.4 Settings > Memory; its AgentMemoryStore / AgentcloudNestGraphQL).
 //
@@ -172,6 +176,71 @@ inline bool unwrap(const std::string& raw, const char* field, json* out, std::st
     }
     *out = result["data"][field];
     return true;
+}
+
+// A refused memory call, read for the causes a retry cannot fix (the
+// reference's AgentMemoryError.classifyWrite, D122987004 + D123014515). The
+// failure arrives as Hanabi's own string ("memory HTTP <n>", or the service's
+// words in "no data.<field> (<message>)"). Status decides first; then the
+// service's words, spelled the way the web app's memory route reads them.
+enum class Failure { Server, VersionConflict, AlreadyExists, NotPermitted, SignInExpired, NoAccess };
+
+inline int http_status_of(const std::string& error) {
+    static const std::string kTag = "memory HTTP ";
+    const auto at = error.find(kTag);
+    if (at == std::string::npos) return 0;
+    return std::atoi(error.c_str() + at + kTag.size());
+}
+
+inline Failure classify_write(const std::string& error) {
+    const int status = http_status_of(error);
+    std::string words;
+    words.reserve(error.size());
+    for (char c : error) words += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (words.find("protected_mode_operation_denied") != std::string::npos || status == 403)
+        return Failure::NotPermitted;
+    if (status == 401) return Failure::SignInExpired;  // already re-minted once
+    if (status >= 500) return Failure::Server;
+    if (words.find("versionconflict") != std::string::npos ||
+        (words.find("version") != std::string::npos &&
+         (words.find("conflict") != std::string::npos || words.find("expected") != std::string::npos)))
+        return Failure::VersionConflict;
+    if (words.find("alreadyexists") != std::string::npos ||
+        words.find("already exists") != std::string::npos || words.find("duplicate") != std::string::npos)
+        return Failure::AlreadyExists;
+    if (words.find("permissiondenied") != std::string::npos ||
+        words.find("permission denied") != std::string::npos ||
+        words.find("read-only") != std::string::npos || words.find("not permitted") != std::string::npos)
+        return Failure::NotPermitted;
+    return Failure::Server;
+}
+
+// A read: only the status says anything a retry cannot fix.
+inline Failure classify_read(const std::string& error) {
+    const int status = http_status_of(error);
+    if (status == 401) return Failure::SignInExpired;
+    if (status == 403) return Failure::NoAccess;
+    return Failure::Server;
+}
+
+// What to do instead of "try again", or nullptr for a Server failure (where
+// "try again in a moment" is the honest advice).
+inline const char* sentence(Failure f) {
+    switch (f) {
+        case Failure::VersionConflict:
+            return "This file changed since you opened it. Copy your edits, reopen the file, "
+                   "and apply them again.";
+        case Failure::AlreadyExists:
+            return "A file or folder with that name already exists here. Pick another name.";
+        case Failure::NotPermitted:
+            return "You can\xe2\x80\x99t change memory here. This context is read-only for you.";
+        case Failure::SignInExpired:
+            return "Hanabi\xe2\x80\x99s sign-in expired and could not be renewed. Quit and reopen "
+                   "Hanabi, then try again.";
+        case Failure::NoAccess: return "You don\xe2\x80\x99t have access to this memory.";
+        case Failure::Server: break;
+    }
+    return nullptr;
 }
 
 inline bool same_context(const json& v, const std::string& path) {

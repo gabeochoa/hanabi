@@ -489,13 +489,31 @@ bool AgentcloudClient::memory_post(const std::string& body, const char* field,
     client.set_follow_location(false);
     client.set_connection_timeout(5, 0);
     client.set_read_timeout(30, 0);
-    const httplib::Headers headers{
+    httplib::Headers headers{
         {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
         {"Accept", "application/json"}};
     auto res = client.Post(memory::kRoute, headers, body, "application/json");
     if (!res) {
         *error = "memory unreachable: " + httplib::to_string(res.error());
         return false;
+    }
+    // A refused credential (401) is dropped and the call made ONCE more with a
+    // fresh one (the reference's withRenewedCATOnce, D123014515): the cache
+    // keeps a token for hours, so without this a refused token is reused on
+    // every retry. A 403 is the reader's access; a new token changes nothing.
+    if (res->status == 401) {
+        web_auth_.invalidate();
+        std::string again_error;
+        const auto fresh = web_auth_.get(&again_error);
+        if (!fresh.empty() && fresh.value != token.value) {
+            headers = {{"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + fresh.value},
+                       {"Accept", "application/json"}};
+            res = client.Post(memory::kRoute, headers, body, "application/json");
+            if (!res) {
+                *error = "memory unreachable: " + httplib::to_string(res.error());
+                return false;
+            }
+        }
     }
     if (res->status == 401 || res->status == 403) web_auth_.invalidate();
     if (res->status != 200) {

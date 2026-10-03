@@ -1669,6 +1669,15 @@ class MockClient : public Client {
                                           const std::string& content,
                                           const std::string& version) override {
         if (memory_refused()) return Result<memory::Document>::failure("memory HTTP 503");
+        // HANABI_MOCK_MEMORY_WRITE_FAIL=denied|401|403: a write the service
+        // refuses for a reason a retry cannot fix.
+        if (const char* w = std::getenv("HANABI_MOCK_MEMORY_WRITE_FAIL"); w != nullptr && *w) {
+            const std::string kind = w;
+            if (kind == "denied")
+                return Result<memory::Document>::failure(
+                    "no data.memex_memory_write (Permission denied: user None cannot write namespace 'user:1')");
+            return Result<memory::Document>::failure("memory HTTP " + kind);
+        }
         if (!memory::valid_path(path) || !memory::valid_key(key))
             return Result<memory::Document>::failure("That file name is not one memory accepts.");
         auto& s = memory_store();
@@ -1677,12 +1686,13 @@ class MockClient : public Client {
         auto it = folder.find(key);
         if (version.empty()) {
             if (it != folder.end())
-                return Result<memory::Document>::failure("a memory file with that name already exists");
+                return Result<memory::Document>::failure("no data.memex_memory_write (MemoryAlreadyExists: " + key + ")");
             folder[key] = {content, 1};
             return Result<memory::Document>::success({key, content, "v1", false});
         }
         if (it == folder.end() || "v" + std::to_string(it->second.version) != version)
-            return Result<memory::Document>::failure("the file changed since it was opened");
+            return Result<memory::Document>::failure(
+                "no data.memex_memory_write (msl\\memex\\VersionConflict: memory was modified since the caller last read it)");
         it->second.content = content;
         ++it->second.version;
         return Result<memory::Document>::success(
@@ -2318,7 +2328,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

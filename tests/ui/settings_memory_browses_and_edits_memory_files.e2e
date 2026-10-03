@@ -51,4 +51,4 @@ click_ui settings_memory_new_name
 type "fresh.md"
 click_ui settings_memory_create_button
 wait_frames 15
-expect_text "Couldn't create that file"
+expect_text "A file or folder with that name already exists here. Pick another name."

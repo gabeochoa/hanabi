@@ -96,7 +96,8 @@ inline void service_memory(MemoryPage& m, const std::shared_ptr<api::Client>& cl
             m.draft.clear();
             m.error.clear();
         } else {
-            m.error = memory_failure(MemoryPage::Op::List, false);
+            const char* why = api::memory::sentence(api::memory::classify_read(r.error));
+            m.error = why != nullptr ? why : memory_failure(MemoryPage::Op::List, false);
         }
     }
     if ((m.inFlight == MemoryPage::Op::Read || m.inFlight == MemoryPage::Op::Write) &&
@@ -121,7 +122,14 @@ inline void service_memory(MemoryPage& m, const std::shared_ptr<api::Client>& cl
             m.notice = op == MemoryPage::Op::Write ? (m.inFlightCreate ? "Created." : "Saved.")
                                                    : "";
         } else {
-            m.error = memory_failure(op, m.inFlightCreate);
+            // A cause a retry cannot fix says what to do instead (stale
+            // version, name taken, read-only, sign-in gone, no access);
+            // anything else keeps the action's own "try again" sentence. The
+            // draft is untouched either way, so the edits can be copied.
+            const char* why = api::memory::sentence(op == MemoryPage::Op::Write
+                                                        ? api::memory::classify_write(r.error)
+                                                        : api::memory::classify_read(r.error));
+            m.error = why != nullptr ? why : memory_failure(op, m.inFlightCreate);
             m.notice.clear();
         }
     }

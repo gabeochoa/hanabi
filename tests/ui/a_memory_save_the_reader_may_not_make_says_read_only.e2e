@@ -1,0 +1,20 @@
+# A memory save the service refuses for a reason a retry cannot fix says what
+# is true (the reference's D122987004): here, read-only for this reader --
+# not "try again in a moment" -- and the edits stay in the box.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"memory"}
+# env: HANABI_TEST_OVERLAY=settings HANABI_MOCK_MEMORY_WRITE_FAIL=denied
+
+wait_frames 20
+click_ui settings_memory_file_core_memory.md
+wait_frames 12
+click_ui settings_memory_editor
+wait_frames 4
+key CMD+A
+type "Remember: short replies."
+wait_frames 6
+click_ui settings_memory_save
+wait_frames 15
+expect_text "You can’t change memory here. This context is read-only for you."
+expect_no_text "try again in a moment"
+expect_text "edited"
