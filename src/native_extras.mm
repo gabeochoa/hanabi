@@ -1197,6 +1197,27 @@ bool native_pick_directory(const char* prompt, char* out, int cap) {
     }
 }
 
+bool native_pick_file(const char* prompt, char* out, int cap) {
+    if (out == nullptr || cap <= 0) return false;
+    @autoreleasepool {
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.canChooseDirectories = NO;
+        panel.canChooseFiles = YES;
+        panel.allowsMultipleSelection = NO;
+        if (prompt != nullptr && prompt[0] != '\0')
+            panel.prompt = [NSString stringWithUTF8String:prompt];
+        [NSApp activateIgnoringOtherApps:YES];
+        if ([panel runModal] != NSModalResponseOK) return false;
+        NSURL* url = [[panel URLs] firstObject];
+        if (url == nil) return false;
+        const char* path = [[url path] UTF8String];
+        if (path == nullptr || path[0] == '\0') return false;
+        std::strncpy(out, path, static_cast<size_t>(cap - 1));
+        out[cap - 1] = '\0';
+        return true;
+    }
+}
+
 // ===========================================================================
 // 8. Opening a link
 // ===========================================================================

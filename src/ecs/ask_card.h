@@ -270,7 +270,10 @@ inline std::string answer_summary(const api::AskQuestion& q,
         if (!out.empty()) out += ", ";
         out += t->second;
     }
-    if (q.control == api::AskControl::File && out.empty()) return "Not answered here";
+    if (q.control == api::AskControl::File) {
+        if (const auto f = a.files.find(q.key); f != a.files.end()) return f->second.name;
+        if (out.empty()) return "Not answered here";
+    }
     return out.empty() ? "No answer" : out;
 }
 
@@ -409,7 +412,7 @@ inline float prompt_row_h(int lines, bool arityStacked = false) {
 }
 
 inline float question_h(const api::AskQuestion& q,
-                        const QuestionMetrics& metrics) {
+                        const QuestionMetrics& metrics, bool fileAnswerable = false) {
     float h = prompt_row_h(metrics.prompt_lines, metrics.arity_stacked);
     switch (q.control) {
         case api::AskControl::Single:
@@ -424,7 +427,7 @@ inline float question_h(const api::AskQuestion& q,
             h += kFieldH;
             break;
         case api::AskControl::File:
-            h += kNoteH;
+            h += fileAnswerable ? kFieldH : kNoteH;
             break;
     }
     return h + kQuestionGap;
@@ -459,6 +462,7 @@ inline bool has_draft(const api::PendingAsk& ask,
         if (at != answer.text.end() &&
             !api::elicitation::trimmed(at->second).empty())
             return true;
+        if (answer.files.count(q.key) != 0) return true;
         if (q.free_text_key.empty()) continue;
         const auto other = answer.text.find(q.free_text_key);
         if (other != answer.text.end() &&
@@ -479,7 +483,7 @@ inline constexpr const char* kFileDeferralNote =
 
 inline std::string with_file_caveat(const api::PendingAsk& ask,
                                     std::string note) {
-    if (!ask.has_file_question()) return note;
+    if (!ask.has_file_question() || ask.file_answerable()) return note;
     if (note.empty()) {
         std::string one = kFileDeferralNote;
         one[0] = static_cast<char>(std::toupper(one[0]));
@@ -524,7 +528,7 @@ inline float body_h(const api::PendingAsk& ask, int inputLines,
     static const QuestionMetrics kFallback;
     for (std::size_t i = 0; i < ask.questions.size(); ++i)
         h += question_h(ask.questions[i],
-                        i < metrics.size() ? metrics[i] : kFallback);
+                        i < metrics.size() ? metrics[i] : kFallback, ask.file_answerable());
     return h;
 }
 

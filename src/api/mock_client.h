@@ -296,6 +296,12 @@ class MockClient : public Client {
         return Result<std::vector<SessionSummary>>::success(std::move(out));
     }
 
+    // The last resolve_elicitation this mock was handed, as the wire JSON.
+    static std::string& last_resolve() {
+        static std::string s;
+        return s;
+    }
+
     bool supports_resolve_ask() const override {
         const char* off = std::getenv("HANABI_ASK_NO_RESOLVE");
         return off == nullptr || *off == '\0';
@@ -326,6 +332,10 @@ class MockClient : public Client {
                     ? std::string(elicitation::action_word(action))
                     : std::string(fail));
         resolvedAsks_.insert(ask.id());
+        {
+            std::lock_guard<std::mutex> lk(overlay_mu());
+            last_resolve() = elicitation::resolve_command_json(ask, action, answer);
+        }
         if (resolvedAtRead_.load() < 0)
             resolvedAtRead_.store(session_reads().load());
         return Result<std::string>::success(
@@ -2203,7 +2213,7 @@ class MockClient : public Client {
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
-        "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO",
+        "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
         "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS",
@@ -2343,6 +2353,11 @@ class MockClient : public Client {
             {"file_keys", nlohmann::json::array({"q4"})},
             {"timeout_ms", 600000},
         };
+        // HANABI_ASK_FILE_LIMITS=<max_b64_bytes>: the entry names its file
+        // bounds (spec 476 FR7), so the file question is answerable here.
+        if (const char* lim = std::getenv("HANABI_ASK_FILE_LIMITS"); lim != nullptr && *lim != '\0')
+            entry["file_limits"] = {{"max_b64_bytes", std::atoll(lim)},
+                                    {"accepted_media_types", nlohmann::json::array()}};
         if (mode == "raised") return mock_pending_asks("approval", owner);
         if (mode == "token") {
             std::vector<api::PendingAsk> one =

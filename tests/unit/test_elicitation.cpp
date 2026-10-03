@@ -598,7 +598,37 @@ static void test_the_cause_watermark_orders_frames() {
     CHECK(cause == 0);
 }
 
+static void test_a_file_answer_rides_files_and_file_bytes() {
+    using json = nlohmann::json;
+    const json entry = {
+        {"elicitation", 7},
+        {"requested_schema",
+         R"({"type":"object","properties":{"q1":{"type":"string","title":"A"},"f":{"type":"string","title":"File"}}})"},
+        {"file_keys", json::array({"f"})},
+        {"file_limits", {{"max_b64_bytes", 4096}, {"accepted_media_types", json::array({"text/plain"})}}}};
+    const api::PendingAsk ask = api::elicitation::ask_from_entry(entry, "s1", "");
+    CHECK(ask.file_max_b64 == 4096 && ask.file_media_types.size() == 1 && ask.file_answerable());
+    CHECK(ask.answerable_questions() == 2);
+    AskAnswer a;
+    CHECK(!api::elicitation::answer_has_content(ask, a));
+    a.files["f"] = {"id-1", "n.txt", "text/plain", "aGk=", 2};
+    CHECK(api::elicitation::answer_has_content(ask, a));
+    const json wire = json::parse(api::elicitation::resolve_command_json(ask, AskAction::Accept, a));
+    CHECK(!wire.contains("content"));  // never in content
+    CHECK(wire["files"][0]["key"] == "f" && wire["files"][0]["file"]["file_id"] == "id-1");
+    CHECK(wire["file_bytes"][0]["file_id"] == "id-1" && wire["file_bytes"][0]["data"] == "aGk=");
+    const json declined = json::parse(api::elicitation::resolve_command_json(ask, AskAction::Decline, a));
+    CHECK(!declined.contains("files"));
+    // No bounds on the entry: not answerable, nothing sent.
+    json bare = entry;
+    bare.erase("file_limits");
+    const api::PendingAsk old = api::elicitation::ask_from_entry(bare, "s1", "");
+    CHECK(!old.file_answerable() && old.answerable_questions() == 1);
+    CHECK(!json::parse(api::elicitation::resolve_command_json(old, AskAction::Accept, a)).contains("files"));
+}
+
 int main() {
+    test_a_file_answer_rides_files_and_file_bytes();
     test_shapes();
     test_ordering_and_options();
     test_companion_and_files();

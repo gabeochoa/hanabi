@@ -42,7 +42,8 @@ src/ecs/bug_report_system.h|Help > Report a Bug's text: files a Knots issue, sen
 
 STAGE_CALLERS="src/ecs/attachment_intake_system.h|the one intake: picker, paste and drop all drain here
 src/ecs/main_pane_system.h|HANABI_ATTACH_DEMO, a screenshot hook that stages a fixture and never runs unset
-src/main.cpp|HANABI_MEMLADDER, the memory-ladder diagnostic"
+src/main.cpp|HANABI_MEMLADDER, the memory-ladder diagnostic
+src/api/ask_file.h|an agent's file QUESTION (not the composer): stages the picked file for the resolve's inline answer"
 
 # The create path is `request_kickoff(` -- AppComponent's one setter (the
 # launch defaults are read there, once, at the action boundary) and its
@@ -167,6 +168,10 @@ app->requestNewThread = false;
 EOF
     cat > "$dir/src/ecs/composer_escape.h" <<'EOF'
 if (!in.attachments.empty()) return ComposerEscapeStep::KeptStaged;
+EOF
+    mkdir -p "$dir/src/api"
+    cat > "$dir/src/api/ask_file.h" <<'EOF'
+auto staged = attachments::stage(path);
 EOF
     cat > "$dir/src/main.cpp" <<'EOF'
 auto staged = api::attachments::stage(png);

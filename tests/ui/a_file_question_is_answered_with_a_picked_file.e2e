@@ -1,0 +1,30 @@
+# A file question can be answered (Knots kt-zmwc; the reference's
+# ElicitationFileControl): when the entry names its file bounds, the card
+# offers Choose File..., shows what was picked, and Submit sends the file in
+# the resolve's `files` (key -> handle) and `file_bytes` -- never in
+# `content`. The bytes ride inline under a client-minted id, which is how the
+# server stages an inline answer for the agent. HANABI_PICK_FILE_TEST stands
+# in for the open panel.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_ASK_FILE_LIMITS=8192 HANABI_PICK_FILE_TEST=DAYPLAN.md
+
+require_thread t2
+expect_text "The agent is asking"
+expect_no_text "file question will be left unanswered"
+click_ui ask_tab_q4
+wait_frames 6
+expect_text "No file chosen"
+click_ui ask_file_pick_q4
+wait_frames 6
+expect_text "DAYPLAN.md · 4 KB"
+expect_no_text "Answer any one of these to submit"
+click_ui ask_tab_submit
+wait_frames 6
+expect_text "DAYPLAN.md"
+click_ui ask_submit
+wait_frames 20
+expect_no_text "The agent is asking"
+expect_mock_resolve_has "\"key\":\"q4\""
+expect_mock_resolve_has "\"file_bytes\""
+expect_mock_resolve_has "\"name\":\"DAYPLAN.md\""

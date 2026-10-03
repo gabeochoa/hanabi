@@ -3451,6 +3451,36 @@ struct HandleExpectOverlayWriteCommand
     }
 };
 
+// expect_mock_resolve_has <text>: the last resolve_elicitation the mock was
+// handed carries that text (its wire JSON).
+struct HandleExpectMockResolveHasCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_resolve_has")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_mock_resolve_has requires <text>");
+            return;
+        }
+        std::string got;
+        {
+            std::lock_guard<std::mutex> lk(api::MockClient::overlay_mu());
+            got = api::MockClient::last_resolve();
+        }
+        if (got.find(cmd.arg(0)) != std::string::npos) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < hanabi::e2e::kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail("expect_mock_resolve_has: '" + cmd.arg(0) + "' not in " +
+                 (got.empty() ? std::string("(no resolve)") : got.substr(0, 300)));
+    }
+};
+
 // open_bug_report: Help > Report a Bug, as the menu row does.
 struct HandleOpenBugReportCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
@@ -4477,6 +4507,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectMockKnotArgCommand>());
     sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOverlayWriteCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectMockResolveHasCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());

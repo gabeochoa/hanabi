@@ -285,6 +285,12 @@ inline PendingAsk ask_from_entry(const json& entry,
                    ? AskKind::Approval
                    : AskKind::Form;
 
+    if (const json* limits = detail::object_field(entry, "file_limits")) {
+        ask.file_max_b64 = detail::int_field(*limits, "max_b64_bytes", 0);
+        if (const json* types = detail::array_field(*limits, "accepted_media_types"))
+            for (const json& t : *types)
+                if (t.is_string()) ask.file_media_types.push_back(t.get<std::string>());
+    }
     std::vector<std::string> file_keys;
     if (const json* keys = detail::array_field(entry, "file_keys"))
         for (const json& k : *keys)
@@ -420,7 +426,10 @@ inline bool answer_has_content(const PendingAsk& ask,
                                const AskAnswer& answer) {
     if (ask.kind == AskKind::Approval) return true;
     for (const AskQuestion& q : ask.questions) {
-        if (q.control == AskControl::File) continue;
+        if (q.control == AskControl::File) {
+            if (ask.file_answerable() && answer.files.count(q.key) != 0) return true;
+            continue;
+        }
         if (q.control == AskControl::Text) {
             const auto it = answer.text.find(q.key);
             if (it != answer.text.end() && !trimmed(it->second).empty()) {
@@ -504,6 +513,27 @@ inline std::string resolve_command_json(const PendingAsk& ask,
     if (action == AskAction::Accept && ask.kind != AskKind::Approval) {
         const json content = content_object(ask, answer);
         if (!content.empty()) payload["content"] = content;
+        // File answers (spec 476 FR5): the handle per answered file question
+        // in `files` -- never in `content`, the server folds key -> file_id
+        // itself -- and the bytes in `file_bytes`. Both skip-if-empty, so a
+        // form with no file answer sends exactly what it sent before.
+        json files = json::array();
+        json bytes = json::array();
+        if (ask.file_answerable())
+            for (const AskQuestion& q : ask.questions) {
+                if (q.control != AskControl::File) continue;
+                const auto it = answer.files.find(q.key);
+                if (it == answer.files.end()) continue;
+                files.push_back({{"key", q.key},
+                                 {"file", {{"media_type", it->second.media_type},
+                                           {"file_id", it->second.id},
+                                           {"name", it->second.name}}}});
+                bytes.push_back({{"file_id", it->second.id}, {"data", it->second.data_b64}});
+            }
+        if (!files.empty()) {
+            payload["files"] = files;
+            payload["file_bytes"] = bytes;
+        }
     }
     if (!ask.child_session.empty()) payload["session"] = ask.child_session;
     return payload.dump();

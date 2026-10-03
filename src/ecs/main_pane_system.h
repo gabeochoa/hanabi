@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../api/ask_file.h"
 #include "../api/attachments.h"
 #include "../api/compaction.h"
 #include "../api/tool_kinds.h"
@@ -6482,6 +6483,71 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_debug_name("ask_arity_" + q.key));
 
+            if (q.control == api::AskControl::File && ask.file_answerable()) {
+                // A file the reader picks rides the answer inline
+                // (api/ask_file.h): Choose File..., then what was picked or
+                // why it could not be.
+                auto row = div(ctx, mk(content.ent(), key++),
+                    ComponentConfig{}
+                        .with_size(ComponentSize{percent(1.0f), pixels(hanabi::ask::kFieldH)})
+                        .with_flex_direction(FlexDirection::Row)
+                        .with_align_items(AlignItems::Center)
+                        .with_transparent_bg()
+                        .with_roundness(0.0f)
+                        .with_debug_name("ask_file_row_" + q.key));
+                if (button(ctx, mk(row.ent(), 1),
+                           ComponentConfig{}
+                               .with_label("Choose File\xe2\x80\xa6")
+                               .with_size(ComponentSize{pixels(110.0f), pixels(hanabi::ask::kFieldH - 4.0f)})
+                               .with_custom_background(theme::panel_bg_2())
+                               .with_border(theme::border_raised(), pixels(1.0f))
+                               .with_corner_radius(6.0f)
+                               .with_font_size(theme::type::SM)
+                               .with_disabled(!inputLive)
+                               .with_debug_name("ask_file_pick_" + q.key))) {
+                    std::string path;
+                    if (const char* forced = std::getenv("HANABI_PICK_FILE_TEST");
+                        forced != nullptr && *forced != '\0') {
+                        path = forced;
+                    } else if (!hanabi::links::headless()) {
+                        char buf[1024];
+                        if (native_pick_file("Choose", buf, sizeof(buf))) path = buf;
+                    }
+                    if (!path.empty()) {
+                        auto staged = api::ask_file::stage(ask, path);
+                        if (staged.ok) {
+                            answer.files[q.key] = std::move(staged.value);
+                            answer.file_refusals.erase(q.key);
+                        } else {
+                            answer.files.erase(q.key);
+                            answer.file_refusals[q.key] = staged.error;
+                        }
+                    }
+                }
+                std::string shown = "No file chosen";
+                bool refused = false;
+                if (const auto f = answer.files.find(q.key); f != answer.files.end()) {
+                    const std::size_t kb = (f->second.size_bytes + 1023) / 1024;
+                    shown = f->second.name + " \xc2\xb7 " + std::to_string(kb) + " KB";
+                } else if (const auto r = answer.file_refusals.find(q.key);
+                           r != answer.file_refusals.end()) {
+                    shown = r->second;
+                    refused = true;
+                }
+                div(ctx, mk(row.ent(), 2),
+                    ComponentConfig{}
+                        .with_label(shown)
+                        .with_size(ComponentSize{percent(1.0f), pixels(hanabi::ask::kFieldH)})
+                        .with_margin(Margin{.left = pixels(8)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(refused ? theme::ask_caveat_ink()
+                                                        : theme::text_secondary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_debug_name("ask_file_" + q.key));
+                continue;
+            }
             if (q.control == api::AskControl::File) {
                 div(ctx, mk(content.ent(), key++),
                     ComponentConfig{}

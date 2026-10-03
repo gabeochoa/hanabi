@@ -706,6 +706,12 @@ struct PendingAsk {
     bool schema_unreadable = false;
     bool child_keys_unknown = false;
     std::int64_t deadline_unix_ms = 0;
+    // The server's bounds on a file answer (spec 476 FR7, the entry's
+    // `file_limits`): the most base64 bytes one inline answer may carry
+    // (0 = the entry carried none, so a file cannot be answered here), and
+    // the media types the resolve path accepts (empty = any).
+    std::int64_t file_max_b64 = 0;
+    std::vector<std::string> file_media_types;
 
     [[nodiscard]] std::string id() const {
         return owner_session + "/" + child_session + "#" +
@@ -722,10 +728,17 @@ struct PendingAsk {
         return false;
     }
 
+    // Whether a file question can be answered from here: the entry named
+    // its bounds, and the ask is this session's own (a child's file keys
+    // reach the parent without them).
+    [[nodiscard]] bool file_answerable() const {
+        return file_max_b64 > 0 && child_session.empty();
+    }
+
     [[nodiscard]] int answerable_questions() const {
         int total = 0;
         for (const auto& q : questions)
-            if (q.control != AskControl::File) ++total;
+            if (q.control != AskControl::File || file_answerable()) ++total;
         return total;
     }
 };
@@ -733,6 +746,18 @@ struct PendingAsk {
 struct AskAnswer {
     std::map<std::string, std::vector<std::string>> picks;
     std::map<std::string, std::string> text;
+    // A file question's answer, by its key: the bytes ride the resolve
+    // inline under a client-minted id (the server stages an inline answer
+    // for the agent), so it is held here until Submit.
+    struct File {
+        std::string id;
+        std::string name;
+        std::string media_type;
+        std::string data_b64;
+        std::size_t size_bytes = 0;
+    };
+    std::map<std::string, File> files;
+    std::map<std::string, std::string> file_refusals;  // key -> why there is none
 
     [[nodiscard]] bool picked(const std::string& key,
                               const std::string& value) const {

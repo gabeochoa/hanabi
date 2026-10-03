@@ -1,0 +1,14 @@
+# A picked file over the entry's inline ceiling is refused at the card, in
+# words that say what to do -- it cannot reach the agent from Hanabi yet, and
+# the rest of the form stays answerable.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ASK_DEMO=1 HANABI_ASK_FILE_LIMITS=1024 HANABI_PICK_FILE_TEST=DAYPLAN.md
+
+require_thread t2
+click_ui ask_tab_q4
+wait_frames 6
+click_ui ask_file_pick_q4
+wait_frames 6
+expect_text "DAYPLAN.md is too large to send from Hanabi yet. Pick a smaller file, or answer without it."
+expect_text "Answer any one of these to submit"

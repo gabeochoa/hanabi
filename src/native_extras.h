@@ -201,20 +201,18 @@ int native_pick_attachments(void);
 // and what every native app does with one. Main thread only; NEVER call from
 // the headless path (nothing would be there to dismiss it).
 //
-// Directories, not files, because the one place hanabi has to ask is where the
-// owned Markdown export writes. The FILE half of this seam — the picker the
-// breakdown wants for the `file_upload` tool — is deliberately not here: a
-// picked file would have nowhere to go. hanabi's api::Client has no notion of
-// a tool asking for anything, and the backend's file answer is a durable
-// upload HANDLE (a file id the client mints by uploading first), not bytes, so
-// a picker wired to it today would hand back a file that could never arrive.
-// It goes in the day there is an upload path to give it.
+// Directories here, for where the owned Markdown export writes. The FILE half
+// (native_pick_file, below) answers an agent's file question: the bytes ride
+// the resolve inline under a client-minted id (api/ask_file.h).
 //
 // `prompt` is the panel's action-button text ("Choose"), or null for the
 // system default. Returns true and writes the chosen absolute path into `out`
 // (UTF-8, NUL-terminated, up to cap-1 bytes); returns false when the user
 // cancels, leaving `out` untouched.
 bool native_pick_directory(const char* prompt, char* out, int cap);
+// One FILE, for an agent's file question (api/ask_file.h): the same modal
+// contract as native_pick_directory. Never from the headless path.
+bool native_pick_file(const char* prompt, char* out, int cap);
 // ---- 4b. Open a URL in the user's browser ----------------------------------
 
 // Hand `url` (UTF-8, http/https) to the system's default handler. Used by the
