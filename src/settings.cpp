@@ -111,6 +111,7 @@ bool Settings::load_save_file() {
                 (g == "folder" || g == "status" || g == "flat") ? g : std::string("space");
         }
         only_ungrouped_ = j.value("only_ungrouped", false);
+        icon_set_ = j.value("icon_set", std::string("normal")) == "mm3" ? "mm3" : "normal";
         templates_.clear();
         if (j.contains("composer_templates") && j["composer_templates"].is_array())
             for (const auto& e : j["composer_templates"]) {
@@ -319,6 +320,7 @@ void Settings::write_save_file() {
     j["session_sort_order"] = sort_oldest_first_ ? "oldest" : "activity";
     j["session_grouping"] = session_grouping_;
     j["only_ungrouped"] = only_ungrouped_;
+    j["icon_set"] = icon_set_;
     {
         auto arr = nlohmann::json::array();
         for (const auto& t : templates_)
@@ -880,6 +882,14 @@ bool Settings::get_sort_oldest_first() const { return sort_oldest_first_; }
 void Settings::set_sort_oldest_first(bool on) {
     if (on == sort_oldest_first_) return;
     sort_oldest_first_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+std::string Settings::get_icon_set() const { return icon_set_; }
+void Settings::set_icon_set(const std::string& s) {
+    const std::string v = s == "mm3" ? "mm3" : "normal";
+    if (v == icon_set_) return;
+    icon_set_ = v;
     if (auto_save_enabled) write_save_file();
 }
 

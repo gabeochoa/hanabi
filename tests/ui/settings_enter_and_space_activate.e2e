@@ -50,6 +50,9 @@ click_ui settings_search
 wait_frames 8
 shift_tab
 wait_frames 8
+expect_focused settings_icon_set_row
+shift_tab
+wait_frames 8
 expect_focused settings_highlight_row
 expect_text "Find highlight   ·   Default"
 key ENTER

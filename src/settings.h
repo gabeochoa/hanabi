@@ -397,6 +397,10 @@ struct Settings {
     // (the default: Metamate Space, else workspace folder), "folder",
     // "status" (Pinned / Recents only) or "flat". And "only ungrouped",
     // which keeps just the threads in no section. Auto-persist.
+    // The icon set the status marks are drawn in: "normal" (default) or
+    // "mm3" (the MM3 character's faces, ui/mm3_faces.h). Auto-persists.
+    std::string get_icon_set() const;
+    void set_icon_set(const std::string& s);
     std::string get_session_grouping() const;
     void set_session_grouping(const std::string& g);
     bool get_only_ungrouped() const;
@@ -585,6 +589,7 @@ struct Settings {
     bool find_newest_first_ = false;
     bool sort_oldest_first_ = false;
     std::string session_grouping_ = "space";
+    std::string icon_set_ = "normal";
     bool only_ungrouped_ = false;
     std::vector<hanabi::templates::Template> templates_;
     bool context_detail_ = false;

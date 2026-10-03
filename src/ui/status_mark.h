@@ -12,12 +12,54 @@
 
 #include "../ecs/thread_model.h"
 #include "icons.h"
+#include "mm3_faces.h"
+#include <optional>
 #include "theme.h"
 #include "viewport.h"
 
 namespace hanabi::status_mark {
 
 using Glyph = ecs::model::StatusGlyph;
+
+// The MM3 set (Settings > Appearance > Icons; puffin_gaps.md D51), read from
+// Settings by whoever draws a frame of marks. Which face a status wears is the
+// reference's IconTable: working blinks (eyes shut, concentrating), asking
+// waves, finished-for-review winks, a settled row is tired (dimmed like the
+// quiet dot). Blocked, frozen and paused keep the normal marks -- conventions
+// read without being looked at, which a face would have to be decoded for.
+inline bool& mm3_on() {
+    static bool on = false;
+    return on;
+}
+
+inline std::optional<mm3::Face> mm3_face(Glyph g) {
+    switch (g) {
+        case Glyph::Running: return mm3::Face::Blink;
+        case Glyph::Waiting: return mm3::Face::Wave;
+        case Glyph::Done: return mm3::Face::Wink;
+        case Glyph::Idle: return mm3::Face::Tired;
+        case Glyph::Blocked:
+        case Glyph::Frozen:
+        case Glyph::Paused: break;
+    }
+    return std::nullopt;
+}
+
+// A face, `h` tall (the face is wider than it is tall, as in the reference,
+// which sizes it by the dot's height to keep it inside the mark slot),
+// centred on (cx, cy). The cells are the source rectangles, scaled.
+inline void draw_face(mm3::Face f, float cx, float cy, float h, theme::Color c) {
+    const float scale = h / mm3::kBoxH;
+    const float w = mm3::kBoxW * scale;
+    const float x0 = cx - w * 0.5f - mm3::kBoxX * scale;
+    const float y0 = cy - h * 0.5f - mm3::kBoxY * scale;
+    const auto cells = mm3::cells(f);
+    for (std::size_t i = 0; i < cells.size; ++i) {
+        const mm3::Cell& k = cells.data[i];
+        afterhours::draw_rectangle(
+            RectangleType{x0 + k.x * scale, y0 + k.y * scale, k.w * scale, k.h * scale}, c);
+    }
+}
 
 inline theme::Color color_for(Glyph glyph) {
     switch (glyph) {
@@ -76,6 +118,9 @@ inline constexpr float kBangDotY = 5.26f;
 inline constexpr float kBangDotH = 2.28f;
 inline constexpr float kDotR = 3.4f;
 inline constexpr float kCheckT = 1.8f;
+// An MM3 face's height in a mark slot: the dot's diameter and a little (the
+// face is 1.48x wider than tall, so it still sits inside the slot).
+inline constexpr float kMm3FaceH = 8.0f;
 
 // Where the mark's centre sits relative to the slot's own. Puffin draws it
 // above the row's midline and right of a 13px slot's centre; both are
@@ -93,6 +138,12 @@ inline void draw(RectangleType rect, Glyph glyph,
     const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(kMarkDx);
     const float cy = rect.y + rect.height * 0.5f + hanabi::viewport::px(kMarkDy);
     const theme::Color c = color_for(glyph);
+    if (mm3_on()) {
+        if (const auto face = mm3_face(glyph)) {
+            draw_face(*face, cx, cy, hanabi::viewport::px(kMm3FaceH), c);
+            return;
+        }
+    }
     switch (glyph) {
         case Glyph::Running: {
             // The gap is at the TOP, and this is the one thing in the

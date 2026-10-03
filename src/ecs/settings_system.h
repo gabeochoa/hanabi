@@ -1279,6 +1279,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "font") render_font_row(ctx, parent, app);
         else if (id == "font_weight") render_font_weight_row(ctx, parent, app);
         else if (id == "line_spacing") render_line_spacing_row(ctx, parent, app);
+        else if (id == "icon_set") render_icon_set_row(ctx, parent, app);
         else if (id == "palette") render_palette_row(ctx, parent, app);
         else if (id == "user_font") render_user_font_row(ctx, parent, app);
         else if (id == "assistant_font")
@@ -3452,6 +3453,16 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         {"11pm-7am", 23 * 60, 7 * 60},
         {"6pm-9am", 18 * 60, 9 * 60},
     }};
+
+    // The icon set the status marks are drawn in (the reference's Icons:
+    // Normal / MM3; puffin_gaps.md D51).
+    void render_icon_set_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 740, "Icons", "settings_icon_set_label");
+        const bool mm3 = Settings::get().get_icon_set() == "mm3";
+        real_segmented(ctx, parent, 741, {"Normal", "MM3"}, mm3 ? 1 : 0, "settings_icon_set",
+                       [](int i) { Settings::get().set_icon_set(i == 1 ? "mm3" : "normal"); });
+    }
 
     void render_line_spacing_row(UIContext<InputAction>& ctx, Entity& parent,
                                  AppComponent& app) {

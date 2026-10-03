@@ -103,6 +103,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app->subagentSidebarSeeded = true;
         }
 
+        hanabi::status_mark::mm3_on() = Settings::get().get_icon_set() == "mm3";
         const auto star_id = !app->requestToggleStar.empty() ? app->requestToggleStar
                                                              : app->requestSetStarId;
         if (!star_id.empty()) {
