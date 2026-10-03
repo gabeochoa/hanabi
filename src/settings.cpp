@@ -643,6 +643,11 @@ void Settings::set_archived(const std::string& id, bool archived) {
     if (auto_save_enabled) write_save_file();
 }
 
+void Settings::clear_archived(const std::string& id) {
+    if (archived_.erase(id) == 0) return;
+    if (auto_save_enabled) write_save_file();
+}
+
 bool Settings::is_muted(const std::string& id) const {
     return muted_set_.count(id) != 0;
 }

@@ -1,0 +1,14 @@
+# A refused archive write puts the thread back where it was (the reference's
+# D123030851: a failed write restores the prior value) and says so -- not a
+# local archive the server never took.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_OVERLAY_FAIL=archive
+
+wait_frames 20
+right_click_text "SKU backfill"
+wait_frames 6
+click_ui row_menu_archive
+wait_frames 30
+expect_text "Not archived: the server did not take it"
+expect_text "SKU backfill"

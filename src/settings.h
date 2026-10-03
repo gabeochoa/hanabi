@@ -266,6 +266,9 @@ struct Settings {
     // sync it is not reachable from here.
     std::optional<bool> get_archived(const std::string& id) const;
     void set_archived(const std::string& id, bool archived);  // auto-persists
+    // Forget the overlay: the server's archive state rules again (once a
+    // write of ours has landed there). Auto-persists.
+    void clear_archived(const std::string& id);
     // Muted session ids. Machine-local by design (see SessionSummary::muted),
     // so this is the only place the state lives — there is no server copy to
     // reconcile against, and an id that no longer exists simply never matches.

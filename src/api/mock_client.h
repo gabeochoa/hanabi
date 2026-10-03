@@ -31,6 +31,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
 #include <optional>
 #include <atomic>
 #include <set>
@@ -138,11 +139,47 @@ class MockClient : public Client {
         overlay_writes().push_back("pin " + session_id + (pinned ? " true" : " false"));
         return Result<bool>::success(pinned);
     }
+    // The server's archive state as this mock knows it: a write of ours, or
+    // the web (web_archive, an e2e hook), sets it; list rows carry it.
+    static std::map<std::string, bool>& server_archive() {
+        static std::map<std::string, bool> m;
+        return m;
+    }
+    static std::mutex& archive_hold_mu() {
+        static std::mutex m;
+        return m;
+    }
+    static std::condition_variable& archive_hold_cv() {
+        static std::condition_variable cv;
+        return cv;
+    }
+    static bool& archive_released() {
+        static bool b = false;
+        return b;
+    }
+    static void release_archive_writes() {
+        {
+            std::lock_guard<std::mutex> lk(archive_hold_mu());
+            archive_released() = true;
+        }
+        archive_hold_cv().notify_all();
+    }
+    static void web_archive(const std::string& id, bool archived) {
+        std::lock_guard<std::mutex> lk(overlay_mu());
+        server_archive()[id] = archived;
+    }
     Result<bool> set_archived(const std::string& session_id, bool archived) override {
         const char* f = std::getenv("HANABI_MOCK_OVERLAY_FAIL");
         if (f != nullptr && std::string(f) == "archive")
             return Result<bool>::failure("archive refused");
+        // HANABI_MOCK_ARCHIVE_HOLD=1: archive writes wait until the script
+        // says `mock_release_archive` (deterministic, frame-rate free).
+        if (const char* h = std::getenv("HANABI_MOCK_ARCHIVE_HOLD"); h != nullptr && *h == '1') {
+            std::unique_lock<std::mutex> hl(archive_hold_mu());
+            archive_hold_cv().wait(hl, [] { return archive_released(); });
+        }
         std::lock_guard<std::mutex> lk(overlay_mu());
+        server_archive()[session_id] = archived;
         overlay_writes().push_back("archive " + session_id + (archived ? " true" : " false"));
         return Result<bool>::success(archived);
     }
@@ -346,6 +383,12 @@ class MockClient : public Client {
             const std::string list = std::string(",") + a + ",";
             for (auto& s : out)
                 if (list.find("," + s.id + ",") != std::string::npos) s.origin_application = "metamate";
+        }
+        {
+            std::lock_guard<std::mutex> lk(overlay_mu());
+            for (auto& s : out)
+                if (const auto a = server_archive().find(s.id); a != server_archive().end())
+                    s.server_archived_at_ms = a->second ? 1781600000000 : 0;
         }
         // Newest first, but pinned (starred) rise to the top within order.
         std::sort(out.begin(), out.end(),
@@ -2275,7 +2318,7 @@ class MockClient : public Client {
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
-        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
+        "HANABI_CHANGES_DEMO",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",

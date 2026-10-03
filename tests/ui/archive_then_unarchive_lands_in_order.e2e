@@ -1,0 +1,23 @@
+# Archive then Unarchive in quick succession lands in that order (the
+# reference's D123030851): one archive write per thread in flight, the newer
+# intent waits and replaces an older waiting one, so the server is left
+# UNarchived and the thread stays in Recents after the next fetch.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_ARCHIVE_HOLD=1
+
+wait_frames 20
+right_click_text "SKU backfill"
+wait_frames 6
+click_ui row_menu_archive
+wait_frames 4
+click_ui toast_undo
+wait_frames 10
+expect_text "SKU backfill"
+mock_release_archive
+wait_frames 30
+expect_overlay_write archive t6 true
+expect_overlay_write archive t6 false
+refresh_list
+wait_frames 30
+expect_text "SKU backfill"

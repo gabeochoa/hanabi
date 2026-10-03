@@ -134,6 +134,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 const bool was = model::is_archived(s);
                 const bool nowArchived = directed ? app->requestSetArchiveTo : !was;
                 if (nowArchived != was) {
+                    if (app->archivePrior.count(s.id) == 0) app->archivePrior[s.id] = s.archive_override;
                     app->apply_archived(s.id, nowArchived);
                     Settings::get().set_archived(s.id, nowArchived);
                     app->queue_archive_write(s.id, nowArchived);

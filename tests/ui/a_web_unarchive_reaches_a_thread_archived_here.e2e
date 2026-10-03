@@ -1,0 +1,19 @@
+# A thread archived HERE is no longer pinned to that choice forever (the
+# reference's D123051693 / D123030851): once the archive write lands on the
+# server, the server's state rules, so when the web unarchives it the next
+# list fetch brings it back to Recents.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 20
+expect_text "SKU backfill"
+right_click_text "SKU backfill"
+wait_frames 6
+click_ui row_menu_archive
+wait_frames 20
+expect_overlay_write archive t6 true
+expect_no_text "SKU backfill"
+mock_web_archive t6 off
+refresh_list
+wait_frames 30
+expect_text "SKU backfill"

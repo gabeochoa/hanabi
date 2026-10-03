@@ -272,11 +272,34 @@ struct MemorySystem : afterhours::System<AppComponent> {
         }
         // Pins and archives on their way to the server (kt-if8e).
         if (!app.overlayWriteQueue.empty() && app.client && app.client->supports_overlay_writes()) {
+            const auto archive_in_flight = [&app](const std::string& sid) {
+                for (const auto& w : app.overlayWrites)
+                    if (!w.pin && w.id == sid) return true;
+                return false;
+            };
             for (auto& [pin, id, on] : app.overlayWriteQueue) {
+                std::optional<bool> prior;
+                if (!pin) {
+                    if (const auto p = app.archivePrior.find(id); p != app.archivePrior.end()) {
+                        prior = p->second;
+                        app.archivePrior.erase(p);
+                    }
+                    if (archive_in_flight(id)) {
+                        // Wait; a newer intent replaces an older waiting one
+                        // and keeps the OLDEST prior (what to restore to).
+                        auto it = app.archiveWaiting.find(id);
+                        if (it == app.archiveWaiting.end())
+                            app.archiveWaiting[id] = {on, prior};
+                        else
+                            it->second.first = on;
+                        continue;
+                    }
+                }
                 AppComponent::OverlayWrite w;
                 w.pin = pin;
                 w.id = id;
                 w.on = on;
+                w.prior = prior;
                 auto c = app.client;
                 const bool isPin = pin;
                 const std::string sid = id;
@@ -294,6 +317,48 @@ struct MemorySystem : afterhours::System<AppComponent> {
                 continue;
             }
             auto r = it->future.get();
+            if (!it->pin) {
+                const std::string sid = it->id;
+                const bool on = it->on;
+                const auto waiting = app.archiveWaiting.find(sid);
+                if (r.ok && waiting == app.archiveWaiting.end()) {
+                    // Landed and nothing newer is waiting: the server's state
+                    // rules from here, so a later archive or unarchive on the
+                    // web reaches this thread on the next list fetch (the
+                    // reference's D123051693). The row carries the stamp until
+                    // that fetch says otherwise.
+                    for (auto& s : app.sessions)
+                        if (s.id == sid) s.server_archived_at_ms = on ? 1 : 0;
+                    for (Pane& p : app.panes)
+                        if (p.openSession && p.openSession->summary.id == sid)
+                            p.openSession->summary.server_archived_at_ms = on ? 1 : 0;
+                    app.apply_archived_override(sid, std::nullopt);
+                    Settings::get().clear_archived(sid);
+                } else if (!r.ok && waiting == app.archiveWaiting.end()) {
+                    // Refused, nothing newer waiting: the overlay goes back to
+                    // what it was before the gesture (none for a thread only
+                    // the web archived) -- not a stale archive left standing.
+                    app.apply_archived_override(sid, it->prior);
+                    if (it->prior) Settings::get().set_archived(sid, *it->prior);
+                    else Settings::get().clear_archived(sid);
+                }
+                if (waiting != app.archiveWaiting.end()) {
+                    // The newer intent goes now (if it still differs from
+                    // what landed); its prior is the older one's.
+                    const bool next = waiting->second.first;
+                    const std::optional<bool> prior = it->prior ? it->prior : waiting->second.second;
+                    app.archiveWaiting.erase(waiting);
+                    if (!r.ok || next != on) {
+                        app.archivePrior[sid] = prior;
+                        app.overlayWriteQueue.emplace_back(false, sid, next);
+                    } else {
+                        for (auto& s : app.sessions)
+                            if (s.id == sid) s.server_archived_at_ms = on ? 1 : 0;
+                        app.apply_archived_override(sid, std::nullopt);
+                        Settings::get().clear_archived(sid);
+                    }
+                }
+            }
             if (it->pin) {
                 auto& ps = app.pinSync;
                 if (r.ok) {
@@ -305,12 +370,15 @@ struct MemorySystem : afterhours::System<AppComponent> {
                     ps.failToasted.erase(it->id);
                 }
             }
-            // A refused pin is retried on the next poll; it says so once.
-            const bool sayIt = !r.ok && (!it->pin || app.pinSync.failToasted.insert(it->id).second);
-            if (sayIt)
-                app.raise_toast(std::string(it->pin ? (it->on ? "Pinned" : "Unpinned")
-                                                    : (it->on ? "Archived" : "Unarchived")) +
+            // A refused pin is retried on the next poll; it says so once. A
+            // refused archive was put back above, and says so.
+            if (!r.ok && it->pin && app.pinSync.failToasted.insert(it->id).second)
+                app.raise_toast(std::string(it->on ? "Pinned" : "Unpinned") +
                                     " on this Mac; the server did not take it (" + r.error + ")",
+                                std::string(), AppComponent::ToastUndo::None);
+            if (!r.ok && !it->pin)
+                app.raise_toast(std::string(it->on ? "Not archived" : "Not unarchived") +
+                                    ": the server did not take it (" + r.error + ")",
                                 std::string(), AppComponent::ToastUndo::None);
             it = app.overlayWrites.erase(it);
         }

@@ -3545,6 +3545,35 @@ struct HandleRefreshWebPinsCommand
     }
 };
 
+// mock_web_archive <id> <on|off>: the web archives or unarchives a thread
+// (the mock's server state), seen on the next list fetch.
+struct HandleMockWebArchiveCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("mock_web_archive")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("mock_web_archive requires <id> <on|off>");
+            return;
+        }
+        api::MockClient::web_archive(cmd.arg(0), cmd.arg(1) == "on");
+        cmd.consume();
+    }
+};
+
+// mock_release_archive: archive writes held by HANABI_MOCK_ARCHIVE_HOLD go.
+struct HandleMockReleaseArchiveCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("mock_release_archive")) return;
+        api::MockClient::release_archive_writes();
+        cmd.consume();
+    }
+};
+
 // open_bug_report: Help > Report a Bug, as the menu row does.
 struct HandleOpenBugReportCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
@@ -4574,6 +4603,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectMockResolveHasCommand>());
     sm.register_update_system(std::make_unique<HandleExpectRowOrderCommand>());
     sm.register_update_system(std::make_unique<HandleRefreshWebPinsCommand>());
+    sm.register_update_system(std::make_unique<HandleMockWebArchiveCommand>());
+    sm.register_update_system(std::make_unique<HandleMockReleaseArchiveCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());

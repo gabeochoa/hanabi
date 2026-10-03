@@ -725,8 +725,13 @@ struct AppComponent : public afterhours::BaseComponent {
         bool pin = true;  // false = archive
         std::string id;
         bool on = false;
+        std::optional<bool> prior;  // archive: the overlay before the gesture
         std::future<api::Result<bool>> future;
     };
+    // Archive writes, one per session in flight (the reference's D123030851):
+    // a newer intent waits here, REPLACING an older waiting one, so Archive
+    // then Unarchive cannot land the stale archive last.
+    std::map<std::string, std::pair<bool, std::optional<bool>>> archiveWaiting;
     std::vector<OverlayWrite> overlayWrites;
     std::vector<std::tuple<bool, std::string, bool>> overlayWriteQueue;
     // Pins read back from the web (api/pins_wire.h; kt-if8e): polled every
@@ -768,6 +773,9 @@ struct AppComponent : public afterhours::BaseComponent {
     void queue_archive_write(const std::string& id, bool archived) {
         overlayWriteQueue.emplace_back(false, id, archived);
     }
+    // The overlay before an archive gesture, so a refused write can put it
+    // back (set by the single archive writer, read when the write is queued).
+    std::map<std::string, std::optional<bool>> archivePrior;
     // The viewer's web-app folders (api/folders_wire.h): the carve, read on
     // launch and every ten minutes, and stamped on the catalogue as
     // `web_folder`. Writes (create / rename / delete / file) are queued as
@@ -2116,6 +2124,21 @@ struct AppComponent : public afterhours::BaseComponent {
             if (p.openSession && p.openSession->summary.id == id)
                 p.openSession->summary.starred = starred;
         if (changed) mark_session_catalog_changed();
+    }
+
+    // Set (or clear, nullopt) the archive overlay itself.
+    void apply_archived_override(const std::string& id, std::optional<bool> v) {
+        bool changed = false;
+        for (auto& s : sessions)
+            if (s.id == id && s.archive_override != v) {
+                s.archive_override = v;
+                changed = true;
+            }
+        for (Pane& p : panes)
+            if (p.openSession && p.openSession->summary.id == id)
+                p.openSession->summary.archive_override = v;
+        mark_session_catalog_changed();
+        (void)changed;
     }
 
     void apply_archived(const std::string& id, bool archived) {
