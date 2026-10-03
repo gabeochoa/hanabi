@@ -724,8 +724,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                    .with_size(ComponentSize{pixels(16), pixels(24)})
                    .with_transparent_bg()
                    .with_on_draw_fg(
-                       [glyph = sidebar_glyph(child)](RectangleType rect) {
-                           draw_mark(rect, glyph, theme::chrome::sidebar());
+                       [glyph = sidebar_glyph(child),
+                        failed = child.tag == api::ThreadTag::Failed](RectangleType rect) {
+                           draw_mark(rect, glyph, theme::chrome::sidebar(), failed);
                        }));
            auto text =
                div(ctx, mk(row.ent(), 2),
@@ -1887,8 +1888,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // The mark's ink lives in src/ui/status_mark.h so the tab strip draws the
     // same picture from the same source rather than a second copy of it.
     static void draw_mark(RectangleType rect, SidebarGlyph glyph,
-                          theme::Color bg) {
-        hanabi::status_mark::draw(rect, glyph, bg);
+                          theme::Color bg, bool failed = false) {
+        hanabi::status_mark::draw(rect, glyph, bg, failed);
     }
 
     // ---- Blocked smart-view nav icon (defect #5) ----
@@ -4389,10 +4390,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_transparent_bg()
                     .with_font_size(FontSize::Small)
                     .with_roundness(0.0f)
-                    .with_on_draw_fg([mark, rowHot](RectangleType rect) {
+                    .with_on_draw_fg([mark, rowHot,
+                                      failed = s.tag == api::ThreadTag::Failed](RectangleType rect) {
                         draw_mark(rect, mark,
                                   rowHot ? theme::hover_over(theme::chrome::sidebar())
-                                         : theme::chrome::sidebar());
+                                         : theme::chrome::sidebar(),
+                                  failed);
                     })
                     .with_debug_name("row_glyph"));
         } else {

@@ -25,6 +25,7 @@
 #include "../api/tool_kinds.h"
 #include "../api/disk_cache.h"
 #include "../test_hooks.h"
+#include "../native_extras.h"
 #include "../util/capture_clock.h"
 #include "../util/diff.h"
 #include "../util/format.h"
@@ -100,6 +101,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float dt) override {
         hanabi::audio::advance(dt);
+        {
+            // MM3 faces' clock and motion gates (ui/status_mark.h).
+            auto& mo = hanabi::status_mark::mm3_motion();
+            hanabi::status_mark::mm3_advance(dt);
+#if defined(AFTER_HOURS_ENABLE_E2E_TESTING)
+            constexpr bool scripted = true;
+#else
+            const bool scripted = hanabi::links::headless();
+#endif
+            mo.reduceMotion = !scripted && hanabi::os_reduce_motion();
+            mo.appActive = std::getenv("HANABI_TEST_APP_INACTIVE") == nullptr &&
+                           (scripted || hanabi::os_app_active());
+            mo.windowVisible = std::getenv("HANABI_TEST_APP_HIDDEN") == nullptr &&
+                               (scripted || hanabi::os_window_visible());
+        }
         auto* layout = find_singleton<LayoutComponent>();
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;

@@ -13,6 +13,7 @@
 #include "../ecs/thread_model.h"
 #include "icons.h"
 #include "mm3_faces.h"
+#include "mm3_marks.h"
 #include <optional>
 #include "theme.h"
 #include "viewport.h"
@@ -21,44 +22,60 @@ namespace hanabi::status_mark {
 
 using Glyph = ecs::model::StatusGlyph;
 
-// The MM3 set (Settings > Appearance > Icons; puffin_gaps.md D51), read from
-// Settings by whoever draws a frame of marks. Which face a status wears is the
-// reference's IconTable: working blinks (eyes shut, concentrating), asking
-// waves, finished-for-review winks, a settled row is tired (dimmed like the
-// quiet dot). Blocked, frozen and paused keep the normal marks -- conventions
-// read without being looked at, which a face would have to be decoded for.
+// The MM3 set (Settings > Appearance > Icons; puffin_gaps.md D51). Which
+// face a status wears, and whether it moves, is ui/mm3_marks.h. The motion
+// state is refreshed once a frame by whoever draws marks: the clock (frame dt,
+// so a scripted run is deterministic), Reduce Motion, and whether the app is
+// in front / its window can be seen.
 inline bool& mm3_on() {
     static bool on = false;
     return on;
 }
-
-inline std::optional<mm3::Face> mm3_face(Glyph g) {
-    switch (g) {
-        case Glyph::Running: return mm3::Face::Blink;
-        case Glyph::Waiting: return mm3::Face::Wave;
-        case Glyph::Done: return mm3::Face::Wink;
-        case Glyph::Idle: return mm3::Face::Tired;
-        case Glyph::Blocked:
-        case Glyph::Frozen:
-        case Glyph::Paused: break;
-    }
-    return std::nullopt;
+struct Mm3Motion {
+    double clock = 0.0;
+    bool reduceMotion = false;
+    bool appActive = true;
+    bool windowVisible = true;
+    bool movedThisFrame = false;  // a moving face drew: the frame loop keeps ticking
+    unsigned long movedDraws = 0;  // every moving draw, for scripted checks
+};
+inline Mm3Motion& mm3_motion() {
+    static Mm3Motion m;
+    return m;
 }
+inline void mm3_advance(double dt) { mm3_motion().clock += dt; }
 
-// A face, `h` tall (the face is wider than it is tall, as in the reference,
-// which sizes it by the dot's height to keep it inside the mark slot),
-// centred on (cx, cy). The cells are the source rectangles, scaled.
-inline void draw_face(mm3::Face f, float cx, float cy, float h, theme::Color c) {
-    const float scale = h / mm3::kBoxH;
-    const float w = mm3::kBoxW * scale;
-    const float x0 = cx - w * 0.5f - mm3::kBoxX * scale;
-    const float y0 = cy - h * 0.5f - mm3::kBoxY * scale;
-    const auto cells = mm3::cells(f);
-    for (std::size_t i = 0; i < cells.size; ++i) {
-        const mm3::Cell& k = cells.data[i];
+// A face's cells, `h` tall measured on the ROW box (mm3::kRow*: room for
+// every frame, so nothing is cut; the reference's 8pt, D123162830 / kt-tgsx),
+// centred on (cx, cy).
+inline void draw_cells(const mm3::Cell* cells, std::size_t n, float cx, float cy, float h,
+                       theme::Color c) {
+    const float scale = h / mm3::kRowH;
+    const float x0 = cx - (mm3::kRowX + mm3::kRowW * 0.5f) * scale;
+    const float y0 = cy - (mm3::kRowY + mm3::kRowH * 0.5f) * scale;
+    for (std::size_t i = 0; i < n; ++i) {
+        const mm3::Cell& k = cells[i];
         afterhours::draw_rectangle(
             RectangleType{x0 + k.x * scale, y0 + k.y * scale, k.w * scale, k.h * scale}, c);
     }
+}
+inline void draw_face(mm3::Face f, float cx, float cy, float h, theme::Color c) {
+    const auto cells = mm3::cells(f);
+    draw_cells(cells.data, cells.size, cx, cy, h, c);
+}
+// A mark: its moving frame when it plays, else its still face.
+inline void draw_mm3(const mm3::Mark& m, float cx, float cy, float h, theme::Color c) {
+    Mm3Motion& mo = mm3_motion();
+    if (mm3::plays(m, mo.reduceMotion, mo.appActive, mo.windowVisible)) {
+        const mm3::Anim a = mm3::anim(*m.moves);
+        const auto frame = mm3::frame_at(a, mo.clock, m.urgent ? mm3::kUrgentRest : mm3::kRest);
+        const auto cells = mm3::frame_cells(a, frame);
+        draw_cells(cells.data, cells.size, cx, cy, h, c);
+        mo.movedThisFrame = true;
+        ++mo.movedDraws;
+        return;
+    }
+    draw_face(m.still, cx, cy, h, c);
 }
 
 inline theme::Color color_for(Glyph glyph) {
@@ -118,8 +135,9 @@ inline constexpr float kBangDotY = 5.26f;
 inline constexpr float kBangDotH = 2.28f;
 inline constexpr float kDotR = 3.4f;
 inline constexpr float kCheckT = 1.8f;
-// An MM3 face's height in a mark slot: the dot's diameter and a little (the
-// face is 1.48x wider than tall, so it still sits inside the slot).
+// An MM3 face's frame height in a mark slot, on a row and a tab alike -- the
+// height of the ROW box, so the face itself is ~6.5pt and the box ~9.9pt wide,
+// inside the 10pt slot (the reference's Size.mm3Face, D123162830 / kt-tgsx).
 inline constexpr float kMm3FaceH = 8.0f;
 
 // Where the mark's centre sits relative to the slot's own. Puffin draws it
@@ -134,13 +152,13 @@ inline constexpr float kMarkDy = -1.0f;
 // row's own fill changes under the pointer, so the caller passes it rather
 // than this assuming the sidebar's.
 inline void draw(RectangleType rect, Glyph glyph,
-             theme::Color bg) {
+             theme::Color bg, bool failed = false) {
     const float cx = rect.x + rect.width * 0.5f + hanabi::viewport::px(kMarkDx);
     const float cy = rect.y + rect.height * 0.5f + hanabi::viewport::px(kMarkDy);
     const theme::Color c = color_for(glyph);
     if (mm3_on()) {
-        if (const auto face = mm3_face(glyph)) {
-            draw_face(*face, cx, cy, hanabi::viewport::px(kMm3FaceH), c);
+        if (const auto mark = mm3::mark_for(glyph, failed)) {
+            draw_mm3(*mark, cx, cy, hanabi::viewport::px(kMm3FaceH), c);
             return;
         }
     }

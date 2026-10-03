@@ -1,0 +1,11 @@
+# MM3: a row waiting on you loops the library's angry animation, and keeps
+# moving behind another app; a live run's blink is calm and stops there; a
+# hidden window stills every face (the reference's draft D123162830,
+# kt-p22h). The fixture catalogue has blocked, asking and running rows.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","icon_set":"mm3"}
+
+wait_frames 20
+mm3_moving_reset
+wait_frames 30
+expect_mm3_moving on

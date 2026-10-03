@@ -816,8 +816,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                             .with_transparent_bg()
                             .with_roundness(0.0f)
                             .with_render_layer(baseLayer + 1)
-                            .with_on_draw_fg([status, bg](RectangleType rc) {
-                                hanabi::status_mark::draw(rc, status, bg);
+                            .with_on_draw_fg([status, bg,
+                                              failed = statusOf->tag == api::ThreadTag::Failed](RectangleType rc) {
+                                hanabi::status_mark::draw(rc, status, bg, failed);
                             })
                             .with_debug_name("tab_status_" + tab.sessionId));
                 hanabi::a11y::set_name(

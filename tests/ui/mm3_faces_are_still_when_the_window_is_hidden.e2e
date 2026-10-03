@@ -1,0 +1,11 @@
+# MM3: with the window hidden no face moves -- the urgent loop included
+# (the reference's draft D123162830: it stops when hidden, asleep, or under
+# Reduce Motion).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","icon_set":"mm3"}
+# env: HANABI_TEST_APP_HIDDEN=1
+
+wait_frames 20
+mm3_moving_reset
+wait_frames 30
+expect_mm3_moving off

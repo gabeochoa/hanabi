@@ -3562,6 +3562,32 @@ struct HandleMockWebArchiveCommand
     }
 };
 
+// mm3_moving_reset / expect_mm3_moving <on|off>: whether any MM3 face played
+// a moving frame since the reset (ui/status_mark.h).
+struct HandleMm3MovingCommand : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    unsigned long base = 0;
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        const auto& mo = hanabi::status_mark::mm3_motion();
+        if (cmd.is("mm3_moving_reset")) {
+            base = mo.movedDraws;
+            cmd.consume();
+            return;
+        }
+        if (!cmd.is("expect_mm3_moving")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_mm3_moving requires <on|off>");
+            return;
+        }
+        const bool want = cmd.arg(0) == "on";
+        const bool moved = mo.movedDraws > base;
+        if (moved == want) cmd.consume();
+        else cmd.fail(std::format("expect_mm3_moving: faces {} since the reset, expected {}",
+                                  moved ? "moved" : "did not move", want ? "on" : "off"));
+    }
+};
+
 // mock_release_archive: archive writes held by HANABI_MOCK_ARCHIVE_HOLD go.
 struct HandleMockReleaseArchiveCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
@@ -4605,6 +4631,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleRefreshWebPinsCommand>());
     sm.register_update_system(std::make_unique<HandleMockWebArchiveCommand>());
     sm.register_update_system(std::make_unique<HandleMockReleaseArchiveCommand>());
+    sm.register_update_system(std::make_unique<HandleMm3MovingCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());

@@ -251,6 +251,10 @@ void native_open_url(const char* url);
 // to the real OS setting instead of always falling back to Dark (gap #16).
 bool macos_is_dark_mode(void);
 bool macos_reduce_motion(void);
+// Whether this app is the active one, and whether any of its windows can be
+// seen (not hidden, minimized or fully covered; the screens awake).
+bool macos_app_active(void);
+bool macos_window_visible(void);
 
 void macos_set_app_appearance(bool dark);
 
@@ -283,6 +287,20 @@ inline bool os_reduce_motion() {
     return macos_reduce_motion();
 #else
     return false;
+#endif
+}
+inline bool os_app_active() {
+#if defined(__APPLE__)
+    return macos_app_active();
+#else
+    return true;
+#endif
+}
+inline bool os_window_visible() {
+#if defined(__APPLE__)
+    return macos_window_visible();
+#else
+    return true;
 #endif
 }
 }  // namespace hanabi

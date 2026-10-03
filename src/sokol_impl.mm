@@ -388,6 +388,17 @@ extern "C" bool macos_is_dark_mode(void) {
     }
 }
 
+extern "C" bool macos_app_active(void) {
+    if (NSApp == nil) return true;
+    return [NSApp isActive];
+}
+
+extern "C" bool macos_window_visible(void) {
+    if (NSApp == nil) return true;
+    if (CGDisplayIsAsleep(CGMainDisplayID())) return false;
+    return ([NSApp occlusionState] & NSApplicationOcclusionStateVisible) != 0;
+}
+
 extern "C" bool macos_reduce_motion(void) {
     @autoreleasepool {
         return [NSWorkspace sharedWorkspace].accessibilityDisplayShouldReduceMotion;

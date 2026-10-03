@@ -5,6 +5,7 @@
 #include <future>
 
 #include "api/disk_cache.h"
+#include "ui/status_mark.h"
 #include "ecs/components.h"
 #include "ecs/keyboard_focus.h"
 #include "ecs/tooltip_system.h"
@@ -124,6 +125,14 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
               Settings::get().is_settings_dirty() ||
               Settings::get().get_theme_rotate_secs() > 0;
     s.caret = ecs::any_text_field_focused();
+    // An MM3 face moved last frame (ui/status_mark.h): keep drawing so it
+    // keeps moving. Only a face that actually drew counts -- a row scrolled
+    // away, a still face, or a paused one costs no frames.
+    {
+        auto& mo = hanabi::status_mark::mm3_motion();
+        s.animation = s.animation || mo.movedThisFrame;
+        mo.movedThisFrame = false;
+    }
     s.tooltip_dwell = ecs::pending_reveal();
     return s;
 }
