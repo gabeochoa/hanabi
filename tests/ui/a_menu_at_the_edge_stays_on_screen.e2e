@@ -5,7 +5,7 @@ expect_text "needs a decision before it can go on"
 right_click 120 700
 wait_frames 8
 expect_text "CONVERSATION"
-assert_ui row_menu x=120 w=184 h=630
+assert_ui row_menu x=120 w=184 h=666
 assert_ui row_menu_mute h=36
 key ESCAPE
 wait_frames 6
@@ -13,7 +13,7 @@ wait_frames 6
 right_click 260 400
 wait_frames 8
 expect_text "CONVERSATION"
-assert_ui row_menu x=260 w=184 h=630
+assert_ui row_menu x=260 w=184 h=666
 expect_no_ui row_menu_open_submenu
 key ESCAPE
 wait_frames 6

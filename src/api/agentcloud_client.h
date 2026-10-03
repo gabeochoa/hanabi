@@ -154,6 +154,9 @@ class AgentcloudClient : public Client {
     bool supports_overlay_writes() const override { return supports_inbox_state(); }
     Result<bool> set_pinned(const std::string& session_id, bool pinned) override;
     Result<bool> set_archived(const std::string& session_id, bool archived) override;
+    bool supports_refile() const override { return supports_inbox_state(); }
+    Result<bool> refile_session(const std::string& session_id,
+                                const std::string& space_id) override;
     Result<nlohmann::json> graphql(const std::string& body) override;
     Result<std::vector<spaces::Space>> list_spaces() override;
     Result<memory::Listing> memory_list(const std::string& path) override;

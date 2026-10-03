@@ -837,6 +837,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             Halt,
             HaltSubtree,
             Resume,
+            MoveSpace,
             Divider,  // a group hairline; never activates
         };
         std::vector<Action> actions;
@@ -920,6 +921,35 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 !app.snooze_available() || app.snooze_busy(target->id),
                 hanabi::native_snooze_prompt::available())));
             actions.push_back(Action::Snooze);
+        }
+        // Move to Space (the reference's refile): a submenu of the viewer's
+        // Spaces, and out of every Space when the thread is in one.
+        if (app.client && app.client->supports_refile() && !app.spaces.empty()) {
+            hanabi::surface::MenuItem m{"Move to Space", "row_menu_move_space", false,
+                                        !app.refiles.empty()};
+            m.action_id = "move_space";
+            const std::string current = target->space_group.rfind("space:", 0) == 0
+                                            ? target->space_group.substr(6)
+                                            : std::string();
+            int k = 0;
+            for (const auto& sp : app.spaces) {
+                hanabi::surface::MenuLeaf leaf;
+                leaf.label = sp.name.empty() ? std::string("Space") : sp.name;
+                leaf.debug_name = "row_menu_move_space_" + std::to_string(k++);
+                leaf.action_id = "space:" + sp.id;
+                leaf.disabled = sp.id == current;
+                m.children.push_back(std::move(leaf));
+            }
+            if (!current.empty()) {
+                m.children.push_back(hanabi::surface::MenuLeaf::divider("row_menu_move_space_div"));
+                hanabi::surface::MenuLeaf out;
+                out.label = "Out of its Space";
+                out.debug_name = "row_menu_move_space_out";
+                out.action_id = "space:none";
+                m.children.push_back(std::move(out));
+            }
+            items.push_back(std::move(m));
+            actions.push_back(Action::MoveSpace);
         }
         divider("row_menu_divider_mute");
         const bool archivedNow = model::is_archived(*target);
@@ -1073,6 +1103,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::ResetOrder:
                     app.requestResetRowOrder = orderKey;
+                    break;
+                case Action::MoveSpace:
+                    if (pickedAction.rfind("space:", 0) == 0) {
+                        const std::string sp = pickedAction.substr(6);
+                        app.requestRefileId = targetId;
+                        app.requestRefileSpace = sp == "none" ? std::string() : sp;
+                    }
                     break;
                 case Action::Halt:
                     app.request_halt(targetId, hanabi::halt::Intent::Halt, app.focusedPane);

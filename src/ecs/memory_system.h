@@ -20,6 +20,47 @@ struct MemorySystem : afterhours::System<AppComponent> {
             auto c = app.client;
             app.spacesFuture = std::async(std::launch::async, [c] { return c->list_spaces(); });
         }
+        // A move between Spaces (refile).
+        if (!app.requestRefileId.empty()) {
+            if (app.client && app.client->supports_refile()) {
+                AppComponent::RefileInFlight r;
+                r.id = app.requestRefileId;
+                r.space = app.requestRefileSpace;
+                auto c = app.client;
+                const std::string sid = r.id, sp = r.space;
+                r.future = std::async(std::launch::async, [c, sid, sp] {
+                    return c->refile_session(sid, sp);
+                });
+                app.refiles.push_back(std::move(r));
+            }
+            app.requestRefileId.clear();
+            app.requestRefileSpace.clear();
+        }
+        for (auto it = app.refiles.begin(); it != app.refiles.end();) {
+            if (!it->future.valid() || it->future.wait_for(0s) != std::future_status::ready) {
+                ++it;
+                continue;
+            }
+            auto r = it->future.get();
+            if (r.ok) {
+                if (it->space.empty())
+                    app.sessionSpace.erase(it->id);
+                else
+                    app.sessionSpace[it->id] = it->space;
+                app.apply_space_filing(app.sessions);
+                app.mark_session_catalog_changed();
+                std::string name = "Personal";
+                for (const auto& sp : app.spaces)
+                    if (sp.id == it->space) name = sp.name;
+                app.raise_toast((it->space.empty() ? std::string("Moved out of its Space")
+                                                   : "Moved to " + name),
+                                std::string(), AppComponent::ToastUndo::None);
+            } else {
+                app.raise_toast("Not moved: " + r.error, std::string(),
+                                AppComponent::ToastUndo::None);
+            }
+            it = app.refiles.erase(it);
+        }
         // Pins and archives on their way to the server (kt-if8e).
         if (!app.overlayWriteQueue.empty() && app.client && app.client->supports_overlay_writes()) {
             for (auto& [pin, id, on] : app.overlayWriteQueue) {

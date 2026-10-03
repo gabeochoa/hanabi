@@ -2951,6 +2951,77 @@ Result<bool> AgentcloudClient::set_archived(const std::string& session_id, bool 
     }
 }
 
+// Refile (spec 573): attach, take the boundary, send `refile` (the container
+// key LEFT OUT is the move to Personal), and wait for the durable
+// container_changed after the boundary whose container matches the WHOLE
+// ref -- a concurrent refile from the web journals a different filing on the
+// same subscription and must not settle this one. A quiet socket past the
+// deadline is "unconfirmed", not done.
+Result<bool> AgentcloudClient::refile_session(const std::string& session_id,
+                                              const std::string& space_id) {
+    const auto fail = [](const std::string& why) { return Result<bool>::failure(why); };
+    if (!space_id.empty() && !spaces::valid_id(space_id)) return fail("that Space id is not an fbid");
+    const auto& cfg = auth_.config();
+    std::string auth_err;
+    const auto token = auth_.get(&auth_err);
+    if (token.empty()) return fail(auth_err);
+    const auto qOwned = std::make_shared<FrameQueue>();
+    FrameQueue& q = *qOwned;
+    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    ws_config wc{};
+    wc.url = url.c_str();
+    wc.proxy_host = cfg.proxy_host.c_str();
+    wc.proxy_port = cfg.proxy_port;
+    wc.on_text = fq_text_cb;
+    wc.on_close = fq_close_cb;
+    wc.user = &q;
+    ws_conn* conn = ws_open_owned(&wc, qOwned);
+    if (conn == nullptr) return fail("could not parse " + url);
+    struct Closer { ws_conn* c; ~Closer() { ws_close(c); } } closer{conn};
+    const json attach_env = {
+        {"sub", 1},
+        {"payload",
+         {{"cmd", "attach"},
+          {"session_id", session_id},
+          {"auth", {{"cat", {{"payload", token.value}}}}}}}};
+    const std::string attach_wire = attach_env.dump();
+    if (!ws_send_text(conn, attach_wire.data(), attach_wire.size()))
+        return fail("socket closed before attach was sent");
+    const json hello = q.wait_for_type("hello", kReplyTimeoutSecs);
+    if (hello.is_discarded()) return fail("no hello for " + session_id + " (" + q.why_closed() + ")");
+    if (str_or(hello, "type", "") == "error")
+        return fail("attach refused: " + str_or(hello, "message", "(no message)"));
+    if (session_access_from_wire(str_or(hello, "access", "")) != SessionAccess::Owner &&
+        hello.contains("access"))
+        return fail("only the thread's owner can move it between Spaces");
+    const int64_t boundary = int_or(hello, "boundary", 0);
+    json payload = {{"cmd", "refile"}};
+    if (!space_id.empty()) payload["container"] = {{"namespace", "metamate_space"}, {"id", space_id}};
+    const json env = {{"sub", 1}, {"payload", payload}};
+    const std::string wire = env.dump();
+    if (!ws_send_text(conn, wire.data(), wire.size()))
+        return fail("socket closed before the move was sent");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    for (;;) {
+        const json msg = q.wait_for_next(deadline);
+        if (msg.is_discarded())
+            return fail(q.closed_note("the move was sent but not confirmed; check the web app"));
+        const std::string type = str_or(msg, "type", "");
+        if (type == "error") return fail(str_or(msg, "message", "the move was refused"));
+        if (type != "frame" || str_or(msg, "frame", "") != "durable" ||
+            int_or(msg, "seq", 0) <= boundary)
+            continue;
+        const json& e = obj_at(msg, "event");
+        if (str_or(e, "type", "") != "container_changed") continue;
+        const json& c = obj_at(e, "container");
+        const std::string got = c.is_object() && str_or(c, "namespace", "") == "metamate_space"
+                                    ? str_or(c, "id", "")
+                                    : std::string();
+        const bool absent = !c.is_object() || c.empty();
+        if (space_id.empty() ? absent : got == space_id) return Result<bool>::success(true);
+    }
+}
+
 Result<std::string> AgentcloudClient::compact_session(const std::string& session_id,
                                                       const CompactionRequest& request) {
     const auto fail = [](const std::string& why) {

@@ -143,6 +143,20 @@ class MockClient : public Client {
         return Result<bool>::success(archived);
     }
 
+    // Refile, recorded as "refile <sid> <space|personal>" in overlay_writes;
+    // HANABI_MOCK_OVERLAY_FAIL=refile refuses it.
+    bool supports_refile() const override { return true; }
+    Result<bool> refile_session(const std::string& session_id,
+                                const std::string& space_id) override {
+        const char* f = std::getenv("HANABI_MOCK_OVERLAY_FAIL");
+        if (f != nullptr && std::string(f) == "refile")
+            return Result<bool>::failure("only the thread's owner can move it between Spaces");
+        std::lock_guard<std::mutex> lk(overlay_mu());
+        overlay_writes().push_back("refile " + session_id + " " +
+                                   (space_id.empty() ? std::string("personal") : space_id));
+        return Result<bool>::success(true);
+    }
+
     // Whether the last create reserved the Sensitive transition, for scripts.
     static std::atomic<bool>& last_create_allowed_sensitive() {
         static std::atomic<bool> v{false};

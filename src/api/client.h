@@ -909,6 +909,19 @@ class Client {
         return Result<bool>::failure("This backend keeps archives on this Mac only.");
     }
 
+    // Move a thread into a Metamate Space, or out of every Space (empty
+    // `space_id`): the reference's refile (spec 573), over an attach with
+    // `refile`, settled by the DURABLE `container_changed` frame after the
+    // attach boundary whose container matches exactly. Owner only,
+    // server-side.
+    virtual bool supports_refile() const { return false; }
+    virtual Result<bool> refile_session(const std::string& session_id,
+                                        const std::string& space_id) {
+        (void)session_id;
+        (void)space_id;
+        return Result<bool>::failure("This backend cannot move threads between Spaces.");
+    }
+
     // One read of the web app's /api/graphql (api/companion_wire.h builds the
     // bodies): the GraphQL `data` object, or why not.
     virtual bool supports_graphql() const { return false; }

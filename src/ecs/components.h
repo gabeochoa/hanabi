@@ -732,6 +732,16 @@ struct AppComponent : public afterhours::BaseComponent {
     void queue_archive_write(const std::string& id, bool archived) {
         overlayWriteQueue.emplace_back(false, id, archived);
     }
+    // A thread being moved between Spaces (row menu > Move to Space, the
+    // reference's refile): the request, and the move in flight. On success
+    // the local filing moves at once; the next index walk confirms it.
+    std::string requestRefileId;
+    std::string requestRefileSpace;  // "" = out of every Space
+    struct RefileInFlight {
+        std::string id, space;
+        std::future<api::Result<bool>> future;
+    };
+    std::vector<RefileInFlight> refiles;
     // Which Space each session is filed in (spaces_wire.h's index walk, in
     // memory_system.h), applied to the catalogue as `space_group` so the
     // sidebar can section by Space. Re-walked every ten minutes.

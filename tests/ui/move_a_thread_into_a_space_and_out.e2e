@@ -1,0 +1,32 @@
+# Row menu > Move to Space (the reference's refile, from the weekly feed's
+# kt-im8t): a submenu of the viewer's Spaces moves the thread into one -- the
+# sidebar sections it under that Space at once -- and, once it is in one,
+# "Out of its Space" moves it back to Recents. The mock records the moves.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 30
+expect_text "SKU backfill — my name for it"
+expect_no_text "INFRA NOTES"
+right_click_text "SKU backfill"
+wait_frames 8
+click_ui row_menu_move_space
+wait_frames 6
+click_ui row_menu_move_space_1
+wait_frames 20
+expect_overlay_write refile t6 2200000000000001
+expect_text "INFRA NOTES"
+expect_text "Moved to Infra notes"
+
+# Back out: open the Space's section, then Out of its Space.
+click_text INFRA NOTES
+wait_frames 10
+right_click_text "SKU backfill"
+wait_frames 8
+click_ui row_menu_move_space
+wait_frames 6
+click_ui row_menu_move_space_out
+wait_frames 20
+expect_overlay_write refile t6 personal
+expect_text "Moved out of its Space"
+expect_no_text "INFRA NOTES"
