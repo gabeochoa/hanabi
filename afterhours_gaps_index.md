@@ -31,6 +31,7 @@ that do not exist, and `make source-checks` runs it.
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
 | **Rows in the triage table (§6)** | **281** rows, **281** unique identifiers - includes index-only ids with no detailed entry |
 | Standalone live asks | not recounted; see §6 verdicts |
+| **Live with NO app-side workaround** (status pass 2026-10-02) | **6** — #36 #54 #92 #155 #212 #336, each judged not app-fixable (migration risk / library seam / vendor renderer / library-level); every other live row's status now names what Hanabi does instead (app workaround, proof patch, negative result, or perf finding) |
 | Live but subsumed into a family canonical | **56** (§3) |
 | Already fixed upstream | **37** (24 closed at pin 9ff9079 and REMOVED; 13 more at 1ac6db2 — #137 #103 #575 #573 #72 #275 #277 #340 #435 #436 #210 #255 #85 — fixed and kept IN PLACE, see the second closure table) |
 | Deliberate NEGATIVE results — do not promote | **24** (§4) |
@@ -632,16 +633,16 @@ correction narrows them rather than closing them.
 | AN-10 | No one-shot state-change trigger | — | LOW | S | live |
 | AN-11 | No shimmer / gradient-mask primitive | — | LOW | M | live |
 | AN-12 | No drag gesture + spring-to-slot | — | LOW | L | dup→#287 |
-| 13 | `draw_texture_pro` has no alpha blending | — | HIGH | S | live |
-| 14 | `load_texture` sampler has no mipmaps | — | MED | S | live |
-| 15 | Low-alpha `with_custom_background` renders opaque | — | HIGH | S | live |
-| 16 | No OS appearance query | — | MED | S | live |
-| 18 | No flex-grow: cannot pin a trailing element right | — | HIGH | M | live |
+| 13 | `draw_texture_pro` has no alpha blending | — | HIGH | S | live · app workaround (see Hanabi reference) |
+| 14 | `load_texture` sampler has no mipmaps | — | MED | S | live · app workaround (see Hanabi reference) |
+| 15 | Low-alpha `with_custom_background` renders opaque | — | HIGH | S | live · app workaround (see Hanabi reference) |
+| 16 | No OS appearance query | — | MED | S | live · app workaround (see Hanabi reference) |
+| 18 | No flex-grow: cannot pin a trailing element right | — | HIGH | M | live · app workaround (see Hanabi reference) |
 | 19 | Icon atlas has no waiting/attention glyph | — | — | — | app |
 | 20 | Icon atlas has no automated/scheduled glyph | — | — | — | app |
 | 21 | `--screenshot` waits on list, not transcript | — | — | — | app |
 | 23 | No off-screen culling / list virtualization | — | HIGH | M | wrong |
-| 25 | Degenerate triangle on mixed round/sharp corners | — | MED | XS | live |
+| 25 | Degenerate triangle on mixed round/sharp corners | — | MED | XS | live · app workaround (see Hanabi reference) |
 | 27a | Immediate mode rebuilds the tree every admitted frame | — | MED | XL | app fixed→#540; upstream live |
 | 27b | `spawn_status` overflows `spawn_card` | — | — | — | app |
 | 28a | No OS window-focus / frontmost query | — | MED | M | live |
@@ -656,160 +657,160 @@ correction narrows them rather than closing them.
 | 34b | `text_input` does not wrap or clip long text | — | MED | M | dup→#67 |
 | 35a | No "list installed system fonts" primitive | WORKAROUND | LOW | S | dup→#571 |
 | 35b | No Escape-to-clear on `text_input` | — | LOW | XS | dup→#57 |
-| 36 | No app cache dir distinct from config dir | — | LOW | XS | live |
-| 37 | No text selection on read-only text | — | HIGH | L | live |
-| 38 | A container cannot report hover unless clickable | — | MED | XS | live |
-| 39 | The e2e runner never fails a single-script run | — | HIGH | S | live |
-| 40 | The last command's result is never observed | — | HIGH | XS | live |
-| 41 | No worked example of an e2e host loop | — | MED | S | live |
+| 36 | No app cache dir distinct from config dir | — | LOW | XS | live · no app-side workaround |
+| 37 | No text selection on read-only text | — | HIGH | L | live · app workaround (see Hanabi reference) |
+| 38 | A container cannot report hover unless clickable | — | MED | XS | live · app workaround (see Hanabi reference) |
+| 39 | The e2e runner never fails a single-script run | — | HIGH | S | live · app workaround (see Hanabi reference) |
+| 40 | The last command's result is never observed | — | HIGH | XS | live · app workaround (see Hanabi reference) |
+| 41 | No worked example of an e2e host loop | — | MED | S | live · proof patch, not shipped |
 | 44 | The imm builder copies its config a lot | — | MED | S | dup→#181 |
-| 45 | Widget callbacks outlive their frame; no imm `on_submit` | — | MED | S | live |
+| 45 | Widget callbacks outlive their frame; no imm `on_submit` | — | MED | S | live · app workaround (see Hanabi reference) |
 | 46 | The focus ring fans out at the corners | — | MED | S | dup→#83; `ffd62d8` squares the ring on a square element |
-| 48 | A missing codepoint draws nothing, with no query | — | HIGH | S | live |
+| 48 | A missing codepoint draws nothing, with no query | — | HIGH | S | live · app workaround (see Hanabi reference) |
 | 49 | A script cannot press Cmd | — | — | — | fixed at c1d0e0b (`be4c507` real Super injection; C35 chord fixtures green); entry kept in place |
-| 50 | Graphics-layer key reads bypass the injector | — | MED | S | live |
-| 51 | No way to ask where a piece of text landed | — | HIGH | M | live |
+| 50 | Graphics-layer key reads bypass the injector | — | MED | S | live · app workaround (see Hanabi reference) |
+| 51 | No way to ask where a piece of text landed | — | HIGH | M | live · app workaround (see Hanabi reference) |
 | 52 | Selection across elements needs a document order | — | — | — | neg |
-| 53 | A wrong layout is corrected silently, warned forever | — | MED | S | live |
-| 54 | `check_single_action_impl` ignores the injected reader | — | MED | XS | live |
-| 56 | A new `text_input` cannot be focused programmatically | — | MED | S | live |
-| 57 | `text_input` blurs itself on Escape | — | MED | S | live |
-| 58 | No colour input of any kind | — | LOW | L | live |
-| 59 | `assert_ui` cannot assert a value containing a space | — | MED | XS | live |
-| 60 | sokol's drag-and-drop cannot be turned on | — | MED | XS | live |
-| 61 | A script can assert a rect and a string, never a colour | — | HIGH | S | live |
-| 62 | Styled spans lose a monospace block's columns | — | MED | S | live |
-| 63 | A container cannot draw over its own children | — | MED | S | live |
-| 64 | No window-level chrome / render layers | — | MED | M | live |
-| 65 | `text_input` padding derives from field HEIGHT | — | MED | S | live |
+| 53 | A wrong layout is corrected silently, warned forever | — | MED | S | live · negative result recorded |
+| 54 | `check_single_action_impl` ignores the injected reader | — | MED | XS | live · no app-side workaround |
+| 56 | A new `text_input` cannot be focused programmatically | — | MED | S | live · app workaround (see Hanabi reference) |
+| 57 | `text_input` blurs itself on Escape | — | MED | S | live · app workaround (see Hanabi reference) |
+| 58 | No colour input of any kind | — | LOW | L | live · app workaround (see Hanabi reference) |
+| 59 | `assert_ui` cannot assert a value containing a space | — | MED | XS | live · app workaround (see Hanabi reference) |
+| 60 | sokol's drag-and-drop cannot be turned on | — | MED | XS | live · app workaround (see Hanabi reference) |
+| 61 | A script can assert a rect and a string, never a colour | — | HIGH | S | live · app workaround (see Hanabi reference) |
+| 62 | Styled spans lose a monospace block's columns | — | MED | S | live · app workaround (see Hanabi reference) |
+| 63 | A container cannot draw over its own children | — | MED | S | live · app workaround (see Hanabi reference) |
+| 64 | No window-level chrome / render layers | — | MED | M | live · app workaround (see Hanabi reference) |
+| 65 | `text_input` padding derives from field HEIGHT | — | MED | S | live · app workaround (see Hanabi reference) |
 | 66 | A placeholder is a string, so an undrawable hint is blank | — | LOW | S | dup→#48 |
-| 67 | Multi-line is a different widget, not a mode | — | HIGH | M | live |
-| 68 | Nothing reports the height an element came out at | — | HIGH | M | live |
+| 67 | Multi-line is a different widget, not a mode | — | HIGH | M | live · app workaround (see Hanabi reference) |
+| 68 | Nothing reports the height an element came out at | — | HIGH | M | live · app workaround (see Hanabi reference) |
 | 69 | A wrapped label cannot size itself to its text | — | MED | M | dup→#136 (partial) |
-| 70 | An entity created this frame is not findable by id | — | MED | S | live |
-| 71 | Grid snapping quantizes child POSITIONS | FOOTGUN | HIGH | XS | live |
+| 70 | An entity created this frame is not findable by id | — | MED | S | live · app workaround (see Hanabi reference) |
+| 71 | Grid snapping quantizes child POSITIONS | FOOTGUN | HIGH | XS | live · app workaround (see Hanabi reference) |
 | 72 | A focus ring is painted at rest | — | — | — | fixed at 1ac6db2 (`7736594`); entry kept in place |
-| 73 | `assert_ui_text` matches ANY element with that label | — | HIGH | S | live |
-| 74 | The resolved layout tree cannot be walked | — | HIGH | M | live |
+| 73 | `assert_ui_text` matches ANY element with that label | — | HIGH | S | live · app workaround (see Hanabi reference) |
+| 74 | The resolved layout tree cannot be walked | — | HIGH | M | live · app workaround (see Hanabi reference) |
 | 75 | Text is inset by a hardcoded 5px margin that no caller can turn off | WORKAROUND | HIGH | S | partial→#590 |
-| 76 | An unpadded element silently gets a fraction of the SCREEN | FOOTGUN | HIGH | XS | live |
+| 76 | An unpadded element silently gets a fraction of the SCREEN | FOOTGUN | HIGH | XS | live · app workaround (see Hanabi reference) |
 | 77 | No bold face bundled; installed faces now unblock Hanabi | WORKAROUND | MED | S | app fixed |
-| 78 | `draw_circle_v` truncates its centre to whole pixels | — | MED | XS | live |
+| 78 | `draw_circle_v` truncates its centre to whole pixels | — | MED | XS | live · app workaround (see Hanabi reference) |
 | 79 | A label cannot be told to fit a width | — | — | — | wrong |
-| 80 | Every box rasterizes 1px bigger and 1px up-left | WORKAROUND | HIGH | S | live |
-| 81 | Per-corner rounding bits are named for the OPPOSITE corner | FOOTGUN | HIGH | XS | live |
+| 80 | Every box rasterizes 1px bigger and 1px up-left | WORKAROUND | HIGH | S | live · app workaround (see Hanabi reference) |
+| 81 | Per-corner rounding bits are named for the OPPOSITE corner | FOOTGUN | HIGH | XS | live · app workaround (see Hanabi reference) |
 | 82 | Renderer measurement is weight-aware; global app measure is not | FOOTGUN | HIGH | XS | wrong→#574 |
 | 83 | No `:focus-visible`; the library's rule since 1ac6db2 is "after any interaction" | WORKAROUND | MED | S | **partial — top 10**; #72 half closed |
 | 84 | Right-aligned text can never sit flush to its box | — | MED | XS | partial→#590 |
 | 85 | Padding on a label-only element is silently ignored | — | — | — | fixed at 1ac6db2 (`cc26cbc` warns once); the inset asks live in #75/#91 |
-| 86 | A capture emits pixels and no geometry | TEDIOUS | HIGH | S | live |
+| 86 | A capture emits pixels and no geometry | TEDIOUS | HIGH | S | live · app workaround (see Hanabi reference) |
 | 87 | `Dim::Text` measures unwrapped; `max_width` clamps nothing | WORKAROUND | — | — | fixed at 1ac6db2 (`c1c1eac`) with #136's `with_fit_content` |
-| 88 | A row cannot baseline-align its children | FOOTGUN | MED | M | live |
+| 88 | A row cannot baseline-align its children | FOOTGUN | MED | M | live · app workaround (see Hanabi reference) |
 | 89 | Right-aligning needs no spacer | TEDIOUS | — | — | neg |
-| 90 | `ctx.theme` is one global read at RENDER time | FOOTGUN | HIGH | M | live |
-| 91 | A label is not a layout participant | — | HIGH | S | live (canonical now; #85 closed) |
-| 92 | Primitives are not antialiased (MSAA hardcoded off) | WORKAROUND | HIGH | S | live |
-| 93 | An absolute child can only be placed from the LEADING edge | WORKAROUND | MED | S | live |
-| 94 | The scrollbar is a bare on/off bool; no overlay mode | WORKAROUND | MED | S | live |
-| 95 | `clipboard.h` declares none of the symbols it calls | WORKAROUND | MED | XS | live |
+| 90 | `ctx.theme` is one global read at RENDER time | FOOTGUN | HIGH | M | live · app workaround (see Hanabi reference) |
+| 91 | A label is not a layout participant | — | HIGH | S | live (canonical now; #85 closed) · app workaround (see Hanabi reference) |
+| 92 | Primitives are not antialiased (MSAA hardcoded off) | WORKAROUND | HIGH | S | live · no app-side workaround |
+| 93 | An absolute child can only be placed from the LEADING edge | WORKAROUND | MED | S | live · app workaround (see Hanabi reference) |
+| 94 | The scrollbar is a bare on/off bool; no overlay mode | WORKAROUND | MED | S | live · app workaround (see Hanabi reference) |
+| 95 | `clipboard.h` declares none of the symbols it calls | WORKAROUND | MED | XS | live · app workaround (see Hanabi reference) |
 | 96 | A translucent shape blends correctly in `on_draw_fg` | NOT A GAP | — | — | neg |
-| 97 | An absolute child cannot be `percent()`-sized | WORKAROUND | MED | XS | live |
+| 97 | An absolute child cannot be `percent()`-sized | WORKAROUND | MED | XS | live · app workaround (see Hanabi reference) |
 | 100 | The private 5px margin is in DEVICE pixels | WORKAROUND | MED | XS | dup→#91 |
-| 101 | No supersampled capture; `ui_scale` is a layout zoom | IMPOSSIBLE | MED | M | live |
-| 102 | `on_draw_fg` gets a SCALED rect and no scale | WORKAROUND | HIGH | XS | live |
+| 101 | No supersampled capture; `ui_scale` is a layout zoom | IMPOSSIBLE | MED | M | live · proof patch, not shipped |
+| 102 | `on_draw_fg` gets a SCALED rect and no scale | WORKAROUND | HIGH | XS | live · app workaround (see Hanabi reference) |
 | 103 | `measure_text` returns the ink BOX, not the advance | — | — | — | fixed at 1ac6db2 (`82145f9`); entry kept in place |
 | 104 | A script cannot assert an element is ABSENT | TEDIOUS | HIGH | S | live; absence asserted app-side (`expect_no_ui`), borders still not |
-| 105 | A field's placeholder colour is a frame-wide global | TEDIOUS | MED | XS | live |
+| 105 | A field's placeholder colour is a frame-wide global | TEDIOUS | MED | XS | live · app workaround (see Hanabi reference) |
 | 106 | No AA, and the one escape needs a flat, known background | WORKAROUND | HIGH | S | dup→#92 |
-| 107 | A selected row's fill IS the row's own background box | MISSING | MED | S | live |
+| 107 | A selected row's fill IS the row's own background box | MISSING | MED | S | live · app workaround (see Hanabi reference) |
 | 108 | Icon stroke weight is baked into the atlas | MISSING | — | — | app |
 | 109 | #85 again, live 2,200 lines down, cost a whole region | FOOTGUN | — | — | fixed with #85 at 1ac6db2 (the warn-once) |
-| 110 | Nothing rounds a widget's ORIGIN | SURPRISING | HIGH | S | live |
+| 110 | Nothing rounds a widget's ORIGIN | SURPRISING | HIGH | S | live · app workaround (see Hanabi reference) |
 | 111 | A hover highlight IS the hit rectangle | MISSING | MED | XS | live; footer chip drawn app-side (on_draw_bg) 2026-10-02 |
 | 112 | No accessible name (tooltip landed at 1ac6db2) | MISSING | MED | M | partial |
 | 114 | A sprite's rendered INK extent is not derivable | TEDIOUS | — | — | app; ink table generated from the atlas 2026-10-02 |
-| 116 | No way to ask how much of a string fits in a width | WORKAROUND | HIGH | S | **live — top 10** |
+| 116 | No way to ask how much of a string fits in a width | WORKAROUND | HIGH | S | **live — top 10** · app workaround (see Hanabi reference) |
 | 117 | A script pins coordinates and goes stale silently | TEDIOUS | MED | S | wrong |
-| 125 | `load_texture` has no max dimension | WORKAROUND | MED | XS | live |
-| 126 | Nothing says how many GPU bytes are held | IMPOSSIBLE | MED | XS | live |
-| 135 | `wrap_text` is O(words) measures and O(words) strings | PERFORMANCE | HIGH | S | **live — top 10** |
+| 125 | `load_texture` has no max dimension | WORKAROUND | MED | XS | live · app workaround (see Hanabi reference) |
+| 126 | Nothing says how many GPU bytes are held | IMPOSSIBLE | MED | XS | live · app workaround (see Hanabi reference) |
+| 135 | `wrap_text` is O(words) measures and O(words) strings | PERFORMANCE | HIGH | S | **live — top 10** · app workaround (see Hanabi reference) |
 | 136 | Nothing sizes a box to its own text | PERFORMANCE | MED | M | **partial** — `with_fit_content` at 1ac6db2; bubble memo not migrated |
 | 137 | The cached measure and the app's measure disagree | — | — | — | fixed at 1ac6db2 (`82145f9` measures text by advance); entry kept in place |
 | 138 | ~4.6 heap allocations per widget per frame | PERFORMANCE | HIGH | M | dup→#181 |
-| 145 | No frame SCOPE, so Metal autoreleases have no drain | FOOTGUN | HIGH | XS | live |
-| 146 | Nothing reports the size of the tree just built | WORKAROUND | MED | XS | live |
-| 147 | A scroll view is addressable only by DEBUG NAME | — | MED | S | live |
-| 155 | The first draws cost 5-8x and there is no pre-warm | PERFORMANCE | MED | S | live |
-| 160 | A component is two cache misses to write four bytes | TEDIOUS | MED | S | live — the *cost* of the sweep that landed in `2393fe3` |
-| 162 | An app cannot see the widgets the LIBRARY built | TEDIOUS | MED | XS | live — dup→#171 |
+| 145 | No frame SCOPE, so Metal autoreleases have no drain | FOOTGUN | HIGH | XS | live · app workaround (see Hanabi reference) |
+| 146 | Nothing reports the size of the tree just built | WORKAROUND | MED | XS | live · app workaround (see Hanabi reference) |
+| 147 | A scroll view is addressable only by DEBUG NAME | — | MED | S | live · app workaround (see Hanabi reference) |
+| 155 | The first draws cost 5-8x and there is no pre-warm | PERFORMANCE | MED | S | live · no app-side workaround |
+| 160 | A component is two cache misses to write four bytes | TEDIOUS | MED | S | live — the *cost* of the sweep that landed in `2393fe3` · Hanabi-owned perf finding |
+| 162 | An app cannot see the widgets the LIBRARY built | TEDIOUS | MED | XS | live — dup→#171 · app workaround (see Hanabi reference) |
 | 163 | A scroll view clamps against children that are not there | WORKAROUND | HIGH | XS | live; Home, digests, Settings panes restored app-side 2026-10-02 |
-| 170 | `Overflow::Scroll` clips; there is no way to build less | MISSING | HIGH | M | **live — top 10** |
-| 171 | Identity is the SLOT, so state re-points at another row | MISSING | HIGH | M | **live — family canonical** |
-| 172 | Input injection needs the e2e plugin compiled in | MISSING | MED | S | live |
-| 181 | A `ComponentConfig` is copied three times on the way in | PERFORMANCE | HIGH | S | live |
-| 183 | The focusable set is a `std::set` rebuilt every frame | PERFORMANCE | MED | XS | live |
+| 170 | `Overflow::Scroll` clips; there is no way to build less | MISSING | HIGH | M | **live — top 10** · app workaround (see Hanabi reference) |
+| 171 | Identity is the SLOT, so state re-points at another row | MISSING | HIGH | M | **live — family canonical** · app workaround (see Hanabi reference) |
+| 172 | Input injection needs the e2e plugin compiled in | MISSING | MED | S | live · app workaround (see Hanabi reference) |
+| 181 | A `ComponentConfig` is copied three times on the way in | PERFORMANCE | HIGH | S | live · app workaround (see Hanabi reference) |
+| 183 | The focusable set is a `std::set` rebuilt every frame | PERFORMANCE | MED | XS | live · app workaround (see Hanabi reference) |
 | 190 | `TextMeasureCache` is keyed by a font's NAME | FOOTGUN | HIGH | XS | dup→#579 |
 | 191 | `wrap_text` gives the LINES or nothing | PERFORMANCE | HIGH | S | dup→#136 |
 | 210 | Fixed GPU pools; the sampler pool exhausts at 64, silently | — | — | — | fixed at 1ac6db2 (`865c4e6`); entry kept, source cites it |
-| 350 | Nothing can be asked of the atlas, not even "was that measure complete" | MISSING | CRIT | XS | **live — top 10** |
-| 353 | A dropped glyph is not drawn either, and neither failure is reported | FOOTGUN | HIGH | XS | **live — top 10** |
+| 350 | Nothing can be asked of the atlas, not even "was that measure complete" | MISSING | CRIT | XS | **live — top 10** · app workaround (see Hanabi reference) |
+| 353 | A dropped glyph is not drawn either, and neither failure is reported | FOOTGUN | HIGH | XS | **live — top 10** · app workaround (see Hanabi reference) |
 | 365 | Find-in-conversation normalized every loaded message every frame | PERFORMANCE | HIGH | M | app (fixed) |
-| 212 | Destroying a GPU object does not free it until next frame | SURPRISING | MED | XS | live |
+| 212 | Destroying a GPU object does not free it until next frame | SURPRISING | MED | XS | live · no app-side workaround |
 | 221 | `with_label` takes `const std::string&` | TEDIOUS | MED | XS | dup→#181 |
-| 222 | An absolute child is still counted in its parent's flow | SHARP EDGE | MED | XS | live |
-| 223 | The script deadline is seconds fed by the host's `dt` (fixed timestep landed at 1ac6db2) | SHARP EDGE | MED | XS | live · #591 is the wall-clock half |
-| 224 | Nothing says how tall a child WOULD be | — | HIGH | M | **live — top 10** |
-| 230 | `mouse.pos` is NaN until the first mouse event | FOOTGUN | MED | XS | live |
-| 232 | A coordinate test cannot state its own precondition | TEDIOUS | MED | S | live |
+| 222 | An absolute child is still counted in its parent's flow | SHARP EDGE | MED | XS | live · app workaround (see Hanabi reference) |
+| 223 | The script deadline is seconds fed by the host's `dt` (fixed timestep landed at 1ac6db2) | SHARP EDGE | MED | XS | live · #591 is the wall-clock half · app workaround (see Hanabi reference) |
+| 224 | Nothing says how tall a child WOULD be | — | HIGH | M | **live — top 10** · app workaround (see Hanabi reference) |
+| 230 | `mouse.pos` is NaN until the first mouse event | FOOTGUN | MED | XS | live · negative result recorded |
+| 232 | A coordinate test cannot state its own precondition | TEDIOUS | MED | S | live · app workaround (see Hanabi reference) |
 | 240 | Coloured runs are first-class | NOT A GAP | — | — | neg |
 | 241 | `imm::mk` hashes the SOURCE LOCATION | NOT A GAP | — | — | neg |
 | 255 | A feature is opted into by ENUMERATOR NAME, silently | FOOTGUN | — | — | fixed at 1ac6db2 (`7208d0c`); hanabi static_asserts its names |
 | 256 | Correction to #49: `CMD+` means Ctrl, `SUPER+` is dropped | FOOTGUN | MED | XS | fixed at c1d0e0b (`be4c507`); entry kept in place |
-| 257 | No action for delete-to-line-start | MISSING | MED | S | live |
-| 258 | `expect_input_text` cannot see a multiline field | WORKAROUND | HIGH | XS | live |
-| 259 | The script parser is line-based; no `\n` escape | TEDIOUS | MED | XS | live |
+| 257 | No action for delete-to-line-start | MISSING | MED | S | live · app workaround (see Hanabi reference) |
+| 258 | `expect_input_text` cannot see a multiline field | WORKAROUND | HIGH | XS | live · app workaround (see Hanabi reference) |
+| 259 | The script parser is line-based; no `\n` escape | TEDIOUS | MED | XS | live · app workaround (see Hanabi reference) |
 | 260 | `text_area`'s word motion does not collapse a selection | SHARP EDGE | MED | XS | dup→#67; app workaround 2026-10-02 (caret aimed before the step) |
 | 261 | `text_area` has no placeholder | MISSING | MED | XS | dup→#67 |
 | 262 | `text_area` hardcodes its field background | MISSING | MED | XS | dup→#67 |
 | 263 | `text_area` draws no focus ring | MISSING | MED | XS | dup→#67 |
-| 264 | `default_keymap()` is not macOS-correct | FOOTGUN | HIGH | S | live |
+| 264 | `default_keymap()` is not macOS-correct | FOOTGUN | HIGH | S | live · app workaround (see Hanabi reference) |
 | 265 | The ring is three outlines, not one | — | HIGH | XS | **proof patch — contrast toggle** |
 | 266 | The ring's offset is one number for the whole app | — | MED | S | dup→#83 |
 | 267 | The ring is drawn with no reference to whether focus moves | — | MED | XS | dup→#83 |
 | 275 | Nothing asks whether a widget is inside its PARENT | — | — | — | fixed at 1ac6db2 (`0c67090`); entry kept in place |
-| 276 | `Dim::Percent` ignores the child's own margin | FOOTGUN | HIGH | XS | live |
+| 276 | `Dim::Percent` ignores the child's own margin | FOOTGUN | HIGH | XS | live · app workaround (see Hanabi reference) |
 | 277 | The 5px label inset is hard-coded and unqueryable | — | — | — | fixed at 1ac6db2 (`cc26cbc`); entry kept in place |
-| 285 | Every element-addressed input command is a CLICK | TEDIOUS | MED | S | live |
-| 286 | A widget cannot know its own position on the frame built | — | MED | M | live |
-| 287 | There IS a drag primitive, unreachable from the config | — | HIGH | XS | live |
+| 285 | Every element-addressed input command is a CLICK | TEDIOUS | MED | S | live · app workaround (see Hanabi reference) |
+| 286 | A widget cannot know its own position on the frame built | — | MED | M | live · app workaround (see Hanabi reference) |
+| 287 | There IS a drag primitive, unreachable from the config | — | HIGH | XS | live · app workaround (see Hanabi reference) |
 | 325 | `with_debug_name` takes a `std::string` | PERF | MED | XS | dup→#181 |
 | 326 | `virtual_list` handles UNIFORM row heights only | MISSING | — | — | fixed at 1ac6db2 (`4a439b4`); see #420 for what is left |
 | 327 | No draw-only element; a decorative mark costs an Entity | MISSING | HIGH | M | live |
-| 305 | `text_area` re-wraps EVERY FRAME and bypasses `TextMeasureCache` | PERF | HIGH | XS | **live — patch proven; re-read at c1d0e0b: not landed, patch no longer applies** |
-| 306 | `with_auto_grow` knows the row count and will not return it | MISSING | MED | XS | live |
+| 305 | `text_area` re-wraps EVERY FRAME and bypasses `TextMeasureCache` | PERF | HIGH | XS | **live — patch proven; re-read at c1d0e0b: not landed, patch no longer applies** · proof patch, not shipped |
+| 306 | `with_auto_grow` knows the row count and will not return it | MISSING | MED | XS | live · app workaround (see Hanabi reference) |
 | 307 | `HasTextAreaState::line_index` moves no caret; a stale one is invisible | NOT A GAP | — | — | neg |
-| 308 | `assert_ui` can assert geometry and text, nothing about colour | MISSING | HIGH | S | live |
-| 335 | Two view trees in one window is not a notion the library has | MISSING | HIGH | L | live |
-| 336 | Tab order cannot be scoped, so Tab walks out of a split pane | MISSING | HIGH | S | live |
+| 308 | `assert_ui` can assert geometry and text, nothing about colour | MISSING | HIGH | S | live · app workaround (see Hanabi reference) |
+| 335 | Two view trees in one window is not a notion the library has | MISSING | HIGH | L | live · app workaround (see Hanabi reference) |
+| 336 | Tab order cannot be scoped, so Tab walks out of a split pane | MISSING | HIGH | S | live · no app-side workaround |
 | 337 | With two panes a debug name stops naming ONE widget | FOOTGUN | HIGH | S | dup→#51 |
 | 338 | Two subtrees from the same call sites get disjoint identities | NOT A GAP | — | — | neg |
 | 339 | `imm::divider` and `hsplit` already exist | NOT A GAP | — | — | neg |
 | 340 | Styled text re-wraps and re-allocates on the RENDER path, per frame | — | — | — | fixed at 1ac6db2 (`b9844c2`); entry kept in place |
 | 341 | What a second pane costs (hanabi's own accounting) | PERF | — | — | app |
-| 374 | `set_window_size` tears down the render target mid-pass, aborting the process | BLOCKING | HIGH | XS | **live — top 10** |
-| 375 | A focused `text_input`'s border loses its top edge to the field's own clip | VISUAL | MED | S | **live — top 10** |
+| 374 | `set_window_size` tears down the render target mid-pass, aborting the process | BLOCKING | HIGH | XS | **live — top 10** · app workaround (see Hanabi reference) |
+| 375 | A focused `text_input`'s border loses its top edge to the field's own clip | VISUAL | MED | S | **live — top 10** · app workaround (see Hanabi reference) |
 | 380 | A custom command cannot own its timeout message | TEDIOUS | MED | XS | dup→#223 |
 | 381 | The directory mode runs a suite in one process with no reset | MISSING | HIGH | S | dup→#223 |
-| 405 | Trackpad and wheel arrive as the same float; one `scroll_speed` cannot serve both conventions | MISSING | HIGH | S | **live** |
+| 405 | Trackpad and wheel arrive as the same float; one `scroll_speed` cannot serve both conventions | MISSING | HIGH | S | **live** · app workaround (see Hanabi reference) |
 | 406 | `HandleScrollInput` skips the ancestor-scroll correction its sibling `HandleScrollbarDrag` applies | TEDIOUS | LOW | XS | neg (latent) |
-| 407 | An injected wheel event is delivered on TWO frames, so a script cannot spell one notch | MISSING | MED | XS | **live** |
+| 407 | An injected wheel event is delivered on TWO frames, so a script cannot spell one notch | MISSING | MED | XS | **live** · app workaround (see Hanabi reference) |
 | 408 | `assert_ui` cannot see a scroll offset, though `dump_ui_node` prints one | TEDIOUS | MED | XS | **live**; app-side `expect_scroll_y` 2026-10-02 |
 | 409 | An OS preference read inside the per-frame widget build, 333 ns a panel a frame | PERF | LOW | S | app (fixed) |
-| 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** |
+| 410 | The only handle on a widget from outside is a linear walk of every entity | MISSING | LOW | S | **live** · Hanabi-owned perf finding |
 | 420 | `virtual_list` has no RETAINED variable-height index (`height_of` landed at 1ac6db2) | MISSING / PERF | MED | M | partial · extends #326 |
 | 455 | Variable-height transcript virtualization still scans every item | PERFORMANCE | MED | M | dup→#420/#224; measured |
-| 456 | E2E has no clipboard assertion despite exposing clipboard reads | MISSING | MED | S | **live** |
-| 457 | Custom E2E commands lose quoted arguments | FOOTGUN | HIGH | S | **live** |
+| 456 | E2E has no clipboard assertion despite exposing clipboard reads | MISSING | MED | S | **live** · app workaround (see Hanabi reference) |
+| 457 | Custom E2E commands lose quoted arguments | FOOTGUN | HIGH | S | **live** · app workaround (see Hanabi reference) |
 | 458 | Icon controls have no semantic accessible name or role | MISSING | HIGH | M | dup→#112 |
 | 459 | Conditional construction gives zero hidden hover entities | NOT A GAP | — | — | neg |
 | 435 | Plain wrapped labels rebuild their line vectors on every draw | — | — | — | fixed at 1ac6db2 (`b9844c2`); entry kept in place |
@@ -827,7 +828,7 @@ correction narrows them rather than closing them.
 | 473 | CoreSpotlight accepted the item; three mdquery predicates still returned 0 | PLATFORM-GATED | LOW | — | platform |
 | 474 | A bundled headless executable still has the real bundle id | FIXED | CRIT | XS | app (fixed) |
 | 475 | App-owned atlas already supports the real archive icon | NOT A GAP | — | — | neg |
-| 476 | No atomic scroll-to-end operation for the smoothing state | MISSING | MED | XS | live |
+| 476 | No atomic scroll-to-end operation for the smoothing state | MISSING | MED | XS | live · app workaround (see Hanabi reference) |
 | 477 | Pane focus after a child click is application policy | NOT A GAP | — | — | neg |
 | 478 | Smart-view row consistency is one app renderer | NOT A GAP | — | — | neg |
 | 479 | Four-state sidebar glyph vocabulary is Hanabi policy | PERF PROOF | — | — | app |
@@ -836,28 +837,28 @@ correction narrows them rather than closing them.
 | 482 | FlexEnd already anchors an empty-state column | NOT A GAP | — | — | neg |
 | 483 | Color assertions still require screenshot processes | MISSING | HIGH | S | dup→#308 |
 | 484 | One draw-callback branch adds zero entities/allocations | PERF PROOF | — | — | app |
-| 525 | Closed popovers still resolve and retain a UI entity | PERFORMANCE | MED | XS | live |
-| 526 | Synthetic right-click misses direct button polling | MISSING | MED | XS | live |
+| 525 | Closed popovers still resolve and retain a UI entity | PERFORMANCE | MED | XS | live · app workaround (see Hanabi reference) |
+| 526 | Synthetic right-click misses direct button polling | MISSING | MED | XS | live · app workaround (see Hanabi reference) |
 | 527 | Secondary controls lack native accessibility semantics | MISSING | HIGH | M | dup→#112/#458 |
 | 540 | Host can retain the last Metal frame above the framework | NOT A GAP | — | — | app fix / #27 correction |
-| 541 | Metal ignores `RunConfig::target_fps` | MISSING / PERF | HIGH | S | live |
-| 542 | No event-triggered request-frame primitive | MISSING / PERF | CRIT | M | live |
-| 543 | Clear, emit, layout, input, and draw are indivisible | MISSING | HIGH | L | live |
-| 544 | No public non-consuming input-activity snapshot | MISSING | HIGH | S | live |
-| 545 | Window exposure/backing changes are hidden from the host | MISSING | HIGH | S | live |
-| 546 | Futures and SSE have no frame-wake contract | MISSING / PERF | CRIT | M | live |
-| 547 | Timers cannot publish their next visual deadline | MISSING / PERF | HIGH | M | live |
-| 548 | `dt` is callback time, not admitted-frame time | SHARP EDGE | HIGH | S | live |
-| 549 | No headless cadence harness for the production host loop | TESTING / MISSING | HIGH | M | live |
+| 541 | Metal ignores `RunConfig::target_fps` | MISSING / PERF | HIGH | S | live · app workaround (see Hanabi reference) |
+| 542 | No event-triggered request-frame primitive | MISSING / PERF | CRIT | M | live · app workaround (see Hanabi reference) |
+| 543 | Clear, emit, layout, input, and draw are indivisible | MISSING | HIGH | L | live · app workaround (see Hanabi reference) |
+| 544 | No public non-consuming input-activity snapshot | MISSING | HIGH | S | live · app workaround (see Hanabi reference) |
+| 545 | Window exposure/backing changes are hidden from the host | MISSING | HIGH | S | live · app workaround (see Hanabi reference) |
+| 546 | Futures and SSE have no frame-wake contract | MISSING / PERF | CRIT | M | live · app workaround (see Hanabi reference) |
+| 547 | Timers cannot publish their next visual deadline | MISSING / PERF | HIGH | M | live · app workaround (see Hanabi reference) |
+| 548 | `dt` is callback time, not admitted-frame time | SHARP EDGE | HIGH | S | live · app workaround (see Hanabi reference) |
+| 549 | No headless cadence harness for the production host loop | TESTING / MISSING | HIGH | M | live · app workaround (see Hanabi reference) |
 | 560 | Native application menus are outside afterhours' host contract | NOT A GAP | — | — | host |
 | 561 | AppKit consumes menu key equivalents before afterhours sees them | PLATFORM | HIGH | S | app workaround |
-| 562 | E2E parses SUPER but never holds it | MISSING | HIGH | XS | live |
+| 562 | E2E parses SUPER but never holds it | MISSING | HIGH | XS | live · app workaround (see Hanabi reference) |
 | 563 | `CMD+` means Ctrl rather than Command in scripts | FOOTGUN | HIGH | XS | dup→#256 |
 | 564 | Synthetic input is intentionally absent from shipping builds | NOT A GAP | — | — | security boundary |
-| 565 | Text editing has no imperative native-responder command surface | MISSING | HIGH | M | live · app-owned verbs applied at the field binding as an ordered per-entity batch (e4fa44c + a169823; verified C22 b89f8888); key replay withdrawn |
+| 565 | Text editing has no imperative native-responder command surface | MISSING | HIGH | M | live · app-owned verbs applied at the field binding as an ordered per-entity batch (e4fa44c + a169823; verified C22 b89f8888); key replay withdrawn · app workaround (see Hanabi reference) |
 | 566 | Native Edit capabilities depend on magic enum names | FOOTGUN | HIGH | S | dup→#255 |
 | 567 | Headless UI assertions cannot observe AppKit menus | PLATFORM | MED | — | dup→#308 |
-| 568 | Modifier release state has no Super slot | MISSING | HIGH | XS | live |
+| 568 | Modifier release state has no Super slot | MISSING | HIGH | XS | live · app workaround (see Hanabi reference) |
 | 569 | Non-layered input mapping has no remapping method | TEDIOUS | MED | XS | app workaround |
 | 570 | Fontstash size is not native point size | WORKAROUND | HIGH | S | app fixed |
 | 571 | No installed-font catalog | MISSING | MED | S | app workaround |
@@ -869,16 +870,16 @@ correction narrows them rather than closing them.
 | 577 | Loaded font IDs cannot be unloaded and cap at sixteen | FOOTGUN | HIGH | S | app workaround |
 | 578 | Headless 2x zoom is not Retina rasterization | IMPOSSIBLE | HIGH | M | dup→#101 |
 | 579 | Font replacement has no cache generation | FOOTGUN | CRIT | XS | dup→#190 |
-| 580 | No cancellable background-job primitive | MISSING | HIGH | M | live |
-| 581 | No deactivate hook for conditional systems | MISSING | HIGH | S | live |
+| 580 | No cancellable background-job primitive | MISSING | HIGH | M | live · app workaround (see Hanabi reference) |
+| 581 | No deactivate hook for conditional systems | MISSING | HIGH | S | live · app workaround (see Hanabi reference) |
 | 582 | Transcript payload ownership belongs above the ECS | NOT A GAP | — | — | neg |
 | 583 | Entity pool exposes its retained high-water count | NOT A GAP | — | — | neg |
 | 584 | Text-measure cache is bounded and observable | DUPLICATE | — | — | dup→#340 |
-| 585 | No retained-byte attribution by system/component | MISSING | MED | M | live |
-| 586 | No memory-pressure/cache-purge event | MISSING | MED | M | live |
-| 587 | No frame-safe mailbox for background completions | MISSING | HIGH | M | live |
+| 585 | No retained-byte attribution by system/component | MISSING | MED | M | live · app workaround (see Hanabi reference) |
+| 586 | No memory-pressure/cache-purge event | MISSING | MED | M | live · app workaround (see Hanabi reference) |
+| 587 | No frame-safe mailbox for background completions | MISSING | HIGH | M | live · app workaround (see Hanabi reference) |
 | 588 | Skeleton and stale metadata are app UI state | NOT A GAP | — | — | neg |
-| 589 | No per-system CPU accounting seam | MISSING | MED | S | live |
+| 589 | No per-system CPU accounting seam | MISSING | MED | S | live · app workaround (see Hanabi reference) |
 | 590 | Button variants drop per-widget text inset | FOOTGUN | HIGH | XS | app workaround |
 | 591 | The e2e runner has no wall-clock wait; a worker holding real seconds cannot be awaited — and (extended d90db15) the cleanup's 30-frame lifetime overrides a handler's retries, and dispatch never waits for a retrying command | MISSING | MED | S | live (re-tested 1ac6db2; extended d90db15) · extends #223; app workaround: latch + `release_compaction`; `within=` fixed deadline pre-handler + dispatch barrier + watchdog + terminal `skip_current_script()` (3 controls) |
 | 592 | Every click on a `HasClickListener` moves keyboard focus to it; no activate-without-focus | FOOTGUN | HIGH | XS | live (re-tested 1ac6db2) · app workaround (refocus) |
@@ -888,13 +889,13 @@ correction narrows them rather than closing them.
 | 596 | An imm subtree built twice from one call site collides on its ids unless the caller salts `otherID` | SHARP EDGE | MEDIUM | XS | live · app workaround (salted root `mk`) |
 | 597 | The Metal pointer is letterboxed against an app-owned resolution the library never refreshes; the draw path is not letterboxed | SHARP EDGE | HIGH | XS | live · app registers `CollectCurrentResolution` ahead of the UI bridge + `pointer_gate.sh` |
 | 599 | `imm::popover` dismisses before its body runs on the frame focus leaves the panel, but an imm button's click reaches the body a frame after the press: a row press is lost (fc0fd04, d90db15) | SHARP EDGE | HIGH | XS | live · app acts in the click listener, not the return value |
-| 598 | A Cmd chord never becomes a key event: the macOS view answers `performKeyEquivalent:` only for Tab, so an app without a main menu cannot see Command shortcuts at all | SHARP EDGE | HIGH | S | live |
-| 600 | `imm::popover` drops the caller's debug name: the panel is always "popover_panel" | SHARP EDGE | MED | XS | live |
+| 598 | A Cmd chord never becomes a key event: the macOS view answers `performKeyEquivalent:` only for Tab, so an app without a main menu cannot see Command shortcuts at all | SHARP EDGE | HIGH | S | live · app workaround (see Hanabi reference) |
+| 600 | `imm::popover` drops the caller's debug name: the panel is always "popover_panel" | SHARP EDGE | MED | XS | live · app workaround (see entry) |
 | 601 | The UI plugin has no notion of an external tracker owning the pointer: while a native menu (NSMenu) tracks, hot/active are last frame's and a press underneath still registers | MISSING | HIGH | M | live · app-side adapter (`surface::native_menu_frame`) |
 | 602 | `core/system.h` in-class explicit specializations of `HasAllComponents<>` / `CallWithComponents<>` / `CallWithChildComponents<>` do not compile under GCC (clang extension; conforming `if constexpr` arm exists only under `_WIN32`) | PORTABILITY | MED | XS | live · no workaround admitted (Mac build against the pin) |
 | 603 | `find_component_center` returns the centre of a clipped or scrolled-out target; a by-name native click cannot be trusted until the target is revealed (C16 palette capture) | TESTING / MISSING | HIGH | S | live · workaround measured on the owned window (reveal via app navigation, then click); re-checked at c1d0e0b: upstream rework, fixtures green, clipped-target case not re-captured |
 | 605 | The label wrap memo's key (`wrap_memo::key_for`) hashes runs and width but not the font, so a label re-drawn at another size keeps the old line breaks and its ink overflows (C28 zoom 1.3 capture; C29 wraps inside) | UI / WRONG | MED | XS | live · app calls the memo's public `clear()` on a text-scale change (118cb7f); face-switch path not covered; the number 604 is unused |
-| 606 | A wrapped label has no line-height or leading control: only `text_area` takes `with_line_height`; label rows advance by the `"Ag"` measure (batch 2 line-spacing port, c1d0e0b) | UI / MISSING | MED | S | live |
+| 606 | A wrapped label has no line-height or leading control: only `text_area` takes `with_line_height`; label rows advance by the `"Ag"` measure (batch 2 line-spacing port, c1d0e0b) | UI / MISSING | MED | S | live · app workaround (see entry) |
 | 607 | Upstream main does not compile for a Metal consumer: four unqualified `begin`/`end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL` (809bdd1..c1d0e0b; build30); `graphics::` breaks the none backend (build31); the `afterhours::` wrapper form is portable (60b0b92) | BUILD / WRONG | HIGH | XS | live - local vendor commit, upstream submission pending |
 | 608 | A binding cannot say "exactly these modifiers": a bare key matches under any modifiers and an explicit chord matches any superset, so Ctrl Tab also fires the bare-Tab focus ring and Cmd Opt Left also fires Cmd Left (tab-chord port, c1d0e0b) | INPUT / MISSING | MED | S | live - Tab guarded app-side (`TabChordGuard`); superset case unguarded |
 | 609 | The character queue outlives the frame: characters typed at a disabled field are neither read nor dropped and land in the next live field (paged ask card port, c1d0e0b) | INPUT / FOOTGUN | MED | S | live - worked around app-side (`CharBacklogSystem` drains while a sheet owns the keyboard) |
