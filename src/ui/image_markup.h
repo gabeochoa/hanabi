@@ -1,8 +1,13 @@
 #pragma once
 
 // Marks a reader puts on a staged picture before sending it (the reference's
-// ImageMarkup / MarkupGeometry; Knots kt-cimg). Two primitives: an ARROW (one
-// drag says "look here") and a BOX (frames a region a point cannot name).
+// ImageMarkup / MarkupGeometry; Knots kt-cimg). The reference's two
+// primitives: an ARROW (one drag says "look here") and a BOX (frames a region
+// a point cannot name). And the knot's two more, which the reference does not
+// have: REDACT (a solid black block -- the reason this matters on a work
+// machine: the pixels under it are gone from what is sent, not covered) and
+// CROP (keep only a region; the newest crop wins, and undo takes it back like
+// any mark).
 // Freehand and text are left out on purpose -- a mouse scrawl points worse
 // than an arrow, and the composer under the picture is already the caption.
 //
@@ -13,11 +18,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <vector>
 
 namespace hanabi::markup {
 
-enum class Tool { Arrow, Box };
+enum class Tool { Arrow, Box, Redact, Crop };
 
 struct Point {
     float x = 0.0f, y = 0.0f;
@@ -102,6 +108,42 @@ inline std::vector<Point> arrow_head(Point s, Point e, float width) {
 inline Rect box(Point a, Point b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::fabs(b.x - a.x), std::fabs(b.y - a.y)};
 }
+
+// Whether a finished drag leaves something in the PICTURE: a drag that began
+// and ended off the same edge clamps to a line along it -- a box, redaction
+// or crop of no area, which counted as a mark and drew nothing.
+inline bool has_extent(const Stroke& s) {
+    const Rect b = box(s.start, s.end);
+    if (s.tool == Tool::Arrow) return b.w + b.h >= 1.0f;
+    return b.w >= 2.0f && b.h >= 2.0f;
+}
+
+// The crop in force: the newest Crop mark's box, in whole image pixels and
+// inside the picture; none when there is no crop or it is under 2 px a side.
+inline std::optional<Rect> effective_crop(const std::vector<Stroke>& strokes, float imgW, float imgH) {
+    for (auto it = strokes.rbegin(); it != strokes.rend(); ++it) {
+        if (it->tool != Tool::Crop) continue;
+        const Rect b = box(it->start, it->end);
+        const float x0 = std::clamp(std::floor(b.x), 0.0f, imgW), y0 = std::clamp(std::floor(b.y), 0.0f, imgH);
+        const float x1 = std::clamp(std::ceil(b.x + b.w), 0.0f, imgW), y1 = std::clamp(std::ceil(b.y + b.h), 0.0f, imgH);
+        if (x1 - x0 < 2.0f || y1 - y0 < 2.0f) return std::nullopt;
+        return Rect{x0, y0, x1 - x0, y1 - y0};
+    }
+    return std::nullopt;
+}
+
+// How many marks are painted (a crop is a frame, not a mark), and the status
+// line the sheet shows.
+inline std::size_t painted_count(const std::vector<Stroke>& strokes) {
+    std::size_t n = 0;
+    for (const auto& s : strokes)
+        if (s.tool != Tool::Crop) ++n;
+    return n;
+}
+
+// The colour a redaction is: opaque black, no casing (a casing would be a
+// lighter rim around what was hidden).
+inline constexpr float kRedact[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 
 // Red on a white casing, not a theme colour: a mark is drawn on a photograph
 // of somebody else's window, and the casing reads on white and on black.

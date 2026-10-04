@@ -1225,6 +1225,14 @@ static void markup_paint(CGContextRef cg, int tool, CGPoint s, CGPoint e, float 
     CGContextSetRGBStrokeColor(cg, rgba[0], rgba[1], rgba[2], rgba[3]);
     CGContextSetRGBFillColor(cg, rgba[0], rgba[1], rgba[2], rgba[3]);
     CGContextSetLineWidth(cg, width);
+    if (tool == 2) {
+        // A redaction: a solid block, opaque, whatever colour was asked for
+        // the casing pass (the caller paints it once, black).
+        const auto r = hanabi::markup::box({(float)s.x, (float)s.y}, {(float)e.x, (float)e.y});
+        CGContextSetRGBFillColor(cg, 0, 0, 0, 1);
+        CGContextFillRect(cg, CGRectMake(r.x, r.y, r.w, r.h));
+        return;
+    }
     if (tool == 1) {
         const auto r = hanabi::markup::box({(float)s.x, (float)s.y}, {(float)e.x, (float)e.y});
         CGContextSetLineJoin(cg, kCGLineJoinRound);
@@ -1249,7 +1257,15 @@ static void markup_paint(CGContextRef cg, int tool, CGPoint s, CGPoint e, float 
 }
 
 bool native_flatten_markup(const char* src, const float* strokes, int count, const char* out) {
-    if (src == nullptr || out == nullptr || strokes == nullptr || count <= 0) return false;
+    if (strokes == nullptr || count <= 0) return false;
+    return native_flatten_markup_cropped(src, strokes, count, nullptr, out);
+}
+
+bool native_flatten_markup_cropped(const char* src, const float* strokes, int count,
+                                   const float* crop, const char* out) {
+    if (src == nullptr || out == nullptr) return false;
+    if ((strokes == nullptr || count <= 0) && crop == nullptr) return false;
+    if (strokes == nullptr) count = 0;
     @autoreleasepool {
         NSImage* image = [[NSImage alloc] initWithContentsOfFile:[NSString stringWithUTF8String:src]];
         if (image == nil) return false;
@@ -1282,13 +1298,38 @@ bool native_flatten_markup(const char* src, const float* strokes, int count, con
         for (int i = 0; i < count; ++i) {
             const float* k = strokes + i * 5;
             const CGPoint s = CGPointMake(k[1], k[2]), e = CGPointMake(k[3], k[4]);
+            if ((int)k[0] == 2) {  // a redaction: one opaque pass, no casing
+                markup_paint(cg, 2, s, e, width, hanabi::markup::kRedact);
+                continue;
+            }
             markup_paint(cg, (int)k[0], s, e, width * hanabi::markup::kCasingRatio,
                          hanabi::markup::kCasing);
             markup_paint(cg, (int)k[0], s, e, width, hanabi::markup::kInk);
         }
         CGContextRestoreGState(cg);
         [NSGraphicsContext restoreGraphicsState];
-        NSData* png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+        NSBitmapImageRep* final = rep;
+        if (crop != nullptr) {
+            // Only the crop survives: a new bitmap of that size, the marked
+            // picture drawn into it at the crop's offset (top-left origin in,
+            // bottom-left in the bitmap's context).
+            const NSInteger cx = std::clamp<NSInteger>((NSInteger)crop[0], 0, w - 1);
+            const NSInteger cy = std::clamp<NSInteger>((NSInteger)crop[1], 0, h - 1);
+            const NSInteger cw = std::clamp<NSInteger>((NSInteger)crop[2], 1, w - cx);
+            const NSInteger ch = std::clamp<NSInteger>((NSInteger)crop[3], 1, h - cy);
+            NSBitmapImageRep* cut = [[NSBitmapImageRep alloc]
+                initWithBitmapDataPlanes:nullptr pixelsWide:cw pixelsHigh:ch bitsPerSample:8
+                         samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace
+                             bytesPerRow:0 bitsPerPixel:0];
+            NSGraphicsContext* cctx = cut ? [NSGraphicsContext graphicsContextWithBitmapImageRep:cut] : nil;
+            if (cut == nil || cctx == nil) return false;
+            [NSGraphicsContext saveGraphicsState];
+            [NSGraphicsContext setCurrentContext:cctx];
+            [rep drawInRect:NSMakeRect(-cx, -(h - cy - ch), w, h)];
+            [NSGraphicsContext restoreGraphicsState];
+            final = cut;
+        }
+        NSData* png = [final representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
         if (png == nil) return false;
         return [png writeToFile:[NSString stringWithUTF8String:out] atomically:YES];
     }

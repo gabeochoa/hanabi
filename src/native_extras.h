@@ -219,6 +219,12 @@ bool native_pick_file(const char* prompt, char* out, int cap);
 // pixels, origin top-left. At full pixel resolution. False when the picture
 // cannot be read or the PNG cannot be written.
 bool native_flatten_markup(const char* src, const float* strokes, int count, const char* out);
+// The same, with redactions (tool 2, a solid black block) and an optional crop
+// (crop[4] = x, y, w, h in image pixels, top-left origin; null for none): the
+// marks are burned in at full resolution, then only the crop is kept. With a
+// crop and no strokes it still writes (a crop alone is a change).
+bool native_flatten_markup_cropped(const char* src, const float* strokes, int count,
+                                   const float* crop, const char* out);
 
 // One audio clip at a time through AVAudioPlayer (ui/audio_player.h; Knots
 // kt-nmbp). play resumes a paused clip at its place, or loads a different one

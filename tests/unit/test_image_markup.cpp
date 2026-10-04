@@ -46,6 +46,22 @@ int main() {
     m.add({mk::Tool::Box, {0, 0}, {1, 1}});
     m.add({mk::Tool::Arrow, {0, 0}, {9, 9}});
     CHECK(m.undo() && m.strokes.size() == 1 && m.strokes[0].tool == mk::Tool::Box);
+    // Crop: the newest wins, in whole pixels inside the picture; under 2 px is none;
+    // undo takes it back like a mark; a crop is not a painted mark.
+    std::vector<mk::Stroke> st{{mk::Tool::Crop, {10.4f, 5.6f}, {50.2f, 40.1f}}};
+    auto c = mk::effective_crop(st, 64, 64);
+    CHECK(c && near(c->x, 10) && near(c->y, 5) && near(c->w, 41) && near(c->h, 36));
+    st.push_back({mk::Tool::Crop, {80, 80}, {-5, 30}});  // dragged up-left, past the edges
+    c = mk::effective_crop(st, 64, 64);
+    CHECK(c && near(c->x, 0) && near(c->y, 30) && near(c->w, 64) && near(c->h, 34));
+    CHECK(!mk::effective_crop({{mk::Tool::Crop, {3, 3}, {4, 40}}}, 64, 64));
+    CHECK(!mk::effective_crop({{mk::Tool::Box, {3, 3}, {40, 40}}}, 64, 64));
+    st.push_back({mk::Tool::Redact, {0, 0}, {10, 10}});
+    CHECK(mk::painted_count(st) == 1);
+    // A drag clamped to a line along an edge leaves nothing of area.
+    CHECK(!mk::has_extent({mk::Tool::Redact, {0, 0}, {22, 0}}));
+    CHECK(!mk::has_extent({mk::Tool::Crop, {5, 5}, {5, 40}}));
+    CHECK(mk::has_extent({mk::Tool::Box, {5, 5}, {9, 9}}) && mk::has_extent({mk::Tool::Arrow, {0, 0}, {0, 3}}));
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

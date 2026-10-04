@@ -49,20 +49,27 @@ struct MarkupSystem : afterhours::System<UIContext<InputAction>> {
     // Burn the strokes in and swap the staged file for the result.
     static bool apply(AppComponent& app, api::Attachment& a) {
         if (app.markup.empty()) return true;
+        namespace mk = hanabi::markup;
+        float imgW = 0.0f, imgH = 0.0f;
+        hanabi::inline_image::natural_size(a.path, imgW, imgH);
+        const auto crop = mk::effective_crop(app.markup.strokes, imgW, imgH);
         std::vector<float> flat;
         for (const auto& s : app.markup.strokes) {
-            flat.push_back(s.tool == hanabi::markup::Tool::Box ? 1.0f : 0.0f);
+            if (s.tool == mk::Tool::Crop) continue;
+            flat.push_back(s.tool == mk::Tool::Box ? 1.0f : s.tool == mk::Tool::Redact ? 2.0f : 0.0f);
             flat.insert(flat.end(), {s.start.x, s.start.y, s.end.x, s.end.y});
         }
+        if (flat.empty() && !crop) return true;  // only a crop under 2 px: nothing to do
+        const float cropArr[4] = {crop ? crop->x : 0, crop ? crop->y : 0, crop ? crop->w : 0, crop ? crop->h : 0};
         std::error_code ec;
         const auto dir = std::filesystem::temp_directory_path(ec) / "hanabi-markup";
         std::filesystem::create_directories(dir, ec);
         std::string stem = std::filesystem::path(a.name).stem().string();
         if (stem.empty()) stem = "picture";
         const auto out = dir / (stem + "-marked-" + std::to_string(++app.markupSerial) + ".png");
-        if (!native_flatten_markup(a.path.c_str(), flat.data(),
-                                   static_cast<int>(app.markup.strokes.size()),
-                                   out.string().c_str())) {
+        if (!native_flatten_markup_cropped(a.path.c_str(), flat.empty() ? nullptr : flat.data(),
+                                           static_cast<int>(flat.size() / 5), crop ? cropArr : nullptr,
+                                           out.string().c_str())) {
             app.markupError = "Could not draw the marks into the picture.";
             return false;
         }
@@ -72,6 +79,30 @@ struct MarkupSystem : afterhours::System<UIContext<InputAction>> {
         a.size_bytes = std::filesystem::file_size(out, ec);
         a.file_id.clear();
         return true;
+    }
+
+    // "N marks — burned into the picture when you press Done.", with the crop
+    // named when there is one ("Cropped to 120 × 80"), and a redaction said
+    // for what it is: the pixels under it do not go.
+    static std::string status_line(const AppComponent& app, float imgW, float imgH) {
+        namespace mk = hanabi::markup;
+        if (app.markup.empty()) return "Drag on the picture to draw.";
+        const std::size_t n = mk::painted_count(app.markup.strokes);
+        const auto crop = mk::effective_crop(app.markup.strokes, imgW, imgH);
+        bool redacts = false;
+        for (const auto& s : app.markup.strokes)
+            if (s.tool == mk::Tool::Redact) redacts = true;
+        std::string out;
+        if (n > 0) out = std::to_string(n) + (n == 1 ? " mark" : " marks");
+        if (crop) {
+            const std::string c = "cropped to " + std::to_string(static_cast<int>(crop->w)) + " \xc3\x97 " +
+                                  std::to_string(static_cast<int>(crop->h));
+            out = out.empty() ? std::string("C") + c.substr(1) : out + ", " + c;
+        }
+        if (out.empty()) return "Drag on the picture to draw.";
+        out += " \xe2\x80\x94 burned into the picture when you press Done.";
+        if (redacts) out += " Redacted areas are not sent.";
+        return out;
     }
 
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
@@ -145,6 +176,10 @@ struct MarkupSystem : afterhours::System<UIContext<InputAction>> {
             app->markupTool = Tool::Arrow;
         if (tool_button(2, "Box", app->markupTool == Tool::Box, false, "markup_tool_box"))
             app->markupTool = Tool::Box;
+        if (tool_button(4, "Redact", app->markupTool == Tool::Redact, false, "markup_tool_redact"))
+            app->markupTool = Tool::Redact;
+        if (tool_button(5, "Crop", app->markupTool == Tool::Crop, false, "markup_tool_crop"))
+            app->markupTool = Tool::Crop;
         if (tool_button(3, "Undo", false, app->markup.empty(), "markup_undo")) app->markup.undo();
 
         // The canvas: the picture fitted, every mark, and the drag in flight.
@@ -171,12 +206,12 @@ struct MarkupSystem : afterhours::System<UIContext<InputAction>> {
         if (app->markupDragging) app->markupDragNow = here;
         if (app->markupDragging && !ctx.mouse.left_down) {
             app->markupDragging = false;
-            if (hanabi::markup::worth_keeping(app->markupDragStart, here))
-                app->markup.add({app->markupTool,
-                                 hanabi::markup::image_point(app->markupDragStart, imgW, imgH,
-                                                             cr.width, cr.height),
-                                 hanabi::markup::image_point(here, imgW, imgH, cr.width,
-                                                             cr.height)});
+            const hanabi::markup::Stroke done{
+                app->markupTool,
+                hanabi::markup::image_point(app->markupDragStart, imgW, imgH, cr.width, cr.height),
+                hanabi::markup::image_point(here, imgW, imgH, cr.width, cr.height)};
+            if (hanabi::markup::worth_keeping(app->markupDragStart, here) && hanabi::markup::has_extent(done))
+                app->markup.add(done);
         }
         std::vector<hanabi::markup::Stroke> shown = app->markup.strokes;
         if (app->markupDragging && hanabi::markup::worth_keeping(app->markupDragStart, here))
@@ -227,21 +262,41 @@ struct MarkupSystem : afterhours::System<UIContext<InputAction>> {
                         afterhours::draw_triangle(t, b2, b1, ink);
                     };
                     for (const auto& s : shown) {
+                        if (s.tool == mk::Tool::Crop) continue;
+                        if (s.tool == mk::Tool::Redact) {
+                            const auto a = to(s.start), b = to(s.end);
+                            afterhours::draw_rectangle(
+                                RectangleType{std::min(a.x, b.x), std::min(a.y, b.y), std::fabs(b.x - a.x),
+                                              std::fabs(b.y - a.y)},
+                                theme::Color{0, 0, 0, 255});
+                            continue;
+                        }
                         paint(s, width * mk::kCasingRatio, mk::kCasing);
                         paint(s, width, mk::kInk);
+                    }
+                    // The crop: what falls outside it is dimmed, and its frame
+                    // drawn, so the reader sees what will be sent.
+                    if (const auto crop = mk::effective_crop(shown, imgW, imgH)) {
+                        const auto a = to({crop->x, crop->y});
+                        const auto b = to({crop->x + crop->w, crop->y + crop->h});
+                        const float fx0 = r.x + fit.x, fy0 = r.y + fit.y, fx1 = fx0 + fit.w, fy1 = fy0 + fit.h;
+                        const theme::Color dim{0, 0, 0, 150};
+                        afterhours::draw_rectangle(RectangleType{fx0, fy0, fit.w, a.y - fy0}, dim);
+                        afterhours::draw_rectangle(RectangleType{fx0, b.y, fit.w, fy1 - b.y}, dim);
+                        afterhours::draw_rectangle(RectangleType{fx0, a.y, a.x - fx0, b.y - a.y}, dim);
+                        afterhours::draw_rectangle(RectangleType{b.x, a.y, fx1 - b.x, b.y - a.y}, dim);
+                        const theme::Color edge{255, 255, 255, 230};
+                        afterhours::draw_line_ex({a.x, a.y}, {b.x, a.y}, 1.5f, edge);
+                        afterhours::draw_line_ex({b.x, a.y}, {b.x, b.y}, 1.5f, edge);
+                        afterhours::draw_line_ex({b.x, b.y}, {a.x, b.y}, 1.5f, edge);
+                        afterhours::draw_line_ex({a.x, b.y}, {a.x, a.y}, 1.5f, edge);
                     }
                 })
                 .with_debug_name("markup_picture"));
 
         div(ctx, mk(panel.ent(), 4),
             ComponentConfig{}
-                .with_label(!app->markupError.empty()
-                                ? app->markupError
-                                : app->markup.empty()
-                                      ? std::string("Drag on the picture to draw.")
-                                      : std::to_string(app->markup.strokes.size()) +
-                                            (app->markup.strokes.size() == 1 ? " mark" : " marks") +
-                                            " — burned into the picture when you press Done.")
+                .with_label(!app->markupError.empty() ? app->markupError : status_line(*app, imgW, imgH))
                 .with_size(ComponentSize{pixels(w), pixels(22)})
                 .with_margin(Margin{.top = pixels(6)})
                 .with_transparent_bg()

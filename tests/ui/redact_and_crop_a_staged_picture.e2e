@@ -1,0 +1,57 @@
+# Redact and crop a staged picture before it goes (Knots kt-cimg, the knot's
+# DONE beyond the reference's arrow and box): Redact draws a solid black block
+# -- the pixels under it are not sent -- and Crop keeps only the region
+# dragged (the newest crop wins; undo takes it back like a mark). The status
+# line names both, and Done burns them in at full resolution.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_ATTACH_DEMO=tests/fixtures/attachments/sample.png
+
+require_thread t2
+click_ui attach_thumb_0
+wait_frames 10
+expect_text "Mark up sample.png"
+click_ui markup_tool_redact
+wait_frames 2
+# A drag that starts and ends above the picture clamps to its top edge: no mark.
+mouse_move 470 300
+mouse_down 470 300
+wait_frames 2
+mouse_move 540 320
+wait_frames 2
+mouse_up 540 320
+wait_frames 4
+expect_text "Drag on the picture to draw."
+mouse_move 530 362
+mouse_down 530 362
+wait_frames 2
+mouse_move 560 392
+wait_frames 2
+mouse_up 560 392
+wait_frames 4
+expect_text "1 mark — burned into the picture when you press Done. Redacted areas are not sent."
+click_ui markup_tool_crop
+wait_frames 2
+mouse_move 522 356
+mouse_down 522 356
+wait_frames 2
+mouse_move 576 400
+wait_frames 2
+mouse_up 576 400
+wait_frames 4
+expect_text "cropped to"
+click_ui markup_undo
+wait_frames 4
+expect_text "1 mark — burned into the picture when you press Done. Redacted areas are not sent."
+mouse_move 522 356
+mouse_down 522 356
+wait_frames 2
+mouse_move 576 400
+wait_frames 2
+mouse_up 576 400
+wait_frames 4
+expect_text "cropped to"
+click_ui markup_done
+wait_frames 10
+expect_no_text "Mark up sample.png"
+expect_text "sample-marked.png"

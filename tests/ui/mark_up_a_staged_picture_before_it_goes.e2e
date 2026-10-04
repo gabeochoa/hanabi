@@ -2,7 +2,9 @@
 # markup canvas): clicking the staged picture's thumbnail opens the sheet;
 # a drag draws an arrow, Box switches the tool, Undo drops the newest mark;
 # Done burns the marks into a new PNG at full resolution and the staged file
-# becomes it ("sample-marked.png"). A click is not a mark.
+# becomes it ("sample-marked.png"). A click is not a mark. (The box is
+# dragged inside the 64-px picture: one dragged from above it used to clamp
+# to a line along the top edge and count as a mark that drew nothing.)
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_ATTACH_DEMO=tests/fixtures/attachments/sample.png
@@ -33,12 +35,12 @@ wait_frames 4
 expect_text "1 mark — burned into the picture when you press Done."
 click_ui markup_tool_box
 wait_frames 2
-mouse_move 430 280
-mouse_down 430 280
+mouse_move 525 358
+mouse_down 525 358
 wait_frames 2
-mouse_move 520 340
+mouse_move 570 400
 wait_frames 2
-mouse_up 520 340
+mouse_up 570 400
 wait_frames 4
 expect_text "2 marks — burned into the picture when you press Done."
 click_ui markup_undo

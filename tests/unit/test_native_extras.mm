@@ -123,6 +123,43 @@ static void test_markup_is_burned_into_the_pixels() {
     }
 }
 
+// A redaction is a solid black block at full resolution (the pixels under it
+// are gone, not covered), and a crop keeps only its region (kt-cimg).
+static void test_redact_and_crop_are_burned_in() {
+    const char* src = "tests/fixtures/attachments/sample.png";
+    const char* out = "/tmp/hanabi_test_markup_redact.png";
+    std::filesystem::remove(out);
+    const float redact[5] = {2.0f, 16.0f, 16.0f, 48.0f, 48.0f};
+    const float crop[4] = {8.0f, 12.0f, 40.0f, 30.0f};
+    CHECK(!native_flatten_markup_cropped(src, nullptr, 0, nullptr, out));
+    CHECK(native_flatten_markup_cropped(src, redact, 1, nullptr, out));
+    @autoreleasepool {
+        NSBitmapImageRep* after = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:@(out)]];
+        CHECK(after != nil && after.pixelsWide == 64);
+        if (after == nil) return;
+        NSColor* in = [[after colorAtX:32 y:32] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        CHECK(in.redComponent < 0.02 && in.greenComponent < 0.02 && in.blueComponent < 0.02 && in.alphaComponent > 0.99);
+        NSColor* outside = [[after colorAtX:4 y:4] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        CHECK(outside.redComponent + outside.greenComponent + outside.blueComponent > 0.05);
+    }
+    std::filesystem::remove(out);
+    CHECK(native_flatten_markup_cropped(src, redact, 1, crop, out));
+    @autoreleasepool {
+        NSBitmapImageRep* cut = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:@(out)]];
+        CHECK(cut != nil && cut.pixelsWide == 40 && cut.pixelsHigh == 30);
+        if (cut == nil) return;
+        // The redaction's top-left corner (16,16) lands at (8,4) in the crop.
+        NSColor* black = [[cut colorAtX:20 y:15] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        CHECK(black.redComponent < 0.02 && black.greenComponent < 0.02);
+        NSColor* before = [[cut colorAtX:2 y:1] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        CHECK(before.redComponent + before.greenComponent + before.blueComponent > 0.05);
+    }
+    // A crop alone is a change and writes.
+    std::filesystem::remove(out);
+    CHECK(native_flatten_markup_cropped(src, nullptr, 0, crop, out));
+    CHECK(std::filesystem::exists(out));
+}
+
 // The audio player reads a clip's length without playing it (kt-nmbp); a
 // file that is not audio reads 0. Nothing here makes a sound.
 static void test_an_audio_clip_probes_its_duration() {
@@ -138,6 +175,7 @@ static void test_an_audio_clip_probes_its_duration() {
 int main() {
     test_an_audio_clip_probes_its_duration();
     test_markup_is_burned_into_the_pixels();
+    test_redact_and_crop_are_burned_in();
     char thread[128] = {};
     CHECK(!native_take_open_thread(thread, sizeof(thread)));
     native_simulate_notification_click("thread/from-notification");
