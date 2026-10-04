@@ -1,4 +1,5 @@
 #pragma once
+#include "../ui/screen_capture.h"
 
 // Settings overlay (Phase K). Renders a centered settings sheet over a dimmed
 // full-window backdrop when AppComponent::showSettings is true. Closes on
@@ -1435,7 +1436,85 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name(std::string("settings_global_note_") +
                                      std::string(item.key)));
         }
+        render_capture_hotkey_row(ctx, parent, app, id);
         if (app.globalRecording >= 0) capture_global(app);
+    }
+
+    // Screenshot to composer (Knots kt-8uce): the fixed chord and its switch.
+    // Its own row rather than a third recorder: it is the one chord held while
+    // the app is in the background, so it is off until asked for, and says so.
+    void render_capture_hotkey_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app, int& id) {
+        (void)app;
+        namespace sc = hanabi::screen_capture;
+        const bool on = Settings::get().get_capture_hotkey_enabled();
+        // Drawn like the global rows above it: label, the chord, the switch.
+        auto row = div(ctx, mk(parent, id++),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(content_w()), pixels(30)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_capture_row"));
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label("Screenshot to composer")
+                .with_size(ComponentSize{pixels(content_w() - 190.0f), pixels(22)})
+                .with_transparent_bg()
+                .with_custom_text_color(on ? theme::text_primary() : theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_capture_label"));
+        // The chord is fixed (the reference's; never macOS's own Cmd+Shift+3/4/5).
+        div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_label(sc::kChordLabel)
+                .with_size(ComponentSize{pixels(110), pixels(26)})
+                .with_margin(Margin{.right = pixels(8)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_text_color(on ? theme::text_secondary() : theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("settings_capture_chord"));
+        auto toggle = button(ctx, mk(row.ent(), 3),
+            ComponentConfig{}
+                .with_label(on ? "On" : "Off")
+                .with_size(ComponentSize{pixels(58), pixels(26)})
+                .with_custom_background(on ? theme::button_primary() : theme::button_secondary())
+                .with_custom_hover_bg(on ? theme::button_primary() : theme::hover_bg())
+                .with_custom_text_color(on ? theme::window_bg() : theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_corner_radius(hanabi::surface::kControlCorner)
+                .with_debug_name("settings_capture_switch"));
+        hanabi::a11y::set_name(toggle.ent(), std::string("Screenshot to composer shortcut ") + (on ? "on" : "off"));
+        if (toggle) {
+            Settings::get().set_capture_hotkey_enabled(!on);
+            native_capture_hotkey_set(!on);
+        }
+        div(ctx, mk(parent, id++),
+            ComponentConfig{}
+                .with_label(on ? "Photographs the window in front, from any app, into the composer. Held while the "
+                                 "app is in the background."
+                               : "Off \xe2\x80\x94 turn on to photograph the window in front into the composer, from "
+                                 "any app.")
+                .with_size(ComponentSize{pixels(content_w()), pixels(16)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_capture_note"));
     }
 
     void capture_global(AppComponent& app) {

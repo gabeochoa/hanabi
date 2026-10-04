@@ -1,0 +1,12 @@
+# A capture that comes back one flat colour is a picture of nothing (what the
+# window server hands back without the grant): refused, not staged.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_TEST_CAPTURE=blank
+
+require_thread t2
+wait_frames 6
+press_capture_hotkey Safari
+wait_frames 20
+expect_text "Screen Recording"
+expect_no_text "safari-window.png"

@@ -1,0 +1,10 @@
+# With no conversation on screen, the shot opens a new conversation and waits
+# in its composer -- where a reader with nothing open would have pasted it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_CAPTURE=tests/fixtures/attachments/sample.png
+
+wait_frames 20
+press_capture_hotkey Terminal
+wait_frames 30
+expect_text "terminal-window.png"

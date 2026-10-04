@@ -399,6 +399,11 @@ struct Settings {
     int get_pins_migrated_version() const;
     void set_pins_migrated_version(int v);
 
+    // Screenshot to composer (Ctrl+Shift+4; Knots kt-8uce). Off by default:
+    // the one chord held while the app is in the background.
+    bool get_capture_hotkey_enabled() const;
+    void set_capture_hotkey_enabled(bool on);
+
     // How the sidebar sections threads (the reference's Group by): "space"
     // (the default: Metamate Space, else workspace folder), "folder",
     // "status" (Pinned / Recents only) or "flat". And "only ungrouped",
@@ -595,6 +600,7 @@ struct Settings {
     bool find_newest_first_ = false;
     bool sort_oldest_first_ = false;
     int pins_migrated_version_ = 0;
+    bool capture_hotkey_enabled_ = false;
     std::string session_grouping_ = "space";
     std::string icon_set_ = "normal";
     bool only_ungrouped_ = false;

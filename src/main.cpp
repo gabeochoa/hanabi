@@ -705,6 +705,7 @@ static void app_frame_body() {
                                     pl.enabled});
         }
         native_hotkey_install();
+        native_capture_hotkey_set(Settings::get().get_capture_hotkey_enabled());
         native_notifications_start();
         // Phase G extra: install the hanabi:// URL / Apple-event handler so a
         // tapped Spotlight result (hanabi://thread/<id>) opens that thread.
@@ -757,6 +758,14 @@ static void app_frame_body() {
     {
         bool hotkey = native_hotkey_take_triggered();
         const bool paletteHotkey = native_palette_hotkey_take_triggered();
+        // Screenshot to composer: the press already recorded the app in front.
+        if (NativeCaptureRequest press; native_capture_take_triggered(&press)) {
+            nativeWake = true;
+            auto qc = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<ecs::AppComponent>().gen();
+            if (!qc.empty())
+                qc[0].get().get<ecs::AppComponent>().requestCapture =
+                    ecs::AppComponent::CapturePress{press.pid, press.app};
+        }
         bool wantShow = menubar_take_show() || hotkey || paletteHotkey;
         bool wantNewTask = menubar_take_new_task() || hotkey;
         nativeWake = hotkey || paletteHotkey || wantShow || wantNewTask;

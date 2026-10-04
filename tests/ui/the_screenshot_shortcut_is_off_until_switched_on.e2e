@@ -1,0 +1,16 @@
+# Settings > Shortcuts: the screenshot chord (Ctrl Shift 4) is OFF until
+# switched on -- it is the one chord held while the app is in the background,
+# so it is asked for, not assumed -- and the switch says what it does.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 10
+click_ui sb_settings
+wait_frames 10
+click_ui sb_settings_nav_shortcuts
+wait_frames 10
+expect_text "Off — turn on to photograph the window in front into the composer, from any app."
+click_ui settings_capture_switch
+wait_frames 4
+expect_text "Photographs the window in front, from any app, into the composer. Held while the app is in the background."
+expect_text "Ctrl Shift 4"

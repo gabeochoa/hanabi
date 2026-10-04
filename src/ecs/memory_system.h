@@ -1,4 +1,9 @@
 #pragma once
+#include <filesystem>
+#include <branding.h>
+#include "attachment_intake_system.h"
+#include "../native_extras.h"
+#include "../ui/screen_capture.h"
 
 #include <chrono>
 
@@ -204,10 +209,77 @@ inline void service_people_photos(AppComponent& app) {
     }
 }
 
+// Screenshot to composer (Knots kt-8uce): a press becomes a capture off the
+// frame, and the shot is staged where the reader is looking -- or refused in
+// a sentence that names the move (ui/screen_capture.h).
+extern "C" void metal_activate_app(void);
+// Brings the app forward -- never from a script (a headless run must not take
+// focus from whoever is at this Mac).
+inline void capture_activate() {
+    if (std::getenv("HANABI_TEST_CAPTURE") == nullptr) metal_activate_app();
+}
+
+inline void service_screen_capture(AppComponent& app) {
+    namespace sc = hanabi::screen_capture;
+    using namespace std::chrono_literals;
+    if (app.requestCapture && !app.captureFuture.valid()) {
+        const auto press = *app.requestCapture;
+        app.requestCapture.reset();
+        std::error_code ec;
+        const auto dir = std::filesystem::temp_directory_path(ec) / "hanabi-capture";
+        std::filesystem::create_directories(dir, ec);
+        static int serial = 0;
+        app.capturePath = (dir / (std::to_string(++serial) + "-" + sc::file_name(press.app))).string();
+        app.captureApp = press.app;
+        const std::string out = app.capturePath;
+        const int pid = press.pid;
+        app.captureFuture = std::async(std::launch::async, [pid, out] {
+            char err[256] = {};
+            const int code = native_capture_window(pid, out.c_str(), err, sizeof(err));
+            return std::make_pair(code, std::string(err));
+        });
+    }
+    if (!app.captureFuture.valid() || app.captureFuture.wait_for(0s) != std::future_status::ready) return;
+    const auto [code, detail] = app.captureFuture.get();
+    const std::string name = product_branding::kAppName;
+    if (code != 0) {
+        const auto f = static_cast<sc::Failure>(code - 1);
+        const bool activate = sc::activates_for_refusal(app.captureRefusedOnce);
+        app.captureRefusedOnce = true;
+        std::fprintf(stderr, "[shot] no attachment (code %d)\n", code);
+        if (activate) {
+            capture_activate();
+            if (sc::fixable_by_granting(f)) native_open_screen_recording_settings();
+        }
+        app.raise_toast(sc::message(f, name, detail), std::string(), AppComponent::ToastUndo::None);
+        return;
+    }
+    const bool threadOnScreen = app.view == SmartView::Chat && !app.pane().selectedId.empty() &&
+                                !model::is_surface_tab(app.pane().selectedId);
+    switch (sc::destination_for(threadOnScreen, app.client && app.client->supports_attachments())) {
+        case sc::Destination::Unsupported:
+            app.raise_toast(sc::kUnsupported, std::string(), AppComponent::ToastUndo::None);
+            return;
+        case sc::Destination::NewConversation:
+            app.requestNewTask = true;  // the new-conversation composer is the __kickoff__ draft
+            break;
+        case sc::Destination::Session: break;
+    }
+    capture_activate();
+    // Named for what it shows ("<app>-window.png"), staged into the composer
+    // the reader is looking at -- or the new conversation's.
+    std::error_code ec;
+    const auto named = std::filesystem::path(app.capturePath).parent_path() /
+                       sc::file_name(app.captureApp);
+    std::filesystem::rename(app.capturePath, named, ec);
+    AttachmentIntakeSystem::add(app, (ec ? app.capturePath : named.string()).c_str());
+}
+
 struct MemorySystem : afterhours::System<AppComponent> {
     void for_each_with(afterhours::Entity&, AppComponent& app, float) override {
         service_memory(app.memory, app.client);
         service_space_settings(app);
+        if (app.requestCapture || app.captureFuture.valid()) service_screen_capture(app);
         if (!app.peoplePhotos.pending.empty() || !app.peoplePhotos.wanted.empty()) service_people_photos(app);
         // The Spaces list for the @ picker: asked once, off the frame; a
         // failure leaves the picker with threads only.

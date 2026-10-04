@@ -20,6 +20,10 @@ wait_frames 6
 click_ui row_menu_move_folder_1
 wait_frames 30
 expect_overlay_write file t6 f2
+# Filed, and still filed after the next list fetch (kt-im8t's DONE).
+refresh_list
+wait_frames 60
+expect_text "SOMEDAY"
 
 # A new folder, named in the prompt, with t8 filed into it.
 right_click_text "triaging row 212"

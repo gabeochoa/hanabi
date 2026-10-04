@@ -1,0 +1,14 @@
+# Screenshot to composer (Knots kt-8uce; the reference's ScreenCapture): the
+# chord photographs the window that was in front when it was pressed and
+# stages it in the composer of the conversation on screen, named for the app
+# ("google-chrome-window.png"), ready to send. The chord is off until switched
+# on in Settings > Shortcuts.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_TEST_CAPTURE=tests/fixtures/attachments/sample.png
+
+require_thread t2
+wait_frames 6
+press_capture_hotkey Google Chrome
+wait_frames 20
+expect_text "google-chrome-window.png"

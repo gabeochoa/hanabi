@@ -12,6 +12,8 @@
 #import <AppKit/AppKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <Carbon/Carbon.h>
+#import <ScreenCaptureKit/ScreenCaptureKit.h>
+#include "ui/screen_capture.h"
 #include "global_hotkeys.h"   // RegisterEventHotKey, kVK_ANSI_N, event handler
 #import <CoreText/CoreText.h>
 #import <CoreSpotlight/CoreSpotlight.h>          // CSSearchableIndex/Item (bundled Spotlight)
@@ -93,6 +95,18 @@ static bool g_focus_observed = false;           // NSApp notifications hooked
 static const OSType kHotkeySig = 'hnbi';        // 4-char creator-style tag
 static const UInt32 kHotkeyId = 1;
 static const UInt32 kPaletteHotkeyId = 2;
+static const UInt32 kCaptureHotkeyId = 3;
+static std::atomic<bool> g_capture_triggered{false};
+static std::mutex g_capture_mu;
+static NativeCaptureRequest g_capture_request;
+static EventHotKeyRef g_capture_ref = nullptr;
+static void capture_note_press(int pid, const char* app) {
+    std::lock_guard<std::mutex> lk(g_capture_mu);
+    g_capture_request = NativeCaptureRequest{};
+    g_capture_request.pid = pid;
+    if (app != nullptr) std::strncpy(g_capture_request.app, app, sizeof(g_capture_request.app) - 1);
+    g_capture_triggered.store(true);
+}
 
 static OSStatus hotkey_handler(EventHandlerCallRef nextHandler,
                                EventRef event, void* userData) {
@@ -107,6 +121,13 @@ static OSStatus hotkey_handler(EventHandlerCallRef nextHandler,
         // new-task (or palette) on the main thread. Keep this callback trivial.
         if (hkId.id == kHotkeyId) g_hotkey_triggered.store(true);
         else if (hkId.id == kPaletteHotkeyId) g_palette_triggered.store(true);
+        else if (hkId.id == kCaptureHotkeyId) {
+            // The frontmost app NOW, on this first line: the shot is staged by
+            // bringing Hanabi forward, and a target read after that is Hanabi.
+            NSRunningApplication* front = [[NSWorkspace sharedWorkspace] frontmostApplication];
+            capture_note_press(front ? (int)front.processIdentifier : -1,
+                               front.localizedName ? front.localizedName.UTF8String : "");
+        }
     }
     return noErr;
 }
@@ -218,6 +239,168 @@ static void hotkey_unregister(void) {
     HLOG(@"native_extras: global hotkey Cmd+Shift+N unregistered (%s "
          @"resigned active) — passes through to other apps",
          product_branding::kAppName);
+}
+
+// ---- Screenshot to composer -------------------------------------------------
+static void capture_install_handler(void);
+
+void native_capture_hotkey_set(bool enabled) {
+    if (g_capture_ref != nullptr) {
+        if (!g_hotkey_test_seam) UnregisterEventHotKey(g_capture_ref);
+        g_capture_ref = nullptr;
+    }
+    if (!enabled || g_hotkey_test_seam) return;
+    capture_install_handler();
+    EventHotKeyID hkId;
+    hkId.signature = kHotkeySig;
+    hkId.id = kCaptureHotkeyId;
+    const OSStatus st = RegisterEventHotKey(kVK_ANSI_4, controlKey | shiftKey, hkId,
+                                            GetApplicationEventTarget(), 0, &g_capture_ref);
+    if (st != noErr) {
+        NSLog(@"native_extras: the screenshot chord was refused (%d) -- another app may own it", (int)st);
+        g_capture_ref = nullptr;
+    }
+}
+
+bool native_capture_take_triggered(NativeCaptureRequest* out) {
+    if (!g_capture_triggered.exchange(false)) return false;
+    std::lock_guard<std::mutex> lk(g_capture_mu);
+    if (out != nullptr) *out = g_capture_request;
+    return true;
+}
+
+void native_capture_test_press(int pid, const char* app) { capture_note_press(pid, app); }
+
+static int capture_fail(hanabi::screen_capture::Failure f, char* err, int errcap, NSString* detail) {
+    if (err != nullptr && errcap > 0) {
+        err[0] = '\0';
+        if (detail != nil) std::strncpy(err, detail.UTF8String ? detail.UTF8String : "", (size_t)errcap - 1);
+    }
+    return 1 + static_cast<int>(f);
+}
+
+// A captured CGImage to a PNG at `out`, refusing a flat frame.
+static int capture_write(CGImageRef image, const char* out, char* err, int errcap) {
+    using hanabi::screen_capture::Failure;
+    NSBitmapImageRep* rep = [[[NSBitmapImageRep alloc] initWithCGImage:image] autorelease];
+    if (rep == nil || rep.samplesPerPixel != 4 || rep.bitmapData == nullptr)
+        return capture_fail(Failure::EncodingFailed, err, errcap, nil);
+    const std::size_t size = (std::size_t)rep.bytesPerRow * (std::size_t)rep.pixelsHigh;
+    if (hanabi::screen_capture::is_degenerate(rep.bitmapData, size, (int)rep.pixelsWide, (int)rep.pixelsHigh,
+                                              (int)rep.bytesPerRow))
+        return capture_fail(Failure::DegenerateFrame, err, errcap, nil);
+    NSData* png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+    if (png == nil || ![png writeToFile:[NSString stringWithUTF8String:out] atomically:YES])
+        return capture_fail(Failure::EncodingFailed, err, errcap, nil);
+    return 0;
+}
+
+int native_capture_window(int pid, const char* out, char* err, int errcap) {
+    using hanabi::screen_capture::Failure;
+    if (out == nullptr) return capture_fail(Failure::EncodingFailed, err, errcap, nil);
+    @autoreleasepool {
+        // Scripts: the same decisions over a fixture, no window server, no TCC.
+        if (const char* t = std::getenv("HANABI_TEST_CAPTURE"); t != nullptr && *t) {
+            const std::string mode = t;
+            if (mode == "denied") return capture_fail(Failure::PermissionDenied, err, errcap, nil);
+            if (mode == "nowindow" || pid < 0) return capture_fail(Failure::NoWindow, err, errcap, nil);
+            if (mode == "fail") return capture_fail(Failure::CaptureFailed, err, errcap, @"the stream stopped");
+            NSString* src = mode == "blank" ? @"tests/fixtures/attachments/blank.png" : @(t);
+            NSImage* img = [[[NSImage alloc] initWithContentsOfFile:src] autorelease];
+            CGImageRef cg = img ? [img CGImageForProposedRect:nullptr context:nil hints:nil] : nullptr;
+            if (cg == nullptr) return capture_fail(Failure::CaptureFailed, err, errcap, @"no fixture image");
+            return capture_write(cg, out, err, errcap);
+        }
+        // Ask rather than refuse on a preflight: the first press is what puts
+        // the app in Privacy & Security > Screen Recording (macOS shows no
+        // dialog for this permission).
+        if (!CGPreflightScreenCaptureAccess() && !CGRequestScreenCaptureAccess())
+            return capture_fail(Failure::PermissionDenied, err, errcap, nil);
+        if (pid < 0) return capture_fail(Failure::NoWindow, err, errcap, nil);
+
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        __block SCShareableContent* content = nil;
+        __block NSString* failure = nil;
+        [SCShareableContent getShareableContentExcludingDesktopWindows:YES
+                                                   onScreenWindowsOnly:YES
+                                                     completionHandler:^(SCShareableContent* c, NSError* e) {
+                                                         content = [c retain];
+                                                         if (e != nil) failure = [e.localizedDescription copy];
+                                                         dispatch_semaphore_signal(done);
+                                                     }];
+        dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+        if (content == nil) {
+            int r = capture_fail(Failure::CaptureFailed, err, errcap, failure ? failure : @"no answer");
+            [failure release];
+            dispatch_release(done);
+            return r;
+        }
+        std::vector<hanabi::screen_capture::Window> windows;
+        for (SCWindow* w in content.windows) {
+            hanabi::screen_capture::Window d;
+            d.id = w.windowID;
+            d.pid = w.owningApplication ? (int)w.owningApplication.processID : -1;
+            d.layer = (int)w.windowLayer;
+            d.onScreen = w.isOnScreen;
+            d.width = (int)w.frame.size.width;
+            d.height = (int)w.frame.size.height;
+            windows.push_back(d);
+        }
+        const auto chosen = hanabi::screen_capture::frontmost(windows, pid);
+        SCWindow* target = nil;
+        if (chosen)
+            for (SCWindow* w in content.windows)
+                if (w.windowID == chosen->id) target = w;
+        if (target == nil) {
+            [content release];
+            dispatch_release(done);
+            return capture_fail(Failure::NoWindow, err, errcap, nil);
+        }
+        SCContentFilter* filter = [[[SCContentFilter alloc] initWithDesktopIndependentWindow:target] autorelease];
+        SCStreamConfiguration* config = [[[SCStreamConfiguration alloc] init] autorelease];
+        const CGFloat scale = filter.pointPixelScale > 0 ? filter.pointPixelScale : 2.0;
+        config.width = (size_t)(chosen->width * scale);
+        config.height = (size_t)(chosen->height * scale);
+        config.showsCursor = NO;  // a stray arrow in a shot reads as content
+        __block CGImageRef shot = nullptr;
+        [SCScreenshotManager captureImageWithFilter:filter
+                                      configuration:config
+                                  completionHandler:^(CGImageRef image, NSError* e) {
+                                      if (image != nullptr) shot = CGImageRetain(image);
+                                      if (e != nil && failure == nil) failure = [e.localizedDescription copy];
+                                      dispatch_semaphore_signal(done);
+                                  }];
+        dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+        [content release];
+        dispatch_release(done);
+        if (shot == nullptr) {
+            int r = capture_fail(Failure::CaptureFailed, err, errcap, failure ? failure : @"no image");
+            [failure release];
+            return r;
+        }
+        [failure release];
+        const int r = capture_write(shot, out, err, errcap);
+        CGImageRelease(shot);
+        return r;
+    }
+}
+
+static void capture_install_handler(void) {
+    if (g_handler_installed) return;
+    EventTypeSpec evtSpec;
+    evtSpec.eventClass = kEventClassKeyboard;
+    evtSpec.eventKind = kEventHotKeyPressed;
+    if (InstallApplicationEventHandler(&hotkey_handler, 1, &evtSpec, nullptr, nullptr) == noErr)
+        g_handler_installed = true;
+}
+
+void native_open_screen_recording_settings(void) {
+    if (std::getenv("HANABI_TEST_CAPTURE") != nullptr) return;  // scripts never open System Settings
+    @autoreleasepool {
+        NSURL* url = [NSURL URLWithString:
+            @"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"];
+        if (url != nil) [[NSWorkspace sharedWorkspace] openURL:url];
+    }
 }
 
 bool native_set_global_hotkeys(GlobalHotkeyRequest new_task,

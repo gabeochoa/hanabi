@@ -3437,6 +3437,23 @@ struct HandleExpectMockCreateSensitiveCommand
     }
 };
 
+// press_capture_hotkey [app name...]: the screenshot chord, as if pressed with
+// that app in front (HANABI_TEST_CAPTURE decides what the capture returns).
+struct HandlePressCaptureHotkeyCommand : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd, float) override {
+        if (cmd.is_consumed() || !cmd.is("press_capture_hotkey")) return;
+        std::string app;
+        for (const auto& a : cmd.args) app += (app.empty() ? "" : " ") + a;
+        native_capture_test_press(4242, app.c_str());
+        // The windowed loop drains natively; headless, deliver it here.
+        NativeCaptureRequest press;
+        if (native_capture_take_triggered(&press))
+            if (auto* a = ecs::find_singleton<ecs::AppComponent>())
+                a->requestCapture = ecs::AppComponent::CapturePress{press.pid, press.app};
+        cmd.consume();
+    }
+};
+
 // expect_no_overlay_write <kind> <args...>: that write was NOT made (so far).
 // expect_pins_migrated <version>: the one-shot pin carry's completed version
 // in Settings (kt-if8e).
@@ -4833,6 +4850,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOverlayWriteCommand>());
     sm.register_update_system(std::make_unique<HandleOverlayNegativeCommands>());
+    sm.register_update_system(std::make_unique<HandlePressCaptureHotkeyCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockResolveHasCommand>());
     sm.register_update_system(std::make_unique<HandleExpectRowOrderCommand>());
     sm.register_update_system(std::make_unique<HandleRefreshWebPinsCommand>());

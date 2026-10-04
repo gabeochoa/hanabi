@@ -72,8 +72,10 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
         s.async_ready = s.async_ready || pane_has_ready_future(pane);
     }
 
+    s.pending_future = s.pending_future || app.captureFuture.valid();
+    s.async_ready = s.async_ready || frame_future_ready(app.captureFuture);
     s.state_request =
-        s.state_request || app.requestListRefresh ||
+        s.state_request || app.requestCapture.has_value() || app.requestListRefresh ||
         !app.requestOpenTab.empty() || !app.requestSplitOpen.empty() ||
         app.requestSplitClose || app.requestSplitToggle ||
         !app.requestToggleStar.empty() || !app.requestToggleArchive.empty() ||

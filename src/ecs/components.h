@@ -936,6 +936,17 @@ struct AppComponent : public afterhours::BaseComponent {
         void reset() { *this = SpaceSettings{}; }
     };
     SpaceSettings spaceSettings;
+    // Screenshot to composer (ui/screen_capture.h): a press waiting, the
+    // capture in flight, and whether a refusal has already pulled the reader
+    // to the front this launch.
+    struct CapturePress {
+        int pid = -1;
+        std::string app;
+    };
+    std::optional<CapturePress> requestCapture;
+    std::future<std::pair<int, std::string>> captureFuture;  // {code, path-or-detail}
+    std::string capturePath, captureApp;
+    bool captureRefusedOnce = false;
     // People's photos (fbid -> a local file, or none), asked for by whoever
     // draws a person: at most four in flight, each asked once a launch.
     struct PeoplePhotos {

@@ -17,6 +17,10 @@ wait_frames 20
 expect_overlay_write refile t6 2200000000000001
 expect_text "INFRA NOTES"
 expect_text "Moved to Infra notes"
+# The move survives the next list fetch (the knot's DONE): no snap back.
+refresh_list
+wait_frames 60
+expect_text "INFRA NOTES"
 
 # Back out: open the Space's section, then Out of its Space.
 click_text INFRA NOTES

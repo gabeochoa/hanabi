@@ -85,6 +85,32 @@ void native_hotkey_test_begin(void);
 void native_hotkey_test_set_active(bool active);
 unsigned native_hotkey_test_registered_mask(void);
 
+// ---- 1b. Screenshot to composer (Knots kt-8uce; ui/screen_capture.h) -------
+// Ctrl+Shift+4, held ONLY while switched on -- and, unlike the chords above,
+// held while Hanabi is in the background too: photographing the window in
+// front of you is the point. Off by default. The press records the app that
+// was frontmost AT THAT INSTANT (before anything activates) and sets a
+// one-shot the frame loop drains.
+void native_capture_hotkey_set(bool enabled);
+struct NativeCaptureRequest {
+    int pid = -1;
+    char app[128] = {};
+};
+bool native_capture_take_triggered(NativeCaptureRequest* out);
+// Test seam: a press as the chord would make it.
+void native_capture_test_press(int pid, const char* app);
+// Photograph the largest on-screen ordinary window of `pid` into a PNG at
+// `out`. Blocking (ScreenCaptureKit's callbacks are waited for): call it off
+// the main thread. Returns 0 on success, else 1 + the screen_capture::Failure
+// (detail in `err`). Asks macOS for Screen Recording when it is not granted
+// (which registers the app in the pane; it cannot prompt). Refuses a frame of
+// one colour. HANABI_TEST_CAPTURE=<png>|denied|nowindow|blank|fail replaces the
+// capture in scripts (never touches the window server or TCC).
+int native_capture_window(int pid, const char* out, char* err, int errcap);
+// Open System Settings at Privacy & Security > Screen Recording (a real press
+// only; never from a script).
+void native_open_screen_recording_settings(void);
+
 // ---- 2. Native notification ------------------------------------------------
 
 // Installs the UNUserNotificationCenter delegate and requests alert/sound

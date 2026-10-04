@@ -1,0 +1,15 @@
+# Every way the chord can fire and stage nothing says why, and names a move
+# (the reference's ScreenCaptureFailure): no Screen Recording grant points at
+# the switch; a blank frame -- what a capture without the grant comes back
+# as -- is refused rather than sent; no window in front offers the paste
+# fallback. Nothing is staged.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_TEST_CAPTURE=denied
+
+require_thread t2
+wait_frames 6
+press_capture_hotkey Safari
+wait_frames 20
+expect_text "Turn on Hanabi in System Settings › Privacy & Security › Screen Recording, then press the shortcut again."
+expect_no_text "safari-window.png"

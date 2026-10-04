@@ -86,6 +86,7 @@ const tests = [_]TestSpec{
     .{ .name = "test_mm3_menubar", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_mm3_menubar.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_caret_clock", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_caret_clock.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_transcript_writer", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_transcript_writer.cpp", "src/api/disk_cache.cpp" }, .frameworks = &.{  } },
+    .{ .name = "test_screen_capture", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_screen_capture.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_memory_page", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_memory_page.cpp", "src/api/config.cpp", "src/api/http_client.cpp", "src/api/agentcloud_client.cpp", "src/api/agentcloud_auth.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
     .{ .name = "test_folder_state", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_folder_state.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_home_buckets", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_home_buckets.cpp" }, .frameworks = &.{  } },
@@ -170,7 +171,7 @@ const tests = [_]TestSpec{
     .{ .name = "test_agentcloud", .kind = .unit, .arc = true, .srcs = &.{ "tests/unit/test_agentcloud.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
     .{ .name = "test_menubar", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_menubar.mm", "src/menubar.mm", "src/settings.cpp", "src/afterhours_files.cpp" }, .frameworks = &.{ "AppKit", "Carbon" } },
     .{ .name = "test_agentcloud_local", .kind = .unit, .arc = true, .srcs = &.{ "tests/e2e/test_agentcloud_local.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
-    .{ .name = "test_native_extras", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_native_extras.mm", "src/native_extras.mm" }, .frameworks = &.{ "AppKit", "AVFoundation", "Carbon", "CoreSpotlight", "CoreText", "MetalKit", "UniformTypeIdentifiers", "UserNotifications" } },
+    .{ .name = "test_native_extras", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_native_extras.mm", "src/native_extras.mm" }, .frameworks = &.{ "AppKit", "AVFoundation", "ScreenCaptureKit", "Carbon", "CoreSpotlight", "CoreText", "MetalKit", "UniformTypeIdentifiers", "UserNotifications" } },
     .{ .name = "test_spotlight_catalog", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_spotlight_catalog.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_div_move", .kind = .unit, .arc = false, .srcs = &.{ "tests/unit/test_div_move.cpp" }, .frameworks = &.{  } },
     .{ .name = "test_agentcloud_real", .kind = .unit, .arc = true, .srcs = &.{ "tests/e2e/test_agentcloud_real.cpp", "src/api/agentcloud_auth.cpp", "src/api/agentcloud_client.cpp", "src/ws_socket.mm" }, .frameworks = &.{ "CFNetwork", "Foundation" } },
@@ -226,6 +227,7 @@ const run_by_default = [_][]const u8{
     "test_mm3_menubar",
     "test_caret_clock",
     "test_transcript_writer",
+    "test_screen_capture",
     "test_memory_page",
     "test_folder_state",
     "test_home_buckets",
@@ -334,7 +336,7 @@ const app_arc_sources = [_][]const u8{ "src/native_menu.mm", "src/ws_socket.mm" 
 const frameworks = [_][]const u8{
     "CoreFoundation", "CoreServices", "CoreText",           "Metal",        "MetalKit",
     "Cocoa",          "QuartzCore",   "Carbon",             "CoreSpotlight", "UniformTypeIdentifiers",
-    "UserNotifications", "AVFoundation",
+    "UserNotifications", "AVFoundation", "ScreenCaptureKit",
 };
 
 const cxx_std = "-std=c++23";
