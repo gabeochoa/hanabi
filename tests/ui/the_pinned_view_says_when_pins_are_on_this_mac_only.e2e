@@ -1,0 +1,14 @@
+# Where the pins live, said in the Pinned view (kt-if8e; the reference's
+# pinSyncNote): when the web app's pin read does not answer, the pins shown
+# are this Mac's, and the view says so -- with the reason -- rather than
+# implying they travelled. Local pins are kept, never cleared by a failed read.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","starred":["t6"]}
+# env: HANABI_MOCK_WEB_OVERLAY_FAIL=500
+
+wait_frames 30
+click_text "Pinned"
+wait_frames 6
+expect_text "On this Mac only — the web app refused (HTTP 500)"
+expect_starred t6 yes
+expect_no_overlay_write pin t6 true

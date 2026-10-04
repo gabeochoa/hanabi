@@ -406,6 +406,8 @@ struct MemorySystem : afterhours::System<AppComponent> {
                     api::pins::Read r;
                     auto o = c->web_call("GET", api::pins::kOverlayPath, "");
                     if (o.ok && o.value.status == 200) r.overlays = api::pins::parse_overlays(o.value.body);
+                    r.status = o.ok ? o.value.status : 0;
+                    r.reach = api::pins::reach_of(o.ok, o.error, r.status, r.overlays.has_value());
                     auto p = c->web_call("GET", api::pins::kPreferencesPath, "");
                     if (p.ok && p.value.status == 200) r.order = api::pins::parse_order(p.value.body);
                     return r;
@@ -414,6 +416,28 @@ struct MemorySystem : afterhours::System<AppComponent> {
             if (ps.future.valid() && ps.future.wait_for(0s) == std::future_status::ready) {
                 api::pins::Read r = ps.future.get();
                 bool changed = false;
+                ps.reach = r.reach;
+                ps.reachStatus = r.status;
+                // The one-shot carry of this Mac's pins to the web's column,
+                // on the first synced read and before the reconcile (kt-ubwg):
+                // queued as pin writes that have not landed, so the reconcile
+                // keeps them and a refused one is retried with the rest.
+                if (r.overlays && !ps.migrationAsked &&
+                    Settings::get().get_pins_migrated_version() < api::pins::kPinsMigrationVersion) {
+                    ps.migrationAsked = true;
+                    const auto missing =
+                        api::pins::migration_ids(Settings::get().get_starred(), r.overlays->pinned,
+                                                 r.overlays->known);
+                    if (missing.empty()) {
+                        Settings::get().set_pins_migrated_version(api::pins::kPinsMigrationVersion);
+                    } else {
+                        for (const auto& id : missing) {
+                            ps.migrating.insert(id);
+                            ps.unlanded[id] = true;
+                            app.overlayWriteQueue.emplace_back(true, id, true);
+                        }
+                    }
+                }
                 if (r.overlays) {
                     const std::vector<std::string> current = Settings::get().get_starred();
                     const auto rec = api::pins::reconcile(current, ps.asked, r.overlays->pinned,
@@ -566,6 +590,18 @@ struct MemorySystem : afterhours::System<AppComponent> {
                     if (it->on) ps.serverKnown.insert(it->id);
                     else ps.serverKnown.erase(it->id);
                     ps.failToasted.erase(it->id);
+                    if (ps.localOnly > 0 && it->on) --ps.localOnly;  // the web has it now
+                } else if (ps.migrating.count(it->id) != 0) {
+                    ps.migrationFailed = true;
+                }
+                // The carry is done when every pin it wrote has answered; it
+                // is MARKED done only when every one landed.
+                if (ps.migrating.erase(it->id) != 0 && ps.migrating.empty()) {
+                    if (!ps.migrationFailed)
+                        Settings::get().set_pins_migrated_version(api::pins::kPinsMigrationVersion);
+                    else
+                        std::fprintf(stderr, "[pins] the carry of this Mac's pins to the web did not all "
+                                             "land; not marked done, it runs again next launch\n");
                 }
             }
             // A refused pin is retried on the next poll; it says so once. A

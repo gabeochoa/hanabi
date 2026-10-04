@@ -1,0 +1,21 @@
+# The one-shot carry (kt-if8e; the reference's migrateLocalPinsToOverlay,
+# kt-ubwg): threads pinned on this Mac before pins reached the server are
+# told to the web's pin column on the first read that answers -- the ones the
+# web lacks, once each -- and stay pinned here. With nothing left local-only,
+# the Pinned view says nothing about where pins live.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","starred":["t6","t3","t7"]}
+# env: HANABI_MOCK_WEB_PINS=t7
+
+wait_frames 30
+click_text "Pinned"
+wait_frames 6
+expect_overlay_write pin t6 true
+expect_overlay_write pin t3 true
+expect_no_overlay_write pin t7 true
+expect_starred t6 yes
+expect_starred t3 yes
+expect_starred t7 yes
+refresh_web_pins
+wait_frames 20
+expect_no_ui digest_sync_note

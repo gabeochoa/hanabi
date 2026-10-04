@@ -66,6 +66,23 @@ int main() {
         const auto r2 = pn::reconcile({}, {}, {"u"}, {}, {}, {{"u", false}});
         CHECK(r2.order.empty() && r2.arrived.empty());
     }
+    // Reachability and the sentence (the reference's InboxState.describe).
+    namespace pw = api::pins;
+    CHECK(pw::reach_of(false, "the web app was unreachable: Connection", 0, false) == pw::Reach::Unreachable);
+    CHECK(pw::reach_of(false, "no web credential", 0, false) == pw::Reach::NoCredential);
+    CHECK(pw::reach_of(true, "", 307, false) == pw::Reach::LoginRedirect);
+    CHECK(pw::reach_of(true, "", 500, false) == pw::Reach::Refused);
+    CHECK(pw::reach_of(true, "", 200, false) == pw::Reach::Malformed);
+    CHECK(pw::reach_of(true, "", 200, true) == pw::Reach::Synced);
+    CHECK(!pw::sync_note(pw::Reach::Synced, 0, 0));
+    CHECK(pw::sync_note(pw::Reach::Synced, 0, 2) == "Synced \xc2\xb7 2 pinned on this Mac only");
+    CHECK(pw::describe(pw::Reach::Refused, 403, 0) == "On this Mac only \xe2\x80\x94 the web app refused (HTTP 403)");
+    CHECK(pw::describe(pw::Reach::Unknown, 0, 0) == "Checking your pins\xe2\x80\xa6");
+    // The one-shot carry: this Mac's pins the web lacks, in this Mac's order, once each.
+    CHECK((pw::migration_ids({"t6", "t3", "t7", "t3"}, {"t7"}) == std::vector<std::string>{"t6", "t3"}));
+    CHECK(pw::migration_ids({"t7"}, {"t7"}).empty());
+    // A session the web has a row for (unpinned there) is the web's word: not carried.
+    CHECK((pw::migration_ids({"t3", "t6"}, {}, {"t3"}) == std::vector<std::string>{"t6"}));
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

@@ -50,10 +50,74 @@ struct Snapshot {
     std::set<std::string> known;
 };
 
+// Whether the overlay read answered, and if not, the honest reason (the
+// reference's InboxState.Reachability): the sentence the Pinned view shows
+// must never imply the pins travelled when they did not.
+enum class Reach { Unknown, Synced, NoCredential, Refused, Unreachable, Malformed, LoginRedirect };
+
 struct Read {
     std::optional<Snapshot> overlays;
     std::optional<std::vector<std::string>> order;
+    Reach reach = Reach::Unknown;
+    int status = 0;  // the HTTP status, for Refused
 };
+
+// The overlay call's outcome as a Reach: a failed call (no token, nothing
+// answered), a redirect (the sign-in page -- the route itself would say
+// 401), a non-200, or a 200 that is not the overlay shape.
+inline Reach reach_of(bool callOk, const std::string& error, int status, bool parsed) {
+    if (!callOk) return error.find("unreachable") != std::string::npos ? Reach::Unreachable : Reach::NoCredential;
+    if (status >= 300 && status < 400) return Reach::LoginRedirect;
+    if (status != 200) return Reach::Refused;
+    return parsed ? Reach::Synced : Reach::Malformed;
+}
+
+// What the Pinned view says about where the pins live (the reference's
+// InboxState.describe with the pin's nouns). The local-only backlog is named,
+// not hidden.
+inline std::string describe(Reach r, int status, std::size_t localOnly) {
+    switch (r) {
+        case Reach::Unknown: return "Checking your pins\xe2\x80\xa6";
+        case Reach::Synced:
+            if (localOnly == 0) return "Synced with the web app.";
+            return "Synced \xc2\xb7 " + std::to_string(localOnly) + " pinned on this Mac only";
+        case Reach::NoCredential: return "On this Mac only \xe2\x80\x94 not signed in to the web app";
+        case Reach::Refused:
+            return "On this Mac only \xe2\x80\x94 the web app refused (HTTP " + std::to_string(status) + ")";
+        case Reach::Unreachable: return "On this Mac only \xe2\x80\x94 could not reach the web app";
+        case Reach::Malformed: return "On this Mac only \xe2\x80\x94 the web app sent something unexpected";
+        case Reach::LoginRedirect: return "On this Mac only \xe2\x80\x94 the web app asked for a sign-in";
+    }
+    return "";
+}
+// The same, but nothing when there is nothing to say (synced, no backlog).
+inline std::optional<std::string> sync_note(Reach r, int status, std::size_t localOnly) {
+    if (r == Reach::Synced && localOnly == 0) return std::nullopt;
+    return describe(r, status, localOnly);
+}
+
+// The one-shot carry (the reference's migrateLocalPinsToOverlay, kt-ubwg):
+// this Mac's pins the web's column has NEVER SEEN, in this Mac's order. Run on
+// the first SYNCED read, before the reconcile, so a pin made here before pins
+// reached the server is told to the web rather than left local forever.
+//
+// Narrower than the reference on purpose: it skips a session the overlay has
+// a row for (`known`) -- pinned there already, or isPinned:false, which is the
+// web stating a position (someone unpinned it there). Hanabi wrote nothing to
+// the overlay before its pins reached the server, so any such row is the
+// web's own word, and carrying over it would re-pin what the reader unpinned
+// on the web; the reconcile drops it instead.
+inline constexpr int kPinsMigrationVersion = 1;
+inline std::vector<std::string> migration_ids(const std::vector<std::string>& local,
+                                              const std::set<std::string>& serverPinned,
+                                              const std::set<std::string>& serverKnown = {}) {
+    std::vector<std::string> out;
+    for (const auto& id : local)
+        if (serverPinned.count(id) == 0 && serverKnown.count(id) == 0 &&
+            std::find(out.begin(), out.end(), id) == out.end())
+            out.push_back(id);
+    return out;
+}
 
 // Nil when the body is not an object carrying `overlays` (a login page must
 // not read as "nothing pinned"); an empty array is a real, empty answer.

@@ -393,6 +393,12 @@ struct Settings {
     bool get_sort_oldest_first() const;
     void set_sort_oldest_first(bool on);
 
+    // Which version of the one-shot carry of this Mac's pins to the web's
+    // pin column has COMPLETED here (kt-if8e; the reference's
+    // pinsMigratedToOverlayVersion). Written only when every pin landed.
+    int get_pins_migrated_version() const;
+    void set_pins_migrated_version(int v);
+
     // How the sidebar sections threads (the reference's Group by): "space"
     // (the default: Metamate Space, else workspace folder), "folder",
     // "status" (Pinned / Recents only) or "flat". And "only ungrouped",
@@ -588,6 +594,7 @@ struct Settings {
     bool show_timestamps_ = true;
     bool find_newest_first_ = false;
     bool sort_oldest_first_ = false;
+    int pins_migrated_version_ = 0;
     std::string session_grouping_ = "space";
     std::string icon_set_ = "normal";
     bool only_ungrouped_ = false;

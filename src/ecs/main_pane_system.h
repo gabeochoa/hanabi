@@ -345,10 +345,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                               "No threads are ready for review yet.");
                 break;
             case SmartView::Starred:
+                // Where the pins live, when that is not simply "synced"
+                // (api/pins_wire.h; the reference's Pinned sync note).
+                digestNote_ = app->pinSync.note().value_or(std::string());
                 render_digest(ctx, content.ent(), *app, "Pinned", r.width,
                               contentH, ecs::model::in_starred_view,
                               "No starred conversations. Star a thread to pin "
                               "it here.");
+                digestNote_.clear();
                 break;
             case SmartView::Archived:
                 render_digest(ctx, content.ent(), *app, "Archived", r.width,
@@ -970,6 +974,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return wrap.ent();
     }
 
+    // A one-line note under a digest's header (the Pinned view's "where your
+    // pins live"); empty draws nothing. Set by the caller for one call.
+    std::string digestNote_;
+    static constexpr float kDigestNoteH = 22.0f;
+
     // ---------------- Digest views (Blocked / Review / Starred) ------------
     template <typename Pred>
     void render_digest(UIContext<InputAction>& ctx, Entity& parent,
@@ -991,13 +1000,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         header(ctx, parent, title, std::to_string(rows.size()), theme::type::H1);
+        const float noteH = digestNote_.empty() ? 0.0f : kDigestNoteH;
+        if (!digestNote_.empty())
+            div(ctx, mk(parent, 3),
+                ComponentConfig{}
+                    .with_label(digestNote_)
+                    .with_size(ComponentSize{pixels(std::max(40.0f, paneW - 48.0f)), pixels(kDigestNoteH)})
+                    .with_margin(Margin{.left = pixels(24)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("digest_sync_note"));
 
         if (rows.empty()) {
-            empty_state(ctx, parent, view_glyph(app.view), emptyMsg, paneH);
+            empty_state(ctx, parent, view_glyph(app.view), emptyMsg, paneH - noteH);
             return;
         }
 
-        float listH = paneH - kPageHeaderH;
+        float listH = paneH - kPageHeaderH - noteH;
         // The audit is a real row when it is on, so the list gives it the
         // height rather than overflowing the pane by it.
         if (hanabi::test_hooks::card_audit()) listH -= 16.0f;

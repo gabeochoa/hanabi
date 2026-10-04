@@ -1,0 +1,16 @@
+# A carry the server refuses is not marked done (kt-if8e; the reference's
+# kt-9fm8 lesson): the pins stay pinned here, the Pinned view names how many
+# live on this Mac only, and the carry runs again on the next launch.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","starred":["t6","t3"]}
+# env: HANABI_MOCK_OVERLAY_FAIL=pin
+
+wait_frames 30
+click_text "Pinned"
+wait_frames 6
+expect_starred t6 yes
+expect_starred t3 yes
+refresh_web_pins
+wait_frames 20
+expect_text "Synced · 2 pinned on this Mac only"
+expect_pins_migrated 0

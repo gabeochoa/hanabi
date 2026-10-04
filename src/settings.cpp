@@ -105,6 +105,7 @@ bool Settings::load_save_file() {
         find_newest_first_ = j.value("find_newest_first", find_newest_first_);
         sort_oldest_first_ =
             j.value("session_sort_order", std::string("activity")) == "oldest";
+        pins_migrated_version_ = j.value("pins_migrated_to_web", pins_migrated_version_);
         {
             const std::string g = j.value("session_grouping", std::string("space"));
             session_grouping_ =
@@ -318,6 +319,7 @@ void Settings::write_save_file() {
     j["show_timestamps"] = show_timestamps_;
     j["find_newest_first"] = find_newest_first_;
     j["session_sort_order"] = sort_oldest_first_ ? "oldest" : "activity";
+    j["pins_migrated_to_web"] = pins_migrated_version_;
     j["session_grouping"] = session_grouping_;
     j["only_ungrouped"] = only_ungrouped_;
     j["icon_set"] = icon_set_;
@@ -876,6 +878,13 @@ void Settings::remove_template(std::string_view name) {
     const auto before = templates_.size();
     std::erase_if(templates_, [&](const auto& t) { return t.name == name; });
     if (templates_.size() != before && auto_save_enabled) write_save_file();
+}
+
+int Settings::get_pins_migrated_version() const { return pins_migrated_version_; }
+void Settings::set_pins_migrated_version(int v) {
+    if (v == pins_migrated_version_) return;
+    pins_migrated_version_ = v;
+    if (auto_save_enabled) write_save_file();
 }
 
 bool Settings::get_sort_oldest_first() const { return sort_oldest_first_; }

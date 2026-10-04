@@ -775,6 +775,15 @@ struct AppComponent : public afterhours::BaseComponent {
         std::set<std::string> asked;
         std::future<api::pins::Read> future;
         std::size_t localOnly = 0;
+        api::pins::Reach reach = api::pins::Reach::Unknown;
+        int reachStatus = 0;
+        // The one-shot carry in progress: ids written, and whether any was
+        // refused (then it is not marked done, and runs again next launch).
+        std::set<std::string> migrating;
+        bool migrationAsked = false, migrationFailed = false;
+        [[nodiscard]] std::optional<std::string> note() const {
+            return api::pins::sync_note(reach, reachStatus, localOnly);
+        }
         std::optional<std::vector<std::string>> orderPending;
         std::future<api::Result<bool>> orderFuture;
     } pinSync;

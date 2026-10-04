@@ -3437,6 +3437,31 @@ struct HandleExpectMockCreateSensitiveCommand
     }
 };
 
+// expect_no_overlay_write <kind> <args...>: that write was NOT made (so far).
+// expect_pins_migrated <version>: the one-shot pin carry's completed version
+// in Settings (kt-if8e).
+struct HandleOverlayNegativeCommands : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd, float) override {
+        if (cmd.is_consumed()) return;
+        if (cmd.is("expect_pins_migrated")) {
+            if (!cmd.has_args(1)) return cmd.fail("expect_pins_migrated <version>");
+            const int have = Settings::get().get_pins_migrated_version();
+            if (have == std::stoi(cmd.arg(0))) cmd.consume();
+            else cmd.fail(std::format("expect_pins_migrated: Settings holds {}, wanted {}", have, cmd.arg(0)));
+            return;
+        }
+        if (!cmd.is("expect_no_overlay_write")) return;
+        if (!cmd.has_args(2)) return cmd.fail("expect_no_overlay_write <kind> <args...>");
+        std::string want;
+        for (const auto& a : cmd.args)
+            if (!a.empty()) want += (want.empty() ? "" : " ") + a;
+        std::lock_guard<std::mutex> lk(api::MockClient::overlay_mu());
+        for (const auto& w : api::MockClient::overlay_writes())
+            if (w == want) return cmd.fail("expect_no_overlay_write: '" + want + "' was made");
+        cmd.consume();
+    }
+};
+
 // expect_overlay_write <kind> <args...>: that server-side write was made (the
 // mock records them: "pin t6 true", "archive t6 true", "order t6,t7,t3",
 // "refile t6 personal", "file t6 f2", "folder delete f1").
@@ -4807,6 +4832,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectMockKnotArgCommand>());
     sm.register_update_system(std::make_unique<HandleOpenBugReportCommand>());
     sm.register_update_system(std::make_unique<HandleExpectOverlayWriteCommand>());
+    sm.register_update_system(std::make_unique<HandleOverlayNegativeCommands>());
     sm.register_update_system(std::make_unique<HandleExpectMockResolveHasCommand>());
     sm.register_update_system(std::make_unique<HandleExpectRowOrderCommand>());
     sm.register_update_system(std::make_unique<HandleRefreshWebPinsCommand>());
