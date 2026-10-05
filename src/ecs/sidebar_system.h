@@ -640,6 +640,28 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                ++completed;
        }
        }
+       // The sub-agent list holds still too (kt-mdk3, the web's 9/20 fix:
+       // "sidebar and sub-agent rows active within a minute keep their
+       // places"). The catalog arrives newest-activity first, so with many
+       // children working the rows fought for the top slot faster than one
+       // could be clicked; the main list's hysteresis now holds this one.
+       // Re-ordered only when the catalog or the query moved, or a 15 s
+       // bucket turned (a hold expires), never per frame: the order is kept
+       // and replayed, so an idle frame allocates nothing.
+       {
+           const std::int64_t now = capture_clock::inbox_now();
+           const SubagentOrderKey key{app.subagentCatalogRevision, q, now / 15};
+           if (!(key == subagentOrderKey_) || subagentOrdered_.size() != subagentMembers_.size()) {
+               subagentOrderKey_ = key;
+               hanabi::sidebar_hysteresis::apply(
+                   subagentMembers_, hysteresis_[q.empty() ? "__subagents" : "__subagents_q"], now,
+                   [](const api::SessionSummary* s) { return s->id; },
+                   [](const api::SessionSummary* s) { return s->updated_at; });
+               subagentOrdered_ = subagentMembers_;
+           } else {
+               subagentMembers_ = subagentOrdered_;
+           }
+       }
 
        auto head =
            div(ctx, mk(parent, 8710),
@@ -3083,6 +3105,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     model::SidebarBuckets buckets_;
     model::ChildIndex childIndex_;
     std::vector<const api::SessionSummary*> subagentMembers_;
+    // The held order of the sub-agent list and what it was computed for.
+    struct SubagentOrderKey {
+        std::uint64_t revision = ~0ull;
+        std::string query;
+        std::int64_t bucket = -1;
+        bool operator==(const SubagentOrderKey&) const = default;
+    };
+    SubagentOrderKey subagentOrderKey_;
+    std::vector<const api::SessionSummary*> subagentOrdered_;
     model::SubagentParentIndex parentIndex_;
     std::vector<std::string> folderNames_;
     std::map<std::string, int> folderBases_;
