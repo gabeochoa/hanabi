@@ -1,0 +1,14 @@
+# A thread list that fails for a reason other than the credential keeps the
+# transport's own words, and Try again asks again (kt-qu8m): when the list
+# answers, the rows replace the failure.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_LIST_FAIL_TIMES=1
+
+wait_frames 30
+expect_text "Couldn’t load your conversations"
+expect_text "the list timed out"
+click_ui list_failure_retry
+wait_frames 40
+expect_no_text "Couldn’t load your conversations"
+expect_text "profiling the disk"

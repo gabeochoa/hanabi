@@ -36,9 +36,9 @@ evidence is named), GATED (waits on the owner).
 
 | # | Item | Source knot | Status |
 |---|---|---|---|
-| 1 | Name a thread as you create it: an optional "Thread name" field on the New Thread page; blank keeps the usual naming | kt-2guz | DONE (the commit that adds this list) |
-| 2 | An archived thread that is pinged and starts working unarchives itself | kt-vzgj | TODO |
-| 3 | Signed out, in words: the list says you are signed out and offers Sign in, never an HTTP code | kt-qu8m | TODO |
+| 1 | Name a thread as you create it: an optional "Thread name" field on the New Thread page; blank keeps the usual naming | kt-2guz | DONE (b9a6e3c) |
+| 2 | An archived thread that is pinged and starts working unarchives itself | kt-vzgj | DONE |
+| 3 | Signed out, in words: the list says this Mac is not signed in and offers Try again, never an HTTP code; a failed list is no longer "all caught up" | kt-qu8m | DONE |
 | 4 | The first keystroke after a thread switch lands in the NEW thread's composer (guard + test) | kt-zueu | TODO |
 | 5 | A redeploy close redials at once instead of waiting out the reconnect backoff (the rest of kt-0wjy) | kt-0wjy | TODO |
 | 6 | Select code in a code block or diff view and add it to the chat as a quoted reference | kt-tlnb | TODO |

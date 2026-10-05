@@ -1,4 +1,6 @@
 #pragma once
+#include "../api/list_failure.h"
+#include <unordered_map>
 
 // Drives async data loading. Reads request flags on AppComponent, launches
 // std::async fetches against the Client, and polls the futures each frame,
@@ -1002,9 +1004,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     // error in place of the rows.
                     if (!app.sessions.empty() && !app.listFailureNoticed) {
                         app.listFailureNoticed = true;
-                        app.raise_toast("Couldn't refresh the thread list (" + r.error +
-                                            "). Showing the saved list.",
-                                        "", AppComponent::ToastUndo::None);
+                        // Signed out reads as signed out, never as a status
+                        // code (kt-qu8m); other failures keep their words.
+                        app.raise_toast(api::list_failure::stale_notice(r.error), "",
+                                        AppComponent::ToastUndo::None);
                     }
                 }
             }

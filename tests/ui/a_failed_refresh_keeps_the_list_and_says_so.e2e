@@ -12,8 +12,10 @@ expect_no_toast
 
 refresh_list
 wait_frames 20
-expect_toast "Couldn't refresh the thread list"
-expect_text "credential (401)"
+# A refused credential is SIGNED OUT, said in words with no status code
+# (kt-qu8m); the list stays.
+expect_toast "Signed out of Agentcloud on this Mac"
+expect_no_text "(401)"
 # The list is still the list.
 expect_text "profiling the disk"
 expect_text "20 sessions"

@@ -378,6 +378,14 @@ class MockClient : public Client {
         if (failFrom > 0 && poll >= failFrom)
             return Result<std::vector<SessionSummary>>::failure(
                 "the server refused this client's credential (401)");
+        // HANABI_MOCK_LIST_FAIL_TIMES=<n>: the first n list calls time out
+        // (a transport failure, not the credential's), then it answers.
+        static const int failTimes = [] {
+            const char* v = std::getenv("HANABI_MOCK_LIST_FAIL_TIMES");
+            return v && *v ? std::atoi(v) : 0;
+        }();
+        if (poll <= failTimes)
+            return Result<std::vector<SessionSummary>>::failure("the list timed out after 20 s");
         const SeedPtr seedRef = seed_ptr();
         const auto& sessions = *seedRef;
         std::vector<SessionSummary> out;

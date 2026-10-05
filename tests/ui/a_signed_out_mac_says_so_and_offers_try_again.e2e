@@ -1,0 +1,14 @@
+# Signed out, in words (Knots kt-qu8m, web parity): when the thread list
+# cannot be read because this Mac's credential was refused and nothing is
+# saved to show, Home says the Mac is not signed in and how to fix it, offers
+# Try again, and never prints the status code -- and it no longer says
+# "You're all caught up", which was the empty state lying about an error.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_LIST_FAIL_FROM=1
+
+wait_frames 30
+expect_text "This Mac isn’t signed in to Agentcloud"
+expect_no_text "You're all caught up."
+expect_no_text "(401)"
+assert_ui list_failure_retry text="Try again"

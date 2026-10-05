@@ -1,4 +1,5 @@
 #pragma once
+#include "../api/list_failure.h"
 #include <array>
 #include <bitset>
 #include <branding.h>
@@ -796,6 +797,47 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // A polished, VERTICALLY-CENTERED empty state (a soft glyph + a message),
     // instead of a top-left note — the Apple-native "intentional empty" look.
     // Centered in the pane's usable height (paneH minus the header).
+    // The thread list could not be read and there is nothing saved to show.
+    void list_failure_card(UIContext<InputAction>& ctx, Entity& wrap, AppComponent& app, float w) {
+        const auto v = api::list_failure::view_for(app.listError, product_branding::kAppName);
+        list_extent(26.0f + 8.0f + 40.0f + 12.0f + 30.0f);
+        div(ctx, mk(wrap, 820),
+            ComponentConfig{}
+                .with_label(v.headline)
+                .with_size(ComponentSize{pixels(w), pixels(26)})
+                .with_margin(Margin{.top = pixels(8)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::H1)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("list_failure_headline"));
+        div(ctx, mk(wrap, 821),
+            ComponentConfig{}
+                .with_label(v.detail)
+                .with_size(ComponentSize{pixels(w), pixels(40)})
+                .with_margin(Margin{.top = pixels(8)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::BODY)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("list_failure_detail"));
+        if (button(ctx, mk(wrap, 822),
+                   ComponentConfig{}
+                       .with_label("Try again")
+                       .with_size(ComponentSize{pixels(110), pixels(30)})
+                       .with_margin(Margin{.top = pixels(12)})
+                       .with_custom_background(theme::button_primary())
+                       .with_custom_text_color(theme::window_bg())
+                       .with_font_size(theme::type::SM)
+                       .with_corner_radius(hanabi::surface::kControlCorner)
+                       .with_cursor(afterhours::ui::CursorType::Pointer)
+                       .with_debug_name("list_failure_retry")))
+            app.requestListRefresh = true;
+    }
+
     static void empty_state(UIContext<InputAction>& ctx, Entity& parent,
                             EmptyGlyph glyph, const std::string& msg,
                             float paneH) {
@@ -1942,8 +1984,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the app reads as "loading" rather than empty. (A WARM launch paints the
         // stale disk cache instantly, so sessions is non-empty and this is
         // skipped — this only bites the first-ever launch.)
-        if (app.sessions.empty() && app.listState == LoadState::Loading) {
+        const bool noRows = app.sessions.empty();
+        if (noRows && app.listState == LoadState::Loading) {
             for (int k = 0; k < 6; ++k) skeleton_card(ctx, wrap, k);
+            return;
+        }
+        // A list that FAILED with nothing to show is not "all caught up" --
+        // that sentence was the empty state lying about an error. It says
+        // what happened, in words (signed out is never a status code), and
+        // offers the one move: try again (kt-qu8m).
+        if (noRows && app.listState == LoadState::Error) {
+            list_failure_card(ctx, wrap, app, paneW - 48.0f);
             return;
         }
 
