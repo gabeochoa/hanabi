@@ -3952,7 +3952,12 @@ class MockClient : public Client {
                  "#### Owner\n"
                  "Checkout team holds the pager for this one.\n"
                  "\n"
-                 "#42 is the follow-up ticket.",
+                 "#42 is the follow-up ticket.\n"
+                 "\n"
+                 "| Check | Count | Status |\n"
+                 "|:---|---:|:---:|\n"
+                 "| call sites | 3 | open |\n"
+                 "| flags | 1 | ready |",
                  hrs_ago(2), ""},
             };
             v.push_back(std::move(s));

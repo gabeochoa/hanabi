@@ -1,4 +1,5 @@
 #pragma once
+#include "../ui/md_table_align.h"
 #include "../ui/selection_quote.h"
 #include "../api/list_failure.h"
 #include <array>
@@ -11212,7 +11213,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // is the header, the separator row is skipped) and return the byte offset
     // just past the table. Shared by render + measure.
     static size_t scan_table(const std::string& body, size_t start,
-                             std::vector<std::vector<std::string>>* rows) {
+                             std::vector<std::vector<std::string>>* rows,
+                             std::vector<hanabi::md_table::Align>* aligns = nullptr) {
         size_t p = start;
         int lineIdx = 0;
         while (p <= body.size()) {
@@ -11222,7 +11224,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // A table ends at the first line with no pipe (or EOF).
             if (line.find('|') == std::string::npos) break;
             if (lineIdx == 1 && is_table_separator(line)) {
-                // skip the separator row (it only defines alignment)
+                // The separator row draws nothing; it says how each column
+                // aligns (kt-gkph).
+                if (aligns) *aligns = hanabi::md_table::alignments(line);
             } else if (rows) {
                 rows->push_back(table_cells(line));
             }
@@ -12115,7 +12119,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // table_h() so virtualization stays exact.
     void render_table(UIContext<InputAction>& ctx, Entity& parent, int id,
                       const std::vector<std::vector<std::string>>& rows,
-                      float textW) {
+                      float textW, const std::vector<hanabi::md_table::Align>& aligns = {}) {
         if (rows.empty()) return;
         // Column count = the widest row (ragged rows are padded with blanks).
         size_t nCols = 0;
@@ -12176,11 +12180,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_custom_text_color(header ? theme::text_primary()
                                                        : theme::text_secondary())
                         .with_font_size(theme::type::SM)
-                        .with_alignment(TextAlignment::Left)
-                        .with_padding(Padding{.right = pixels(8),
-                                              .left = pixels(8)})
+                        // The separator row's colons (kt-gkph): left, centre
+                        // or right per column; left when it says nothing.
+                        .with_alignment(hanabi::md_table::at(aligns, ci) == hanabi::md_table::Align::Right
+                                            ? TextAlignment::Right
+                                            : (hanabi::md_table::at(aligns, ci) == hanabi::md_table::Align::Center
+                                                   ? TextAlignment::Center
+                                                   : TextAlignment::Left))
+                        // No padding: on a label with no children it was a
+                        // no-op (afterhours_gaps #85; the label-padding
+                        // baseline carried it); the text inset is the label's.
                         .with_roundness(0.0f)
-                        .with_debug_name("md_table_cell"));
+                        .with_debug_name(hanabi::md_table::at(aligns, ci) == hanabi::md_table::Align::Left
+                                             ? std::string("md_table_cell")
+                                             : (hanabi::md_table::at(aligns, ci) == hanabi::md_table::Align::Right
+                                                    ? std::string("md_table_cell_right")
+                                                    : std::string("md_table_cell_center"))));
             }
             // Single divider UNDER the header row (separates header from body).
             // row_separator reads on BOTH themes (border() was near-invisible on
@@ -12724,7 +12739,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // ---- Markdown table: ONE atomic segment (grid render) ----------
             if (is_table_start(shown, start)) {
                 std::vector<std::vector<std::string>> rows;
-                size_t p = scan_table(shown, start, &rows);
+                std::vector<hanabi::md_table::Align> aligns;
+                size_t p = scan_table(shown, start, &rows, &aligns);
                 const float blockH = table_h(static_cast<int>(rows.size()));
                 const float segTop = y;
                 const float segBot = y + blockH;
@@ -12735,7 +12751,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     pending += blockH;
                 } else {
                     flush(9000 + seg);
-                    render_table(ctx, parent, 100 + seg, rows, textW);
+                    render_table(ctx, parent, 100 + seg, rows, textW, aligns);
                 }
                 ++seg;
                 start = p;

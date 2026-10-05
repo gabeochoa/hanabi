@@ -1,0 +1,13 @@
+# A markdown table honours its separator row's alignment (Knots kt-gkph):
+# ":---" left, "---:" right, ":---:" centred, "---" left. The headings
+# fixture's reply ends with a three-column table, one column of each.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MD_DEMO=1 HANABI_OPEN=rmd
+
+require_thread rmd
+wait_frames 20
+assert_ui md_table_cell text="Check"
+assert_ui md_table_cell_right text="Count"
+assert_ui md_table_cell_center text="Status"
+expect_text "call sites"

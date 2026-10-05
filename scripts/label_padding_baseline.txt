@@ -1,5 +1,4 @@
 fold_row_
-md_table_cell
 msg_time
 sb_no_results
 sb_show_more

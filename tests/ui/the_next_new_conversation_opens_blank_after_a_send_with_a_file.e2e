@@ -1,0 +1,17 @@
+# After a New Conversation is sent with an attached file, the next New
+# Conversation opens blank -- no draft, no chip (the reference's D123311832,
+# 2026-10-04: it kept the paste chip). Hanabi already does; this pins it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat HANABI_DROP_TEST=tests/fixtures/attachments/sample.png
+wait_frames 20
+expect_text "sample.png"
+click_ui composer_reply_input
+type "look at this"
+key ENTER
+wait_frames 40
+key CMD+N
+wait_frames 20
+expect_text "Thread name (optional)"
+expect_no_text "sample.png"
+expect_input_text composer_reply_input ""
