@@ -3454,6 +3454,20 @@ struct HandlePressCaptureHotkeyCommand : afterhours::System<afterhours::testing:
     }
 };
 
+// expect_mock_create_title <words...> | -: the typed name the last create
+// carried ("-" = none) (Knots kt-2guz).
+struct HandleExpectCreateTitleCommand : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd, float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_create_title")) return;
+        std::string want;
+        for (const auto& a : cmd.args) want += (want.empty() ? "" : " ") + a;
+        if (want == "-") want.clear();
+        const std::string have = api::MockClient::last_create_title();
+        if (have == want) cmd.consume();
+        else cmd.fail("expect_mock_create_title: the create carried '" + have + "', wanted '" + want + "'");
+    }
+};
+
 // expect_no_overlay_write <kind> <args...>: that write was NOT made (so far).
 // expect_pins_migrated <version>: the one-shot pin carry's completed version
 // in Settings (kt-if8e).
@@ -4851,6 +4865,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectOverlayWriteCommand>());
     sm.register_update_system(std::make_unique<HandleOverlayNegativeCommands>());
     sm.register_update_system(std::make_unique<HandlePressCaptureHotkeyCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectCreateTitleCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockResolveHasCommand>());
     sm.register_update_system(std::make_unique<HandleExpectRowOrderCommand>());
     sm.register_update_system(std::make_unique<HandleRefreshWebPinsCommand>());

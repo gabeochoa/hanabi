@@ -275,6 +275,11 @@ struct OutgoingMessage {
     // The worker node a NEW thread should be born with. Read only by the
     // create path; a reply to an existing thread ignores it.
     std::string node_id;
+    // The name the person typed in the New Thread page's optional "Thread
+    // name" field (Knots kt-2guz; the reference's pendingThreadName). Empty
+    // keeps the old naming (the first line of the prompt). Read only by the
+    // create path.
+    std::string title;
     bool auto_retry = true;
     bool interrupt = false;
     bool attachment_delivery_started = false;

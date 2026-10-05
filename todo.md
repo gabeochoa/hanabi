@@ -18,6 +18,60 @@ repo-mutator per file (parallel agents in isolated worktrees, parent merges gate
 
 ---
 
+## OPEN — knot backlog from gabeochoa/hanabi (lead lane, 2026-10-05)
+The working list, derived from the knots converted into the `gabeochoa/hanabi`
+namespace on 2026-10-05 (every knot of the reference app's namespace, open and
+closed, with a source line naming the original). Knot ids below are the
+SOURCE ids; each converted knot names its source in its description and
+metadata, so either id finds it.
+
+Order: parity gaps first (a reference behaviour Hanabi lacks), then the unowned
+Hanabi backlog. Owner-gated items are listed at the end and not worked.
+One local commit per item; GitHub push stays with the owner.
+
+Status words: TODO, DOING, DONE (commit), VERIFIED (already in Hanabi; the
+evidence is named), GATED (waits on the owner).
+
+### Parity gaps, in order
+
+| # | Item | Source knot | Status |
+|---|---|---|---|
+| 1 | Name a thread as you create it: an optional "Thread name" field on the New Thread page; blank keeps the usual naming | kt-2guz | DONE (the commit that adds this list) |
+| 2 | An archived thread that is pinged and starts working unarchives itself | kt-vzgj | TODO |
+| 3 | Signed out, in words: the list says you are signed out and offers Sign in, never an HTTP code | kt-qu8m | TODO |
+| 4 | The first keystroke after a thread switch lands in the NEW thread's composer (guard + test) | kt-zueu | TODO |
+| 5 | A redeploy close redials at once instead of waiting out the reconnect backoff (the rest of kt-0wjy) | kt-0wjy | TODO |
+| 6 | Select code in a code block or diff view and add it to the chat as a quoted reference | kt-tlnb | TODO |
+| 7 | Task links show who and what a task is connected to: owner, tags, subscribers, related diffs and tasks | kt-pv24 | TODO |
+| 8 | Inline HTML widgets in the transcript: decide the safe subset Hanabi can draw, then draw it | kt-h6g6 | TODO |
+| 9 | The rows under the cursor hold still while the list updates (verify against the reference's rule) | kt-mdk3 | TODO |
+| 10 | Tables render as rows, never as summaries (verify on the reference's failing shapes) | kt-nooi | TODO |
+
+### Hanabi backlog (unowned)
+
+| Item | Source knot | Status |
+|---|---|---|
+| Compile-time defines audit: product invariants unconditional, only linkage/test variants left | kt-jcjp | TODO |
+| The notification/chime gate passes on bare main (it is part of `zig build gate` today; record the evidence and close) | kt-zvwr | TODO |
+| Mock fixture string-concatenation warning | kt-9vu6 | VERIFIED (the literals are one parenthesised string in `src/api/mock_client.h`; no warning in the gate build) |
+| Snooze one thread, not the whole app | kt-s1mk | VERIFIED (per-thread snooze with wake; `a_message_after_the_snooze_wakes_*`, `a_refused_snooze_*` fixtures) |
+| Pick a node before the thread exists; the nodes chip | kt-4ei4 | VERIFIED (`a_node_is_picked_before_the_thread_exists.e2e`) |
+| Turn grouping off, and filter to ungrouped | kt-nysr | DONE (ee74409) |
+| Pin and archive reach the server; pins read back | kt-if8e | DONE (9bde6af, fe56cc6, 2e2785e) |
+| Mark up a staged image: arrow, box, crop, redact | kt-cimg | DONE (e2af993, 303f836) |
+| Open an artifact full-size; play audio | kt-nmbp | DONE (0c640e2 and earlier) |
+| A file question can be answered | kt-zmwc | DONE (8985d77) |
+| Folders writable; a refile sticks | kt-im8t | DONE (3d5b159, 9f628f5, 8e92163; survives-refetch asserted 6e6bfa4) |
+
+### Owner-gated (not worked)
+
+| Item | Source | Why |
+|---|---|---|
+| A Space sets a default theme for its threads (D04) | puffin_gaps D04 | needs per-thread themes: the owner's call |
+| The screenshot hotkey on real hardware (D66) | kt-8uce | built and mock-tested (6e6bfa4); a real run writes a Screen Recording grant on the Mac the owner picks |
+
+---
+
 ## OPEN — lead lane (2026-10-02)
 - [x] PERF (fixed 2026-10-02, TranscriptLedger window memo): an UNCHANGED transcript frame still re-walks the viewport. `TranscriptLedger::materialize`
       runs every frame and `ensure()`s every row it covers, so a frame where nothing moved visits the

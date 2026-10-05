@@ -1,0 +1,16 @@
+# A create the server refuses makes no thread, so the typed name is kept for
+# the retry along with the draft (kt-2guz; the reference keeps the field
+# until a create really happened).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat HANABI_MOCK_CREATE_FAIL=rejected
+
+wait_frames 20
+click_ui new_thread_name
+type "Vendor review"
+click_ui composer_reply_input
+type "start the vendor review"
+key ENTER
+wait_frames 40
+expect_text "Vendor review"
+expect_text "start the vendor review"

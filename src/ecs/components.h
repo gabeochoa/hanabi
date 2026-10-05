@@ -1,4 +1,5 @@
 #pragma once
+#include "../api/create_title.h"
 
 #include <tuple>
 
@@ -743,6 +744,10 @@ struct AppComponent : public afterhours::BaseComponent {
     bool sensitiveGateAsked = false;
     std::future<api::Result<nlohmann::json>> sensitiveGateFuture;
     bool newThreadSensitiveAsk = false;
+    // The New Thread page's optional "Thread name" (Knots kt-2guz). It rides
+    // the next create and is cleared only when that create made a thread, so
+    // a refused create keeps what was typed for the retry.
+    std::string newThreadName;
     // Pins and archives on their way to the server (kt-if8e). The local
     // overlay has already moved; this only carries the act to the web app
     // and the session, off the frame. A refusal leaves the local mark and
@@ -1186,6 +1191,7 @@ struct AppComponent : public afterhours::BaseComponent {
         if (newThreadSensitiveAsk && sensitiveGate == Gate::Admitted)
             message.launch.allowSensitiveSwitch = true;
         newThreadSensitiveAsk = false;
+        message.title = api::create_title::explicit_title(newThreadName);
         requestKickoff = std::move(message);
     }
     std::optional<api::OutgoingMessage> requestSend;

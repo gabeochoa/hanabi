@@ -1,0 +1,21 @@
+# The New Thread page has an optional "Thread name" field (Knots kt-2guz; the
+# reference's "Thread name (optional)"). A name typed there is the new
+# thread's title -- the sidebar row and the create carry it -- and the field
+# is empty again for the next new thread.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat
+
+wait_frames 20
+expect_text "Thread name (optional)"
+click_ui new_thread_name
+type "Payroll export audit"
+click_ui composer_reply_input
+type "look over last month's payroll export"
+key ENTER
+wait_frames 40
+expect_mock_create_title Payroll export audit
+expect_text "Payroll export audit"
+key CMD+N
+wait_frames 10
+expect_text "Thread name (optional)"

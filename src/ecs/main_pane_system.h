@@ -2773,6 +2773,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Center)
                 .with_debug_name("welcome_subtitle"));
+        // An optional name for the thread this page will create (Knots
+        // kt-2guz; the reference's "Thread name (optional)"). Empty keeps the
+        // usual naming from the first line of the prompt. Styled as the
+        // app's other fields, at the composer's width of the column.
+        if (app.view == SmartView::Chat) {
+            hanabi::ui::edged_text_input(
+                ctx, mk(col.ent(), 5), app.newThreadName,
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(chipW), pixels(hanabi::surface::kFieldH)})
+                    .with_margin(Margin{.bottom = pixels(14)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_border(theme::border(), pixels(1.0f))
+                    .with_corner_radius(hanabi::surface::kControlCorner),
+                "new_thread_name", hanabi::surface::kFieldH * hanabi::surface::kFieldFontRatio,
+                "Thread name (optional)");
+        }
         static const char* kChips[] = {
             "Summarize what's waiting on me",
             "What changed since I last looked?",

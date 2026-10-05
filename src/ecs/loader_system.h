@@ -1232,6 +1232,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 const bool sessionExists = !verdict.session_id.empty();
                 if (verdict.ok()) release_sent_attachments(message);
                 if (sessionExists) {
+                    // The name was spent by the create that made a thread.
+                    if (!message.title.empty()) app.newThreadName.clear();
                     app.requestListRefresh = true;
                     app.requestOpenTab = verdict.session_id;
                     app.requestOpenTabPane = app.kickoffPaneIndex;

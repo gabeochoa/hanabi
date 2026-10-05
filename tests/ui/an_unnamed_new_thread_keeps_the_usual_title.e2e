@@ -1,0 +1,15 @@
+# Leaving the optional "Thread name" empty keeps the usual naming: the create
+# carries no name, and the row is titled from the prompt as before (kt-2guz).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat
+
+wait_frames 20
+click_ui new_thread_name
+type "   "
+click_ui composer_reply_input
+type "count the open invoices"
+key ENTER
+wait_frames 40
+expect_mock_create_title -
+expect_text "count the open invoices"

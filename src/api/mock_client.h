@@ -1,4 +1,5 @@
 #pragma once
+#include "create_title.h"
 
 // Deterministic, offline sample data source. This is the default backend so
 // the app is fully functional with no configuration and no network.
@@ -780,6 +781,11 @@ class MockClient : public Client {
         return mode;
     }
 
+    // The typed name the last create carried ("" = none), for e2e.
+    static std::string& last_create_title() {
+        static std::string t;
+        return t;
+    }
     Result<CreateOutcome> create_with_message(
         const OutgoingMessage& message, const StreamSink& sink) override {
         (void)sink;
@@ -811,6 +817,9 @@ class MockClient : public Client {
             fresh->model.requested_effort = message.launch.effort;
         }
         last_create_allowed_sensitive() = message.launch.allowSensitiveSwitch;
+        last_create_title() = create_title::explicit_title(message.title);
+        if (Session* named = find_mutable(created.value); named != nullptr && !last_create_title().empty())
+            named->summary.title = last_create_title();
         Session* session = find_mutable(created.value);
         if (session != nullptr && !session->messages.empty())
             session->messages.back().attachments = accepted_attachments(message);

@@ -1,4 +1,5 @@
 #include "knots_runner.h"
+#include "create_title.h"
 #include "agentcloud_client.h"
 #include "wire_clock.h"
 #include "disk_cache.h"
@@ -976,10 +977,8 @@ Result<std::vector<SessionSummary>> AgentcloudClient::list_subagents(
 
 Result<CreateOutcome> AgentcloudClient::create_with_message(
     const OutgoingMessage& message, const StreamSink& sink) {
-    std::string title = message.text;
-    const std::size_t newline = title.find('\n');
-    if (newline != std::string::npos) title.resize(newline);
-    if (title.size() > 120) title.resize(120);
+    // The typed name when there is one, else the prompt's first line.
+    const std::string title = api::create_title::for_create(message.title, message.text);
     std::string error;
     const std::string reply = round_trip(
         agentcloud::create_command_json(title, message.node_id, message.launch),

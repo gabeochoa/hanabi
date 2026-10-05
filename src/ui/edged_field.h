@@ -33,7 +33,7 @@ template <typename Ctx>
 inline afterhours::ui::imm::ElementResult edged_text_input(
     Ctx& ctx, afterhours::ui::imm::EntityParent ep, std::string& value,
     afterhours::ui::imm::ComponentConfig chrome, const std::string& name,
-    float fontPx) {
+    float fontPx, const std::string& placeholder = {}) {
     using namespace afterhours::ui;
     using afterhours::ui::imm::ComponentConfig;
 
@@ -52,16 +52,16 @@ inline afterhours::ui::imm::ElementResult edged_text_input(
             static_cast<int>(fieldEp.first.get().id),
             fieldEp.first.get().template get<afterhours::text_input::HasTextInputState>(), value,
             ecs::edit_actions::app_clipboard());
-    auto field = afterhours::ui::imm::text_input(
-        ctx, fieldEp, value,
-        ComponentConfig{}
+    ComponentConfig fieldCfg = ComponentConfig{}
             .with_size(ComponentSize{percent(1.0f), percent(1.0f)})
             .with_transparent_bg()
             .with_custom_text_color(theme::text_primary())
             .with_font_size(pixels(fontPx))
             .with_alignment(TextAlignment::Left)
             .with_disabled(disabled)
-            .with_debug_name(name));
+            .with_debug_name(name);
+    if (!placeholder.empty()) fieldCfg.with_placeholder(placeholder);
+    auto field = afterhours::ui::imm::text_input(ctx, fieldEp, value, std::move(fieldCfg));
 
     const bool focused =
         field.ent().template has<afterhours::text_input::HasTextInputState>() &&
