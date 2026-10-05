@@ -4269,12 +4269,12 @@ class MockClient : public Client {
             s.summary = calm("rcodewrap", "the long call", hrs_ago(1), "active",
                              ThreadState::Unknown, "code wrap fixture");
             s.messages = {
-                {"cw1", Role::User, "show me the call", hrs_ago(2), ""},
                 {"cw2", Role::Assistant,
                  "Here.\n\n```python\n"
                  "total = settle_ledger(ledger_rows, payout_batch, budget_seconds, attempts=3, dry_run=False, verbose=True)\n"
                  "```",
                  hrs_ago(1), ""},
+                {"cw3", Role::User, "thanks, that reads well", hrs_ago(1), ""},
             };
             v.push_back(std::move(s));
         }

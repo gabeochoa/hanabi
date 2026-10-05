@@ -1,0 +1,19 @@
+# A fence's height is measured again when a resize changes how its long line
+# wraps. The render cache serves a message at a new width without re-measuring
+# for as long as none of its line breaks would move (its fit interval); a
+# fence that wraps (code_wrap.h) now reports where its wrap holds, so a cached
+# one-row fence is not served at a width where it wraps to three -- which drew
+# the reply's box short and the next message over the code.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_CODE_WRAP_DEMO=1 HANABI_OPEN=rcodewrap
+
+require_thread rcodewrap
+wait_frames 20
+expect_ui_rel code_block above user_bubble
+expect_ui_rel code_block inside asst_bubble
+resize 640 700
+wait_frames 30
+expect_ui_rel code_block above user_bubble
+expect_ui_rel code_block inside asst_bubble
+expect_children_inside code_block_body

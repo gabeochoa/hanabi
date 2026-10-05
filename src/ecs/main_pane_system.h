@@ -11220,10 +11220,64 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return 6.0f + hanabi::inline_image::fitted_height(t.where, textW, kMdImageMaxH) + 6.0f;
         return 4.0f + kMdImageChipH + 4.0f;
     }
+    static constexpr std::size_t kMinCodeCols = 8;
+    static constexpr float kCodeChrome = 12.0f + 6.0f + 2.0f * 6.0f;  // body pads + chip pads
+    static float mono_char_w() {
+        return std::max(1.0f, theme::text_px_mono("0", theme::type::MD));
+    }
     static std::size_t code_cols(float textW) {
-        static const float charW = std::max(1.0f, theme::text_px_mono("0", theme::type::MD));
-        const float avail = textW - 12.0f - 6.0f - 2.0f * 6.0f;
-        return static_cast<std::size_t>(std::max(8.0f, std::floor(avail / charW)));
+        const float avail = textW - kCodeChrome;
+        return static_cast<std::size_t>(
+            std::max(static_cast<float>(kMinCodeCols), std::floor(avail / mono_char_w())));
+    }
+    // The text width at which `cols` code columns first fit.
+    static float code_cols_need(std::size_t cols) {
+        return static_cast<float>(cols) * mono_char_w() + kCodeChrome;
+    }
+    // WHERE A WRAPPED FENCE'S HEIGHT HOLDS, for the render cache's fit
+    // interval (wrap-width units, like count_lines'): a fence whose longest
+    // line fits holds at every width down to where that line would wrap; one
+    // that wraps holds only while the column count stays the same.
+    static hanabi::text::FitInterval code_fit(std::size_t longest, float textW) {
+        const float inset2 = 2.0f * afterhours::ui::kTextInset;
+        hanabi::text::FitInterval f = hanabi::text::FitInterval::everywhere();
+        const std::size_t cols = code_cols(textW);
+        if (longest <= cols) {
+            if (longest > kMinCodeCols) f.lo = code_cols_need(longest) - inset2;
+        } else {
+            if (cols > kMinCodeCols) f.lo = code_cols_need(cols) - inset2;
+            f.hi = code_cols_need(cols + 1) - inset2;
+        }
+        return f;
+    }
+    static std::size_t code_points(const std::string& s) {
+        std::size_t n = 0;
+        for (const unsigned char c : s) n += (c & 0xC0) != 0x80;
+        return n;
+    }
+    // Where a local picture's drawn height holds: at every width that shows
+    // it at its natural width or at the height cap; below that it scales
+    // with the width, so only this width.
+    static float md_image_settles_at(const std::string& path) {
+        float w = 0.0f, h = 0.0f;
+        hanabi::inline_image::natural_size(path, w, h);
+        if (w <= 0.0f || h <= 0.0f) return 0.0f;
+        return std::min(w, kMdImageMaxH * w / h);
+    }
+    static hanabi::text::FitInterval md_image_fit(const hanabi::md_image::Image& im, float textW) {
+        hanabi::text::FitInterval f = hanabi::text::FitInterval::everywhere();
+        const auto t = md_image_target(im);
+        if (t.kind != hanabi::md_image::Kind::Local || !hanabi::inline_image::available(t.where))
+            return f;
+        const float inset2 = 2.0f * afterhours::ui::kTextInset;
+        const float settle = md_image_settles_at(t.where);
+        if (textW >= settle) {
+            f.lo = settle - inset2;
+        } else {
+            f.lo = textW - inset2;
+            f.hi = std::nextafter(f.lo, std::numeric_limits<float>::infinity());
+        }
+        return f;
     }
     static float code_block_h(int nLines, bool labelled = true) {
         if (nLines < 1) nLines = 1;
@@ -11467,15 +11521,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 while (p <= body.size()) {
                     const std::size_t n2 = body.find('\n', p);
                     const std::size_t e2 = (n2 == std::string::npos) ? body.size() : n2;
-                    const std::string cl = body.substr(p, e2 - p);
+                    std::string cl = body.substr(p, e2 - p);
                     if (is_code_fence(cl)) {
                         p = (n2 == std::string::npos) ? body.size() : n2 + 1;
                         break;
                     }
+                    // A fence wraps now (code_wrap.h): its widest line is
+                    // what it needs to stay unwrapped at a wider width.
+                    for (size_t t = cl.find('\t'); t != std::string::npos; t = cl.find('\t', t))
+                        cl.replace(t, 1, "  ");
+                    const std::size_t n = code_points(cl);
+                    if (n > kMinCodeCols)
+                        widest = std::max(widest, code_cols_need(n) - 2.0f * afterhours::ui::kTextInset);
                     if (n2 == std::string::npos) { p = body.size() + 1; break; }
                     p = n2 + 1;
                 }
                 start = p;
+                continue;
+            }
+            if (const auto im = hanabi::md_image::parse_line(line)) {
+                const auto t = md_image_target(*im);
+                if (t.kind == hanabi::md_image::Kind::Local && hanabi::inline_image::available(t.where))
+                    widest = std::max(widest, md_image_settles_at(t.where) -
+                                                  2.0f * afterhours::ui::kTextInset);
+                if (nl == std::string::npos) break;
+                start = nl + 1;
                 continue;
             }
             if (const int level = md_heading_level(line); level > 0) {
@@ -11517,6 +11587,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // fence, count inner lines, add the whole block's height. Both
                 // render + measure do this identical scan so heights agree.
                 int codeLines = 0;
+                std::size_t codeLongest = 0;
                 size_t p = (nl == std::string::npos) ? body.size() : nl + 1;
                 while (p <= body.size()) {
                     size_t n2 = body.find('\n', p);
@@ -11531,9 +11602,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     for (size_t t = cl.find('\t'); t != std::string::npos; t = cl.find('\t', t))
                         cl.replace(t, 1, "  ");
                     codeLines += static_cast<int>(hanabi::code_wrap::count(cl, code_cols(textW)));
+                    codeLongest = std::max(codeLongest, code_points(cl));
                     if (n2 == std::string::npos) { p = body.size() + 1; break; }
                     p = n2 + 1;
                 }
+                if (hanabi::text::FitInterval* sink = fit_interval_sink())
+                    sink->merge(code_fit(codeLongest, textW));
                 h += code_block_h(codeLines, !fence_lang(line).empty());
                 start = p;
                 continue;
@@ -11541,6 +11615,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // ---- Markdown image: one segment (the picture or its chip) ------
             if (const auto im = hanabi::md_image::parse_line(line)) {
                 h += md_image_h(*im, textW);
+                if (hanabi::text::FitInterval* sink = fit_interval_sink())
+                    sink->merge(md_image_fit(*im, textW));
                 if (nl == std::string::npos) break;
                 start = nl + 1;
                 continue;
