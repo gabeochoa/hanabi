@@ -1,4 +1,5 @@
 #pragma once
+#include "../ui/selection_quote.h"
 #include "../api/list_failure.h"
 #include <array>
 #include <bitset>
@@ -9228,6 +9229,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name(cname("composer_retry")));
             if (retry) app.requestComposerRetry = true;
         }
+        // Add the selection to the chat (kt-tlnb): it goes into THIS
+        // composer's draft -- fenced when it is code, quoted when it is prose
+        // -- after whatever was typed, and the selection is spent. The press
+        // on the chip is itself a press outside the text, which drops the
+        // selection before the chip's activation lands a frame or two later
+        // (text_select::end_frame), so the chip stays a few frames on the
+        // copy taken while the selection stood.
+        if (hanabi::text_select::selected_text().empty() && app.chatSelectionGrace > 0 &&
+            --app.chatSelectionGrace == 0)
+            app.chatSelection.clear();
+        if (!app.chatSelection.empty()) {
+            auto add = button(ctx, mk(leftMeta.ent(), 15),
+                strip_chip_cfg("Add to chat", "chat_bubbles", theme::text_secondary(),
+                               cname("composer_add_selection")));
+            if (add.ent().has<afterhours::ui::HasLabel>())
+                add.ent().get<afterhours::ui::HasLabel>().text_x_offset = kStripChipTextX - kLabelInset;
+            hanabi::a11y::set_name(add.ent(), "Add the selected text to this message");
+            if (add) {
+                replyDraft = hanabi::selection_quote::appended(replyDraft, app.chatSelection);
+                api::disk_cache::save_draft(persistedDraftKey, replyDraft);
+                composerState.persistedReplyDraft = replyDraft;
+                hanabi::text_select::clear();
+                app.chatSelection.clear();
+                app.refocusComposer = true;
+            }
+        }
+
         // A live selection says how much is on the clipboard's doorstep. It
         // also confirms the selection exists at all: the band is drawn behind
         // text and easy to miss on a short run.
@@ -9243,7 +9271,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
                     .with_debug_name(cname("composer_selected")));
+            if (sel != app.chatSelection) app.chatSelection = sel;
+            app.chatSelectionGrace = 4;
         }
+
 
         const auto& attachmentState = staged_state(composerTarget);
         if (attachmentState.attachments.empty() ||

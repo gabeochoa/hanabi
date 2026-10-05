@@ -3454,6 +3454,24 @@ struct HandlePressCaptureHotkeyCommand : afterhours::System<afterhours::testing:
     }
 };
 
+// expect_draft_contains <words...>: the focused composer's draft contains the
+// text ("\n" in the words is a newline) (kt-tlnb).
+struct HandleExpectDraftContainsCommand : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd, float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_draft_contains")) return;
+        std::string want;
+        for (const auto& a : cmd.args) want += (want.empty() ? "" : " ") + a;
+        for (std::size_t at = 0; (at = want.find("\\n", at)) != std::string::npos;) want.replace(at, 2, "\n");
+        auto* app = ecs::find_singleton<ecs::AppComponent>();
+        if (!app) return cmd.fail("expect_draft_contains: no app");
+        const api::OutgoingTarget t = app->current_composer_target();
+        const std::string& draft =
+            ecs::model::pane_states().touch(ecs::model::pane_key(t.pane_index, t.draft_key)).replyDraft;
+        if (draft.find(want) != std::string::npos) cmd.consume();
+        else cmd.fail("expect_draft_contains: the draft is '" + draft + "'");
+    }
+};
+
 // expect_mock_create_title <words...> | -: the typed name the last create
 // carried ("-" = none) (Knots kt-2guz).
 struct HandleExpectCreateTitleCommand : afterhours::System<afterhours::testing::PendingE2ECommand> {
@@ -4877,6 +4895,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleOverlayNegativeCommands>());
     sm.register_update_system(std::make_unique<HandlePressCaptureHotkeyCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCreateTitleCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectDraftContainsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockResolveHasCommand>());
     sm.register_update_system(std::make_unique<HandleExpectRowOrderCommand>());
     sm.register_update_system(std::make_unique<HandleRefreshWebPinsCommand>());

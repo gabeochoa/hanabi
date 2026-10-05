@@ -748,6 +748,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // the next create and is cleared only when that create made a thread, so
     // a refused create keeps what was typed for the retry.
     std::string newThreadName;
+    // The transcript selection the composer's "Add to chat" chip would add
+    // (kt-tlnb): a copy, because the press on the chip drops the selection.
+    std::string chatSelection;
+    int chatSelectionGrace = 0;
     // Pins and archives on their way to the server (kt-if8e). The local
     // overlay has already moved; this only carries the act to the web app
     // and the session, off the frame. A refusal leaves the local mark and

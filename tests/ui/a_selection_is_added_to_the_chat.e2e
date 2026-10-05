@@ -1,0 +1,18 @@
+# Select text in the transcript and add it to the chat (Knots kt-tlnb, web
+# parity: "select code in a diff or code view and add it to chat"). With a
+# run selected, the composer strip offers Add to chat; pressing it puts the
+# selection into this thread's draft -- a quote for prose, a fenced block for
+# code, after anything already typed (test_selection_quote) -- and spends the
+# selection, so the chip goes away.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_SELECT_DEMO=4,810
+
+require_thread t2
+wait_frames 20
+assert_ui composer_add_selection text="Add to chat"
+click_ui composer_add_selection
+wait_frames 6
+expect_draft_contains > 4,810\n\n
+wait_frames 20
+expect_no_ui composer_add_selection

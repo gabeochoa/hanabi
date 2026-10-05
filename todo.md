@@ -32,16 +32,19 @@ One local commit per item; GitHub push stays with the owner.
 Status words: TODO, DOING, DONE (commit), VERIFIED (already in Hanabi; the
 evidence is named), GATED (waits on the owner).
 
+In gabeochoa/hanabi the top ten are kt-na8p, kt-zdk0, kt-6eo6, kt-8k49,
+kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
+
 ### Parity gaps, in order
 
 | # | Item | Source knot | Status |
 |---|---|---|---|
 | 1 | Name a thread as you create it: an optional "Thread name" field on the New Thread page; blank keeps the usual naming | kt-2guz | DONE (b9a6e3c) |
-| 2 | An archived thread that is pinged and starts working unarchives itself | kt-vzgj | DONE |
-| 3 | Signed out, in words: the list says this Mac is not signed in and offers Try again, never an HTTP code; a failed list is no longer "all caught up" | kt-qu8m | DONE |
-| 4 | The first keystroke after a thread switch lands in the NEW thread's composer (guard + test) | kt-zueu | TODO |
-| 5 | A redeploy close redials at once instead of waiting out the reconnect backoff (the rest of kt-0wjy) | kt-0wjy | TODO |
-| 6 | Select code in a code block or diff view and add it to the chat as a quoted reference | kt-tlnb | TODO |
+| 2 | An archived thread that is pinged and starts working unarchives itself | kt-vzgj | DONE (02ccc4e) |
+| 3 | Signed out, in words: the list says this Mac is not signed in and offers Try again, never an HTTP code; a failed list is no longer "all caught up" | kt-qu8m | DONE (cdc7bde) |
+| 4 | The first keystroke after a thread switch lands in the NEW thread's composer (guard + test) | kt-zueu | VERIFIED (already right: keystrokes before the caret ride typedSeed to the pane they were typed at; pinned by `typing_right_after_a_thread_switch_lands_in_the_new_thread.e2e`) |
+| 5 | A redeploy close redials at once instead of waiting out the reconnect backoff (the rest of kt-0wjy) | kt-0wjy | GATED (the agentcloud client holds no live connection to redial -- it polls; the knot parks the rest on the owner's call on a live subscription) |
+| 6 | Select text in the transcript and add it to the chat: fenced when it is code, quoted when it is prose | kt-tlnb | DONE |
 | 7 | Task links show who and what a task is connected to: owner, tags, subscribers, related diffs and tasks | kt-pv24 | TODO |
 | 8 | Inline HTML widgets in the transcript: decide the safe subset Hanabi can draw, then draw it | kt-h6g6 | TODO |
 | 9 | The rows under the cursor hold still while the list updates (verify against the reference's rule) | kt-mdk3 | TODO |
