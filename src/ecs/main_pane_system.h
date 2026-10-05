@@ -3745,6 +3745,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 start = p;
                 continue;
             }
+            // A markdown image line is drawn as a picture or a chip, never
+            // as text (render_md_image), so its alt and address are not
+            // matches, and the walk skips it as the draw does.
+            if (hanabi::md_image::parse_line(line)) {
+                if (nl == std::string::npos) break;
+                start = nl + 1;
+                continue;
+            }
             // A heading is painted — with its own find band — so what it
             // paints, the text without the hashes, is what may be counted.
             if (md_heading_level(line) > 0) {

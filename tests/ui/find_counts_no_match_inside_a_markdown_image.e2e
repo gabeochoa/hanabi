@@ -1,0 +1,12 @@
+# Find counts only what it can paint, and a markdown image line is drawn as a
+# picture or a chip, not as text: its alt and address are not matches. The
+# walk that counts (paintable_lines) skips an image line exactly as the draw
+# does, so the lines after it keep their band. "chart" is in the reader's
+# question (painted) and in two image lines (not text): one match.
+#
+# settings: {"window_width":1100,"window_height":900,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MD_IMAGE_DEMO=1 HANABI_OPEN=rmdimage HANABI_FIND_DEMO=chart HANABI_FIND_AUDIT=1
+
+require_thread rmdimage
+expect_text "1 of 1"
+expect_text "bands 1"

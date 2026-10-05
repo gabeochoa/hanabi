@@ -46,7 +46,7 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 | 5 | A redeploy close redials at once instead of waiting out the reconnect backoff (the rest of kt-0wjy) | kt-0wjy | GATED (the agentcloud client holds no live connection to redial -- it polls; the knot parks the rest on the owner's call on a live subscription) |
 | 6 | Select text in the transcript and add it to the chat: fenced when it is code, quoted when it is prose | kt-tlnb | DONE (f1ad7c8) |
 | 7 | The Companion's task panel shows who and what a task is connected to: owner and creator with handles, tags, subscribers, and a Related page (linked diffs, depends on, blocks, subtasks, parent) | kt-pv24 | DONE (0821e65) |
-| 8 | Inline HTML widgets in the transcript: decide the safe subset Hanabi can draw, then draw it | kt-h6g6 | PARTIAL (the reference answered this with agentcloud Elements, not HTML: a std/Table now draws its cells, item 10; other elements draw their text projection) |
+| 8 | Inline HTML widgets in the transcript: decide the safe subset Hanabi can draw, then draw it | kt-h6g6 | DONE to the reference's line (it answered this with agentcloud Elements, not HTML, and draws a std/Table's cells and every other element's text projection; Hanabi now does the same, item 10) |
 | 9 | The rows under the cursor hold still while the list updates: the main list already did (faac24f); the sub-agent list now does too | kt-mdk3 | DONE (61bcb4b) |
 | 10 | A std/Table element shows its rows, not the server's one-line summary | kt-nooi | DONE (5b20058) |
 
@@ -66,6 +66,9 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 | Run details (usage, cache, calls, cost) behind a Debug setting, off by default | D122961363 | VERIFIED (Hanabi draws no run-detail block) |
 | A new thread compacts at the boundary the person set in agentcloud (synced `autocompactPct`), kept for the next launch | D122911567 (kt-ltvd) | DONE (Hanabi has no app-level boundary setting of its own, so with none set in agentcloud the harness's rule still applies, as before) |
 | A session shortcode link (`<web app>/ACS<n>`) opens the thread it names, not the browser | kt-8a2f | DONE |
+| Find never counts text inside a markdown image line (it is drawn as a picture or chip); the lines after it keep their band | follow-up to 338914d | DONE |
+| New Conversation as a card over the whole window, with a scrim (Walker) | D123070383 | NEEDS A CALL (large: Hanabi deliberately replaced its modal sheet with the in-pane New Thread surface, `ecs/new_thread.h`; the reference has now gone the other way) |
+| The narrowest composer strip shows the model's vendor logo | D122735871 / D122947969 | TODO (needs the vendor logo files rasterized; Hanabi draws no SVG) |
 | Typing with the keyboard on a sidebar row (nothing typed into yet) after a click: the reference sends it to the composer only for a TAB click (verified in Hanabi); a sidebar-row click keeps the keyboard on the list | aa53ed52 | NOTE (not a gap as the reference defines it) |
 | The New Chat thread name types like the message box | 6fa7eddf | DONE (b9a6e3c: the field is the app's standard text field) |
 | Transcript pictures held at the size they are drawn | D123324882 | VERIFIED (`ui/decode_to_fit.h` decodes to the display box) |
