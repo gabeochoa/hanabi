@@ -8,7 +8,11 @@
 //   file:     ONE file's comparison hunks, all of them, drawn as one unified
 //             diff (the reference's 0.8.9: every hunk, not one hunk's two
 //             sides behind a toggle)
-//   task:     title, status, priority, owner, description, tags
+//   task:     title, status, priority, owner and creator (name and handle),
+//             description, tags, subscribers (the web's 9/21 task panel)
+//   related:  linked diffs with their status, the tasks it depends on and
+//             blocks, subtasks and parent -- its own read, like comments,
+//             so a miss fails that page and never the card (kt-pv24)
 //   comments: the newest ten, author, time, plain text (the reference's
 //             0.8.9 Comments page), in their own query so a schema or
 //             permission miss fails that page and never the card
@@ -32,6 +36,9 @@ using json = nlohmann::json;
 
 inline constexpr int kMaxFiles = 200;
 inline constexpr int kMaxComments = 10;
+inline constexpr int kMaxTags = 20;
+inline constexpr int kMaxSubscribers = 24;
+inline constexpr int kMaxRelated = 12;
 inline constexpr std::size_t kProseLimit = 64000;
 
 inline constexpr const char* kDiffDoc =
@@ -47,10 +54,19 @@ inline constexpr const char* kFileDoc =
     "files: $paths) { nodes { filename old_file source_file_change_type comparison_hunks { "
     "old_contents new_contents new_offset new_length } } } } }";
 inline constexpr const char* kTaskDoc =
-    "query HanabiCompanionTask($number: Int!, $tags: Int!) { task(number: $number) { "
-    "task_number task_title task_priority task_progress_status is_closed created_time "
+    "query HanabiCompanionTask($number: Int!, $tags: Int!, $subscribers: Int!) { task(number: "
+    "$number) { task_number task_title task_priority task_progress_status is_closed created_time "
     "updated_time task_description { text } task_owner { name unixname } task_creator { name "
-    "unixname } tags(first: $tags) { count nodes { name } } } }";
+    "unixname } tags(first: $tags) { count nodes { name } } subscribers(first: $subscribers) { "
+    "count nodes { __typename ... on Employee { name unixname } } } } }";
+inline constexpr const char* kRelatedDoc =
+    "query HanabiCompanionTaskRelated($number: Int!, $rows: Int!) { task(number: $number) { "
+    "task_number task_phabricator_diffs(first: $rows) { count nodes { number diff_title "
+    "status_badge { label(should_show_land_job_status: true) } } } task_parents(first: $rows) { "
+    "count nodes { task_number task_title task_progress_status is_closed } } task_children(first: "
+    "$rows) { count nodes { task_number task_title task_progress_status is_closed } } "
+    "subtasks(first: $rows) { count nodes { task_number task_title task_progress_status is_closed "
+    "} } subtask_parent { task_number task_title task_progress_status is_closed } } }";
 inline constexpr const char* kCommentsDoc =
     "query HanabiCompanionTaskComments($number: Int!, $rows: Int!) { task(number: $number) { "
     "task_number intern_activity_comments(first: $rows, exclude_deleted: true) { count nodes { "
@@ -84,7 +100,10 @@ inline std::string file_body(const std::string& versionId, const std::string& pa
     return body(kFileDoc, json{{"version", versionId}, {"paths", {path}}});
 }
 inline std::string task_body(std::int64_t number) {
-    return body(kTaskDoc, json{{"number", number}, {"tags", 20}});
+    return body(kTaskDoc, json{{"number", number}, {"tags", kMaxTags}, {"subscribers", kMaxSubscribers}});
+}
+inline std::string related_body(std::int64_t number) {
+    return body(kRelatedDoc, json{{"number", number}, {"rows", kMaxRelated}});
 }
 inline std::string comments_body(std::int64_t number) {
     return body(kCommentsDoc, json{{"number", number}, {"rows", kMaxComments}});
@@ -140,6 +159,32 @@ struct Task {
     std::int64_t created = 0;
     std::int64_t updated = 0;
     std::vector<std::string> tags;
+    int tagCount = 0;
+    // People as the web's panel names them: name, and the handle beside it.
+    std::string ownerHandle;
+    std::string creatorHandle;
+    std::vector<std::string> subscribers;  // "Name (handle)", employees only
+    int subscriberCount = -1;              // the server's total; -1 = not read
+};
+
+// One row of a task's related work: a diff or a task, its title and status.
+struct RelatedRow {
+    char kind = 'T';  // 'D' a diff, 'T' a task
+    std::string number;
+    std::string title;
+    std::string status;
+};
+struct RelatedList {
+    std::vector<RelatedRow> rows;
+    int total = 0;
+};
+struct Related {
+    RelatedList diffs, dependsOn, blocks, subtasks;
+    std::optional<RelatedRow> parent;
+    [[nodiscard]] bool empty() const {
+        return diffs.rows.empty() && dependsOn.rows.empty() && blocks.rows.empty() &&
+               subtasks.rows.empty() && !parent;
+    }
 };
 
 struct Comment {
@@ -221,10 +266,18 @@ inline Parsed<std::vector<Hunk>> parse_file(const json& data, const std::string&
     return out;
 }
 
+// The status words the reference shows for the graph's progress enum; an
+// unknown value is shown as the server spelled it.
 inline std::string task_status(const json& t) {
     if (t.value("is_closed", false)) return "Closed";
     const std::string s = str(t, "task_progress_status");
-    return s.empty() ? "Open" : s;
+    if (s.empty() || s == "NO_PROGRESS") return "Open";
+    if (s == "IN_PROGRESS") return "In progress";
+    if (s == "BLOCKED") return "Blocked";
+    if (s == "PLANNED") return "Planned";
+    if (s == "BACKLOG") return "Backlog";
+    if (s == "CLOSED") return "Closed";
+    return s;
 }
 
 inline std::int64_t seconds(const json& v) {
@@ -246,17 +299,94 @@ inline Parsed<Task> parse_task(const json& data, const std::string& number) {
     k.description = str(t.value("task_description", json::object()), "text");
     if (k.description.size() > kProseLimit) k.description.resize(kProseLimit);
     const json& owner = t.value("task_owner", json());
-    if (owner.is_object()) k.owner = str(owner, "name").empty() ? str(owner, "unixname") : str(owner, "name");
+    if (owner.is_object()) {
+        k.owner = str(owner, "name").empty() ? str(owner, "unixname") : str(owner, "name");
+        k.ownerHandle = str(owner, "unixname");
+    }
     const json& creator = t.value("task_creator", json());
-    if (creator.is_object())
+    if (creator.is_object()) {
         k.creator = str(creator, "name").empty() ? str(creator, "unixname") : str(creator, "name");
+        k.creatorHandle = str(creator, "unixname");
+    }
+    const json& subs = t.value("subscribers", json());
+    if (subs.is_object() && subs.contains("nodes") && subs["nodes"].is_array()) {
+        k.subscriberCount = subs.contains("count") && subs["count"].is_number_integer()
+                                ? subs["count"].get<int>()
+                                : static_cast<int>(subs["nodes"].size());
+        for (const json& n : subs["nodes"]) {
+            // Employees only (a group or a bot carries no handle to name).
+            if (str(n, "__typename") != "Employee" || str(n, "unixname").empty()) continue;
+            if (static_cast<int>(k.subscribers.size()) >= kMaxSubscribers) break;
+            const std::string name = str(n, "name").empty() ? str(n, "unixname") : str(n, "name");
+            k.subscribers.push_back(name + " (" + str(n, "unixname") + ")");
+        }
+    }
     k.created = seconds(t.value("created_time", json()));
     k.updated = seconds(t.value("updated_time", json()));
     const json& tags = t.value("tags", json::object());
     if (tags.contains("nodes") && tags["nodes"].is_array())
         for (const json& n : tags["nodes"])
             if (!str(n, "name").empty()) k.tags.push_back(str(n, "name"));
+    k.tagCount = tags.contains("count") && tags["count"].is_number_integer() ? tags["count"].get<int>()
+                                                                             : static_cast<int>(k.tags.size());
     return k;
+}
+
+// A person as the panel draws them: "Pat Owner (pat)", or the name alone.
+inline std::string person_label(const std::string& name, const std::string& handle) {
+    if (name.empty()) return handle;
+    if (handle.empty() || handle == name) return name;
+    return name + " (" + handle + ")";
+}
+
+namespace detail {
+inline std::optional<RelatedRow> related_row(const json& n, bool diff) {
+    RelatedRow r;
+    r.kind = diff ? 'D' : 'T';
+    r.number = digits(n.value(diff ? "number" : "task_number", json()));
+    r.title = str(n, diff ? "diff_title" : "task_title");
+    if (r.number.empty() || r.title.empty() ||
+        r.number.find_first_not_of("0123456789") != std::string::npos)
+        return std::nullopt;
+    if (diff) {
+        r.status = str(n.value("status_badge", json::object()), "label");
+        if (r.status.empty()) r.status = "Status unavailable";
+    } else {
+        r.status = task_status(n);
+    }
+    return r;
+}
+inline std::optional<RelatedList> related_list(const json& t, const char* key, bool diff) {
+    const json& c = t.value(key, json());
+    if (!c.is_object() || !c.contains("nodes") || !c["nodes"].is_array() ||
+        c["nodes"].size() > static_cast<std::size_t>(kMaxRelated))
+        return std::nullopt;
+    RelatedList out;
+    for (const json& n : c["nodes"])
+        if (auto r = related_row(n, diff)) out.rows.push_back(std::move(*r));
+    out.total = c.contains("count") && c["count"].is_number_integer() ? c["count"].get<int>()
+                                                                      : static_cast<int>(out.rows.size());
+    if (out.total < static_cast<int>(out.rows.size())) return std::nullopt;
+    return out;
+}
+}  // namespace detail
+
+inline Parsed<Related> parse_related(const json& data, const std::string& number) {
+    using R = Parsed<Related>;
+    const json& t = data.value("task", json());
+    if (!t.is_object() || digits(t.value("task_number", json())) != number)
+        return R(std::string("Couldn't read this task's related work. Try reloading."));
+    Related out;
+    const auto take = [&](const char* key, bool diff, RelatedList& into) {
+        if (auto l = detail::related_list(t, key, diff)) into = std::move(*l);
+    };
+    take("task_phabricator_diffs", true, out.diffs);
+    take("task_parents", false, out.dependsOn);
+    take("task_children", false, out.blocks);
+    take("subtasks", false, out.subtasks);
+    const json& parent = t.value("subtask_parent", json());
+    if (parent.is_object()) out.parent = detail::related_row(parent, false);
+    return out;
 }
 
 inline Parsed<std::vector<Comment>> parse_comments(const json& data, const std::string& number) {

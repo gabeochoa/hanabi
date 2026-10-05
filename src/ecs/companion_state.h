@@ -28,7 +28,13 @@ struct CompanionState {
 
     // A task.
     std::optional<api::companion::Task> task;
-    int page = 0;  // 0 Overview, 1 Comments
+    int page = 0;  // 0 Overview, 1 Comments, 2 Related
+    std::optional<api::companion::Related> related;
+    std::string relatedError;
+    bool relatedAsked = false;
+    bool requestRelated = false;
+    std::future<api::Result<nlohmann::json>> relatedFuture;
+    std::uint64_t relatedGen = 0;
     std::optional<std::vector<api::companion::Comment>> comments;
     std::string commentsError;
     bool commentsAsked = false;
@@ -60,6 +66,10 @@ struct CompanionState {
         comments.reset();
         commentsError.clear();
         commentsAsked = false;
+        related.reset();
+        relatedError.clear();
+        relatedAsked = false;
+        requestRelated = false;
         error.clear();
         requestLoad = true;
     }

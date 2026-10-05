@@ -1886,7 +1886,33 @@ class MockClient : public Client {
                    {"task_description", {{"text", "Two accounts did not reconcile; retry once before paging."}}},
                    {"task_owner", {{"name", "Pat Owner"}, {"unixname", "pat"}}},
                    {"task_creator", {{"name", "Sam Filer"}, {"unixname", "sam"}}},
-                   {"tags", {{"count", 1}, {"nodes", json::array({{{"name", "payouts"}}})}}}}}});
+                   {"tags", {{"count", 1}, {"nodes", json::array({{{"name", "payouts"}}})}}},
+                   {"subscribers",
+                    {{"count", 3},
+                     {"nodes", json::array({{{"__typename", "Employee"}, {"name", "Pat Owner"}, {"unixname", "pat"}},
+                                            {{"__typename", "Employee"}, {"name", "Rae Reviewer"}, {"unixname", "rae"}},
+                                            {{"__typename", "Group"}, {"name", "payouts-oncall"}}})}}}}}});
+        }
+        // HANABI_MOCK_COMPANION_RELATED_FAIL=1 refuses the related read alone.
+        if (has("query HanabiCompanionTaskRelated(")) {
+            if (const char* f = std::getenv("HANABI_MOCK_COMPANION_RELATED_FAIL"); f != nullptr && *f == '1')
+                return Result<json>::failure("memory HTTP 500");
+            const auto task_row = [](int n, const char* title, const char* st, bool closed) {
+                return json{{"task_number", n}, {"task_title", title}, {"task_progress_status", st}, {"is_closed", closed}};
+            };
+            return Result<json>::success(
+                {{"task",
+                  {{"task_number", vars.value("number", 0)},
+                   {"task_phabricator_diffs",
+                    {{"count", 1},
+                     {"nodes", json::array({{{"number", 117423523}, {"diff_title", "Retry the reconcile once"},
+                                             {"status_badge", {{"label", "Needs Review"}}}}})}}},
+                   {"task_parents", {{"count", 1}, {"nodes", json::array({task_row(444, "Payout ledger cutover", "IN_PROGRESS", false)})}}},
+                   {"task_children", {{"count", 0}, {"nodes", json::array()}}},
+                   {"subtasks", {{"count", 2},
+                                 {"nodes", json::array({task_row(556, "Page only after the retry", "NO_PROGRESS", false),
+                                                        task_row(557, "Log the delta", "CLOSED", true)})}}},
+                   {"subtask_parent", nullptr}}}});
         }
         return Result<json>::failure("the mock has no fixture for this query");
     }

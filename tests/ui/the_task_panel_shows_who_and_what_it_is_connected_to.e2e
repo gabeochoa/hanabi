@@ -1,0 +1,26 @@
+# The Companion's task panel shows who and what a task is connected to (Knots
+# kt-pv24, the web's 9/21 task panel): owner and creator as name and handle,
+# tags, subscribers with the count (employees named, a group counted), and a
+# Related page -- linked diffs with their status, the tasks it depends on,
+# subtasks -- in its own read. A row opens that task right here.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+open_companion T555
+wait_frames 20
+expect_text "owner Pat Owner (pat)"
+expect_text "filed by Sam Filer (sam)"
+expect_text "Subscribers (3): Pat Owner (pat), Rae Reviewer (rae) and 1 more"
+click_ui companion_page_related
+wait_frames 20
+expect_text "Diffs (1)"
+expect_text "D117423523  Retry the reconcile once  ·  Needs Review"
+expect_text "Depends on (1)"
+expect_text "Subtasks (2)"
+expect_text "T557  Log the delta  ·  Closed"
+expect_no_text "Blocks ("
+click_ui companion_related_T556
+wait_frames 20
+expect_text "T556"
+expect_text "Reconcile batch should retry once"

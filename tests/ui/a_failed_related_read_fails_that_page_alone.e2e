@@ -1,0 +1,15 @@
+# The Related read is its own (kt-pv24): when it fails, only the Related page
+# says so -- the task's overview still reads.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_COMPANION_RELATED_FAIL=1
+
+require_thread t2
+open_companion T555
+wait_frames 20
+click_ui companion_page_related
+wait_frames 20
+expect_text "This task's related work is unavailable right now."
+click_ui companion_page_overview
+wait_frames 8
+expect_text "retry once before paging"

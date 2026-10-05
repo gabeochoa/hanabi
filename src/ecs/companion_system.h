@@ -8,7 +8,10 @@
 //   context, removals and additions interleaved (the reference's 0.8.9).
 //   A task: Overview (status, priority, owner, tags, description) and
 //   Comments (the newest ten, author, when, text -- the reference's 0.8.9),
-//   the comments in their own read so a miss fails that page, not the card.
+//   the comments in their own read so a miss fails that page, not the card;
+//   and Related (linked diffs with their status, the tasks it depends on and
+//   blocks, subtasks and parent -- the web's 9/21 task panel, kt-pv24), also
+//   its own read; a row opens that diff or task right here.
 //
 // Reads go over the client's GraphQL route off the frame (api/companion_wire
 // .h); a read that lands for an entity the reader has left is dropped. Open
@@ -88,9 +91,28 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
                 }
             }
         }
+        if (ready(c.relatedFuture)) {
+            auto r = c.relatedFuture.get();
+            if (c.relatedGen == c.generation) {
+                if (!r.ok) {
+                    c.relatedError = "This task's related work is unavailable right now.";
+                } else {
+                    auto p = api::companion::parse_related(r.value, c.number);
+                    if (auto* v = std::get_if<api::companion::Related>(&p)) c.related = std::move(*v);
+                    else c.relatedError = std::get<std::string>(p);
+                }
+            }
+        }
         if (!app.client) return;
         auto client = app.client;
         const std::int64_t n = std::atoll(c.number.c_str());
+        if (c.requestRelated && !c.relatedAsked) {
+            c.requestRelated = false;
+            c.relatedAsked = true;
+            c.relatedGen = c.generation;
+            const std::string body = api::companion::related_body(n);
+            c.relatedFuture = std::async(std::launch::async, [client, body] { return client->graphql(body); });
+        }
         if (c.requestLoad) {
             c.requestLoad = false;
             c.docGen = c.generation;
@@ -310,23 +332,48 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
             c.page = 1;
             c.requestComments = true;
         }
+        if (chip(tabs.ent(), 3, "Related", c.page == 2, 110, "companion_page_related")) {
+            c.page = 2;
+            c.requestRelated = true;
+        }
         if (c.page == 0) {
             std::string meta = t.status;
             if (!t.priority.empty()) meta += "  \xc2\xb7  priority " + t.priority;
-            if (!t.owner.empty()) meta += "  \xc2\xb7  owner " + t.owner;
+            if (!t.owner.empty())
+                meta += "  \xc2\xb7  owner " + api::companion::person_label(t.owner, t.ownerHandle);
             line(panel.ent(), 4, meta, 20.0f, theme::text_secondary(), theme::type::SM,
                  "companion_meta");
             std::string when;
             if (t.updated > 0) when = "Updated " + fmtutil::relative_time(t.updated) + " ago";
-            if (!t.creator.empty()) when += (when.empty() ? "" : "  \xc2\xb7  ") + ("filed by " + t.creator);
+            if (!t.creator.empty())
+                when += (when.empty() ? "" : "  \xc2\xb7  ") +
+                        ("filed by " + api::companion::person_label(t.creator, t.creatorHandle));
             if (!when.empty())
                 line(panel.ent(), 5, when, 20.0f, theme::text_faint(), theme::type::SM,
                      "companion_when");
             if (!t.tags.empty()) {
                 std::string tags;
                 for (const auto& g : t.tags) tags += (tags.empty() ? "" : ", ") + g;
+                if (t.tagCount > static_cast<int>(t.tags.size()))
+                    tags += " and " + std::to_string(t.tagCount - static_cast<int>(t.tags.size())) + " more";
                 line(panel.ent(), 6, "Tags: " + tags, 20.0f, theme::text_secondary(),
                      theme::type::SM, "companion_tags");
+            }
+            // Subscribers: the count, then who (employees only).
+            if (t.subscriberCount >= 0) {
+                std::string who = t.subscriberCount == 0
+                                      ? std::string("No subscribers")
+                                      : "Subscribers (" + std::to_string(t.subscriberCount) + ")";
+                if (!t.subscribers.empty()) {
+                    who += ": ";
+                    for (std::size_t i = 0; i < t.subscribers.size(); ++i)
+                        who += (i ? ", " : "") + t.subscribers[i];
+                    if (t.subscriberCount > static_cast<int>(t.subscribers.size()))
+                        who += " and " + std::to_string(t.subscriberCount - static_cast<int>(t.subscribers.size())) +
+                               " more";
+                }
+                line(panel.ent(), 7, who, 20.0f, theme::text_secondary(), theme::type::SM,
+                     "companion_subscribers");
             }
             int id = 20;
             const auto paras = api::changes::split_lines(t.description);
@@ -336,6 +383,62 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
             if (paras.empty())
                 line(panel.ent(), id++, "No description.", 18.0f, theme::text_faint(),
                      theme::type::SM, "companion_desc_empty");
+            return;
+        }
+        if (c.page == 2) {
+            // Related: each section with its count, each row a button that
+            // opens that diff or task in this panel.
+            if (!c.relatedError.empty()) {
+                line(panel.ent(), 4, c.relatedError, 20.0f, theme::destructive(), theme::type::SM,
+                     "companion_related_error");
+                return;
+            }
+            if (!c.related) {
+                line(panel.ent(), 4, "Reading the related work\xe2\x80\xa6", 20.0f, theme::text_secondary(),
+                     theme::type::SM, "companion_related_loading");
+                return;
+            }
+            const auto& rel = *c.related;
+            if (rel.empty()) {
+                line(panel.ent(), 4, "Nothing is linked to this task.", 20.0f, theme::text_faint(),
+                     theme::type::SM, "companion_related_empty");
+                return;
+            }
+            int id = 40;
+            std::optional<std::pair<char, std::string>> go;
+            const auto section = [&](const char* name, const std::vector<api::companion::RelatedRow>& rows,
+                                     int total) {
+                if (rows.empty()) return;
+                line(panel.ent(), id++, std::string(name) + " (" + std::to_string(total) + ")", 20.0f,
+                     theme::text_secondary(), theme::type::SM, std::string("companion_related_head_") + name);
+                for (const auto& r : rows) {
+                    const std::string ref = std::string(1, r.kind) + r.number;
+                    if (button(ctx, mk(panel.ent(), id++),
+                               ComponentConfig{}
+                                   .with_label(ref + "  " + r.title + "  \xc2\xb7  " + r.status)
+                                   .with_size(ComponentSize{pixels(w), pixels(24)})
+                                   .with_transparent_bg()
+                                   .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                                   .with_custom_text_color(theme::text_primary())
+                                   .with_font_size(theme::type::SM)
+                                   .with_alignment(TextAlignment::Left)
+                                   .with_text_overflow(TextOverflow::Ellipsis)
+                                   .with_cursor(afterhours::ui::CursorType::Pointer)
+                                   .with_render_layer(11)
+                                   .with_debug_name("companion_related_" + ref)))
+                        go = std::make_pair(r.kind, r.number);
+                }
+                if (total > static_cast<int>(rows.size()))
+                    line(panel.ent(), id++,
+                         std::to_string(total - static_cast<int>(rows.size())) + " more \xe2\x80\x94 open it in your browser",
+                         18.0f, theme::text_faint(), theme::type::SM, std::string("companion_related_more_") + name);
+            };
+            if (rel.parent) section("Parent", {*rel.parent}, 1);
+            section("Diffs", rel.diffs.rows, rel.diffs.total);
+            section("Depends on", rel.dependsOn.rows, rel.dependsOn.total);
+            section("Blocks", rel.blocks.rows, rel.blocks.total);
+            section("Subtasks", rel.subtasks.rows, rel.subtasks.total);
+            if (go) c.open_entity(go->first, go->second);
             return;
         }
         // Comments: newest first.

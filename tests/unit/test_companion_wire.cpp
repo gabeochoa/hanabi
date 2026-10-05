@@ -106,7 +106,49 @@ static void test_task_and_its_comments() {
     CHECK(std::holds_alternative<std::string>(co::parse_comments(comments, "457")));
 }
 
+// The web's 9/21 task panel: subscribers (employees named, others counted),
+// people with their handles, and the Related read (kt-pv24).
+static void test_task_people_and_related() {
+    using namespace api::companion;
+    json data = {{"task",
+                  {{"task_number", 555}, {"task_title", "T"}, {"task_progress_status", "IN_PROGRESS"},
+                   {"task_owner", {{"name", "Pat Owner"}, {"unixname", "pat"}}},
+                   {"subscribers",
+                    {{"count", 3},
+                     {"nodes", json::array({{{"__typename", "Employee"}, {"name", "Pat Owner"}, {"unixname", "pat"}},
+                                            {{"__typename", "Group"}, {"name", "oncall"}}})}}}}}};
+    auto p = parse_task(data, "555");
+    auto* t = std::get_if<Task>(&p);
+    CHECK(t != nullptr);
+    if (t) {
+        CHECK(t->status == "In progress");
+        CHECK(person_label(t->owner, t->ownerHandle) == "Pat Owner (pat)");
+        CHECK(t->subscriberCount == 3 && t->subscribers.size() == 1 && t->subscribers[0] == "Pat Owner (pat)");
+    }
+    CHECK(person_label("pat", "pat") == "pat" && person_label("", "pat") == "pat");
+    json rel = {{"task",
+                 {{"task_number", 555},
+                  {"task_phabricator_diffs",
+                   {{"count", 4}, {"nodes", json::array({{{"number", 1234}, {"diff_title", "D"}, {"status_badge", {{"label", "Accepted"}}}},
+                                                         {{"number", "bad"}, {"diff_title", "x"}}})}}},
+                  {"subtasks", {{"count", 1}, {"nodes", json::array({{{"task_number", 9}, {"task_title", "S"}, {"is_closed", true}}})}}},
+                  {"subtask_parent", {{"task_number", 7}, {"task_title", "P"}, {"task_progress_status", "NO_PROGRESS"}}}}}};
+    auto r = parse_related(rel, "555");
+    auto* v = std::get_if<Related>(&r);
+    CHECK(v != nullptr);
+    if (v) {
+        CHECK(v->diffs.rows.size() == 1 && v->diffs.total == 4 && v->diffs.rows[0].status == "Accepted" &&
+              v->diffs.rows[0].kind == 'D');
+        CHECK(v->subtasks.rows.size() == 1 && v->subtasks.rows[0].status == "Closed");
+        CHECK(v->parent && v->parent->number == "7" && v->parent->status == "Open");
+        CHECK(v->blocks.rows.empty() && !v->empty());
+    }
+    // An answer for another task is not believed.
+    CHECK(std::holds_alternative<std::string>(parse_related(rel, "556")));
+}
+
 int main() {
+    test_task_people_and_related();
     test_diff_document_and_files();
     test_every_hunk_of_the_file_asked();
     test_task_and_its_comments();
