@@ -1,0 +1,32 @@
+# A link to a session SHORTCODE (`<web app>/ACS1042`, the alias a person
+# shares) opens the thread it names, here, when this Mac holds it -- the
+# reference's kt-qvid / kt-8a2f. The code is resolved over the intern graph as
+# the viewer (the web app's own `xfb_agentcloud_catalog_session_from_reference`);
+# a code that names nothing this viewer can open goes to the web page, which
+# resolves it and says why.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_WEB_BASE_URL=https://web.example.test/chat HANABI_MOCK_SHORTCODES=ACS1042:t6 HANABI_LINK_AUDIT=1
+
+require_thread t2
+click_ui composer_reply_input
+wait_frames 4
+type "https://web.example.test/chat/ACS1042"
+key ENTER
+wait_frames 30
+click_link thread:ACS1042
+wait_frames 30
+expect_open t6
+
+# A code that names nothing: the web page.
+click_ui tab_t2
+wait_frames 20
+click_ui composer_reply_input
+wait_frames 4
+type "https://web.example.test/chat/ACS999"
+key ENTER
+wait_frames 30
+click_link thread:ACS999
+wait_frames 30
+expect_link_opened https://web.example.test/chat/ACS999
+expect_open t2

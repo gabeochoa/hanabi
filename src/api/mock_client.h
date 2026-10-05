@@ -1794,6 +1794,26 @@ class MockClient : public Client {
                               ? json::parse(b["variables"].get<std::string>(), nullptr, false)
                               : json::object();
         const auto has = [&](const char* op) { return doc.find(op) != std::string::npos; };
+        if (has("xfb_agentcloud_catalog_session_from_reference(")) {
+            // HANABI_MOCK_SHORTCODES=ACS1042:t6,...: the codes this mock
+            // resolves; any other is the server's null.
+            const std::string ref = vars.is_object() ? vars.value("reference", std::string()) : "";
+            std::string sid;
+            if (const char* m = std::getenv("HANABI_MOCK_SHORTCODES")) {
+                std::string all = m;
+                std::size_t at = 0;
+                while (at <= all.size()) {
+                    const std::size_t comma = all.find(',', at);
+                    const std::string pair = all.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+                    const std::size_t colon = pair.find(':');
+                    if (colon != std::string::npos && pair.substr(0, colon) == ref) sid = pair.substr(colon + 1);
+                    if (comma == std::string::npos) break;
+                    at = comma + 1;
+                }
+            }
+            json node = sid.empty() ? json(nullptr) : json{{"session_id", sid}};
+            return Result<json>::success(json{{"xfb_agentcloud_catalog_session_from_reference", node}});
+        }
         if (has("query HanabiSessionSpaceIndex(")) {
             // HANABI_MOCK_SPACE_FILING=<sid>:<spaceId>,...: those threads are
             // filed in those Spaces. One filing per page, so a script also

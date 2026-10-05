@@ -44,6 +44,20 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
         const auto ready = [](auto& f) {
             return f.valid() && f.wait_for(0s) == std::future_status::ready;
         };
+        // A shortcode link's answer (main_pane_system link_hotspot): the
+        // thread it names opens here when this Mac holds it; anything else
+        // goes to the web page.
+        if (ready(app.shortcodeFuture)) {
+            const std::string sid = app.shortcodeFuture.get();
+            if (!sid.empty()) app.shortcodeResolved[app.shortcodeCode] = sid;
+            if (!sid.empty() && app.find_summary(sid) != nullptr) {
+                app.requestOpenTab = sid;
+            } else if (!app.shortcodeUrl.empty()) {
+                hanabi::links::open(app.shortcodeUrl);
+                app.raise_toast("Opened " + app.shortcodeCode + " in the web app", "",
+                                AppComponent::ToastUndo::None);
+            }
+        }
         if (ready(c.docFuture)) {
             auto r = c.docFuture.get();
             if (c.docGen == c.generation) {

@@ -1,4 +1,5 @@
 #pragma once
+#include "../api/shortcode.h"
 #include "../ui/md_image.h"
 #include "../api/agentcloud_hosts.h"
 #include "../ui/reading_column.h"
@@ -3611,6 +3612,32 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (app->find_summary(sid) != nullptr) {
                 app->requestOpenTab = sid;
                 return;
+            }
+            // A SHORTCODE (`<web app>/ACS1042`) is not an id: ask the intern
+            // graph which thread it names, as the web app's ShortcodeRedirect
+            // does, then open that thread here if this Mac holds it -- else
+            // the web page, which resolves the same code and says why.
+            if (const auto code = api::shortcode::normalized(sid)) {
+                const auto known = app->shortcodeResolved.find(*code);
+                if (known != app->shortcodeResolved.end() &&
+                    app->find_summary(known->second) != nullptr) {
+                    app->requestOpenTab = known->second;
+                    return;
+                }
+                if (app->client && app->client->supports_graphql() &&
+                    !app->shortcodeFuture.valid()) {
+                    app->shortcodeCode = *code;
+                    app->shortcodeUrl = link_url(*app, id);
+                    auto c = app->client;
+                    const std::string body = api::shortcode::body(*code);
+                    app->shortcodeFuture = std::async(std::launch::async, [c, body] {
+                        const auto r = c->graphql(body);
+                        return r.ok ? api::shortcode::session_id(r.value) : std::string();
+                    });
+                    app->raise_toast("Finding that conversation\xe2\x80\xa6", "",
+                                     AppComponent::ToastUndo::None);
+                    return;
+                }
             }
         }
         hanabi::links::open(link_url(*app, id));

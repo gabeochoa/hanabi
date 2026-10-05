@@ -541,6 +541,12 @@ struct AppComponent : public afterhours::BaseComponent {
     // Set by the sidebar when a row is clicked (a thread to open in a tab);
     // consumed by TabFlowSystem which opens/focuses the tab.
     std::string requestOpenTab;
+    // A shortcode link's read (api/shortcode.h): the code, the web page to
+    // fall back to, the resolver's answer; and what this run already learned.
+    std::string shortcodeCode;
+    std::string shortcodeUrl;
+    std::future<std::string> shortcodeFuture;
+    std::map<std::string, std::string> shortcodeResolved;
     int requestOpenTabPane = -1;
     bool requestOpenTabKeep = false;
     bool requestOpenTabPin = false;
