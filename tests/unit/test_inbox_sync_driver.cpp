@@ -35,6 +35,11 @@ struct Latch {
         }
         cv.notify_all();
     }
+    // Shut it again, so the next call is held too.
+    void close() {
+        std::lock_guard<std::mutex> lk(mu);
+        open = false;
+    }
     void wait() {
         std::unique_lock<std::mutex> lk(mu);
         cv.wait_for(lk, std::chrono::seconds(20), [&] { return open; });
@@ -301,9 +306,14 @@ int main() {
     CHECK(!d.busy("t6"));
     CHECK(toasts.size() == 1);
 
+    // Held, so "a write is in flight under generation 2" is observed and not
+    // raced: with the latch left open the write could finish inside the
+    // drain and the check read an empty list under load (gate 87, 2026-10-05).
+    newLatch->close();
     d.request = SnoozeRequest{"t6", 1781531000};
     CHECK(drain_ms(d, fresh) <= 50);
     CHECK(d.writes.size() == 1 && d.writes[0].intent.generation == 2 && d.store.get("t6"));
+    newLatch->release();
     for (int i = 0; i < 400 && !d.writes.empty(); ++i) {
         d.drain(fresh, 1781524800, toast);
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
