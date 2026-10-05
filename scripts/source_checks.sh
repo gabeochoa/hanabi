@@ -29,13 +29,15 @@ for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/c
            scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/check_theme_config.py \
            scripts/check_vocabulary.py scripts/check_settings_readers.py scripts/check_resize_deferral.py \
            scripts/check_frame_signal_merge.py scripts/check_wire_event_vocabulary.py \
-           scripts/focus_edge_gate.py scripts/attachment_route_gate.py scripts/check_build_graph.py; do
+           scripts/focus_edge_gate.py scripts/attachment_route_gate.py scripts/check_build_graph.py \
+           scripts/check_build_switches.py; do
     # python3 off PATH, not /usr/bin: focus_edge_gate.py (and compare.py
     # below) need Pillow, which the system interpreter on a stock Mac does
     # not have; the build's PATH carries an interpreter that does.
     if python3 "$chk"; then :; else rc=1; fi
 done
 if python3 scripts/compare.py --selftest; then :; else rc=1; fi
+if python3 scripts/check_build_switches.py --selftest; then :; else rc=1; fi
 # The icon ink table must match the committed atlas (afterhours_gaps.md #114).
 if python3 scripts/gen_icon_ink.py --check; then :; else rc=1; fi
 if bash scripts/measure_launch.sh --selftest; then :; else rc=1; fi

@@ -47,15 +47,15 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 | 6 | Select text in the transcript and add it to the chat: fenced when it is code, quoted when it is prose | kt-tlnb | DONE (f1ad7c8) |
 | 7 | The Companion's task panel shows who and what a task is connected to: owner and creator with handles, tags, subscribers, and a Related page (linked diffs, depends on, blocks, subtasks, parent) | kt-pv24 | DONE (0821e65) |
 | 8 | Inline HTML widgets in the transcript: decide the safe subset Hanabi can draw, then draw it | kt-h6g6 | PARTIAL (the reference answered this with agentcloud Elements, not HTML: a std/Table now draws its cells, item 10; other elements draw their text projection) |
-| 9 | The rows under the cursor hold still while the list updates: the main list already did (faac24f); the sub-agent list now does too | kt-mdk3 | DONE |
-| 10 | A std/Table element shows its rows, not the server's one-line summary | kt-nooi | DONE |
+| 9 | The rows under the cursor hold still while the list updates: the main list already did (faac24f); the sub-agent list now does too | kt-mdk3 | DONE (61bcb4b) |
+| 10 | A std/Table element shows its rows, not the server's one-line summary | kt-nooi | DONE (5b20058) |
 
 ### Hanabi backlog (unowned)
 
 | Item | Source knot | Status |
 |---|---|---|
-| Compile-time defines audit: product invariants unconditional, only linkage/test variants left | kt-jcjp | TODO |
-| The notification/chime gate passes on bare main (it is part of `zig build gate` today; record the evidence and close) | kt-zvwr | TODO |
+| Compile-time defines audit: product invariants unconditional, only linkage/test variants left | kt-jcjp | DONE (the audit's split holds; scripts/check_build_switches.py keeps it: no branch on an invariant, variants only where listed) |
+| The notification/chime gate passes on bare main | kt-zvwr | VERIFIED (`notification-gate: PASS` in every full gate, e.g. gates 91-92 on 2026-10-05) |
 | Mock fixture string-concatenation warning | kt-9vu6 | VERIFIED (the literals are one parenthesised string in `src/api/mock_client.h`; no warning in the gate build) |
 | Snooze one thread, not the whole app | kt-s1mk | VERIFIED (per-thread snooze with wake; `a_message_after_the_snooze_wakes_*`, `a_refused_snooze_*` fixtures) |
 | Pick a node before the thread exists; the nodes chip | kt-4ei4 | VERIFIED (`a_node_is_picked_before_the_thread_exists.e2e`) |
