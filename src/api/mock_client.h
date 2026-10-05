@@ -2765,7 +2765,7 @@ class MockClient : public Client {
     // here too. That coupling is the price of the cache; the alternative was
     // rebuilding a 2000-row catalog on every get_session().
     static constexpr const char* kFixtureEnv[] = {
-        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_CODE_WRAP_DEMO",
+        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_CODE_WRAP_DEMO", "HANABI_MD_IMAGE_DEMO",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
@@ -4211,6 +4211,25 @@ class MockClient : public Client {
         // list is unchanged. Each block is chosen to exercise a different part
         // of the scanner: a Python docstring and a # comment, a C++ block
         // comment that spans two lines, a shell pipeline, and JSON literals.
+        // Markdown images: a file on this Mac (drawn), an app-relative web
+        // address and a repo path (chips). Only under HANABI_MD_IMAGE_DEMO.
+        if (const char* mi = std::getenv("HANABI_MD_IMAGE_DEMO"); mi && *mi == '1') {
+            std::error_code ec;
+            const std::string png =
+                std::filesystem::absolute("tests/fixtures/attachments/sample.png", ec).string();
+            Session s;
+            s.summary = calm("rmdimage", "the chart", hrs_ago(1), "active",
+                             ThreadState::Unknown, "markdown image fixture");
+            s.messages = {
+                {"mi1", Role::User, "show me the chart", hrs_ago(2), ""},
+                {"mi2", Role::Assistant,
+                 "Here it is.\n\n![Fixture chart](" + png + ")\n\n"
+                 "And the one on the web:\n\n![Zoom test chart](/api/attachments/view?file_id=123)\n\n"
+                 "- ![app logo](fbobjc/Apps/Internal/Hanabi/logo.png)",
+                 hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
         // A fence whose last line is longer than a narrow column (code wraps
         // between tokens). Only under HANABI_CODE_WRAP_DEMO.
         if (const char* cw = std::getenv("HANABI_CODE_WRAP_DEMO"); cw && *cw == '1') {

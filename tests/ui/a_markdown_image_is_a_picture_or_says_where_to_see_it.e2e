@@ -1,0 +1,18 @@
+# A markdown image is a picture, or says where it can be seen -- never the raw
+# `![alt](...)` text (the reference's MarkdownImageView, kt-g07i: "an image
+# that cannot load must SAY so"). A file on this Mac draws; an app-relative
+# web address is a chip whose button opens it in the web app (its intern auth
+# is a wall this app has no cookie for); a repo path opens in CodeHub.
+#
+# settings: {"window_width":1100,"window_height":900,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MD_IMAGE_DEMO=1 HANABI_OPEN=rmdimage HANABI_LINK_AUDIT=1
+
+require_thread rmdimage
+wait_frames 20
+assert_ui md_image hidden=false
+expect_no_text "![Fixture chart]"
+expect_text "Zoom test chart · can't be shown here · open it in the web app"
+expect_text "app logo · can't be shown here · open it in CodeHub"
+click_text "Zoom test chart · can't be shown here · open it in the web app"
+wait_frames 6
+expect_link_opened https://agentcloud.internalmeta.com/api/attachments/view?file_id=123

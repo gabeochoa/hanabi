@@ -1,4 +1,6 @@
 #pragma once
+#include "../ui/md_image.h"
+#include "../api/agentcloud_hosts.h"
 #include "../ui/reading_column.h"
 #include "../ui/code_wrap.h"
 #include "../ui/md_table_align.h"
@@ -1312,6 +1314,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         };
         size_t i = 0, n = in.size();
         while (i < n) {
+            // A markdown image line keeps its address: it is drawn as a
+            // picture or a chip whose button needs the real source, and a long
+            // path or file id is not a credential's shape in that position.
+            if (i == 0 || in[i - 1] == '\n') {
+                const size_t e = in.find('\n', i);
+                const size_t end = e == std::string::npos ? n : e;
+                if (hanabi::md_image::parse_line(std::string_view(in.data() + i, end - i))) {
+                    out.append(in, i, end - i);
+                    i = end;
+                    continue;
+                }
+            }
             // Scan the next run of token-ish chars.
             if (is_tok(in[i])) {
                 size_t j = i;
@@ -11148,6 +11162,29 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // How many code columns fit a block drawn at text width `textW`: the body's
     // 12px left and kLabelInsetX right padding and the chip's own padding come
     // off, and the code font is fixed-width (kt: code wraps between tokens).
+    // A markdown image line (ui/md_image.h): the picture when it is a file on
+    // this Mac, else a chip. One height function for measure and draw.
+    static constexpr float kMdImageMaxH = 320.0f;  // the reference's maxHeight
+    static constexpr float kMdImageChipH = 30.0f;
+    static hanabi::md_image::Target md_image_target(const hanabi::md_image::Image& im) {
+        // The web app's origin: the configured base, else the agentcloud web
+        // origin the app-relative addresses an agent writes belong to.
+        const AppComponent* app = app_singleton();
+        const std::string base = (app && !app->webBaseUrl.empty())
+                                     ? app->webBaseUrl
+                                     : std::string("https://") + api::agentcloud_hosts::kWebOrigin;
+        return hanabi::md_image::resolve(im.source, base,
+                                         [](const std::string& p) {
+                                             std::error_code ec;
+                                             return std::filesystem::is_regular_file(p, ec);
+                                         });
+    }
+    static float md_image_h(const hanabi::md_image::Image& im, float textW) {
+        const auto t = md_image_target(im);
+        if (t.kind == hanabi::md_image::Kind::Local && hanabi::inline_image::available(t.where))
+            return 6.0f + hanabi::inline_image::fitted_height(t.where, textW, kMdImageMaxH) + 6.0f;
+        return 4.0f + kMdImageChipH + 4.0f;
+    }
     static std::size_t code_cols(float textW) {
         static const float charW = std::max(1.0f, theme::text_px_mono("0", theme::type::MD));
         const float avail = textW - 12.0f - 6.0f - 2.0f * 6.0f;
@@ -11464,6 +11501,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 }
                 h += code_block_h(codeLines, !fence_lang(line).empty());
                 start = p;
+                continue;
+            }
+            // ---- Markdown image: one segment (the picture or its chip) ------
+            if (const auto im = hanabi::md_image::parse_line(line)) {
+                h += md_image_h(*im, textW);
+                if (nl == std::string::npos) break;
+                start = nl + 1;
                 continue;
             }
             // ---- Heading: one segment, taller than a body line -------------
@@ -12736,6 +12780,56 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         selectable_text(ctx, el.ent(), text, fontPx);
     }
 
+    // The picture (a file on this Mac) or the chip that stands in for it --
+    // never the bare alt text, which a reader could not tell from prose.
+    void render_md_image(UIContext<InputAction>& ctx, Entity& parent, int id,
+                         const hanabi::md_image::Image& im, float textW, float blockH) {
+        const auto t = md_image_target(im);
+        if (t.kind == hanabi::md_image::Kind::Local && hanabi::inline_image::available(t.where)) {
+            const std::string path = t.where;
+            const float imgH = blockH - 12.0f;
+            div(ctx, mk(parent, id),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(textW), pixels(imgH)})
+                    .with_margin(Margin{.top = pixels(6), .bottom = pixels(6)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([path, textW, imgH](RectangleType r) {
+                        hanabi::inline_image::draw(path, r.x, r.y, textW, imgH);
+                    })
+                    .with_debug_name("md_image"));
+            return;
+        }
+        const std::string label = hanabi::md_image::chip_label(im, t.kind);
+        const float chipW = std::min(textW, theme::text_px(label, theme::type::SM) + 28.0f);
+        // A fresh config per call: div MOVES the one it is handed.
+        const auto chip = [&]() {
+            return ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(chipW), pixels(kMdImageChipH)})
+                .with_margin(Margin{.top = pixels(4), .bottom = pixels(4)})
+                .with_custom_background(theme::panel_bg_2())
+                .with_border(theme::border(), pixels(1.0f))
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.25f)
+                .with_debug_name("md_image_chip");
+        };
+        if (t.kind == hanabi::md_image::Kind::None) {
+            div(ctx, mk(parent, id), chip());
+            return;
+        }
+        if (button(ctx, mk(parent, id),
+                   chip().with_cursor(afterhours::ui::CursorType::Pointer)
+                       .with_click_activation(ClickActivationMode::Press))) {
+            hanabi::links::open(t.where);
+            if (AppComponent* app = app_singleton())
+                app->raise_toast("Opened " + hanabi::md_image::name(im), "", AppComponent::ToastUndo::None);
+        }
+    }
+
     void render_rich_body(UIContext<InputAction>& ctx, Entity& parent,
                           const std::string& shownIn, float textW,
                           float winTop = 0.0f, float winBot = -1.0f,
@@ -12838,6 +12932,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 continue;
             }
 
+            // ---- Markdown image: ONE atomic segment --------------------------
+            if (const auto im = hanabi::md_image::parse_line(line)) {
+                const float blockH = md_image_h(*im, textW);
+                const float segTop = y;
+                const float segBot = y + blockH;
+                y = segBot;
+                const bool visible = !cull || (segBot >= winTop && segTop <= winBot);
+                if (!visible) {
+                    pending += blockH;
+                } else {
+                    flush(9000 + seg);
+                    render_md_image(ctx, parent, 100 + seg, *im, textW, blockH);
+                }
+                ++seg;
+                if (nl == std::string::npos) break;
+                start = nl + 1;
+                continue;
+            }
             // ---- Heading: ONE atomic segment (leading gap + text row) ------
             if (const int level = md_heading_level(line); level > 0) {
                 const float blockH = heading_seg_h_for(line, textW);
