@@ -279,7 +279,8 @@ json element_to_json(const ElementFacts& f) {
                 {"run", f.run},
                 {"artifact_id", f.artifact_id},
                 {"artifact_version_id", f.artifact_version_id},
-                {"anchor_seq", f.anchor_seq}};
+                {"anchor_seq", f.anchor_seq},
+                {"table_text", f.table_text}};
 }
 
 ElementFacts element_from_json(const json& j) {
@@ -293,6 +294,7 @@ ElementFacts element_from_json(const json& j) {
     f.run = j.value("run", (uint64_t)0);
     f.artifact_id = j.value("artifact_id", "");
     f.artifact_version_id = j.value("artifact_version_id", "");
+    f.table_text = j.value("table_text", "");
     f.anchor_seq = j.value("anchor_seq", (uint64_t)0);
     return f;
 }

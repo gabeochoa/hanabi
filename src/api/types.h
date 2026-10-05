@@ -93,6 +93,9 @@ struct ElementFacts {
     std::string artifact_id;
     std::string artifact_version_id;
     std::uint64_t anchor_seq = 0;
+    // A std/Table's cells as text (api/element_table.h), one row a line;
+    // empty when the emit carried none and the projection is all there is.
+    std::string table_text;
 
     [[nodiscard]] bool present() const { return !instance.empty(); }
     bool operator==(const ElementFacts&) const = default;

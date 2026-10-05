@@ -1,4 +1,5 @@
 #pragma once
+#include "element_table.h"
 #include "create_title.h"
 
 // Deterministic, offline sample data source. This is the default backend so
@@ -2764,7 +2765,7 @@ class MockClient : public Client {
     // here too. That coupling is the price of the cache; the alternative was
     // rebuilding a 2000-row catalog on every get_session().
     static constexpr const char* kFixtureEnv[] = {
-        "HANABI_ASK_NO_RESOLVE",
+        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
@@ -4152,6 +4153,29 @@ class MockClient : public Client {
             table.projection =
                 "| shard | status | lag |\n| A | ok | 0s |\n| B | ok | 1s |\n| C | ok | 0s |";
             elements::fold_element(s.messages, table, 5, hrs_ago(1));
+
+            // A table whose projection is the server's one-line summary and
+            // whose cells ride the tree's props -- the shape that drew as a
+            // summary with no values (kt-nooi); the same reader the wire runs.
+            // Only under HANABI_ELEMENTS_TABLE=1, so the thread the export
+            // fixtures read byte for byte is unchanged.
+            if (const char* et = std::getenv("HANABI_ELEMENTS_TABLE"); et != nullptr && *et == '1') {
+            ElementFacts audit;
+            audit.instance = "time-audit";
+            audit.revision = 1;
+            audit.placement = "inline";
+            audit.element = "std/Table";
+            audit.title = "Time audit";
+            audit.projection = "Table: 3 rows (Activity, Measured)";
+            audit.run = 1;
+            audit.table_text = elements::table_text_from_props(
+                audit.element,
+                nlohmann::json{{"cols", nlohmann::json::array({"Activity", "Measured"})},
+                               {"rows", nlohmann::json::array({nlohmann::json::array({"Reading the knot", "4 min"}),
+                                                               nlohmann::json::array({"Building", 11}),
+                                                               nlohmann::json::array({"Full gate", "21 min"})})}});
+            elements::fold_element(s.messages, audit, 7, hrs_ago(1));
+            }
 
             ElementFacts note;
             note.instance = "fence-note";

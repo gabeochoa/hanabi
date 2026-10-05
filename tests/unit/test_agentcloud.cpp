@@ -519,6 +519,23 @@ static void test_a_voice_turn_is_an_unsupported_row_that_carries_none_of_its_pay
             CHECK(m.text.find(leak) == std::string::npos && m.subtitle.find(leak) == std::string::npos);
 }
 
+// A std/Table's cells ride tree.p; the row shows them, not the one-line
+// summary its projection is (kt-nooi).
+static void test_a_table_element_row_shows_its_cells() {
+    const std::string reply = "{\"type\":\"page\",\"frames\":[" +
+        std::string(R"j({"seq":1,"event":{"type":"element_emitted","element":{"instance":"audit","revision":1,)j"
+                    R"j("placement":"inline","element":"std/Table","run":1,"projection":"Table: 2 rows (Activity, Measured)",)j"
+                    R"j("tree":{"kind":"table","p":{"cols":["Activity","Measured"],"rows":[["Read","4 min"],["Gate",21]]}}}}})j") +
+        "]}";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 1);
+    if (out.size() == 1) {
+        CHECK(out[0].kind == api::EventKind::Element);
+        CHECK(out[0].text == "Activity | Measured\nRead | 4 min\nGate | 21");
+        CHECK(out[0].element.projection == "Table: 2 rows (Activity, Measured)");
+    }
+}
+
 static void test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event() {
     const std::string reply = "{\"type\":\"page\",\"frames\":[" +
         std::string(R"({"seq":1,"event":{"type":"user_input","text":"show the table"}},)") +
@@ -2918,6 +2935,7 @@ static void test_hello_access_folds_to_the_reference_read_only_rule() {
 }
 
 int main() {
+    test_a_table_element_row_shows_its_cells();
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
     test_row_clocks_read_activity_then_event_and_run_complete();

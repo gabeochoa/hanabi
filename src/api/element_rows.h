@@ -52,7 +52,11 @@ inline std::string provenance(const ElementFacts& f) {
     return out;
 }
 
+// What the row shows: a table's cells when it carried them (kt-nooi: the
+// projection of a table is a one-line summary, not its rows), else the
+// projection, else the heading.
 inline std::string row_text(const ElementFacts& f) {
+    if (!f.table_text.empty()) return f.table_text;
     return f.projection.empty() ? heading(f) : f.projection;
 }
 

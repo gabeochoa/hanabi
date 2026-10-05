@@ -45,10 +45,10 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 | 4 | The first keystroke after a thread switch lands in the NEW thread's composer (guard + test) | kt-zueu | VERIFIED (already right: keystrokes before the caret ride typedSeed to the pane they were typed at; pinned by `typing_right_after_a_thread_switch_lands_in_the_new_thread.e2e`) |
 | 5 | A redeploy close redials at once instead of waiting out the reconnect backoff (the rest of kt-0wjy) | kt-0wjy | GATED (the agentcloud client holds no live connection to redial -- it polls; the knot parks the rest on the owner's call on a live subscription) |
 | 6 | Select text in the transcript and add it to the chat: fenced when it is code, quoted when it is prose | kt-tlnb | DONE (f1ad7c8) |
-| 7 | The Companion's task panel shows who and what a task is connected to: owner and creator with handles, tags, subscribers, and a Related page (linked diffs, depends on, blocks, subtasks, parent) | kt-pv24 | DONE |
-| 8 | Inline HTML widgets in the transcript: decide the safe subset Hanabi can draw, then draw it | kt-h6g6 | TODO |
-| 9 | The rows under the cursor hold still while the list updates (verify against the reference's rule) | kt-mdk3 | TODO |
-| 10 | Tables render as rows, never as summaries (verify on the reference's failing shapes) | kt-nooi | TODO |
+| 7 | The Companion's task panel shows who and what a task is connected to: owner and creator with handles, tags, subscribers, and a Related page (linked diffs, depends on, blocks, subtasks, parent) | kt-pv24 | DONE (0821e65) |
+| 8 | Inline HTML widgets in the transcript: decide the safe subset Hanabi can draw, then draw it | kt-h6g6 | PARTIAL (the reference answered this with agentcloud Elements, not HTML: a std/Table now draws its cells, item 10; other elements draw their text projection) |
+| 9 | The rows under the cursor hold still while the list updates: the main list already did (faac24f); the sub-agent list now does too | kt-mdk3 | DONE |
+| 10 | A std/Table element shows its rows, not the server's one-line summary | kt-nooi | DONE |
 
 ### Hanabi backlog (unowned)
 

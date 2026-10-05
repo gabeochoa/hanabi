@@ -1,0 +1,16 @@
+# A std/Table element shows its rows, not the server's one-line summary
+# (Knots kt-nooi: "none of these tables render" -- the reference drew
+# "Table: 3 rows (Activity, Measured)" and none of the values). The cells ride
+# the wire tree's props; the row draws the header and every row, one a line,
+# and the summary is not shown in their place.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ELEMENTS_DEMO=1 HANABI_ELEMENTS_TABLE=1 HANABI_OPEN=relements
+
+require_thread relements
+expect_text "Time audit"
+expect_text "Activity | Measured"
+expect_text "Reading the knot | 4 min"
+expect_text "Building | 11"
+expect_text "Full gate | 21 min"
+expect_no_text "Table: 3 rows (Activity, Measured)"
