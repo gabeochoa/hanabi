@@ -1,0 +1,19 @@
+# Fast typing right after switching threads lands in the NEW thread's
+# composer, not the previous one's (Knots kt-zueu: the reference sent the
+# first character to the old thread). Hanabi routes keystrokes typed before
+# the new composer holds the caret to the pane they were typed at
+# (ecs/focus_routing.h); this pins it: the whole word lands in the new
+# thread, and the old thread's draft stays empty.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+click_ui composer_reply_input
+wait_frames 4
+click_text "SKU backfill"
+type "typeable"
+wait_frames 30
+expect_input_text composer_reply_input "typeable"
+click_text "needs a decision"
+wait_frames 30
+expect_input_text composer_reply_input ""
