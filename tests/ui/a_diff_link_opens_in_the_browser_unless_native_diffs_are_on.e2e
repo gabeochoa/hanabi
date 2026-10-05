@@ -1,0 +1,22 @@
+# A diff link opens in the browser by default (the owner's ruling, 2026-09-24:
+# "diffs opening in artifact window needs to be behind a setting and default
+# off, I need it to open in the web for now"; the reference's native-diff
+# preference, default OFF). Settings > General "Open diffs in Hanabi" turns the
+# in-app Companion on; a task link opens in the Companion either way.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_TRACKER_BASE_URL=https://tracker.example.com HANABI_LINK_AUDIT=1
+
+require_thread t1
+expect_text "Built the config diff"
+click_link D948120
+wait_frames 15
+expect_link_opened https://tracker.example.com/D948120
+expect_no_ui companion_panel
+
+# The switch that turns the in-app view on lives in Settings > General
+# (tracker_links.e2e runs with it on).
+click_ui sb_settings
+wait_frames 10
+assert_ui settings_native_diffs hidden=false
+expect_text "Open diffs in Hanabi"

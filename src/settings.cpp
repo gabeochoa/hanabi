@@ -107,6 +107,10 @@ bool Settings::load_save_file() {
             j.value("session_sort_order", std::string("activity")) == "oldest";
         pins_migrated_version_ = j.value("pins_migrated_to_web", pins_migrated_version_);
         capture_hotkey_enabled_ = j.value("capture_hotkey", capture_hotkey_enabled_);
+        // Strictly a JSON true: anything else (absent, a number, a string)
+        // is the default, the browser.
+        native_diffs_ = j.contains("native_diff_companion") && j["native_diff_companion"].is_boolean() &&
+                        j["native_diff_companion"].get<bool>();
         {
             const std::string g = j.value("session_grouping", std::string("space"));
             session_grouping_ =
@@ -322,6 +326,7 @@ void Settings::write_save_file() {
     j["session_sort_order"] = sort_oldest_first_ ? "oldest" : "activity";
     j["pins_migrated_to_web"] = pins_migrated_version_;
     j["capture_hotkey"] = capture_hotkey_enabled_;
+    j["native_diff_companion"] = native_diffs_;
     j["session_grouping"] = session_grouping_;
     j["only_ungrouped"] = only_ungrouped_;
     j["icon_set"] = icon_set_;
@@ -880,6 +885,13 @@ void Settings::remove_template(std::string_view name) {
     const auto before = templates_.size();
     std::erase_if(templates_, [&](const auto& t) { return t.name == name; });
     if (templates_.size() != before && auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_native_diffs() const { return native_diffs_; }
+void Settings::set_native_diffs(bool on) {
+    if (on == native_diffs_) return;
+    native_diffs_ = on;
+    if (auto_save_enabled) write_save_file();
 }
 
 bool Settings::get_capture_hotkey_enabled() const { return capture_hotkey_enabled_; }

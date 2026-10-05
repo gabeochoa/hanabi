@@ -404,6 +404,13 @@ struct Settings {
     bool get_capture_hotkey_enabled() const;
     void set_capture_hotkey_enabled(bool on);
 
+    // Open diff links in the app's Companion rather than the browser (the
+    // reference's native-diff preference, owner ruling 2026-09-24: browser
+    // first, the native view behind a setting, default OFF). Tasks always
+    // open in the Companion.
+    bool get_native_diffs() const;
+    void set_native_diffs(bool on);
+
     // How the sidebar sections threads (the reference's Group by): "space"
     // (the default: Metamate Space, else workspace folder), "folder",
     // "status" (Pinned / Recents only) or "flat". And "only ungrouped",
@@ -601,6 +608,7 @@ struct Settings {
     bool sort_oldest_first_ = false;
     int pins_migrated_version_ = 0;
     bool capture_hotkey_enabled_ = false;
+    bool native_diffs_ = false;
     std::string session_grouping_ = "space";
     std::string icon_set_ = "normal";
     bool only_ungrouped_ = false;

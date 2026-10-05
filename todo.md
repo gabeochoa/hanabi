@@ -50,6 +50,17 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 | 9 | The rows under the cursor hold still while the list updates: the main list already did (faac24f); the sub-agent list now does too | kt-mdk3 | DONE (61bcb4b) |
 | 10 | A std/Table element shows its rows, not the server's one-line summary | kt-nooi | DONE (5b20058) |
 
+### From the reference's work since its 0.8.9 cut (weekly feed, 2026-10-05)
+
+| Item | Source | Status |
+|---|---|---|
+| The next New Conversation opens blank after one is sent with an attached file | D123311832 | VERIFIED (pinned by `the_next_new_conversation_opens_blank_after_a_send_with_a_file.e2e`) |
+| Typing right after a thread switch reaches the new thread | aa53ed52 | VERIFIED (item 4) |
+| The New Chat thread name types like the message box | 6fa7eddf | DONE (b9a6e3c: the field is the app's standard text field) |
+| Transcript pictures held at the size they are drawn | D123324882 | VERIFIED (`ui/decode_to_fit.h` decodes to the display box) |
+| A markdown table honours its separator row's column alignment | kt-gkph (a held proposal there) | DONE |
+| Diff links open in the browser by default; "Open diffs in Hanabi" (Settings > General, default off) opens them in the Companion; tasks still open in the Companion | kt-exuw (the owner's 2026-09-24 ruling; the reference's NativeDiffPreference) | DONE |
+
 ### Hanabi backlog (unowned)
 
 | Item | Source knot | Status |

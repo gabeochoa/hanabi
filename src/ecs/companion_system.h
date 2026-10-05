@@ -438,7 +438,16 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
             section("Depends on", rel.dependsOn.rows, rel.dependsOn.total);
             section("Blocks", rel.blocks.rows, rel.blocks.total);
             section("Subtasks", rel.subtasks.rows, rel.subtasks.total);
-            if (go) c.open_entity(go->first, go->second);
+            if (go) {
+                // A related diff follows the same rule as a diff link: the
+                // browser unless native diffs are on.
+                if (go->first == 'D' && !Settings::get().get_native_diffs()) {
+                    const std::string url = hanabi::links::url_for(app->trackerBaseUrl, "D" + go->second);
+                    if (!url.empty()) hanabi::links::open(url);
+                } else {
+                    c.open_entity(go->first, go->second);
+                }
+            }
             return;
         }
         // Comments: newest first.

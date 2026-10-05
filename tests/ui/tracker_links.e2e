@@ -43,7 +43,7 @@
 # HANABI_LINK_AUDIT=1 still prints every rect the hit test tested, and is
 # still the way to see where a link landed.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark","native_diff_companion":true}
 # env: HANABI_TRACKER_BASE_URL=https://tracker.example.com HANABI_LINK_AUDIT=1
 
 require_thread t1

@@ -34,6 +34,9 @@ wait_frames 6
 expect_focused settings_confirm_quit_track
 key TAB
 wait_frames 6
+expect_focused settings_native_diffs_track
+key TAB
+wait_frames 6
 expect_focused settings_timestamps_track
 key TAB
 wait_frames 6
@@ -61,6 +64,9 @@ expect_focused settings_sort_order_row
 shift_tab
 wait_frames 6
 expect_focused settings_timestamps_track
+shift_tab
+wait_frames 6
+expect_focused settings_native_diffs_track
 shift_tab
 wait_frames 6
 expect_focused settings_confirm_quit_track

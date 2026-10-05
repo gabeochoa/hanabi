@@ -3578,10 +3578,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         AppComponent* app = app_singleton();
         if (app == nullptr) return;
         const std::string_view tp = hanabi::links::kThreadPrefix;
-        // A diff or a task opens in the Companion (companion_system.h), read
-        // in-app; Cmd-click (Ctrl in scripts) still goes to the browser.
-        if ((id[0] == 'D' || id[0] == 'T') && app->client && app->client->supports_graphql() &&
-            !hanabi::keys::cmd_or_ctrl_down()) {
+        // A task opens in the Companion (companion_system.h), read in-app; a
+        // diff does only when Settings > General "Open diffs in Hanabi" is on
+        // -- the browser first, by the owner's ruling (the reference's
+        // NativeDiffPreference, default OFF). Cmd-click (Ctrl in scripts)
+        // always goes to the browser.
+        if ((id[0] == 'T' || (id[0] == 'D' && Settings::get().get_native_diffs())) && app->client &&
+            app->client->supports_graphql() && !hanabi::keys::cmd_or_ctrl_down()) {
             app->companion.open_entity(id[0], id.substr(1));
             return;
         }

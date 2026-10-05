@@ -1269,6 +1269,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "new_line") render_new_line_row(ctx, parent, app);
         else if (id == "restore_tabs") render_restore_tabs_row(ctx, parent, app);
         else if (id == "confirm_quit") render_confirm_quit_row(ctx, parent, app);
+        else if (id == "native_diffs") render_native_diffs_row(ctx, parent, app);
         else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
         else if (id == "sort_order") render_sort_order_row(ctx, parent, app);
         else if (id == "group_by") render_group_by_row(ctx, parent, app);
@@ -3945,6 +3946,15 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const bool on = Settings::get().get_confirm_quit();
         real_switch(ctx, parent, 199, on, "settings_confirm_quit",
                     [](bool v) { Settings::get().set_confirm_quit(v); });
+    }
+
+    // Diff links: the browser by default; on, the app's Companion.
+    void render_native_diffs_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 760, "Open diffs in Hanabi", "settings_native_diffs");
+        const bool on = Settings::get().get_native_diffs();
+        real_switch(ctx, parent, 761, on, "settings_native_diffs",
+                    [](bool v) { Settings::get().set_native_diffs(v); });
     }
 
     void render_jump_latest_row(UIContext<InputAction>& ctx, Entity& parent,
