@@ -615,7 +615,8 @@ struct Settings {
     std::vector<hanabi::templates::Template> templates_;
     bool context_detail_ = false;
     bool disclosure_chips_open_ = false;
-    std::string transcript_width_ = "comfortable";
+    std::string transcript_width_ = "fit";
+    bool transcript_width_chosen_ = false;  // only a chosen width is saved
     int theme_rotate_secs_ = 0;
     bool show_finished_subagents_ = false;
     bool subagent_sidebar_open_ = false;

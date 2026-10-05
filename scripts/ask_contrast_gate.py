@@ -51,18 +51,21 @@ ROWS = [
      [("Next", False), ("Next ask", False), ("Skip", False)]),
 ]
 
+# The 1100-wide cards sit in the Fit to pane column (807 at a 820 pane), so
+# their note band runs 314..1066; the narrow captures are under the floor
+# and did not move.
 NOTE_ROWS = [
-    ("55_ask_card_dark.png", 599, 617, 328, 1052, 1),
-    ("56_ask_card_light.png", 599, 617, 328, 1052, 1),
+    ("55_ask_card_dark.png", 599, 617, 314, 1066, 1),
+    ("56_ask_card_light.png", 599, 617, 314, 1066, 1),
     ("57_ask_card_narrow_dark.png", 459, 477, 254, 726, 1),
     ("58_ask_card_split_dark.png", 581, 617, 314, 654, 2),
     ("60_ask_full_form_narrow_dark.png", 459, 477, 254, 726, 1),
     ("62_ask_with_attachment_narrow_dark.png", 399, 417, 254, 726, 1),
-    ("63_ask_unanswerable_backend_dark.png", 599, 617, 328, 1052, 1),
+    ("63_ask_unanswerable_backend_dark.png", 599, 617, 314, 1066, 1),
     ("64_ask_wrapped_options_narrow_dark.png", 423, 477, 254, 453, 3),
     ("65_ask_two_questions_narrow_dark.png", 423, 477, 254, 453, 3),
     ("66_ask_two_questions_tiny_dark.png", 387, 477, 204, 306, 5),
-    ("69_ask_too_short_approval_dark.png", 140, 158, 328, 1052, 1),
+    ("69_ask_too_short_approval_dark.png", 140, 158, 314, 1066, 1),
 ]
 
 

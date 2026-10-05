@@ -11,7 +11,9 @@
 # second half: 1440 -> pane 1160: Wide (1160-1024)/2 = 68 -> 360;
 # Comfortable 196+12 -> 488; Full stays 304.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","transcript_width_choice":"comfortable"}
 require_thread t2
 wait_frames 16
 assert_ui composer_input_wrap x=318

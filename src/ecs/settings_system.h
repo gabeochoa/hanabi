@@ -2012,20 +2012,20 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                      AppComponent& app) {
         (void)app;
         row_name(ctx, parent, 140, "Transcript width", "settings_transcript_width_label");
-        static constexpr const char* kIds[] = {"comfortable", "wide", "full"};
-        static constexpr const char* kLabels[] = {"Comfortable", "Wide", "Full width"};
+        static constexpr const char* kIds[] = {"fit", "comfortable", "wide", "full"};
+        static constexpr const char* kLabels[] = {"Fit to pane", "Comfortable", "Wide", "Full width"};
         const std::string& cur = Settings::get().get_transcript_width();
         int selected = 0;
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 4; ++i)
             if (cur == kIds[i]) selected = i;
-        real_segmented(ctx, parent, 141, {kLabels[0], kLabels[1], kLabels[2]}, selected,
+        real_segmented(ctx, parent, 141, {kLabels[0], kLabels[1], kLabels[2], kLabels[3]}, selected,
                        "settings_transcript_width",
                        [](int idx) { Settings::get().set_transcript_width(kIds[idx]); });
         help_line(ctx, parent, 142,
-                  "How wide a message may get before it wraps. Comfortable is the "
-                  "web client's column and the easiest to read; Full width uses the "
-                  "whole pane, which is what a wide display is for. The composer "
-                  "follows the same column.",
+                  "How wide a message may get before it wraps. Fit to pane grows the "
+                  "column with the window, keeping a margin either side; Comfortable "
+                  "is a fixed line length; Full width uses the whole pane. The "
+                  "composer follows the same column.",
                   "settings_transcript_width_help");
     }
 

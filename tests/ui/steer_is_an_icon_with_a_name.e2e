@@ -39,8 +39,9 @@
 #   assert_ui 'composer_send': x=1043 but got 984          (line 50)
 #   assert_ui 'composer_input_wrap': w=716 but got 657     (line 53)
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark"}
-
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark","transcript_width_choice":"comfortable"}
 require_thread t9
 
 wait_frames 14

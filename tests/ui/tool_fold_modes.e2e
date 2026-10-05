@@ -9,7 +9,9 @@
 # and one whose first result is a 300-character test log. Auto is the mode that
 # can tell them apart, which is why it is the mode this script leans on.
 #
-# settings: {"window_width":1100,"window_height":1000,"open_tabs":[],"active_tab":"","theme":"dark"}
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1100,"window_height":1000,"open_tabs":[],"active_tab":"","theme":"dark","transcript_width_choice":"comfortable"}
 # env: HANABI_FOLD_DEMO=1 HANABI_OPEN=rfold
 
 # Folded is the default: both piles are one row apiece, no output.

@@ -24,8 +24,9 @@
 # recomputed them from the same constants the view uses would pass whatever the
 # view did.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","transcript_width_choice":"comfortable"}
 # The pane, for the numbers below to be read against.
 require_thread t2
 

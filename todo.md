@@ -58,6 +58,10 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 | Typing right after a thread switch reaches the new thread | aa53ed52 | VERIFIED (item 4) |
 | Keys typed across two quick thread switches follow the latest one, and leak into no third thread | D123033289 | VERIFIED (the item-4 fixture gains the case) |
 | A long code line wraps between tokens, never mid-identifier; Copy copies the line as written | D123368715 | DONE |
+| The chat column grows with its pane: Transcript width gains Fit to pane, the new default | D122632847 | DONE |
+| Messages keep to an 80% lane, tool calls and thinking to 75% | D122693862 | TODO (next) |
+| A thread archived on the web (or before launch) leaves Recents | D123051693 / D123155869 | VERIFIED (archived-ness reads the row's own server stamp on every list apply and from the cache; `thread_model.h is_archived`) |
+| A paragraph under a list gets a paragraph's gap | D122984730 | VERIFIED (`ui/md_list_gap.h`) |
 | Typing with the keyboard on a sidebar row (nothing typed into yet) after a click: the reference sends it to the composer only for a TAB click (verified in Hanabi); a sidebar-row click keeps the keyboard on the list | aa53ed52 | NOTE (not a gap as the reference defines it) |
 | The New Chat thread name types like the message box | 6fa7eddf | DONE (b9a6e3c: the field is the app's standard text field) |
 | Transcript pictures held at the size they are drawn | D123324882 | VERIFIED (`ui/decode_to_fit.h` decodes to the display box) |

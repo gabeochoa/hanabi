@@ -30,7 +30,9 @@
 #
 # and the row's width stays 736, which is the bug: same width, moved right.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark"}
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9","t2"],"active_tab":"t2","pinned_tabs":["t9","t2"],"theme":"dark","transcript_width_choice":"comfortable"}
 # env: HANABI_WIN_W=1100 HANABI_WIN_H=760
 
 require_thread t2

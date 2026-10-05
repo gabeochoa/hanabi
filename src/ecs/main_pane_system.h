@@ -1,4 +1,5 @@
 #pragma once
+#include "../ui/reading_column.h"
 #include "../ui/code_wrap.h"
 #include "../ui/md_table_align.h"
 #include "../ui/selection_quote.h"
@@ -5672,7 +5673,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string& tw = Settings::get().get_transcript_width();
         if (tw == "full") return paneW;
         if (tw == "wide") return std::min(paneW, 1024.0f);
-        return std::min(paneW, kComposerReadCol);
+        if (tw == "comfortable") return std::min(paneW, kComposerReadCol);
+        return hanabi::reading_column::fit(paneW);
     }
     static constexpr float kComposerColInset = 12.0f;
 

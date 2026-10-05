@@ -48,7 +48,9 @@
 # w=14 clause reports only the first mismatch per element, so the 18px slot is
 # named by the x it produces rather than by its own number.)
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["r9"],"active_tab":"r9","theme":"dark"}
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["r9"],"active_tab":"r9","theme":"dark","transcript_width_choice":"comfortable"}
 # env: HANABI_WIN_W=1100 HANABI_WIN_H=760 HANABI_THINK_DEMO=1
 
 require_thread r9

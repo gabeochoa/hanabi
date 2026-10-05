@@ -22,8 +22,9 @@
 # fragment is stretched to the container's trailing edge by that newline glyph.
 # Every line but the last is full width.
 #
-# settings: {"window_width":1180,"window_height":949,"open_tabs":["r9"],"active_tab":"r9","pinned_tabs":[],"theme":"dark"}
-
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["r9"],"active_tab":"r9","pinned_tabs":[],"theme":"dark","transcript_width_choice":"comfortable"}
 # The block itself paints nothing -- it is a column of chips, not a panel. A
 # zero-height assertion would be ambiguous with "not rendered", so this asserts
 # the two things a panel would contradict.

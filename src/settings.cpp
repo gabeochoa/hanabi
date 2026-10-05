@@ -133,8 +133,27 @@ bool Settings::load_save_file() {
         disclosure_chips_open_ =
             j.value("disclosure_chips_open", disclosure_chips_open_);
         {
-            std::string tw = j.value("transcript_width", transcript_width_);
-            if (tw != "comfortable" && tw != "wide" && tw != "full") tw = "comfortable";
+            // Fit to pane is the default (the reference, D122632847): only a
+            // width the reader CHOSE is kept. A choice made in Settings is
+            // stored under transcript_width_choice. The older key was written
+            // on every save, so its "comfortable" cannot tell a choice from
+            // the old default and reads as unset; its "wide" and "full" were
+            // always choices and are kept.
+            std::string tw;
+            if (j.contains("transcript_width_choice") && j["transcript_width_choice"].is_string()) {
+                tw = j["transcript_width_choice"].get<std::string>();
+                transcript_width_chosen_ = true;
+            } else {
+                const std::string legacy = j.value("transcript_width", std::string());
+                if (legacy == "wide" || legacy == "full") {
+                    tw = legacy;
+                    transcript_width_chosen_ = true;
+                }
+            }
+            if (tw != "fit" && tw != "comfortable" && tw != "wide" && tw != "full") {
+                tw = "fit";
+                transcript_width_chosen_ = false;
+            }
             transcript_width_ = tw;
         }
         theme_rotate_secs_ = j.value("theme_rotate_secs", theme_rotate_secs_);
@@ -338,7 +357,7 @@ void Settings::write_save_file() {
     }
     j["context_detail"] = context_detail_;
     j["disclosure_chips_open"] = disclosure_chips_open_;
-    j["transcript_width"] = transcript_width_;
+    if (transcript_width_chosen_) j["transcript_width_choice"] = transcript_width_;
     j["theme_rotate_secs"] = theme_rotate_secs_;
     j["show_finished_subagents"] = show_finished_subagents_;
     j["subagent_sidebar_open"] = subagent_sidebar_open_;
@@ -849,9 +868,10 @@ void Settings::set_notification_sound(bool on) {
 const std::string& Settings::get_transcript_width() const { return transcript_width_; }
 void Settings::set_transcript_width(const std::string& choice) {
     std::string tw = choice;
-    if (tw != "comfortable" && tw != "wide" && tw != "full") tw = "comfortable";
-    if (tw == transcript_width_) return;
+    if (tw != "fit" && tw != "comfortable" && tw != "wide" && tw != "full") tw = "fit";
+    if (tw == transcript_width_ && transcript_width_chosen_) return;
     transcript_width_ = tw;
+    transcript_width_chosen_ = true;
     if (auto_save_enabled) write_save_file();
 }
 

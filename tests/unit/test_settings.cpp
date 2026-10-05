@@ -683,6 +683,36 @@ static void test_tabs_and_pins_round_trip() {
     CHECK(s.get_pinned_tabs().empty());
 }
 
+// Fit to pane is the default; only a width the reader CHOSE is kept. The old
+// key was written on every save, so its "comfortable" reads as unset; its
+// "wide" and "full" were always choices.
+static void test_transcript_width_default_and_choice() {
+    std::printf("test_transcript_width_default_and_choice\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    const auto load = [&](const std::string& body) {
+        std::ofstream out(s.get_settings_path());
+        out << body;
+        out.close();
+        CHECK(s.load_save_file());
+    };
+    load(R"({})");
+    CHECK(s.get_transcript_width() == "fit");
+    load(R"({"transcript_width":"comfortable"})");
+    CHECK(s.get_transcript_width() == "fit");
+    load(R"({"transcript_width":"wide"})");
+    CHECK(s.get_transcript_width() == "wide");
+    load(R"({"transcript_width_choice":"comfortable"})");
+    CHECK(s.get_transcript_width() == "comfortable");
+    load(R"({"transcript_width_choice":"bogus"})");
+    CHECK(s.get_transcript_width() == "fit");
+    // A choice made in Settings survives a reload, Comfortable included.
+    s.set_transcript_width("comfortable");
+    CHECK(s.load_save_file());
+    CHECK(s.get_transcript_width() == "comfortable");
+    load(R"({})");
+}
+
 static void test_legacy_split_focus_inference() {
     std::printf("test_legacy_split_focus_inference\n");
     isolate_settings();
@@ -896,6 +926,7 @@ int main() {
     test_mock_settings_write();
     test_settings_write_config_gate();
     test_shelf_fold_round_trips();
+    test_transcript_width_default_and_choice();
     test_confirm_quit_round_trips();
     test_text_scale_round_trips();
     test_line_spacing_round_trips();

@@ -16,7 +16,9 @@
 # (composer_attach -> native_pick_attachments -> the same queue AppKit's drop
 # drains) and a paste (Cmd/Ctrl+V -> native_take_clipboard_image -> the same
 # AttachmentIntakeSystem::add). No fixture writes a chip directly.
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","transcript_width_choice":"comfortable"}
 # env: HANABI_PICK_FILE_TEST='tests/fixtures/attachments/sample.pdf;tests/fixtures/attachments/sample.md' HANABI_PASTE_IMAGE_TEST=tests/fixtures/attachments/sample.png
 
 require_thread t2

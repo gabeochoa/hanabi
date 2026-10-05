@@ -1,0 +1,21 @@
+# Fit to pane, the default Transcript width (the reference's D122632847): the
+# reading column is the whole pane up to 768, then three quarters of every
+# point the pane gains, up to 1280 -- min(pane, 0.75*pane + 192, 1280). The
+# composer's input box sits in that column at a 12 inset (never closer than
+# the pane's 24 edge inset), so its x proves where the column is.
+#
+# 1100 wide: pane 820, column min(820, 807) = 807, gutter 6.5 -> the 24 edge
+#   inset wins: x = 280 + 24 = 304.
+# 1440 wide: pane 1160, column 1062, gutter 49 -> x = 280 + 49 + 12 = 341.
+# 1800 wide: pane 1520, column capped at 1280, gutter 120 -> x = 412.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 16
+assert_ui composer_input_wrap x=304
+resize 1440 760
+wait_frames 20
+assert_ui composer_input_wrap x=341
+resize 1800 760
+wait_frames 20
+assert_ui composer_input_wrap x=412

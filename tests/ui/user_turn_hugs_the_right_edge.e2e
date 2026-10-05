@@ -28,8 +28,9 @@
 # derived from the constants — the point is to catch the constants and the
 # layout disagreeing.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-
+# (Pinned to the Comfortable column: the coordinates below are worked from
+# its 768. Fit to pane, the default, is a_fit_to_pane_column_grows_with_the_pane.e2e.)
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","transcript_width_choice":"comfortable"}
 require_thread t2
 
 expect_text "Reconcile this cycle's Stars payouts"
