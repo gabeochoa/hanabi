@@ -1,0 +1,17 @@
+# Each kind of row keeps to a lane of the reading column (the reference's
+# TranscriptLane, D122693862): messages at most 80% of it, flush to their side
+# (the reader's avatar included), tool calls and thinking at most 75% from the
+# leading edge -- so the two sides of the conversation always leave open
+# column between them, and a run of work ends short of the replies.
+#
+# Resized to 1800 wide: pane 1520, Fit to pane column 1280 -> the content column is
+# 1280 - 32 = 1248: a reply is floor(0.8 * 1248) = 998 wide (the reference's
+# PixelProbe: 998pt), and a tool row floor(0.75 * 1248) = 936.
+#
+# settings: {"window_width":1100,"window_height":900,"open_tabs":["rfold"],"active_tab":"rfold","theme":"dark"}
+# env: HANABI_FOLD_DEMO=1
+require_thread rfold
+resize 1800 900
+wait_frames 20
+assert_ui asst_bubble w=998
+assert_ui tool_pile w=936

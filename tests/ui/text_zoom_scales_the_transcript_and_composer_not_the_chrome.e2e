@@ -22,7 +22,10 @@ assert_ui sidebar w=280
 assert_ui tab_active h=33
 key CTRL+=
 wait_frames 12
-assert_ui user_bubble h=38
+# Two zoom steps up the question wraps to a second line: the reader's
+# message keeps to the 80% message lane (D122693862), so it wraps one step
+# sooner than it did across the whole column.
+assert_ui user_bubble h=57
 assert_ui composer_reply_input h=33
 assert_ui composer_input_wrap h=50
 key CTRL+=

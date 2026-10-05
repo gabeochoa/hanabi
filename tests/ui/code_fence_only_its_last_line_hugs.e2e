@@ -41,10 +41,11 @@ assert_ui code_block hidden=false
 # width while this chip exists and is drawn.
 assert_ui_text "exit 65" hidden=false
 
-# Every line before it does not. 638 is the block's content width -- the same
-# number whatever the line says -- and it is fifteen times the last line's.
-# Under the old "every chip hugs its text" rule this read 276.
-assert_ui_text "error: no signing identity matched 'fbmacos-apps-inhouse'" w=638
+# Every line before it does not. 556 is the block's content width -- the same
+# number whatever the line says -- and it is many times the last line's. (It
+# was 638 before replies kept to the 80% message lane, D122693862.) Under the
+# old "every chip hugs its text" rule this read 276.
+assert_ui_text "error: no signing identity matched 'fbmacos-apps-inhouse'" w=556
 
 # NOT asserted with expect_text: a STYLED label is invisible to it. Both of
 # these lines carry syntax runs, and the renderer draws the runs INSTEAD of

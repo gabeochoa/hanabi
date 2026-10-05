@@ -12013,12 +12013,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // The wrap width inside an assistant bubble at this column width. ONE
     // function, called by the measure pass and the draw, so the two cannot
     // drift the way two copies of `paneWidth - 34.0f` did.
+    // LANES (the reference's TranscriptLane, D122693862): with the column
+    // growing to fit its pane, a reply and the reader's question each ran
+    // almost its full width, and the agent's work ran exactly as wide as its
+    // replies. Each kind of row now keeps to a share of the column, flush to
+    // its side: messages at most 80% (the reader's avatar included), tool
+    // calls and thinking at most 75%, so the two sides of the conversation
+    // always leave open column between them and a run of work ends short of
+    // the replies. Whole points: a fractional lane typesets differently.
+    static float message_lane(float col) { return std::floor(col * 0.8f); }
+    static float work_lane(float col) { return std::floor(col * 0.75f); }
     static float asst_text_w(float paneWidth) {
-        const float w = paneWidth - kAsstInsetR - 2.0f * kBubblePadX;
+        const float w = message_lane(paneWidth) - 2.0f * kBubblePadX;
         return w < 40.0f ? 40.0f : w;
     }
     static float asst_bubble_w(float paneWidth) {
-        const float w = paneWidth - kAsstInsetR;
+        const float w = message_lane(paneWidth);
         return w < 40.0f ? 40.0f : w;
     }
 
@@ -12030,8 +12040,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     };
     UserBox user_box(const api::Message& m, float paneWidth, bool isLive,
                      int index, AppComponent::StreamPhase phase) {
-        float maxW = paneWidth - kAvatarD - kAvatarGap;
-        if (maxW > kBubbleCap) maxW = kBubbleCap;
+        // The reader's lane holds the avatar and the bubble.
+        float maxW = message_lane(paneWidth) - kAvatarD - kAvatarGap;
         if (maxW < 80.0f) maxW = 80.0f;
         const float maxTextW = maxW - 2.0f * kBubbleCfgPadX;
         // The hug is a pure function of (body, maxTextW), and the body is a
@@ -14416,7 +14426,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool open =
             app && tool_is_open(*app, key, pile_result_row(msgs, lo, hi));
 
-        float rowW = paneWidth;
+        float rowW = work_lane(paneWidth);  // the work lane
         if (rowW < 160.0f) rowW = 160.0f;
 
         auto wrap = div(ctx, mk(parent, 260 + keyIndex * 10),
@@ -15463,13 +15473,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return kThinkingRowH;
         return kThinkingRowH +
                rich_body_h(strip_inline_md(m.text),
-                           colW - kEventInset - kThinkingInset) +
+                           work_lane(colW) - kEventInset - kThinkingInset) +
                kThinkingPadBot;
     }
 
     void render_thinking_block(UIContext<InputAction>& ctx, Entity& parent,
                                int index, const api::Message& m,
-                               AppComponent& app, float colW) {
+                               AppComponent& app, float columnW) {
+        // Thinking keeps to the work lane, as thinking_height measures it.
+        const float colW = work_lane(columnW);
         const std::string key = thinking_key(m, index);
         const bool open = app.expandedThinking.count(key) != 0;
 
@@ -15663,7 +15675,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // A lone Tool message: one dense collapsed tool row (not expandable).
     void render_tool_block(UIContext<InputAction>& ctx, Entity& parent,
                            int index, const api::Message& m, float paneWidth) {
-        float rowW = paneWidth;
+        float rowW = work_lane(paneWidth);  // the work lane
         if (rowW < 160.0f) rowW = 160.0f;
         AppComponent* app = app_singleton();
         const std::string key = m.id.empty() ? "" : m.id;
