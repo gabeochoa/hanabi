@@ -365,9 +365,9 @@ pub fn build(b: *std.Build) void {
         one.dependOn(&r.step);
     }
 
-    // The 72 in one summary line, in order, through the runner the makefile's
+    // The test executables in one summary line, in order, through the runner the makefile's
     // RUN_TESTS macro became.
-    const unit = b.step("unit", "Build and run the unit + e2e + perf test executables (72), with a pass/fail summary");
+    const unit = b.step("unit", "Build and run the unit + e2e + perf test executables, with a pass/fail summary");
     {
         var argv = std.ArrayList([]const u8).empty;
         argv.append(b.allocator, "bash") catch @panic("oom");
@@ -386,7 +386,7 @@ pub fn build(b: *std.Build) void {
         const e2e = b.step("e2e", "Build and run test_e2e alone, with the summary line");
         const r = command(b, &.{ "bash", "scripts/run_unit_tests.sh", "output/tests/test_e2e" }, installed.get("test_e2e").?);
         e2e.dependOn(&r.step);
-        const ue = b.step("unit-e2e", "The 72 less test_perf");
+        const ue = b.step("unit-e2e", "Every test executable except test_perf");
         var argv = std.ArrayList([]const u8).empty;
         argv.appendSlice(b.allocator, &.{ "bash", "scripts/run_unit_tests.sh" }) catch @panic("oom");
         for (run_by_default) |n| if (!std.mem.eql(u8, n, "test_perf")) argv.append(b.allocator, b.fmt("output/tests/{s}", .{n})) catch @panic("oom");
