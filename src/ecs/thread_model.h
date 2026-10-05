@@ -230,6 +230,19 @@ inline bool in_archived_view(const api::SessionSummary& s) {
     return is_archived(s);
 }
 
+// Whether a list update shows an archived thread WAKING: it was not working
+// and now is -- someone pinged it and it started a run (Knots kt-vzgj, the
+// owner's ask: "when you ping an archived thread and it starts working, it
+// should unarchive the thread"). A thread archived WHILE it ran is not woken
+// by the same run carrying on: only the edge from not-working to working
+// counts, and only against a row this client had already seen.
+inline bool is_working_state(api::ThreadState s) {
+    return s == api::ThreadState::Running || s == api::ThreadState::Working;
+}
+inline bool wakes_from_archive(const api::SessionSummary& before, const api::SessionSummary& after) {
+    return is_archived(after) && !is_working_state(before.state) && is_working_state(after.state);
+}
+
 // The order the sidebar list is in, and it is TWO statements, not one.
 //
 // The first is the pin. `docs/sidebar-model.md` has said since the model was

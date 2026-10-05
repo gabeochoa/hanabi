@@ -1,0 +1,17 @@
+# The edge is what wakes a thread, not the state (kt-vzgj): archiving a thread
+# while its run is still going does not bring it straight back on the next
+# list, even though the list says it is working.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+
+wait_frames 20
+expect_text "SKU backfill"
+right_click_text "SKU backfill"
+wait_frames 6
+click_ui row_menu_archive
+wait_frames 20
+expect_overlay_write archive t6 true
+refresh_list
+wait_frames 30
+expect_no_text "SKU backfill"
+expect_no_overlay_write archive t6 false

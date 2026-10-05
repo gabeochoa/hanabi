@@ -3608,7 +3608,18 @@ struct HandleMockWebArchiveCommand
     void for_each_with(afterhours::Entity&,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
-        if (cmd.is_consumed() || !cmd.is("mock_web_archive")) return;
+        if (cmd.is_consumed()) return;
+        // mock_session_starts <id> | mock_session_rests <id>: the server next
+        // lists that thread working (someone pinged it) or parked (kt-vzgj).
+        if (cmd.is("mock_session_starts") || cmd.is("mock_session_rests")) {
+            if (!cmd.has_args(1)) return cmd.fail("mock_session_starts|rests <id>");
+            api::MockClient::mock_server_state(cmd.arg(0), cmd.is("mock_session_starts")
+                                                               ? api::ThreadState::Running
+                                                               : api::ThreadState::Parked);
+            cmd.consume();
+            return;
+        }
+        if (!cmd.is("mock_web_archive")) return;
         if (!cmd.has_args(2)) {
             cmd.fail("mock_web_archive requires <id> <on|off>");
             return;

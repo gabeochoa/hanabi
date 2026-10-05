@@ -142,6 +142,16 @@ class MockClient : public Client {
     }
     // The server's archive state as this mock knows it: a write of ours, or
     // the web (web_archive, an e2e hook), sets it; list rows carry it.
+    // A thread's state as the server would next list it (mock_session_starts,
+    // an e2e hook: someone pinged it and it started a run).
+    static std::map<std::string, ThreadState>& server_state() {
+        static std::map<std::string, ThreadState> m;
+        return m;
+    }
+    static void mock_server_state(const std::string& id, ThreadState st) {
+        std::lock_guard<std::mutex> lk(overlay_mu());
+        server_state()[id] = st;
+    }
     static std::map<std::string, bool>& server_archive() {
         static std::map<std::string, bool> m;
         return m;
@@ -397,6 +407,8 @@ class MockClient : public Client {
             for (auto& s : out)
                 if (const auto a = server_archive().find(s.id); a != server_archive().end())
                     s.server_archived_at_ms = a->second ? 1781600000000 : 0;
+            for (auto& s : out)
+                if (const auto w = server_state().find(s.id); w != server_state().end()) s.state = w->second;
         }
         // Newest first, but pinned (starred) rise to the top within order.
         std::sort(out.begin(), out.end(),

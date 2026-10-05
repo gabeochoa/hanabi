@@ -305,8 +305,41 @@ static void test_attachment_caps_say_why() {
     std::filesystem::remove(over, ec);
 }
 
+// An archived thread wakes when it goes from not working to working (kt-vzgj).
+static void test_an_archived_thread_wakes_when_it_starts_working() {
+    std::printf("test_an_archived_thread_wakes_when_it_starts_working\n");
+    api::SessionSummary before, after;
+    before.state = api::ThreadState::Parked;
+    before.archive_override = true;
+    after = before;
+    after.state = api::ThreadState::Running;
+    CHECK(ecs::model::wakes_from_archive(before, after));
+    after.state = api::ThreadState::Working;
+    CHECK(ecs::model::wakes_from_archive(before, after));
+    // Archived on the server (no local overlay) wakes the same way.
+    api::SessionSummary sb, sa;
+    sb.state = api::ThreadState::Parked;
+    sb.server_archived_at_ms = 1;
+    sa = sb;
+    sa.state = api::ThreadState::Running;
+    CHECK(ecs::model::wakes_from_archive(sb, sa));
+    // Archived WHILE it ran: the same run carrying on does not wake it.
+    before.state = api::ThreadState::Running;
+    after.state = api::ThreadState::Running;
+    CHECK(!ecs::model::wakes_from_archive(before, after));
+    // Not archived, or still resting: nothing to do.
+    api::SessionSummary nb, na;
+    nb.state = api::ThreadState::Parked;
+    na.state = api::ThreadState::Running;
+    CHECK(!ecs::model::wakes_from_archive(nb, na));
+    after.state = api::ThreadState::Parked;
+    before.state = api::ThreadState::Parked;
+    CHECK(!ecs::model::wakes_from_archive(before, after));
+}
+
 int main() {
     std::printf("=== test_api ===\n");
+    test_an_archived_thread_wakes_when_it_starts_working();
     test_config_defaults();
     test_factory_falls_back_to_mock();
     test_mock_list_sorted_desc();

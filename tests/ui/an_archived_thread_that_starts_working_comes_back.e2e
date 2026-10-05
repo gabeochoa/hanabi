@@ -1,0 +1,20 @@
+# An archived thread that gets pinged and starts working unarchives itself
+# (Knots kt-vzgj, the owner's ask). The next list that shows it working takes
+# it out of the archive -- the overlay, Settings and the server's archive
+# state all agree (an unarchive write goes out) -- and no toast announces it.
+# While it rests it stays archived, however many lists arrive.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","archived":{"t3":true}}
+
+wait_frames 30
+expect_no_text "style guide written"
+refresh_list
+wait_frames 30
+expect_no_text "style guide written"
+expect_no_overlay_write archive t3 false
+mock_session_starts t3
+refresh_list
+wait_frames 30
+expect_text "style guide written"
+expect_overlay_write archive t3 false
+expect_no_toast

@@ -915,7 +915,31 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     apply_created_at(app, r.value);
                     app.overlay_attach_brakes(r.value);
                     app.overlay_attach_refusals(r.value);
+                    // An archived thread that started working again comes
+                    // out of the archive (kt-vzgj): read against the rows
+                    // this client already had, before they are replaced.
+                    std::vector<std::string> woken;
+                    if (!app.sessions.empty()) {
+                        std::unordered_map<std::string, const api::SessionSummary*> before;
+                        before.reserve(app.sessions.size());
+                        for (const auto& s : app.sessions) before.emplace(s.id, &s);
+                        for (const auto& s : r.value)
+                            if (const auto b = before.find(s.id);
+                                b != before.end() && model::wakes_from_archive(*b->second, s))
+                                woken.push_back(s.id);
+                    }
                     app.replace_sessions(std::move(r.value));
+                    // The same single writer a hand Unarchive goes through
+                    // (the overlay, Settings, and the server write), and no
+                    // toast: routine automatic activity is not announced.
+                    for (const auto& id : woken) {
+                        for (const auto& s : app.sessions)
+                            if (s.id == id && app.archivePrior.count(id) == 0)
+                                app.archivePrior[id] = s.archive_override;
+                        app.apply_archived(id, false);
+                        Settings::get().set_archived(id, false);
+                        app.queue_archive_write(id, false);
+                    }
                     // A stop the server took, settled by the list saying the
                     // thread is no longer running: the open transcript's
                     // summary adopts that state (the stream would carry a
