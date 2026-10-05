@@ -2765,7 +2765,7 @@ class MockClient : public Client {
     // here too. That coupling is the price of the cache; the alternative was
     // rebuilding a 2000-row catalog on every get_session().
     static constexpr const char* kFixtureEnv[] = {
-        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE",
+        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_CODE_WRAP_DEMO",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
@@ -4211,6 +4211,22 @@ class MockClient : public Client {
         // list is unchanged. Each block is chosen to exercise a different part
         // of the scanner: a Python docstring and a # comment, a C++ block
         // comment that spans two lines, a shell pipeline, and JSON literals.
+        // A fence whose last line is longer than a narrow column (code wraps
+        // between tokens). Only under HANABI_CODE_WRAP_DEMO.
+        if (const char* cw = std::getenv("HANABI_CODE_WRAP_DEMO"); cw && *cw == '1') {
+            Session s;
+            s.summary = calm("rcodewrap", "the long call", hrs_ago(1), "active",
+                             ThreadState::Unknown, "code wrap fixture");
+            s.messages = {
+                {"cw1", Role::User, "show me the call", hrs_ago(2), ""},
+                {"cw2", Role::Assistant,
+                 "Here.\n\n```python\n"
+                 "total = settle_ledger(ledger_rows, payout_batch, budget_seconds, attempts=3, dry_run=False, verbose=True)\n"
+                 "```",
+                 hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
         if (const char* cd = std::getenv("HANABI_CODE_DEMO");
             cd && *cd && std::string(cd) != "0") {
             Session s;

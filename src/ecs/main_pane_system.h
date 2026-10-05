@@ -1,4 +1,5 @@
 #pragma once
+#include "../ui/code_wrap.h"
 #include "../ui/md_table_align.h"
 #include "../ui/selection_quote.h"
 #include "../api/list_failure.h"
@@ -11142,6 +11143,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kCodePadVTop = 6.0f;
     static constexpr float kCodePadVBot = 0.0f;
     // Total height of a code block with `nLines` inner lines.
+    // How many code columns fit a block drawn at text width `textW`: the body's
+    // 12px left and kLabelInsetX right padding and the chip's own padding come
+    // off, and the code font is fixed-width (kt: code wraps between tokens).
+    static std::size_t code_cols(float textW) {
+        static const float charW = std::max(1.0f, theme::text_px_mono("0", theme::type::MD));
+        const float avail = textW - 12.0f - 6.0f - 2.0f * 6.0f;
+        return static_cast<std::size_t>(std::max(8.0f, std::floor(avail / charW)));
+    }
     static float code_block_h(int nLines, bool labelled = true) {
         if (nLines < 1) nLines = 1;
         return kCodeVMarginTop + (labelled ? kCodeBarH : kCodeBarBareH) +
@@ -11443,7 +11452,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         p = (n2 == std::string::npos) ? body.size() : n2 + 1;
                         break;
                     }
-                    ++codeLines;
+                    // A long line wraps between tokens -- as many rows as
+                    // the draw makes (tabs are two columns there too).
+                    for (size_t t = cl.find('\t'); t != std::string::npos; t = cl.find('\t', t))
+                        cl.replace(t, 1, "  ");
+                    codeLines += static_cast<int>(hanabi::code_wrap::count(cl, code_cols(textW)));
                     if (n2 == std::string::npos) { p = body.size() + 1; break; }
                     p = n2 + 1;
                 }
@@ -12281,7 +12294,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_code_block(UIContext<InputAction>& ctx, Entity& parent, int id,
                            const std::string& lang,
                            const std::vector<std::string>& lines,
-                           float blockW = 0.0f) {
+                           float blockW = 0.0f,
+                           const std::vector<unsigned char>* starts = nullptr) {
         const int n = lines.empty() ? 1 : static_cast<int>(lines.size());
         auto block = div(ctx, mk(parent, id),
             ComponentConfig{}
@@ -12415,9 +12429,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("code_block_copy"));
             if (copy) {
                 std::string joined;
+                // Wrapped rows rejoin without a newline: what is copied is
+                // the code as written, not as wrapped.
                 for (size_t k = 0; k < lines.size(); ++k) {
                     joined += lines[k];
-                    if (k + 1 < lines.size()) joined += "\n";
+                    const bool nextStarts =
+                        starts == nullptr || k + 1 >= starts->size() || (*starts)[k + 1] != 0;
+                    if (k + 1 < lines.size() && nextStarts) joined += "\n";
                 }
                 hanabi::clipboard::set_text(joined);
                 hanabi::test_hooks::record_clipboard_text(joined);
@@ -12765,6 +12783,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (is_code_fence(line)) {
                 const std::string lang = fence_lang(line);
                 std::vector<std::string> codeLines;
+                std::vector<unsigned char> codeStarts;  // 1 = a source line starts here
                 size_t p = (nl == std::string::npos) ? shown.size() : nl + 1;
                 while (p <= shown.size()) {
                     size_t n2 = shown.find('\n', p);
@@ -12778,7 +12797,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     for (size_t t = cl.find('\t'); t != std::string::npos;
                          t = cl.find('\t', t))
                         cl.replace(t, 1, "  ");
-                    codeLines.push_back(std::move(cl));
+                    // A long line wraps between tokens (code_wrap.h); the
+                    // copy button still copies the source lines.
+                    const auto pieces = hanabi::code_wrap::wrap(cl, code_cols(textW));
+                    for (std::size_t k = 0; k < pieces.size(); ++k) {
+                        codeLines.push_back(pieces[k]);
+                        codeStarts.push_back(k == 0 ? 1 : 0);
+                    }
                     if (n2 == std::string::npos) { p = shown.size() + 1; break; }
                     p = n2 + 1;
                 }
@@ -12794,7 +12819,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 } else {
                     flush(9000 + seg);
                     render_code_block(ctx, parent, 100 + seg, lang, codeLines,
-                                      textW);
+                                      textW, &codeStarts);
                 }
                 ++seg;
                 start = p;

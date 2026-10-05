@@ -56,6 +56,9 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 |---|---|---|
 | The next New Conversation opens blank after one is sent with an attached file | D123311832 | VERIFIED (pinned by `the_next_new_conversation_opens_blank_after_a_send_with_a_file.e2e`) |
 | Typing right after a thread switch reaches the new thread | aa53ed52 | VERIFIED (item 4) |
+| Keys typed across two quick thread switches follow the latest one, and leak into no third thread | D123033289 | VERIFIED (the item-4 fixture gains the case) |
+| A long code line wraps between tokens, never mid-identifier; Copy copies the line as written | D123368715 | DONE |
+| Typing with the keyboard on a sidebar row (nothing typed into yet) after a click: the reference sends it to the composer only for a TAB click (verified in Hanabi); a sidebar-row click keeps the keyboard on the list | aa53ed52 | NOTE (not a gap as the reference defines it) |
 | The New Chat thread name types like the message box | 6fa7eddf | DONE (b9a6e3c: the field is the app's standard text field) |
 | Transcript pictures held at the size they are drawn | D123324882 | VERIFIED (`ui/decode_to_fit.h` decodes to the display box) |
 | A markdown table honours its separator row's column alignment | kt-gkph (a held proposal there) | DONE |

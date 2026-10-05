@@ -1,0 +1,18 @@
+# A code line longer than its column wraps between tokens, inside the block
+# (the reference, 2026-10-05, D123368715). Before, Hanabi did not wrap a fence:
+# the line ran past the bubble and was cut off -- its chip ended outside the
+# block. Copy still copies the line as written.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_CODE_WRAP_DEMO=1 HANABI_OPEN=rcodewrap
+
+require_thread rcodewrap
+resize 640 700
+wait_frames 30
+expect_children_inside code_block_body
+expect_text "settle_ledger("
+expect_text "verbose=True)"
+reset_clipboard_probe
+click_ui code_block_copy
+wait_frames 6
+expect_clipboard "total = settle_ledger(ledger_rows, payout_batch, budget_seconds, attempts=3, dry_run=False, verbose=True)"

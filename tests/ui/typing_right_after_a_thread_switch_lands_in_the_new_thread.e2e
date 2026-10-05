@@ -17,3 +17,19 @@ expect_input_text composer_reply_input "typeable"
 click_text "needs a decision"
 wait_frames 30
 expect_input_text composer_reply_input ""
+
+# Two quick switches (the reference's D123033289 follow-up): keys typed
+# between them stay with the first thread, keys after the second go to the
+# second, and nothing leaks into a third. The caret starts in the composer,
+# as it does mid-conversation.
+click_ui composer_reply_input
+wait_frames 4
+click_text "SKU backfill"
+type "ab"
+click_text "triaging row 212"
+type "cd"
+wait_frames 40
+expect_input_text composer_reply_input "cd"
+click_text "SKU backfill"
+wait_frames 30
+expect_input_text composer_reply_input "typeableab"
