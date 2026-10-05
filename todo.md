@@ -64,6 +64,7 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 | A paragraph under a list gets a paragraph's gap | D122984730 | VERIFIED (`ui/md_list_gap.h`) |
 | A markdown image draws as a picture (a file on this Mac) or a chip that says where to see it (the web app, CodeHub) -- never the raw `![alt](...)` text; list items too | kt-g07i / D122946722 | DONE (fetching web-app bytes behind intern auth stays out: the reference's own fetch mostly fails there and draws the same chip) |
 | Run details (usage, cache, calls, cost) behind a Debug setting, off by default | D122961363 | VERIFIED (Hanabi draws no run-detail block) |
+| A new thread compacts at the boundary the person set in agentcloud (synced `autocompactPct`), kept for the next launch | D122911567 (kt-ltvd) | DONE (Hanabi has no app-level boundary setting of its own, so with none set in agentcloud the harness's rule still applies, as before) |
 | Typing with the keyboard on a sidebar row (nothing typed into yet) after a click: the reference sends it to the composer only for a TAB click (verified in Hanabi); a sidebar-row click keeps the keyboard on the list | aa53ed52 | NOTE (not a gap as the reference defines it) |
 | The New Chat thread name types like the message box | 6fa7eddf | DONE (b9a6e3c: the field is the app's standard text field) |
 | Transcript pictures held at the size they are drawn | D123324882 | VERIFIED (`ui/decode_to_fit.h` decodes to the display box) |

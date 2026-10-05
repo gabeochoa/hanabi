@@ -1,0 +1,11 @@
+# The control: with no boundary set in agentcloud (the web's Auto), a new
+# thread asks for none and the harness's own rule applies.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat
+wait_frames 90
+click_ui composer_reply_input
+type "start with the ledger"
+key ENTER
+wait_frames 40
+expect_mock_create_autocompact -

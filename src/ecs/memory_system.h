@@ -481,7 +481,11 @@ struct MemorySystem : afterhours::System<AppComponent> {
                     r.status = o.ok ? o.value.status : 0;
                     r.reach = api::pins::reach_of(o.ok, o.error, r.status, r.overlays.has_value());
                     auto p = c->web_call("GET", api::pins::kPreferencesPath, "");
-                    if (p.ok && p.value.status == 200) r.order = api::pins::parse_order(p.value.body);
+                    if (p.ok && p.value.status == 200) {
+                        r.order = api::pins::parse_order(p.value.body);
+                        r.prefsRead = true;
+                        r.autocompact = api::pins::parse_autocompact(p.value.body);
+                    }
                     return r;
                 });
             }
@@ -528,6 +532,10 @@ struct MemorySystem : afterhours::System<AppComponent> {
                     ps.serverKnown = rec.server_known;
                     ps.localOnly = rec.local_only.size();
                 }
+                // The account's compaction boundary, kept for the next launch
+                // too: a thread created before this read lands still asks for
+                // the person's boundary, not the harness's.
+                if (r.prefsRead) Settings::get().set_account_autocompact(r.autocompact.value_or(0));
                 if (r.order) {
                     ps.orderRead = true;
                     if (!ps.orderPending) ps.order = *r.order;

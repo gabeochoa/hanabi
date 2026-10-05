@@ -1190,6 +1190,9 @@ struct AppComponent : public afterhours::BaseComponent {
             if (m != "default") message.launch.model = m;
         }
         if (message.launch.effort.empty()) message.launch.effort = s.get_default_effort();
+        // The compaction boundary the person set in agentcloud, so this thread
+        // compacts where theirs do on the web (the reference's kt-ltvd).
+        if (message.launch.autocompactPct == 0) message.launch.autocompactPct = s.get_account_autocompact();
         // The New Thread's Sensitive choice rides this create only, and only
         // while the gate admits; the next New Thread starts Standard again.
         if (newThreadSensitiveAsk && sensitiveGate == Gate::Admitted)

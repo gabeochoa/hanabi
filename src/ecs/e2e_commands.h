@@ -3486,6 +3486,23 @@ struct HandleExpectCreateTitleCommand : afterhours::System<afterhours::testing::
     }
 };
 
+// expect_mock_create_autocompact <n> | -: the compaction boundary the last
+// create asked for ("-" = omitted).
+struct HandleExpectCreateAutocompactCommand : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&, afterhours::testing::PendingE2ECommand& cmd, float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_create_autocompact")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_mock_create_autocompact requires <n|->");
+            return;
+        }
+        const int want = cmd.arg(0) == "-" ? 0 : std::atoi(cmd.arg(0).c_str());
+        const int have = api::MockClient::last_create_autocompact();
+        if (have == want) cmd.consume();
+        else if (cmd.frames_alive < kGiveUpFrame) cmd.retry();
+        else cmd.fail(std::format("expect_mock_create_autocompact: the create asked for {}, wanted {}", have, want));
+    }
+};
+
 // expect_no_overlay_write <kind> <args...>: that write was NOT made (so far).
 // expect_pins_migrated <version>: the one-shot pin carry's completed version
 // in Settings (kt-if8e).
@@ -4896,6 +4913,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandlePressCaptureHotkeyCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCreateTitleCommand>());
     sm.register_update_system(std::make_unique<HandleExpectDraftContainsCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectCreateAutocompactCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockResolveHasCommand>());
     sm.register_update_system(std::make_unique<HandleExpectRowOrderCommand>());
     sm.register_update_system(std::make_unique<HandleRefreshWebPinsCommand>());

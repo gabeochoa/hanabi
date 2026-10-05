@@ -2495,6 +2495,22 @@ static void test_the_node_roster_and_the_create_node_clause() {
 // The launch tuning a create carries (`options.llm`, the create command's own
 // field): model only, effort only, both, neither -- an empty knob is OMITTED
 // (never "" or null), and title/node ride unchanged beside it.
+// synced.autocompactPct, and only from synced; Auto (0), out of range and a
+// string are "never set" (the reference's SyncedPreferences tests).
+static void test_the_account_compaction_boundary_is_read_from_synced() {
+    std::printf("test_the_account_compaction_boundary_is_read_from_synced\n");
+    using api::pins::parse_autocompact;
+    CHECK(parse_autocompact(R"({"synced":{"autocompactPct":75}})") == 75);
+    CHECK(!parse_autocompact(R"({"preferences":{"autocompactPct":75}})"));
+    CHECK(!parse_autocompact(R"({"synced":{"autocompactPct":0}})"));
+    CHECK(!parse_autocompact(R"({"synced":{"autocompactPct":12}})"));
+    CHECK(!parse_autocompact(R"({"synced":{"autocompactPct":95}})"));
+    CHECK(!parse_autocompact(R"({"synced":{"autocompactPct":"75"}})"));
+    CHECK(!parse_autocompact("not json"));
+    CHECK(parse_autocompact(R"({"synced":{"autocompactPct":25}})") == 25);
+    CHECK(parse_autocompact(R"({"synced":{"autocompactPct":90}})") == 90);
+}
+
 static void test_create_carries_the_launch_tuning_as_options_llm() {
     std::printf("test_create_carries_the_launch_tuning_as_options_llm\n");
     using api::LaunchTuning;
@@ -2519,6 +2535,18 @@ static void test_create_carries_the_launch_tuning_as_options_llm() {
         CHECK(j["options"]["llm"]["model"] == "claude-opus-5");
         CHECK(j["options"]["llm"]["effort"] == "low");
         CHECK(!j.contains("title") && !j.contains("node"));
+    }
+    {
+        // The account's compaction boundary rides options.llm.autocompact_pct;
+        // a value the wire would refuse is omitted, never sent.
+        LaunchTuning ac;
+        ac.autocompactPct = 75;
+        const auto j = json::parse(create_command_json("t", "", ac));
+        CHECK(j["options"]["llm"]["autocompact_pct"] == 75);
+        LaunchTuning bad;
+        bad.autocompactPct = 95;
+        const auto k = json::parse(create_command_json("t", "", bad));
+        CHECK(!k.contains("options"));
     }
     {
         LaunchTuning sensitive;
@@ -2935,6 +2963,7 @@ static void test_hello_access_folds_to_the_reference_read_only_rule() {
 }
 
 int main() {
+    test_the_account_compaction_boundary_is_read_from_synced();
     test_a_table_element_row_shows_its_cells();
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();

@@ -106,6 +106,8 @@ bool Settings::load_save_file() {
         sort_oldest_first_ =
             j.value("session_sort_order", std::string("activity")) == "oldest";
         pins_migrated_version_ = j.value("pins_migrated_to_web", pins_migrated_version_);
+        account_autocompact_ = j.value("account_autocompact", 0);
+        if (account_autocompact_ < 25 || account_autocompact_ > 90) account_autocompact_ = 0;
         capture_hotkey_enabled_ = j.value("capture_hotkey", capture_hotkey_enabled_);
         // Strictly a JSON true: anything else (absent, a number, a string)
         // is the default, the browser.
@@ -344,6 +346,7 @@ void Settings::write_save_file() {
     j["find_newest_first"] = find_newest_first_;
     j["session_sort_order"] = sort_oldest_first_ ? "oldest" : "activity";
     j["pins_migrated_to_web"] = pins_migrated_version_;
+    if (account_autocompact_ != 0) j["account_autocompact"] = account_autocompact_;
     j["capture_hotkey"] = capture_hotkey_enabled_;
     j["native_diff_companion"] = native_diffs_;
     j["session_grouping"] = session_grouping_;
@@ -918,6 +921,14 @@ bool Settings::get_capture_hotkey_enabled() const { return capture_hotkey_enable
 void Settings::set_capture_hotkey_enabled(bool on) {
     if (on == capture_hotkey_enabled_) return;
     capture_hotkey_enabled_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+int Settings::get_account_autocompact() const { return account_autocompact_; }
+void Settings::set_account_autocompact(int pct) {
+    if (pct < 25 || pct > 90) pct = 0;
+    if (pct == account_autocompact_) return;
+    account_autocompact_ = pct;
     if (auto_save_enabled) write_save_file();
 }
 

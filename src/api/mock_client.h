@@ -284,8 +284,12 @@ class MockClient : public Client {
         if (method == "GET" && path == pins::kPreferencesPath) {
             if (std::getenv("HANABI_MOCK_WEB_PREFS_FAIL") != nullptr)
                 return Result<WebReply>::success({500, R"({"error":"preferences unavailable"})"});
-            return Result<WebReply>::success(
-                {200, json{{"exists", true}, {"preferences", {{pins::kOrderKey, m.pin_order}}}}.dump()});
+            json reply{{"exists", true}, {"preferences", {{pins::kOrderKey, m.pin_order}}}};
+            // HANABI_MOCK_AUTOCOMPACT=<n>: the account's synced compaction
+            // boundary (the web's Session Defaults).
+            if (const char* ac = std::getenv("HANABI_MOCK_AUTOCOMPACT"); ac && *ac)
+                reply["synced"] = {{pins::kAutocompactKey, std::atoi(ac)}};
+            return Result<WebReply>::success({200, reply.dump()});
         }
         if (method == "PUT" && path == pins::kPreferencesPath) {
             const json b = json::parse(body.empty() ? "{}" : body, nullptr, false);
@@ -803,6 +807,11 @@ class MockClient : public Client {
     }
 
     // The typed name the last create carried ("" = none), for e2e.
+    // The compaction boundary the last create asked for (0 = omitted).
+    static int& last_create_autocompact() {
+        static int v = 0;
+        return v;
+    }
     static std::string& last_create_title() {
         static std::string t;
         return t;
@@ -838,6 +847,9 @@ class MockClient : public Client {
             fresh->model.requested_effort = message.launch.effort;
         }
         last_create_allowed_sensitive() = message.launch.allowSensitiveSwitch;
+        last_create_autocompact() = pins::admits_autocompact(message.launch.autocompactPct)
+                                        ? message.launch.autocompactPct
+                                        : 0;
         last_create_title() = create_title::explicit_title(message.title);
         if (Session* named = find_mutable(created.value); named != nullptr && !last_create_title().empty())
             named->summary.title = last_create_title();

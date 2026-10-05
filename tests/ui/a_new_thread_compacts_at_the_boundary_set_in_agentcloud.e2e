@@ -1,0 +1,14 @@
+# A new thread asks for the compaction boundary the person set in agentcloud
+# (the web's Session Defaults > Compaction boundary, synced `autocompactPct`),
+# so it compacts where their threads do on the web -- the reference's kt-ltvd
+# ("it should respect your setting"). Before, Hanabi sent nothing and the
+# harness's own default applied (40% on some models).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat HANABI_MOCK_AUTOCOMPACT=75
+wait_frames 90
+click_ui composer_reply_input
+type "start with the ledger"
+key ENTER
+wait_frames 40
+expect_mock_create_autocompact 75

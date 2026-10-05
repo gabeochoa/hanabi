@@ -58,6 +58,9 @@ enum class Reach { Unknown, Synced, NoCredential, Refused, Unreachable, Malforme
 struct Read {
     std::optional<Snapshot> overlays;
     std::optional<std::vector<std::string>> order;
+    // The preferences read answered; and the boundary it named, if any.
+    bool prefsRead = false;
+    std::optional<int> autocompact;
     Reach reach = Reach::Unknown;
     int status = 0;  // the HTTP status, for Refused
 };
@@ -173,6 +176,25 @@ inline std::optional<std::vector<std::string>> parse_order(const std::string& bo
         return normalize(ids);
     }
     return std::nullopt;
+}
+
+// The compaction boundary the person set in agentcloud (Session Defaults >
+// Compaction boundary): `synced.autocompactPct`, read from `synced` and never
+// `preferences` (which fills in Auto for a person who never chose). The web's
+// Auto (0), an absent key, and anything the wire would refuse (outside
+// 25..90) read as "never set". The reference's SyncedPreferences.
+inline constexpr const char* kAutocompactKey = "autocompactPct";
+inline constexpr int kAutocompactMin = 25;
+inline constexpr int kAutocompactMax = 90;
+inline bool admits_autocompact(int pct) { return pct >= kAutocompactMin && pct <= kAutocompactMax; }
+inline std::optional<int> parse_autocompact(const std::string& body) {
+    const json root = json::parse(body, nullptr, false);
+    if (root.is_discarded() || !root.is_object() || !root.contains("synced") || !root["synced"].is_object())
+        return std::nullopt;
+    const json& doc = root["synced"];
+    if (!doc.contains(kAutocompactKey) || !doc[kAutocompactKey].is_number_integer()) return std::nullopt;
+    const int v = doc[kAutocompactKey].get<int>();
+    return admits_autocompact(v) ? std::optional<int>(v) : std::nullopt;
 }
 
 inline std::string order_body(const std::vector<std::string>& ids) {

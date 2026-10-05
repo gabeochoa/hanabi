@@ -1,5 +1,6 @@
 #include "knots_runner.h"
 #include "create_title.h"
+#include "pins_wire.h"
 #include "element_table.h"
 #include "agentcloud_client.h"
 #include "wire_clock.h"
@@ -1358,6 +1359,9 @@ std::string create_command_json(const std::string& title,
     json llm = json::object();
     if (!launch.model.empty()) llm["model"] = launch.model;
     if (!launch.effort.empty()) llm["effort"] = launch.effort;
+    // Only a boundary the wire admits (25..90, the orchestrator's
+    // AUTOCOMPACT_PCT_RANGE); anything else is omitted, never sent.
+    if (pins::admits_autocompact(launch.autocompactPct)) llm["autocompact_pct"] = launch.autocompactPct;
     if (!llm.empty()) command["options"] = {{"llm", llm}};
     // `options.control` (spec 130): transition authority is fixed at birth.
     // Sent only when asked for -- an omitted key and an empty `may_add` both

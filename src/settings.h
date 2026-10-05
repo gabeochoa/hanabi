@@ -398,6 +398,10 @@ struct Settings {
     // pinsMigratedToOverlayVersion). Written only when every pin landed.
     int get_pins_migrated_version() const;
     void set_pins_migrated_version(int v);
+    // The compaction boundary the person set in agentcloud, as last read
+    // (0 = never set / Auto). A new thread asks for it.
+    int get_account_autocompact() const;
+    void set_account_autocompact(int pct);
 
     // Screenshot to composer (Ctrl+Shift+4; Knots kt-8uce). Off by default:
     // the one chord held while the app is in the background.
@@ -607,6 +611,7 @@ struct Settings {
     bool find_newest_first_ = false;
     bool sort_oldest_first_ = false;
     int pins_migrated_version_ = 0;
+    int account_autocompact_ = 0;
     bool capture_hotkey_enabled_ = false;
     bool native_diffs_ = false;
     std::string session_grouping_ = "space";
