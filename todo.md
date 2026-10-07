@@ -87,7 +87,7 @@ section above. Knots are filed in gabeochoa/manager, tagged hanabi.
 | /goal and /plan on the slash menu; Return sends them as ordinary text (live thread or a new thread's first input) | D123649564 | kt-3n69 | DONE |
 | Group by Origin: one section per origin term (chat, cli, metamate, web...) | D122502051 | kt-xk2o | DONE |
 | A std/Table nested in a Card draws its rows in place of its summary line | D123313992 | kt-kxc4 | DONE |
-| Line spacing runs 100-200%; a stored value under 100% reads 100% | D123401186 | kt-riry | DONE (range). QUEUED (ETA 2026-10-08): the extra room goes between lines, not above the first (a one-line bubble grows 35 -> 40 at 130%) |
+| Line spacing runs 100-200%; a stored value under 100% reads 100%; the extra room goes between lines, not above the first | D123401186-90 | kt-riry | DONE (208e102) |
 | A message's time and verbs sit under its words, above its link cards | D123322904 | kt-tbwp | VERIFIED (the verbs row is an overlay on the text bubble, `message_actions`; link cards draw after the bubble); knot closed |
 | The command picker hides sub-agents unless the sidebar shows them (or one is an open tab) | D123317198 | kt-2lvo | DONE (7a9191d) |
 | The collapsed sidebar: a dot per Home session, hover card with the last message sent, scroll with edge arrows | D122996655-66 | kt-9vy8 | QUEUED (ETA 2026-10-09) |
