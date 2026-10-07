@@ -931,13 +931,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kComposerLineHPt = 21.0f;
     static double text_zoom() { return Settings::get().get_text_scale(); }
     static float zoomed(float px) { return std::round(px * static_cast<float>(text_zoom())); }
-    static float spacing_factor() { return hanabi::line_spacing::factor(Settings::get().get_line_spacing()); }
     static float composer_line_h() { return zoomed(kComposerLineHPt); }
     static std::string zoom_key() {
         if (text_zoom() == 1.0 && Settings::get().get_line_spacing() == hanabi::line_spacing::kDefault)
             return std::string();
         return "|z" + std::to_string(theme::type::BODY) + "/" + std::to_string(line_pitch()) + "/" +
-               std::to_string(code_line_pitch()) + "/" + std::to_string(Settings::get().get_line_spacing());
+               std::to_string(line_gap()) + "/" + std::to_string(code_line_pitch()) + "/" +
+               std::to_string(Settings::get().get_line_spacing());
     }
 
     static constexpr size_t kComposerMaxRows = 6;
@@ -3575,12 +3575,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static void link_hotspot(UIContext<InputAction>& ctx, Entity& el,
                              const std::string& text,
                              const std::vector<hanabi::links::Link>& links,
-                             float fontPx) {
+                             float fontPx,
+                             const hanabi::find_highlight::Leading& lead = {}) {
         if (links.empty() || !el.has<afterhours::ui::UIComponent>()) return;
         const RectangleType r = el.get<afterhours::ui::UIComponent>().rect();
         const std::string id = hanabi::links::hit(r, text, links, fontPx,
                                                   ctx.mouse.pos.x,
-                                                  ctx.mouse.pos.y);
+                                                  ctx.mouse.pos.y, lead);
         if (id.empty()) return;
         if (AppComponent* app = app_singleton();
             app != nullptr && app->messageMenuOpen && !app->messageMenuNativeTried &&
@@ -3648,7 +3649,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     static void selectable_text(UIContext<InputAction>& ctx, Entity& el,
-                                const std::string& text, float fontPx) {
+                                const std::string& text, float fontPx,
+                                const hanabi::find_highlight::Leading& lead = {}) {
         el.addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         // The listener above is empty: it exists so the element gets hover and
@@ -3669,7 +3671,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const RectangleType r = cmp.rect();
         hanabi::text_select::update(el.id, r, text, fontPx, ctx.mouse.pos.x,
                                     ctx.mouse.pos.y, ctx.mouse.left_down,
-                                    ctx.mouse.just_pressed);
+                                    ctx.mouse.just_pressed, lead);
         // Test/screenshot only: adopt a pre-selected run the first time the
         // element that contains it renders. No-op unless HANABI_SELECT_DEMO is
         // set (see apply_test_knobs).
@@ -4438,7 +4440,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 float lines = std::max(hard, std::ceil(chars * 6.5f / textW) + hard * 0.5f);
                 if (lines < 1.0f) lines = 1.0f;
                 c.estimate = kTurnGapTop + kTurnGapBot + kBubblePadTop + kBubblePadBot +
-                             lines * line_pitch() + (c.showAuthor ? kAuthorH + kAuthorGap : 0.0f);
+                             prose_h(static_cast<int>(lines)) + (c.showAuthor ? kAuthorH + kAuthorGap : 0.0f);
             }
             c.showAuthor = (i == 0) ||
                            (msgs[i - 1].role != api::Role::Assistant &&
@@ -6306,7 +6308,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                             int keyBase, const std::string& text, int lines,
                             float textW, float lineH, theme::Color ink,
                             const std::string& name,
-                            bool selectable = false) {
+                            bool selectable = false, float gap = 0.0f) {
         if (lines <= 0) return;
         std::vector<std::pair<std::size_t, std::size_t>> spans;
         ask_wrap_spans(text, textW, spans);
@@ -6316,8 +6318,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             std::string line =
                 ask_wrapped_line(text, spans, static_cast<size_t>(li));
             if (cut) line = hanabi::ask::with_ellipsis(line);
-            auto row = div(ctx, mk(parent, keyBase + li),
-                ComponentConfig{}
+            auto rowCfg = ComponentConfig{}
                     .with_label(line)
                     .with_size(ComponentSize{percent(1.0f), pixels(lineH)})
                     .with_transparent_bg()
@@ -6326,7 +6327,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_text_overflow(cut ? TextOverflow::Ellipsis
                                             : TextOverflow::Clip)
-                    .with_debug_name(name + "_" + std::to_string(li)));
+                    .with_debug_name(name + "_" + std::to_string(li));
+            // Line spacing over 100% opens the room BETWEEN lines only.
+            if (li > 0 && gap > 0.0f)
+                rowCfg = rowCfg.with_margin(Margin{.top = pixels(gap)});
+            auto row = div(ctx, mk(parent, keyBase + li), rowCfg);
             if (selectable)
                 selectable_text(ctx, row.ent(), line, theme::type::SM);
         }
@@ -10914,7 +10919,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // measured with the same function and the same font the renderer draws
     // with -- they agree by construction rather than by calibration.
     static constexpr float kLinePitchPt = 16.0f;  // px per wrapped line
-    static float line_pitch() { return std::round(kLinePitchPt * static_cast<float>(text_zoom()) * spacing_factor()); }
+    // The pitch of ONE line at the current zoom: Line spacing never makes a
+    // line taller. Over 100% the extra room goes between the lines of a
+    // message (line_gap / prose_h), so a one-line bubble keeps its 100%
+    // height and the gaps above and below the text stay what they are at
+    // 100% (the reference's D123401189 / D123401190).
+    static float line_pitch() { return std::round(kLinePitchPt * static_cast<float>(text_zoom())); }
+    // The room between two lines of a message at the current Line spacing,
+    // sized from the line it opens (MessageLineSpacing.points, D123401188).
+    static float line_gap() {
+        return hanabi::line_spacing::gap_px(line_pitch(), Settings::get().get_line_spacing());
+    }
+    // `lines` lines of message prose: each at line_pitch(), line_gap() between.
+    static float prose_h(int lines) {
+        return hanabi::line_spacing::block_px(lines, line_pitch(), Settings::get().get_line_spacing());
+    }
     // Blank-line (paragraph / list-item gap) height. This is the vertical space
     // between paragraphs and numbered-list items in an assistant turn. Was
     // kLinePitch*0.5 (8px) which stacked into a loose, airy feed vs navi web's
@@ -11126,7 +11145,94 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     static float body_text_h(int lines) {
         if (lines < 1) lines = 1;
-        return static_cast<float>(lines) * line_pitch() + 2.0f * kBodyPad;
+        return prose_h(lines) + 2.0f * kBodyPad;
+    }
+
+    // ---- Line spacing over 100% (the reference's D123401189 / D123401190) --
+    //
+    // The extra room goes BETWEEN the lines of a message, never above the
+    // first. afterhours lays a wrapped label's lines out itself, packed at the
+    // face's own height and centred in the box (afterhours_gaps.md #606: no
+    // leading on a label), so a block that both wraps and is spaced is drawn
+    // as a HOST over one label per wrapped line: each line_pitch() tall,
+    // line_gap() between them. The host keeps everything that reads the block
+    // as one text -- selection, find bands, links, the text surface -- and
+    // tells their layout where the lines went (find_highlight::Leading). The
+    // host is the box prose_h() measured, so measure and ink agree.
+    static bool spaced_block(int lines) { return lines > 1 && line_gap() > 0.0f; }
+    // A reply's paragraph can span several source lines (hard breaks); the
+    // room goes between those too, as it does between wrapped lines -- but
+    // not above a list item, which the reference spaces as a list
+    // (MarkdownBlockView's bulletSpacing), not as lines of one paragraph.
+    static float prose_gap_before(bool afterProse, const std::string& line) {
+        if (!afterProse || hanabi::md::is_list_item(line)) return 0.0f;
+        return line_gap();
+    }
+    static hanabi::find_highlight::Leading spaced_leading(float top) {
+        return hanabi::find_highlight::Leading{line_pitch(), line_gap(), top};
+    }
+    static ComponentConfig spaced_host_cfg(float h, const char* name) {
+        return ComponentConfig{}
+            .with_size(ComponentSize{percent(1.0f), pixels(h)})
+            .with_flex_direction(FlexDirection::Column)
+            .with_flex_wrap(FlexWrap::NoWrap)
+            .with_transparent_bg()
+            .with_roundness(0.0f)
+            .with_debug_name(name);
+    }
+    // The lines themselves: the wrap count_lines measured (same wrapper, same
+    // width), each line's styled runs cut out of `spans` by byte range.
+    static void render_spaced_lines(UIContext<InputAction>& ctx, Entity& host,
+                                    const std::string& text,
+                                    const std::vector<afterhours::ui::TextSpan>* spans,
+                                    float textW, theme::Color ink,
+                                    const std::string& face, float top) {
+        const std::vector<std::string> lines = wrapped_lines(text, textW);
+        std::size_t total = 0;
+        if (spans != nullptr)
+            for (const auto& sp : *spans) total += sp.text.size();
+        const bool cut = spans != nullptr && !spans->empty() && total == text.size();
+        const float gap = line_gap();
+        std::size_t from = 0;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            const std::string& ln = lines[i];
+            std::size_t at = ln.empty() ? from : text.find(ln, from);
+            if (at == std::string::npos) at = from;
+            const std::size_t lo = at;
+            const std::size_t hi = at + ln.size();
+            from = hi;
+            auto cfg = ComponentConfig{}
+                .with_label(ln.empty() ? std::string(" ") : ln)
+                .with_size(ComponentSize{percent(1.0f), pixels(line_pitch())})
+                .with_transparent_bg()
+                .with_custom_text_color(ink)
+                .with_font_size(theme::type::BODY)
+                .with_text_overflow(TextOverflow::Wrap)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("spaced_line");
+            const float above = i == 0 ? top : gap;
+            if (above > 0.0f) cfg = cfg.with_margin(Margin{.top = pixels(above)});
+            if (!face.empty()) cfg = cfg.with_font(face, theme::type::BODY);
+            if (cut && !ln.empty()) {
+                std::vector<afterhours::ui::TextSpan> part;
+                std::size_t off = 0;
+                for (const auto& sp : *spans) {
+                    const std::size_t a = off;
+                    const std::size_t b = off + sp.text.size();
+                    off = b;
+                    if (b <= lo || a >= hi) continue;
+                    const std::size_t s0 = lo > a ? lo - a : 0;
+                    const std::size_t s1 = (hi < b ? hi : b) - a;
+                    if (s1 <= s0) continue;
+                    afterhours::ui::TextSpan piece = sp;
+                    piece.text = sp.text.substr(s0, s1 - s0);
+                    part.push_back(std::move(piece));
+                }
+                if (!part.empty()) cfg = cfg.with_styled_label(part);
+            }
+            div(ctx, mk(host, static_cast<afterhours::EntityID>(i)), cfg);
+        }
     }
 
     // A markdown code-fence line: ``` or ```lang (trimmed of trailing space).
@@ -11574,10 +11680,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string& body = hanabi::md::list_gapped(bodyIn, gapped);
         float h = 0.0f;
         size_t start = 0;
+        bool prevProse = false;
         while (start <= body.size()) {
             size_t nl = body.find('\n', start);
             size_t end = (nl == std::string::npos) ? body.size() : nl;
             std::string line = body.substr(start, end - start);
+            // Line spacing's room between two lines of one paragraph
+            // (prose_gap_before); every block but a prose line resets it.
+            const bool afterProse = prevProse;
+            prevProse = false;
             // ---- Markdown table: ONE atomic segment (mirror render) --------
             if (is_table_start(body, start)) {
                 std::vector<std::vector<std::string>> rows;
@@ -11640,7 +11751,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 h += kBlankPitch;
             } else {
                 // Measured, not divided: must mirror render_rich_body below.
-                h += static_cast<float>(count_lines(vis, textW)) * line_pitch();
+                h += prose_gap_before(afterProse, line) + prose_h(count_lines(vis, textW));
+                prevProse = true;
             }
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -11656,8 +11768,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // as one line and the bubble clipped. Measuring with the wrapper itself
     // cannot drift from it again.
     static float flat_body_h(const std::string& body, float textW) {
-        return static_cast<float>(count_lines(body, textW)) * line_pitch() +
-               2.0f * kBodyPad;
+        return prose_h(count_lines(body, textW)) + 2.0f * kBodyPad;
     }
 
     // Memoized display body + measured height for a message, keyed by
@@ -12990,10 +13101,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             pending = 0.0f;
         };
         const float probeStartY = bodyStartY;
+        bool prevProse = false;
         while (start <= shown.size()) {
             size_t nl = shown.find('\n', start);
             size_t end = (nl == std::string::npos) ? shown.size() : nl;
             std::string line = shown.substr(start, end - start);
+            // Mirrors rich_body_h: the room between two lines of a paragraph.
+            const bool afterProse = prevProse;
+            prevProse = false;
 
             // ---- Markdown table: ONE atomic segment (grid render) ----------
             if (is_table_start(shown, start)) {
@@ -13120,7 +13235,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // Mirrors rich_body_h's measure exactly -- same function,
                 // same width, so the spacers cannot drift from the render.
                 segLines = count_lines(ip.visible, textW);
-                segH = static_cast<float>(segLines) * line_pitch();
+                segH = prose_h(segLines);
+                prevProse = true;
+                // The room above a line that continues a paragraph rides
+                // the spacer mechanism: it is flushed as its own gap right
+                // before the line, or folds into an off-window spacer.
+                const float above = prose_gap_before(afterProse, line);
+                y += above;
+                pending += above;
             }
             const float segTop = y;
             const float segBot = y + segH;
@@ -13156,7 +13278,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     std::sort(lnks.begin(), lnks.end(),
                               [](const auto& a, const auto& b) { return a.off < b.off; });
                 colour_links(ip, lnks);
-                auto cfg = ComponentConfig{}
+                // Line spacing over 100% on a paragraph that wraps: the
+                // extra room goes BETWEEN its lines, which a label cannot
+                // say (afterhours_gaps.md #606), so the paragraph becomes a
+                // host -- selection, find, links -- over one label per line.
+                const bool spacedSeg = spaced_block(segLines);
+                const std::string face = side_face(false);
+                auto cfg = spacedSeg
+                        ? spaced_host_cfg(segH, "asst_line")
+                        : ComponentConfig{}
                         .with_label(ip.visible)
                         .with_styled_label(ip.spans)
                         .with_size(ComponentSize{percent(1.0f), pixels(segH)})
@@ -13167,7 +13297,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Left)
                         .with_roundness(0.0f)
                         .with_debug_name("asst_line");
-                if (const std::string face = side_face(false); !face.empty())
+                if (!spacedSeg && !face.empty())
                     cfg = cfg.with_font(face, theme::type::BODY);
                 // Both bands go BEHIND the glyphs: on_draw_bg runs before the
                 // widget's own fill, and this element's fill is transparent.
@@ -13181,7 +13311,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // cloned again by each of afterhours' three ComponentConfig
                 // copies. Assigning into the component's existing strings
                 // reuses their capacity, so a steady frame allocates none.
-                const auto ep = mk(parent, 100 + seg);
+                const auto ep = mk(parent, (spacedSeg ? 40000 : 100) + seg);
                 Entity& lineEnt = ep.first.get();
                 hanabi::control::mark_text_surface(lineEnt);
                 auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
@@ -13194,14 +13324,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     ld.findOffsets.clear();
                 ld.links = lnks;
                 ld.id = lineEnt.id;
+                ld.lead = spacedSeg ? spaced_leading(0.0f)
+                                    : hanabi::find_highlight::Leading{};
                 ecs::LineDrawState* ldp = &ld;
                 cfg = cfg.with_on_draw_bg([ldp](RectangleType r) {
                     hanabi::text_select::draw(ldp->id, r, ldp->text,
-                                              theme::type::BODY);
+                                              theme::type::BODY, ldp->lead);
                     if (!ldp->query.empty())
                         hanabi::find_highlight::draw(r, ldp->text, ldp->query,
                                                      theme::type::BODY,
-                                                     &ldp->findOffsets);
+                                                     &ldp->findOffsets,
+                                                     ldp->lead);
                 });
                 // The underline goes OVER the glyphs' own row, so it is drawn
                 // in the foreground pass; the colour alone would leave an id
@@ -13210,13 +13343,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     cfg = cfg.with_on_draw_fg([ldp](RectangleType r) {
                         hanabi::links::draw_underlines(r, ldp->text,
                                                        ldp->links,
-                                                       theme::type::BODY);
+                                                       theme::type::BODY,
+                                                       ldp->lead);
                     });
                 auto lineEl = div(ctx, ep, cfg);
+                if (spacedSeg)
+                    render_spaced_lines(ctx, lineEl.ent(), ip.visible,
+                                        &ip.spans, textW,
+                                        theme::text_primary(), face, 0.0f);
                 selectable_text(ctx, lineEl.ent(), ip.visible,
-                                theme::type::BODY);
+                                theme::type::BODY, ld.lead);
                 link_hotspot(ctx, lineEl.ent(), ip.visible, lnks,
-                             theme::type::BODY);
+                             theme::type::BODY, ld.lead);
             }
             ++seg;
             if (nl == std::string::npos) break;
@@ -13737,7 +13875,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // re-measures.
             std::vector<hanabi::links::Link> ulinks = links_in(userBody);
             add_title_links(userBody, titled_refs_of(m), ulinks);
-            auto ucfg = ComponentConfig{}
+            // Line spacing over 100% on a message of more than one line:
+            // one label per line with the room between them (see the
+            // assistant path in render_rich_body).
+            const bool spacedUser =
+                spaced_block(count_lines(userBody, box.textW));
+            const std::string uface = side_face(true);
+            auto ucfg = spacedUser
+                    ? spaced_host_cfg(bodyH, "user_text")
+                    : ComponentConfig{}
                     .with_label(userBody)
                     .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
                     .with_transparent_bg()
@@ -13747,9 +13893,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
                     .with_debug_name("user_text");
-            if (const std::string face = side_face(true); !face.empty())
-                ucfg = ucfg.with_font(face, theme::type::BODY);
-            const auto uep = mk(bub.ent(), 2);
+            if (!spacedUser && !uface.empty())
+                ucfg = ucfg.with_font(uface, theme::type::BODY);
+            const auto uep = mk(bub.ent(), spacedUser ? 4 : 2);
             Entity& userEnt = uep.first.get();
             hanabi::control::mark_text_surface(userEnt);
             auto& uld = userEnt.addComponentIfMissing<ecs::LineDrawState>();
@@ -13760,32 +13906,42 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             else
                 uld.findOffsets.clear();
             uld.id = userEnt.id;
+            uld.lead = spacedUser ? spaced_leading(kBodyPad)
+                                  : hanabi::find_highlight::Leading{};
             ecs::LineDrawState* uldp = &uld;
             ucfg = ucfg.with_on_draw_bg([uldp](RectangleType r) {
                 hanabi::text_select::draw(uldp->id, r, uldp->text,
-                                          theme::type::BODY);
+                                          theme::type::BODY, uldp->lead);
                 if (!uldp->query.empty())
                     hanabi::find_highlight::draw(
                         r, uldp->text, uldp->query, theme::type::BODY,
-                        &uldp->findOffsets);
+                        &uldp->findOffsets, uldp->lead);
             });
+            InlineParse uip;
             if (!ulinks.empty()) {
-                InlineParse uip;
                 uip.visible = userBody;
                 uip.spans.push_back(afterhours::ui::TextSpan{userBody, theme::text_primary()});
                 colour_links(uip, ulinks);
-                ucfg = ucfg.with_styled_label(uip.spans);
+                if (!spacedUser) ucfg = ucfg.with_styled_label(uip.spans);
                 uld.links = ulinks;
                 ucfg = ucfg.with_on_draw_fg([uldp](RectangleType r) {
                     hanabi::links::draw_underlines(r, uldp->text, uldp->links,
-                                                   theme::type::BODY);
+                                                   theme::type::BODY,
+                                                   uldp->lead);
                 });
             } else if (!uld.links.empty()) {
                 uld.links.clear();
             }
             auto uEl = div(ctx, uep, ucfg);
-            selectable_text(ctx, uEl.ent(), userBody, theme::type::BODY);
-            link_hotspot(ctx, uEl.ent(), userBody, ulinks, theme::type::BODY);
+            if (spacedUser)
+                render_spaced_lines(ctx, uEl.ent(), userBody,
+                                    uip.spans.empty() ? nullptr : &uip.spans,
+                                    box.textW, theme::text_primary(), uface,
+                                    kBodyPad);
+            selectable_text(ctx, uEl.ent(), userBody, theme::type::BODY,
+                            uld.lead);
+            link_hotspot(ctx, uEl.ent(), userBody, ulinks, theme::type::BODY,
+                         uld.lead);
             for (std::size_t attachmentIndex = 0;
                  attachmentIndex < m.attachments.size(); ++attachmentIndex) {
                 const auto& attachment = m.attachments[attachmentIndex];
@@ -15146,7 +15302,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const std::string prov = api::elements::provenance(m.element);
         const int lines = ask_wrap_lines(element_body(m), element_text_w(colW));
         return event_row_height() + (prov.empty() ? 0.0f : kElementProvenanceH) +
-               kElementBodyGap + static_cast<float>(lines) * line_pitch() +
+               kElementBodyGap + (lines > 0 ? prose_h(lines) : 0.0f) +
                kThinkingPadBot;
     }
 
@@ -15215,7 +15371,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         render_ask_wrapped(ctx, body.ent(), 1, body_text,
                            ask_wrap_lines(body_text, textW), textW, line_pitch(),
                            theme::text_primary(), "element_line",
-                           true);
+                           true, line_gap());
     }
 
     // The fold's own comment has always said this row is "one quiet row

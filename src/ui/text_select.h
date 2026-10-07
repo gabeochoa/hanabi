@@ -95,10 +95,17 @@ struct Layout {
     float x0 = 0.0f;  // where a line's glyphs start
     float y0 = 0.0f;  // top of the first line's box
     bool ok = false;
+    RectangleType rect{};
+    find_highlight::Leading lead{};
+    // Top of wrapped line `i`'s ink box, in either layout (find_highlight.h).
+    [[nodiscard]] float line_y(size_t i) const {
+        return find_highlight::line_y(rect, lineH, lines.size(), i, lead);
+    }
 };
 
 inline Layout layout_of(RectangleType rect, const std::string& text,
-                        float fontPx) {
+                        float fontPx,
+                        const find_highlight::Leading& lead = {}) {
     Layout out;
     if (text.empty() || rect.width <= 0.0f) return out;
     auto* fm = afterhours::EntityHelper::get_singleton_cmp<
@@ -117,6 +124,9 @@ inline Layout layout_of(RectangleType rect, const std::string& text,
     out.lineH = afterhours::measure_text(font, "Ag", fontPx, kSpacing).y;
     const float blockH = out.lineH * static_cast<float>(out.lines.size());
     out.y0 = rect.y + std::max(0.0f, (rect.height - blockH) * 0.5f);
+    out.rect = rect;
+    out.lead = lead;
+    if (lead.spaced()) out.y0 = out.line_y(0);
     out.x0 = rect.x + find_highlight::kTextMarginX;
     out.ok = true;
     return out;
@@ -136,10 +146,8 @@ inline size_t offset_at(const Layout& lay, const std::string& text,
             afterhours::measure_text(font, s.c_str(), fontPx, 1.0f).x);
     };
 
-    int row = static_cast<int>((py - lay.y0) / lay.lineH);
-    if (row < 0) row = 0;
-    if (row >= static_cast<int>(lay.lines.size()))
-        row = static_cast<int>(lay.lines.size()) - 1;
+    const int row = static_cast<int>(find_highlight::line_at(
+        lay.rect, lay.lineH, lay.lines.size(), py, lay.lead));
 
     // Offset of this line's first byte within `text`. The wrap consumes the
     // space it broke at, so the joined lines are one byte shorter per soft
@@ -210,10 +218,11 @@ inline std::pair<size_t, size_t> word_at(const std::string& text, size_t off) {
 // Paint the selection inside this element, if it owns one. Call from
 // on_draw_bg — the band goes behind the glyphs.
 inline void draw(afterhours::EntityID id, RectangleType rect,
-                 const std::string& text, float fontPx) {
+                 const std::string& text, float fontPx,
+                 const find_highlight::Leading& lead = {}) {
     const State& s = state();
     if (s.owner != id || !s.has_range()) return;
-    const auto lay = detail::layout_of(rect, text, fontPx);
+    const auto lay = detail::layout_of(rect, text, fontPx, lead);
     if (!lay.ok) return;
     auto* fm = afterhours::EntityHelper::get_singleton_cmp<
         afterhours::ui::FontManager>();
@@ -246,7 +255,7 @@ inline void draw(afterhours::EntityID id, RectangleType rect,
         const float xa = lay.x0 + measure(ln.substr(0, from));
         const float xb = lay.x0 + measure(ln.substr(0, to));
         afterhours::draw_rectangle_rounded(
-            RectangleType{xa, lay.y0 + lay.lineH * static_cast<float>(i) + 1.0f,
+            RectangleType{xa, lay.line_y(i) + 1.0f,
                           xb - xa, lay.lineH - 2.0f},
             0.2f, 6, band);
     }
@@ -286,7 +295,8 @@ inline void audit_press(RectangleType rect, const std::string& text, float mx,
 // held extends it; release ends the drag but keeps the range (so Cmd+C works).
 inline void update(afterhours::EntityID id, RectangleType rect,
                    const std::string& text, float fontPx,
-                   float mx, float my, bool leftDown, bool justPressed) {
+                   float mx, float my, bool leftDown, bool justPressed,
+                   const find_highlight::Leading& lead = {}) {
     // Hit-tested here rather than read off the context's hot element. The
     // transcript builds its widgets during the update phase, and the hit
     // resolver has not seen THIS frame's tree yet — so on the very frame the
@@ -320,7 +330,7 @@ inline void update(afterhours::EntityID id, RectangleType rect,
         // selection has an owner as of this frame"; this is the same fact
         // used one step earlier.
         if (claimed_this_frame()) return;
-        const auto lay = detail::layout_of(rect, text, fontPx);
+        const auto lay = detail::layout_of(rect, text, fontPx, lead);
         if (!lay.ok) return;
         const size_t off = detail::offset_at(lay, text, mx, my, fontPx);
 
@@ -372,7 +382,7 @@ inline void update(afterhours::EntityID id, RectangleType rect,
             s.dragging = false;
             return;
         }
-        const auto lay = detail::layout_of(rect, text, fontPx);
+        const auto lay = detail::layout_of(rect, text, fontPx, lead);
         if (!lay.ok) return;
         s.cursor = detail::offset_at(lay, text, mx, my, fontPx);
     }

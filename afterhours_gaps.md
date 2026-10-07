@@ -14391,6 +14391,8 @@ CLASS: UI / WRONG
 
 **Ask.** A `with_line_height(Size)` (or a leading multiple) honoured by the label wrap paths, so a multi-line label's rows advance by the configured height instead of the face's "Ag" measure. The `text_area` field already exists; the label paths would read the same value.
 
+**Second cost: the room must go BETWEEN lines (kt-riry, 2026-10-07).** The reference's follow-ups (D123401188-D123401190) put the extra room between the lines of a message, never above the first, so a one-line bubble keeps its 100% height. A taller label box cannot say that either: the wrap paths centre the packed block in the box, so a taller box only moves the gap above and below the text. **Workaround:** a spaced block that wraps is drawn as a host over one label per wrapped line (`main_pane_system.h` `render_spaced_lines`, `spaced_host_cfg`), each `line_pitch()` tall with `line_gap()` between, and hard-broken lines of one paragraph get the same gap as a spacer; selection, find bands and link rects read the host's text through a `find_highlight::Leading` that knows where the lines went. Pinned by `tests/ui/line_spacing_opens_room_between_lines.e2e` and `tests/ui/find_paints_a_wrapped_match_with_line_spacing.e2e`; the measure probe reports 0 drifts at 170%. The ask above would retire all of it: with a per-label line advance plus "advance between lines only", the paragraph would be one label again.
+
 CLASS: UI / MISSING
 
 ### #607 — upstream main does not compile for a Metal consumer: four unqualified `begin_shader_mode` / `end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL`

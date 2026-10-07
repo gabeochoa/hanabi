@@ -40,6 +40,20 @@ int main() {
     CHECK(std::round(16.0f * 1.3f * ls::factor(100)) == 21.0f);
     CHECK(std::round(16.0f * 1.0f * ls::factor(130)) == 21.0f);
     CHECK(std::round(16.0f * 1.0f * ls::factor(80)) == 16.0f);
+    // The extra room goes BETWEEN lines (D123401188-D123401190): none at 100%,
+    // a 16px line at 130% gets round(4.8) = 5px between it and the next, and a
+    // one-line block is as tall at any setting as it is at 100%.
+    CHECK(ls::gap_px(16.0f, 100) == 0.0f && ls::gap_px(16.0f, 80) == 0.0f);
+    CHECK(ls::gap_px(16.0f, 130) == 5.0f);
+    CHECK(ls::gap_px(16.0f, 150) == 8.0f);
+    CHECK(ls::gap_px(16.0f, 200) == 16.0f && ls::gap_px(16.0f, 900) == 16.0f);
+    CHECK(ls::gap_px(21.0f, 120) == 4.0f);
+    CHECK(ls::block_px(1, 16.0f, 100) == 16.0f && ls::block_px(1, 16.0f, 130) == 16.0f &&
+          ls::block_px(1, 16.0f, 200) == 16.0f);
+    CHECK(ls::block_px(0, 16.0f, 130) == 16.0f);
+    CHECK(ls::block_px(3, 16.0f, 100) == 48.0f);
+    CHECK(ls::block_px(3, 16.0f, 130) == 58.0f);
+    CHECK(ls::block_px(2, 16.0f, 200) == 48.0f);
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

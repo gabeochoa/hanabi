@@ -47,7 +47,9 @@ expect_text "130%"
 click_ui tab_t2
 wait_frames 16
 expect_open t2
-assert_ui user_bubble h=40
+# The extra room goes BETWEEN lines (D123401189): a one-line bubble keeps its
+# 100% height at 130%.
+assert_ui user_bubble h=35
 assert_ui sidebar w=280
 assert_ui tab_active h=33
 click_ui tab_r9

@@ -27,6 +27,8 @@
 // being a copy.
 // ---------------------------------------------------------------------------
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -43,6 +45,48 @@ inline constexpr float kTextMarginX = 5.0f;
 inline constexpr float kVPad = 1.0f;  // trims the band off the line box
 
 using textscan::occurrences;
+
+// Where wrapped line `i` of `n` sits inside `rect`.
+//
+// Two layouts reach here. The renderer's own: one label holds the block and
+// packs its lines `lineH` apart, centred in the rect (the arithmetic above).
+// And the spaced one: with Line spacing over 100% the transcript draws a
+// multi-line block one label per wrapped line, each `box` tall with `gap`
+// between them, starting `top` below the rect's top (afterhours has no
+// leading on a label, afterhours_gaps.md #606). Each of those labels centres
+// its single line in its own box. `Leading{}` is the renderer's layout.
+struct Leading {
+    float box = 0.0f;
+    float gap = 0.0f;
+    float top = 0.0f;
+    [[nodiscard]] bool spaced() const { return box > 0.0f; }
+};
+
+inline float line_y(RectangleType rect, float lineH, size_t n, size_t i,
+                    const Leading& lead) {
+    if (lead.spaced())
+        return rect.y + lead.top + static_cast<float>(i) * (lead.box + lead.gap) +
+               std::max(0.0f, (lead.box - lineH) * 0.5f);
+    const float blockH = lineH * static_cast<float>(n);
+    return rect.y + std::max(0.0f, (rect.height - blockH) * 0.5f) +
+           lineH * static_cast<float>(i);
+}
+
+// The wrapped line a y lands on, clamped to the block.
+inline size_t line_at(RectangleType rect, float lineH, size_t n, float py,
+                      const Leading& lead) {
+    if (n == 0) return 0;
+    float row = 0.0f;
+    if (lead.spaced()) {
+        row = std::floor((py - rect.y - lead.top) / (lead.box + lead.gap));
+    } else {
+        const float y0 = line_y(rect, lineH, n, 0, lead);
+        row = std::floor((py - y0) / lineH);
+    }
+    if (row < 0.0f) return 0;
+    if (row >= static_cast<float>(n)) return n - 1;
+    return static_cast<size_t>(row);
+}
 
 // How many bands were painted since the last read.
 //
@@ -85,7 +129,8 @@ inline int take_band_count() {
 inline void paint_bands(RectangleType rect, const std::string& text,
                         const std::string& query, float fontPx,
                         theme::Color band, int& tally,
-                        const std::vector<size_t>* cached = nullptr) {
+                        const std::vector<size_t>* cached = nullptr,
+                        const Leading& lead = {}) {
     if (query.empty() || text.empty() || rect.width <= 0.0f) return;
     std::vector<size_t> scanned;
     if (cached == nullptr) scanned = occurrences(text, query);
@@ -110,8 +155,6 @@ inline void paint_bands(RectangleType rect, const std::string& text,
         afterhours::ui::detail::wrap_text_to_width(text, maxW, measure);
     const float lineH =
         afterhours::measure_text(font, "Ag", fontPx, kSpacing).y;
-    const float blockH = lineH * static_cast<float>(lines.size());
-    const float y0 = rect.y + std::max(0.0f, (rect.height - blockH) * 0.5f);
 
     // Match over the WHOLE line, then place the hit on the wrapped ones.
     //
@@ -166,7 +209,7 @@ inline void paint_bands(RectangleType rect, const std::string& text,
                 counted = true;
             }
             afterhours::draw_rectangle_rounded(
-                RectangleType{x0, y0 + lineH * static_cast<float>(i) + kVPad,
+                RectangleType{x0, line_y(rect, lineH, lines.size(), i, lead) + kVPad,
                               w, lineH - kVPad * 2.0f},
                 0.25f, 6, band);
         }
@@ -176,10 +219,11 @@ inline void paint_bands(RectangleType rect, const std::string& text,
 // Find's own bands: the find colour, counted into find's tally.
 inline void draw(RectangleType rect, const std::string& text,
                  const std::string& query, float fontPx,
-                 const std::vector<size_t>* cached = nullptr) {
+                 const std::vector<size_t>* cached = nullptr,
+                 const Leading& lead = {}) {
     paint_bands(rect, text, query, fontPx,
                 theme::over(theme::find_match(), theme::panel_bg()),
-                band_count(), cached);
+                band_count(), cached, lead);
 }
 
 }  // namespace hanabi::find_highlight

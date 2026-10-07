@@ -1,0 +1,43 @@
+# env: HANABI_ALLOW_SYSTEM_FONTS_HEADLESS=1
+# Line spacing over 100% opens room BETWEEN the lines of a message -- yours
+# and the agent's -- never above the first (the reference's D123401189 /
+# D123401190). So at 130% a one-line bubble keeps its 100% height, a wrapped
+# reply paragraph puts round(16 * 0.30) = 5px between its lines (each line
+# still 16 tall, 21 apart), the hard-broken lines of one paragraph open the
+# same 5px, and a two-line message of yours grows by exactly that one gap.
+# Numbers measured with installed fonts allowed, like the C35 sweep set.
+# settings: {"window_width":1180,"window_height":949,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","line_spacing":130}
+require_thread t2
+wait_frames 16
+expect_text "Reconcile this cycle's Stars payouts against the ledger before the batch runs."
+assert_ui user_bubble h=35
+assert_ui user_text h=20
+assert_ui_text "Reconciled 4,812 accounts. 4,810 match to the cent. Two don't:" y=206 h=16
+assert_ui_text "Both look like a rounding artifact in a promo credit, but proceeding commits the batch - it's" y=303 h=16
+assert_ui_text "irreversible for this cycle. Hold, or proceed and I'll flag the two for manual follow-up?" y=324 h=16
+# Selection reads the paragraph as ONE text laid out with the gap: a word on
+# its second line resolves to that word, not to whatever the packed layout
+# would put under the pointer.
+double_click_word "irreversible for this cycle. Hold, or proceed and I'll flag the two for manual follow-up?" manual
+wait_frames 6
+expect_text "6 selected"
+double_click_word "Both look like a rounding artifact in a promo credit, but proceeding commits the batch - it's" proceeding
+wait_frames 6
+expect_text "10 selected"
+click 700 600
+wait_frames 6
+expect_no_text selected
+click_ui composer_reply_input
+wait_frames 4
+type "first line"
+wait_frames 6
+key SHIFT+ENTER
+wait_frames 8
+type "second line"
+wait_frames 6
+key ENTER
+wait_frames 20
+expect_text "first line"
+# Your two-line message: each line 16 tall, 21 apart -- one 5px gap, between.
+assert_ui_text "first line" y=383 h=16
+assert_ui_text "second line" y=404 h=16

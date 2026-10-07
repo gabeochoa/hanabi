@@ -105,9 +105,10 @@ inline std::string url_for(const std::string& base, const std::string& id) {
 inline std::vector<RectangleType> rects_for(RectangleType rect,
                                             const std::string& text,
                                             size_t off, size_t len,
-                                            float fontPx) {
+                                            float fontPx,
+                                            const find_highlight::Leading& lead = {}) {
     std::vector<RectangleType> out;
-    const auto lay = hanabi::text_select::detail::layout_of(rect, text, fontPx);
+    const auto lay = hanabi::text_select::detail::layout_of(rect, text, fontPx, lead);
     if (!lay.ok) return out;
     auto* fm = afterhours::EntityHelper::get_singleton_cmp<
         afterhours::ui::FontManager>();
@@ -135,7 +136,7 @@ inline std::vector<RectangleType> rects_for(RectangleType rect,
         const float xa = lay.x0 + measure(ln.substr(0, a));
         const float xb = lay.x0 + measure(ln.substr(0, b));
         out.push_back(RectangleType{
-            xa, lay.y0 + lay.lineH * static_cast<float>(i), xb - xa,
+            xa, lay.line_y(i), xb - xa,
             lay.lineH});
     }
     return out;
@@ -167,12 +168,13 @@ inline void record_painted(const std::string& id, const RectangleType& r) {
 // Underline every link in `text` as it is laid out inside `rect`. Called from
 // on_draw_fg so the rule sits over the element's own fill, under nothing.
 inline void draw_underlines(RectangleType rect, const std::string& text,
-                            const std::vector<Link>& links, float fontPx) {
+                            const std::vector<Link>& links, float fontPx,
+                            const find_highlight::Leading& lead = {}) {
     if (links.empty()) return;
     const theme::Color c = theme::link();
     for (const Link& l : links)
         for (const RectangleType& r : rects_for(rect, text, l.off, l.len,
-                                                fontPx)) {
+                                                fontPx, lead)) {
 #ifdef AFTER_HOURS_ENABLE_E2E_TESTING
             record_painted(l.id, r);
 #endif
@@ -205,10 +207,10 @@ inline void audit(const char* what, const std::string& id, float px, float py,
 // Which link, if any, is under (px, py). Empty id when the point is on prose.
 inline std::string hit(RectangleType rect, const std::string& text,
                        const std::vector<Link>& links, float fontPx, float px,
-                       float py) {
+                       float py, const find_highlight::Leading& lead = {}) {
     for (const Link& l : links)
         for (const RectangleType& r : rects_for(rect, text, l.off, l.len,
-                                                fontPx)) {
+                                                fontPx, lead)) {
             const bool in = px >= r.x && px <= r.x + r.width && py >= r.y &&
                             py <= r.y + r.height;
             audit(in ? "HIT" : "miss", l.id, px, py, r);

@@ -40,6 +40,9 @@ struct LineDrawState : public afterhours::BaseComponent {
     std::vector<std::size_t> findOffsets;
     std::vector<hanabi::links::Link> links;
     afterhours::EntityID id = -1;
+    // How the block's lines are laid out: the renderer's packed layout, or
+    // one label per line with Line spacing's gap between (find_highlight.h).
+    hanabi::find_highlight::Leading lead;
 };
 
 }  // namespace ecs
