@@ -1,0 +1,31 @@
+# A thread an automation started is kept off the sidebar list (the
+# reference's AutomationOrigin cut, extended in D123743261 to the reserved
+# machine-run names): t5 carries the metamate origin and no human-set title,
+# t3 wears MEDI's reserved name with no origin at all. The list options menu's
+# Automations switch says how many it governs and brings them back; a pin
+# outranks the cut.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_AUTOMATION=t5 HANABI_MOCK_TITLES=t3=medi_mission_0123456789abcdef0123456789abcdef
+
+require_thread t2
+wait_frames 12
+expect_text "needs a decision"
+expect_no_text "watchdog clean for 6h"
+expect_no_text "medi_mission_0123456789abcdef0123456789abcdef"
+
+click_ui sb_search_filter
+wait_frames 6
+expect_text "Automations · 2"
+click_ui list_menu_automations
+wait_frames 10
+expect_text "watchdog clean for 6h"
+expect_text "medi_mission_0123456789abcdef0123456789abcdef"
+
+# Off again: both leave.
+click_ui sb_search_filter
+wait_frames 6
+click_ui list_menu_automations
+wait_frames 10
+expect_no_text "watchdog clean for 6h"
+expect_no_text "medi_mission_0123456789abcdef0123456789abcdef"

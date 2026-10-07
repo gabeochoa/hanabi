@@ -1,6 +1,7 @@
 # Settings > General > Group threads by (the reference's Group by): Space --
 # the default, Metamate Space else workspace folder -- Folder, Status
-# (Pinned and Recents only) or None (one list); and "only ungrouped", which
+# (Pinned and Recents only), Origin (where each thread started) or None (one
+# list); and "only ungrouped", which
 # keeps just the threads in no section. Under Status and None there is no
 # such bucket, and the row says so instead of a switch that does nothing.
 #
@@ -24,8 +25,21 @@ expect_text "RECENTS"
 click_ui sb_settings
 wait_frames 20
 
-# None: one list, headed Threads.
+# Origin (the reference's Group by Origin): one section per place a thread
+# was started; the demo's threads carry no origin, so they read "web".
 click_ui settings_group_by_3
+wait_frames 10
+expect_text "Only threads in no group — every thread has an origin"
+click_ui tab_close
+wait_frames 20
+expect_no_text "SUBSCRIPTIONS"
+expect_no_text "RECENTS"
+expect_text "WEB"
+click_ui sb_settings
+wait_frames 20
+
+# None: one list, headed Threads.
+click_ui settings_group_by_4
 wait_frames 10
 expect_text "Only threads in no group — nothing is grouped"
 click_ui tab_close

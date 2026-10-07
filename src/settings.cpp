@@ -116,7 +116,7 @@ bool Settings::load_save_file() {
         {
             const std::string g = j.value("session_grouping", std::string("space"));
             session_grouping_ =
-                (g == "folder" || g == "status" || g == "flat") ? g : std::string("space");
+                (g == "folder" || g == "status" || g == "flat" || g == "origin") ? g : std::string("space");
         }
         only_ungrouped_ = j.value("only_ungrouped", false);
         icon_set_ = j.value("icon_set", std::string("normal")) == "mm3" ? "mm3" : "normal";
@@ -956,7 +956,7 @@ void Settings::set_icon_set(const std::string& s) {
 
 std::string Settings::get_session_grouping() const { return session_grouping_; }
 void Settings::set_session_grouping(const std::string& g) {
-    const std::string v = (g == "folder" || g == "status" || g == "flat") ? g : std::string("space");
+    const std::string v = (g == "folder" || g == "status" || g == "flat" || g == "origin") ? g : std::string("space");
     if (v == session_grouping_) return;
     session_grouping_ = v;
     if (auto_save_enabled) write_save_file();

@@ -371,6 +371,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             const model::Grouping grouping =
                 model::grouping_from(Settings::get().get_session_grouping());
             buckets_.set_grouping(grouping, Settings::get().get_only_ungrouped());
+            buckets_.set_show_automation(app->showAutomation);
             buckets_.rebuild(
                 app->sessionCatalogRevision, app->sessions, q,
                 app->collapsedFolders.count(kHideAutoKey) > 0,
@@ -378,6 +379,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     return api::disk_cache::content_matches(id, needle);
                 },
                 keep, keepKey);
+            app->automationCount = buckets_.automation_count();
             folderNames_ = buckets_.folders();
             // Space sections first, in the Space list's own order (pinned,
             // then Metamate's rank, then name); then workspace folders by
@@ -1304,7 +1306,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             m.action_id = action;
             items.push_back(std::move(m));
         };
-        add(tick("Hide automated threads", hidingAuto), "list_menu_hide_auto", "hide_auto");
+        // Automations (the reference's switch): threads an automation started
+        // are kept off the list by default; the count says what the switch
+        // governs before the click, "none" when there is nothing to show.
+        add(tick(app.automationCount == 0
+                     ? std::string("Automations \xc2\xb7 none")
+                     : "Automations \xc2\xb7 " + std::to_string(app.automationCount),
+                 app.showAutomation),
+            "list_menu_automations", "automations");
+        // The older, opt-in filter by title shape ("Schedule:" / "-tick").
+        add(tick("Hide scheduled threads", hidingAuto), "list_menu_hide_auto", "hide_auto");
         items.push_back(hanabi::surface::MenuItem::divider("list_menu_rule"));
         {
             hanabi::surface::MenuItem head{"Last active", "list_menu_last_active", false, true};
@@ -1342,7 +1353,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (result.activated != hanabi::surface::kNoMenuRow) {
             namespace sq = hanabi::sidebar_query;
-            if (pickedAction == "hide_auto") {
+            if (pickedAction == "automations") {
+                app.showAutomation = !app.showAutomation;
+            } else if (pickedAction == "hide_auto") {
                 if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);
                 else app.collapsedFolders.insert(kHideAutoKey);
             } else if (pickedAction == "any") {
@@ -3609,6 +3622,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (const auto* f = app.webFolders.find(key.substr(7))) return f->name;
             return "Folder";
         }
+        // Group by Origin: the heading IS the origin term, the same word the
+        // web's origin: search takes.
+        if (model::is_origin_section(key)) return key.substr(7);
         if (!model::is_space_section(key)) return folder_display_name(key);
         const std::string id = key.substr(6);
         for (const auto& sp : app.spaces)

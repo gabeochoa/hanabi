@@ -59,6 +59,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "../api/types.h"
@@ -82,12 +83,13 @@ inline bool is_named_folder(const std::string& folder) {
 // grouping controls): by Metamate Space (else workspace folder -- the
 // default), by folder only, by Status (no named sections: Pinned and
 // Recents), or Flat (one list).
-enum class Grouping { Space, Folder, Status, Flat };
+enum class Grouping { Space, Folder, Status, Flat, Origin };
 
 inline Grouping grouping_from(std::string_view s) {
     if (s == "folder") return Grouping::Folder;
     if (s == "status") return Grouping::Status;
     if (s == "flat") return Grouping::Flat;
+    if (s == "origin") return Grouping::Origin;
     return Grouping::Space;
 }
 inline const char* grouping_name(Grouping g) {
@@ -95,6 +97,7 @@ inline const char* grouping_name(Grouping g) {
         case Grouping::Folder: return "folder";
         case Grouping::Status: return "status";
         case Grouping::Flat: return "flat";
+        case Grouping::Origin: return "origin";
         case Grouping::Space: break;
     }
     return "space";
@@ -109,6 +112,20 @@ inline bool grouping_has_ungrouped(Grouping g) {
 // Space when it is filed in one this viewer can see, else its workspace
 // folder (else none) by default; the folder alone under Folder; none under
 // Status and Flat.
+// Group by Origin (the reference's SessionGrouping.origin): one section per
+// origin TERM (api/session_origin.h), keyed "origin:<term>". The facet is
+// total, so every thread lands in exactly one section and nothing falls to
+// Recents. Interned: section_of hands back a reference, and the node-based
+// map keeps each key's address for the life of the process.
+inline bool is_origin_section(const std::string& key) { return key.rfind("origin:", 0) == 0; }
+inline const std::string& origin_section_of(const api::SessionSummary& s) {
+    static std::unordered_map<std::string, std::string> keys;
+    auto it = keys.find(s.origin_application);
+    if (it == keys.end())
+        it = keys.emplace(s.origin_application, "origin:" + api::origin::term_of(s.origin_application)).first;
+    return it->second;
+}
+
 inline const std::string& section_of(const api::SessionSummary& s,
                                      Grouping g = Grouping::Space) {
     static const std::string kNone;
@@ -118,6 +135,7 @@ inline const std::string& section_of(const api::SessionSummary& s,
         case Grouping::Folder: return s.web_folder;
         case Grouping::Status:
         case Grouping::Flat: return kNone;
+        case Grouping::Origin: return origin_section_of(s);
         case Grouping::Space: break;
     }
     return s.space_group.empty() ? s.folder : s.space_group;
@@ -191,6 +209,7 @@ class SidebarBuckets {
         groupingChanged_ = false;
         folders_.clear();
         recent_.clear();
+        automationCount_ = 0;
         for (Bucket& b : buckets_) {
             b.members.clear();
             b.hidden = 0;
@@ -216,6 +235,19 @@ class SidebarBuckets {
             std::size_t idx = 0;
             if (!archived && named) idx = slot(section);
             if (archived) continue;
+            // The reference's default cut (AutomationOrigin): a thread an
+            // automation started -- a reserved machine-run name, or the
+            // metamate origin with no human-set title -- is not listed unless
+            // it is pinned or the reader asked to see automations. A pin is a
+            // recorded choice; this is the list's guess. Counted either way so
+            // the switch can say what it governs before the click.
+            if (!s.starred && api::is_automation_born(s)) {
+                ++automationCount_;
+                if (!showAutomation_) {
+                    if (named) ++buckets_[idx].hidden;
+                    continue;
+                }
+            }
             if (hideAutomated && is_automated_title(s.title)) {
                 if (named) ++buckets_[idx].hidden;
                 continue;
@@ -248,6 +280,18 @@ class SidebarBuckets {
         groupingChanged_ = true;
     }
     Grouping grouping() const { return grouping_; }
+
+    // Whether automation-born threads are listed (the reference's
+    // Automations switch). Off is the default and is not persisted: it
+    // answers "what am I looking at right now", not a fact about the reader.
+    void set_show_automation(bool on) {
+        if (on == showAutomation_) return;
+        showAutomation_ = on;
+        groupingChanged_ = true;
+    }
+    bool show_automation() const { return showAutomation_; }
+    // Unpinned, unarchived automation-born threads the switch governs.
+    int automation_count() const { return automationCount_; }
 
     const std::vector<const api::SessionSummary*>& members(
         const std::string& key) const {
@@ -313,6 +357,8 @@ class SidebarBuckets {
     std::vector<Bucket> buckets_;
     std::vector<std::string> folders_;
     Grouping grouping_ = Grouping::Space;
+    bool showAutomation_ = false;
+    int automationCount_ = 0;
     bool onlyUngrouped_ = false;
     bool groupingChanged_ = false;
     std::vector<const api::SessionSummary*> recent_;

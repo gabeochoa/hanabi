@@ -415,6 +415,30 @@ class MockClient : public Client {
             for (auto& s : out)
                 if (list.find("," + s.id + ",") != std::string::npos) s.origin_application = "metamate";
         }
+        // HANABI_MOCK_ORIGINS=<id>=<wire origin>;... and
+        // HANABI_MOCK_TITLES=<id>=<title>;... : a row's origin_application
+        // and stored title as the server would send them (Group by Origin,
+        // the reserved machine-run names). ';' separates, so a title may
+        // carry spaces and commas.
+        const auto apply_pairs = [&out](const char* env, auto&& set) {
+            const char* v = std::getenv(env);
+            if (v == nullptr || *v == '\0') return;
+            const std::string all(v);
+            std::size_t at = 0;
+            while (at <= all.size()) {
+                std::size_t end = all.find(';', at);
+                if (end == std::string::npos) end = all.size();
+                const std::string pair = all.substr(at, end - at);
+                const std::size_t eq = pair.find('=');
+                if (eq != std::string::npos)
+                    for (auto& s : out)
+                        if (s.id == pair.substr(0, eq)) set(s, pair.substr(eq + 1));
+                at = end + 1;
+            }
+        };
+        apply_pairs("HANABI_MOCK_ORIGINS",
+                    [](SessionSummary& s, const std::string& o) { s.origin_application = o; });
+        apply_pairs("HANABI_MOCK_TITLES", [](SessionSummary& s, const std::string& t) { s.title = t; });
         {
             std::lock_guard<std::mutex> lk(overlay_mu());
             for (auto& s : out)

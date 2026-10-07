@@ -622,6 +622,13 @@ struct AppComponent : public afterhours::BaseComponent {
     // seeds every folder key into collapsedFolders, then sets this so the
     // user's subsequent expand/collapse choices are respected for the session.
     bool foldersDefaultCollapsedSeeded = false;
+    // The list options menu's Automations switch (the reference's
+    // showAutomation): whether threads an automation started are listed.
+    // Off by default and never persisted.
+    bool showAutomation = false;
+    // How many unpinned automation-born threads that switch governs; the
+    // sidebar's bucket pass writes it, the menu reads it.
+    int automationCount = 0;
     bool foldAllFolders = false;
     std::string searchQuery;
 

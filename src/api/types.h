@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+#include "session_origin.h"
+
 namespace api {
 
 // Role of a single message in a conversation transcript.
@@ -1042,15 +1044,16 @@ struct Result {
     }
 };
 
-// Started by an automation rather than a person (the reference's 0.8.6
-// AutomationOrigin, a port of the web's automationOrigin.ts): the ORIGIN
-// decides, never the title. `metamate` is the one automation origin -- MEDI and
-// Butterfly fire unattended under it -- and it is also what a person's own
-// chat in a Metamate Space carries, which `title_is_human` separates: nothing
-// unattended sets one. A row with no recorded origin is never an automation.
+// Started by an automation rather than a person (the reference's
+// AutomationOrigin, a port of the web's automationOrigin.ts). A reserved
+// machine-run name decides first, then a human-set title exempts, then the
+// origin: `metamate` (and `metamate_automation`, its canonical spelling) is the
+// one automation origin -- MEDI and Butterfly fire unattended under it -- and
+// it is also what a person's own chat in a Metamate Space carries, which
+// `title_is_human` separates. A row with no recorded origin is never an
+// automation. The rule itself lives in api/session_origin.h.
 inline bool is_automation_born(const SessionSummary& s) {
-    if (s.title_is_human) return false;
-    return s.origin_application == "metamate";
+    return origin::is_automation_born(s.origin_application, s.title, s.title_is_human);
 }
 
 }  // namespace api
