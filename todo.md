@@ -90,7 +90,7 @@ section above. Knots are filed in gabeochoa/manager, tagged hanabi.
 | Line spacing runs 100-200%; a stored value under 100% reads 100%; the extra room goes between lines, not above the first | D123401186-90 | kt-riry | DONE (208e102) |
 | A message's time and verbs sit under its words, above its link cards | D123322904 | kt-tbwp | VERIFIED (the verbs row is an overlay on the text bubble, `message_actions`; link cards draw after the bubble); knot closed |
 | The command picker hides sub-agents unless the sidebar shows them (or one is an open tab) | D123317198 | kt-2lvo | DONE (7a9191d) |
-| The collapsed sidebar: a dot per Home session, hover card with the last message sent, scroll with edge arrows | D122996655-66 | kt-9vy8 | QUEUED (ETA 2026-10-09) |
+| The collapsed sidebar: a dot per Home session, hover card with the last message sent, scroll with edge arrows | D122996655-66 | kt-9vy8 | DONE (701fc9b; the card quotes the cached transcript, no server read) |
 | A transcript picture opens in the in-app viewer | D123319957 | kt-u4t7 | DONE (a994c2b) |
 | An inline image that scrolls away mid-load keeps its loading chip | D123319242 | kt-9s10 | N/A (Hanabi decodes pictures from disk synchronously and never fetches one; no mid-load state) |
 | A click on an artifact row with its hover preview up opens the Companion | D123345757 | kt-wxqg | N/A (artifact rows have no hover preview) |
