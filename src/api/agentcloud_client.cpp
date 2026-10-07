@@ -1225,6 +1225,10 @@ bool element_facts_from_value(const json& value, ElementFacts* out) {
     f.artifact_version_id = str_or(handle, "version_id", "");
     // A table's cells ride the tree's props (kt-nooi).
     f.table_text = elements::table_text_from_props(f.element, obj_at(obj_at(value, "tree"), "p"));
+    // A table nested in a Card (or any container) draws its rows in place of
+    // the summary line the projection gave it.
+    if (f.table_text.empty())
+        f.table_text = elements::container_text_from_tree(f.element, f.projection, obj_at(value, "tree"));
     if (!elements::facts_are_readable(f)) return false;
     *out = std::move(f);
     return true;

@@ -1,0 +1,14 @@
+# A std/Table nested in a Card draws its rows in place of the summary line
+# the card's projection gave it (the reference's D123313992, the kt-nooi
+# follow-up): before, only a root table did, and a nested one read
+# "Steps: 2 rows (Step, Took)" with none of its values.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ELEMENTS_DEMO=1 HANABI_ELEMENTS_CARD_TABLE=1 HANABI_OPEN=relements
+
+require_thread relements
+expect_text "All green."
+expect_text "Step | Took"
+expect_text "Lint | 2 min"
+expect_text "Unit tests | 6 min"
+expect_no_text "Steps: 2 rows (Step, Took)"

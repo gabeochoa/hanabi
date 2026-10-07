@@ -2821,7 +2821,7 @@ class MockClient : public Client {
     // here too. That coupling is the price of the cache; the alternative was
     // rebuilding a 2000-row catalog on every get_session().
     static constexpr const char* kFixtureEnv[] = {
-        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_CODE_WRAP_DEMO", "HANABI_MD_IMAGE_DEMO",
+        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_ELEMENTS_CARD_TABLE", "HANABI_CODE_WRAP_DEMO", "HANABI_MD_IMAGE_DEMO",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
@@ -4236,6 +4236,32 @@ class MockClient : public Client {
                                                                nlohmann::json::array({"Building", 11}),
                                                                nlohmann::json::array({"Full gate", "21 min"})})}});
             elements::fold_element(s.messages, audit, 7, hrs_ago(1));
+            }
+            // A Card around a std/Table (the reference's D123313992): the
+            // projection carries the table's summary line among the card's
+            // own lines, and the row draws the rows in that line's place.
+            // Only under HANABI_ELEMENTS_CARD_TABLE=1, for the same reason.
+            if (const char* ct = std::getenv("HANABI_ELEMENTS_CARD_TABLE"); ct != nullptr && *ct == '1') {
+                const nlohmann::json tableProps{
+                    {"caption", "Steps"},
+                    {"cols", nlohmann::json::array({"Step", "Took"})},
+                    {"rows", nlohmann::json::array({nlohmann::json::array({"Lint", "2 min"}),
+                                                    nlohmann::json::array({"Unit tests", "6 min"})})}};
+                const nlohmann::json tree{
+                    {"t", "std/Card"},
+                    {"p", {{"title", "Gate run"}}},
+                    {"c", nlohmann::json::array({nlohmann::json{{"t", "std/Text"}, {"p", {{"text", "All green."}}}},
+                                                 nlohmann::json{{"t", "std/Table"}, {"p", tableProps}}})}};
+                ElementFacts card;
+                card.instance = "gate-run";
+                card.revision = 1;
+                card.placement = "inline";
+                card.element = "std/Card";
+                card.title = "Gate run";
+                card.projection = "Gate run\nAll green.\n" + elements::table_summary(tableProps);
+                card.run = 1;
+                card.table_text = elements::container_text_from_tree(card.element, card.projection, tree);
+                elements::fold_element(s.messages, card, 8, hrs_ago(1));
             }
 
             ElementFacts note;

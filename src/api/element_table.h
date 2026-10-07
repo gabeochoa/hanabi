@@ -14,6 +14,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "../../vendor/nlohmann/json.hpp"
@@ -116,6 +117,79 @@ inline std::string table_text_from_props(const std::string& element, const nlohm
     if (element != kTableElement) return {};
     const auto t = table_from_props(p);
     return t ? table_text(*t) : std::string();
+}
+
+// The line the server's std/Table projection template writes for these
+// props -- `{caption|Table}: {rows.length} rows ({cols})` -- which is the line
+// a container's projection carries in a nested table's place.
+inline std::string table_summary(const nlohmann::json& p) {
+    std::string caption = "Table";
+    if (p.contains("caption") && p["caption"].is_string()) caption = p["caption"].get<std::string>();
+    const std::size_t rows = p.contains("rows") && p["rows"].is_array() ? p["rows"].size() : 0;
+    std::string cols;
+    if (p.contains("cols") && p["cols"].is_array())
+        for (const auto& c : p["cols"]) {
+            if (!cols.empty()) cols += ", ";
+            cols += c.is_string() ? c.get<std::string>() : c.dump();
+        }
+    return caption + ": " + std::to_string(rows) + " rows (" + cols + ")";
+}
+
+inline constexpr std::size_t kNestedTableCap = 16;
+inline constexpr std::size_t kNestedTableDepth = 32;
+
+namespace detail {
+inline void collect_tables(const nlohmann::json& node, std::size_t depth,
+                           std::vector<std::pair<std::string, Table>>& out) {
+    if (!node.is_object() || depth > kNestedTableDepth || out.size() >= kNestedTableCap) return;
+    if (node.contains("t") && node["t"] == kTableElement && node.contains("p"))
+        if (auto t = table_from_props(node["p"])) out.emplace_back(table_summary(node["p"]), std::move(*t));
+    if (node.contains("c") && node["c"].is_array())
+        for (const auto& child : node["c"]) collect_tables(child, depth + 1, out);
+}
+}  // namespace detail
+
+// A container root's body (a Card around a Table, kt-nooi follow-up, the
+// reference's D123313992): its projection, with each nested std/Table's
+// summary line replaced by the table's rows. A table whose line the
+// projection does not carry (cut at its size cap) is drawn after the text, so
+// a table is never left as a count. "" when the root is itself a table (its
+// own props answer) or nothing in the tree is one. At most kNestedTableCap
+// tables, kNestedTableDepth deep.
+inline std::string container_text_from_tree(const std::string& element, const std::string& projection,
+                                            const nlohmann::json& tree) {
+    if (element == kTableElement || !tree.is_object()) return {};
+    std::vector<std::pair<std::string, Table>> tables;
+    detail::collect_tables(tree, 0, tables);
+    if (tables.empty()) return {};
+    std::vector<bool> placed(tables.size(), false);
+    std::string out;
+    const auto append = [&out](const std::string& block) {
+        if (block.empty()) return;
+        if (!out.empty()) out += '\n';
+        out += block;
+    };
+    std::size_t at = 0;
+    while (at <= projection.size()) {
+        std::size_t end = projection.find('\n', at);
+        if (end == std::string::npos) end = projection.size();
+        const std::string line = projection.substr(at, end - at);
+        bool swapped = false;
+        for (std::size_t i = 0; i < tables.size(); ++i)
+            if (!placed[i] && tables[i].first == line) {
+                append(table_text(tables[i].second));
+                placed[i] = swapped = true;
+                break;
+            }
+        if (!swapped) {
+            if (!out.empty() || !line.empty()) out += (out.empty() ? "" : "\n") + line;
+        }
+        at = end + 1;
+    }
+    for (std::size_t i = 0; i < tables.size(); ++i)
+        if (!placed[i]) append(table_text(tables[i].second));
+    while (!out.empty() && out.back() == '\n') out.pop_back();
+    return out;
 }
 
 }  // namespace api::elements

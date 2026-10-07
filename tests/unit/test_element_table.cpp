@@ -15,7 +15,29 @@ static int failures = 0;
 namespace el = api::elements;
 using nlohmann::json;
 
+static void test_a_nested_table_takes_its_summary_lines_place() {
+    std::printf("test_a_nested_table_takes_its_summary_lines_place\n");
+    // json::array spelled out: a two-string brace list is an OBJECT to nlohmann.
+    const json props{{"caption", "Steps"},
+                     {"cols", json::array({"Step", "Took"})},
+                     {"rows", json::array({json::array({"Lint", "2 min"}), json::array({"Unit", 6})})}};
+    CHECK(el::table_summary(props) == "Steps: 2 rows (Step, Took)");
+    CHECK(el::table_summary(json{{"rows", json::array()}}) == "Table: 0 rows ()");
+    const json tree{{"t", "std/Card"},
+                    {"c", {json{{"t", "std/Text"}}, json{{"t", "std/Stack"}, {"c", {json{{"t", "std/Table"}, {"p", props}}}}}}}};
+    const std::string proj = "Gate run\nSteps: 2 rows (Step, Took)\nAll green.";
+    CHECK(el::container_text_from_tree("std/Card", proj, tree) ==
+          "Gate run\nStep | Took\nLint | 2 min\nUnit | 6\nAll green.");
+    // A projection cut before the table's line: the table follows the text.
+    CHECK(el::container_text_from_tree("std/Card", "Gate run", tree) == "Gate run\nStep | Took\nLint | 2 min\nUnit | 6");
+    // A root table answers from its own props; a tree with no table answers nothing.
+    CHECK(el::container_text_from_tree("std/Table", proj, tree).empty());
+    CHECK(el::container_text_from_tree("std/Card", proj, json{{"t", "std/Card"}}).empty());
+    CHECK(el::container_text_from_tree("std/Card", proj, json()).empty());
+}
+
 int main() {
+    test_a_nested_table_takes_its_summary_lines_place();
     // Cells as text: header, then rows; scalars of every kind.
     json p = {{"cols", {"A", "B"}}, {"rows", {{"x", 1}, {true, nullptr}, {2.5, "y\nz"}}}};
     CHECK(el::table_text_from_props("std/Table", p) == "A | B\nx | 1\ntrue | \n2.5 | y z");
