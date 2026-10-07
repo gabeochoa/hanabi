@@ -95,7 +95,7 @@ section above. Knots are filed in gabeochoa/manager, tagged hanabi.
 | An inline image that scrolls away mid-load keeps its loading chip | D123319242 | kt-9s10 | N/A (Hanabi decodes pictures from disk synchronously and never fetches one; no mid-load state) |
 | A click on an artifact row with its hover preview up opens the Companion | D123345757 | kt-wxqg | N/A (artifact rows have no hover preview) |
 | A docked Companion stays docked when a new artifact opens | D123331079 | kt-koaz | N/A (the Companion has no docked/floating modes) |
-| A chart fence draws as a chart | D123317236 | kt-exwb | QUEUED (ETA 2026-10-10; no chart renderer yet) |
+| A chart fence draws as a chart | D123317236 | kt-exwb | DONE (c067b97) |
 | Pixelcloud pictures draw, or say where to see them | D123327745 | kt-g05s | DONE (a994c2b: the chip says Pixelcloud; Hanabi fetches no picture bytes, so it is a chip, never an HTTP code) |
 | Settings > Chat Behavior: return-position help under its switch; one row per minimap mark switch | D123350952, D123350899 | kt-dvhg | N/A (no help line to move; the marks are one evenly divided five-button row) |
 | handoff / hook_delay_notice inputs, context commands, every origin name parse as real arms | D123323994 | kt-0yfj | DONE (c8994fb delivery labels; b324d60 origin names; Hanabi draws no context-entry rows) |
