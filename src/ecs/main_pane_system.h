@@ -8594,7 +8594,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             } else if (!submittedBrake.refuses_input &&
                 hanabi::enter_sends(Settings::get().get_send_key(),
                                     submitted.withCmd)) {
-                if (hanabi::slash::is_command_text(submitted.message.text) ||
+                if ((hanabi::slash::is_command_text(submitted.message.text) &&
+                     !hanabi::slash::sends_as_text(submitted.message.text, app.slashMenuOpen)) ||
                     (app.mentionMenuOpen && app.mentionMenuPane == paneIndex &&
                      hanabi::mention::span_start(submitted.message.text))) {
                     slashSubmit = std::move(submitted);

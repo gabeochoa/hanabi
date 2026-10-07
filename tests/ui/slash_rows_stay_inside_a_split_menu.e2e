@@ -9,10 +9,10 @@ assert_ui slash_item_0 x=248 w=175
 assert_ui slash_command_0 x=274 w=106
 expect_no_text "start a new conversation"
 
-assert_ui slash_command_5 x=274 w=55
-assert_ui slash_unavailable_5 x=329 w=78
+assert_ui slash_command_7 x=274 w=55
+assert_ui slash_unavailable_7 x=329 w=78
 expect_text "Unavailable"
 
 expect_children_inside slash_menu
 expect_children_inside slash_item_0
-expect_children_inside slash_item_5
+expect_children_inside slash_item_7

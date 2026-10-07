@@ -49,11 +49,23 @@ struct Command {
     bool runnable = false;
     // Shown when it cannot: what is missing, in the user's words.
     std::string unwired;
+    // Sent to the session as ordinary text: the orchestrator consumes the
+    // verb before the harness sees it (/goal, /plan -- the server's ingress
+    // commands). Choosing the row completes the verb; Return sends what was
+    // typed, untouched, on a live thread or as a new thread's first input.
+    bool sends_as_text = false;
 };
 
 inline const std::vector<Command>& all() {
     static const std::vector<Command> kCommands = {
         {"new", "<message>", "start a new conversation", true, ""},
+        // Worded as the web's registry words them, /goal listed first as the
+        // web lists it.
+        {"goal", "<objective or verb>",
+         "set the session's goal; bare /goal shows it (edit, pause, resume, done, clear)", true, "",
+         true},
+        {"plan", "<optional instructions>", "ask for a plan; the checklist is durable", true, "",
+         true},
         {"model", "", "choose the default model", true, ""},
         {"effort", "", "choose the thinking effort", true, ""},
         {"btw", "<question>", "fork this thread", true, ""},
@@ -113,6 +125,17 @@ inline Parsed parse(std::string_view draft) {
     }
     p.known = find(p.verb) != nullptr;
     return p;
+}
+
+// Whether a typed draft goes to the session as ordinary text rather than to
+// the client's own command handling: a /goal or /plan once its argument has
+// begun (or bare, when no menu is up to choose from).
+inline bool sends_as_text(std::string_view draft, bool menuOpen) {
+    const Parsed p = parse(draft);
+    if (!p.matched || !p.known) return false;
+    const Command* c = find(p.verb);
+    if (c == nullptr || !c->sends_as_text) return false;
+    return draft.find(' ') != std::string_view::npos || !menuOpen;
 }
 
 // The menu's rows for a draft: every command whose name starts with what has

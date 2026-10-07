@@ -1,0 +1,33 @@
+# /goal and /plan are on the composer's slash menu (the reference's
+# D123649564, worded as the web's registry words them). Choosing /goal
+# completes the verb; Return sends what was typed, untouched, as an ordinary
+# message: the orchestrator consumes the verb before the harness sees it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+click_ui composer_reply_input
+wait_frames 6
+type "/g"
+wait_frames 8
+assert_ui slash_command_0 text="/goal <objective or verb>"
+expect_text "set the session's goal"
+key ENTER
+wait_frames 6
+expect_input_text composer_reply_input "/goal "
+type "ship the migration by Friday"
+wait_frames 4
+key ENTER
+wait_frames 30
+expect_backend_message t2 /goal ship the migration by Friday
+expect_input_text composer_reply_input ""
+
+type "/pl"
+wait_frames 8
+assert_ui slash_command_0 text="/plan <optional instructions>"
+key ENTER
+wait_frames 6
+type "split it into steps"
+key ENTER
+wait_frames 30
+expect_backend_message t2 /plan split it into steps
