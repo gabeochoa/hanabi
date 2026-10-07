@@ -845,6 +845,20 @@ static void test_a_delivered_input_is_labelled_by_its_source_kind() {
     CHECK(api::agentcloud::delivery_label_for("goal_drive", "") == "goal driver");
     CHECK(api::agentcloud::delivery_label_for("task", "") == "task");
     CHECK(api::agentcloud::delivery_label_for("", "").empty());
+    // The reference's D123323994 arms.
+    CHECK(api::agentcloud::delivery_label_for("handoff", "") == "handoff brief");
+    CHECK(api::agentcloud::delivery_label_for("hook_delay_notice", "7") == "hook delayed");
+    // The client app identity rides the chat socket only when it is a number.
+    api::agentcloud::AuthConfig c;
+    c.host = "orch.example:443";
+    CHECK(api::agentcloud::ws_chat_url(c) == "ws://orch.example:443/ws/chat?v=1");
+    c.app_id = "1824910808926418";
+    CHECK(api::agentcloud::ws_chat_url(c) == "ws://orch.example:443/ws/chat?v=1&app_id=1824910808926418");
+    c.app_id = "12&x=1";
+    CHECK(api::agentcloud::ws_chat_url(c) == "ws://orch.example:443/ws/chat?v=1");
+    CHECK(!api::agentcloud::is_app_id("") && !api::agentcloud::is_app_id("-1") &&
+          !api::agentcloud::is_app_id(std::string(21, '1')) && api::agentcloud::is_app_id("42"));
+    CHECK(std::string(api::agentcloud::kAppIdHeader) == "x-agentcloud-app-id");
 }
 
 static void test_the_parser_keeps_thinking_tags_in_the_stored_text() {

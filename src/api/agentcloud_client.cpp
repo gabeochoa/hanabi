@@ -460,10 +460,11 @@ Result<InboxStateWrite> AgentcloudClient::write_snooze(const std::string& sessio
     client.set_follow_location(false);
     client.set_connection_timeout(5, 0);
     client.set_read_timeout(20, 0);
-    const httplib::Headers headers{
+    httplib::Headers headers{
         {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
         {inbox_state::kCsrfHeader, inbox_state::kCsrfHeaderValue},
         {"Accept", "application/json"}};
+    if (agentcloud::is_app_id(cfg.app_id)) headers.emplace(agentcloud::kAppIdHeader, cfg.app_id);
     auto res = client.Post(inbox_state::kRoutePath, headers, *body, "application/json");
     if (!res) return Result<InboxStateWrite>::failure("inbox state unreachable: " + httplib::to_string(res.error()));
     InboxStateWrite out;
@@ -703,7 +704,7 @@ std::string AgentcloudClient::round_trip(const std::string& payload_json,
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
 
     ws_config wc{};
     wc.url = url.c_str();
@@ -1521,6 +1522,11 @@ std::string delivery_label_for(const std::string& kind, const std::string& task_
     if (kind == "hook") return "hook output";
     if (kind == "delivery") return "subscription";
     if (kind == "task_cancel_notice") return "task cancelled";
+    // The handoff brief that starts a receiving agent's first run, and a
+    // hook whose re-issue ladder crossed its threshold with no outcome: each
+    // keeps a row of its own (the reference's InputSourceKind, D123323994).
+    if (kind == "handoff") return "handoff brief";
+    if (kind == "hook_delay_notice") return "hook delayed";
     return "";
 }
 
@@ -2299,7 +2305,7 @@ bool AgentcloudClient::read_pending_asks(const std::string& id,
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -2443,7 +2449,7 @@ Result<int64_t> AgentcloudClient::session_created_at(const std::string& id) {
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -2516,7 +2522,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -2749,7 +2755,7 @@ void AgentcloudClient::run_turn(const std::string& session_id,
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -2917,7 +2923,7 @@ Result<std::string> AgentcloudClient::rename_session(
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -2999,10 +3005,11 @@ Result<Client::WebReply> AgentcloudClient::web_call(const std::string& method,
     client.set_follow_location(false);
     client.set_connection_timeout(5, 0);
     client.set_read_timeout(20, 0);
-    const httplib::Headers headers{
+    httplib::Headers headers{
         {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
         {inbox_state::kCsrfHeader, inbox_state::kCsrfHeaderValue},
         {"Accept", "application/json"}};
+    if (agentcloud::is_app_id(cfg.app_id)) headers.emplace(agentcloud::kAppIdHeader, cfg.app_id);
     httplib::Result res;
     if (method == "GET") res = client.Get(path, headers);
     else if (method == "POST") res = client.Post(path, headers, body, "application/json");
@@ -3034,10 +3041,11 @@ Result<bool> AgentcloudClient::set_pinned(const std::string& session_id, bool pi
     client.set_follow_location(false);
     client.set_connection_timeout(5, 0);
     client.set_read_timeout(20, 0);
-    const httplib::Headers headers{
+    httplib::Headers headers{
         {"Cookie", std::string(inbox_state::kAuthCookieName) + "=" + token.value},
         {inbox_state::kCsrfHeader, inbox_state::kCsrfHeaderValue},
         {"Accept", "application/json"}};
+    if (agentcloud::is_app_id(cfg.app_id)) headers.emplace(agentcloud::kAppIdHeader, cfg.app_id);
     const std::string body = nlohmann::json{{"sessionId", session_id}, {"isPinned", pinned}}.dump();
     auto res = client.Post("/api/session-overlay", headers, body, "application/json");
     if (!res) return Result<bool>::failure("the web app was unreachable: " + httplib::to_string(res.error()));
@@ -3058,7 +3066,7 @@ Result<bool> AgentcloudClient::set_archived(const std::string& session_id, bool 
     if (token.empty()) return fail(auth_err);
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -3121,7 +3129,7 @@ Result<bool> AgentcloudClient::refile_session(const std::string& session_id,
     if (token.empty()) return fail(auth_err);
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -3191,7 +3199,7 @@ Result<std::string> AgentcloudClient::compact_session(const std::string& session
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -3356,7 +3364,7 @@ Result<SessionOptionsEcho> AgentcloudClient::patch_session_options(
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -3429,7 +3437,7 @@ Result<std::string> AgentcloudClient::interrupt_session(
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -3486,7 +3494,7 @@ hanabi::halt::Outcome AgentcloudClient::set_halt_state(const std::string& sessio
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -3588,7 +3596,7 @@ Result<std::string> AgentcloudClient::attach_node(const std::string& session_id,
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();
@@ -3670,7 +3678,7 @@ Result<std::string> AgentcloudClient::resolve_ask(const std::string& session_id,
 
     const auto qOwned = std::make_shared<FrameQueue>();
     FrameQueue& q = *qOwned;
-    const std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    const std::string url = ws_chat_url(cfg);
     ws_config wc{};
     wc.url = url.c_str();
     wc.proxy_host = cfg.proxy_host.c_str();

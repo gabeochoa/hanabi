@@ -39,6 +39,12 @@ struct AuthConfig {
     std::string verifier;    // no default: internal, comes from env
     std::string host;        // orchestrator, for ws:// — no default
     int validity_secs = 10800;
+    // The client app identity (agentcloud spec 1137): the entitlement id of
+    // the key this client attributes its calls to, sent as `app_id` on every
+    // /ws/chat dial and as `x-agentcloud-app-id` on the web app's routes, the
+    // way the reference sends its own. From HANABI_AC_APP_ID; digits only, and
+    // empty sends nothing (the key string itself never goes on the wire).
+    std::string app_id;
 
     // Every required field present. False means "run the mock".
     [[nodiscard]] bool configured() const {
@@ -106,5 +112,23 @@ class TokenCache {
 // Percent-encodes a query value. Exposed for the unit test: the verifier
 // contains a colon, and getting that wrong is a 400 with an opaque body.
 std::string percent_encode(const std::string& s);
+
+inline constexpr const char* kAppIdHeader = "x-agentcloud-app-id";
+
+// An entitlement id is a decimal number; anything else is not sent.
+inline bool is_app_id(const std::string& s) {
+    if (s.empty() || s.size() > 20) return false;
+    for (char c : s)
+        if (c < '0' || c > '9') return false;
+    return true;
+}
+
+// The orchestrator's chat socket for this config, carrying the app identity
+// when one is set.
+inline std::string ws_chat_url(const AuthConfig& cfg) {
+    std::string url = "ws://" + cfg.host + "/ws/chat?v=1";
+    if (is_app_id(cfg.app_id)) url += "&app_id=" + cfg.app_id;
+    return url;
+}
 
 }  // namespace api::agentcloud

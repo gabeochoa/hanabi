@@ -66,6 +66,8 @@ AuthConfig auth_config_from_env() {
     cfg.verifier = env_or("HANABI_AC_VERIFIER", "");
     cfg.host = env_or("HANABI_AC_HOST", "");
     cfg.validity_secs = env_int_or("HANABI_AC_VALIDITY_SECS", cfg.validity_secs);
+    cfg.app_id = env_or("HANABI_AC_APP_ID", "");
+    if (!is_app_id(cfg.app_id)) cfg.app_id.clear();
     resolve_web_origin(cfg, env_or("HANABI_AC_WEB_ORIGIN", ""));
     return cfg;
 }
