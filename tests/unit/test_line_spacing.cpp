@@ -16,17 +16,18 @@ static int failures = 0;
 
 int main() {
     std::printf("=== test_line_spacing ===\n");
-    CHECK(ls::kDefault == 100 && ls::kMin == 80 && ls::kMax == 200 && ls::kStep == 5);
+    CHECK(ls::kDefault == 100 && ls::kMin == 100 && ls::kMax == 200 && ls::kStep == 5);
     CHECK(ls::clamp(100) == 100);
-    CHECK(ls::clamp(79) == 80 && ls::clamp(0) == 80 && ls::clamp(-40) == 80);
+    // The reference's floor: a stored value under 100% reads as 100%.
+    CHECK(ls::clamp(99) == 100 && ls::clamp(80) == 100 && ls::clamp(0) == 100 && ls::clamp(-40) == 100);
     CHECK(ls::clamp(201) == 200 && ls::clamp(100000) == 200);
     CHECK(ls::clamp(133) == 133);
-    CHECK(ls::stepped_up(100) == 105 && ls::stepped_down(100) == 95);
+    CHECK(ls::stepped_up(100) == 105 && ls::stepped_down(100) == 100);
     CHECK(ls::stepped_up(200) == 200 && ls::stepped_up(197) == 200);
-    CHECK(ls::stepped_down(80) == 80 && ls::stepped_down(83) == 80);
-    CHECK(ls::stepped_up(0) == 85 && ls::stepped_down(999) == 195);
+    CHECK(ls::stepped_down(105) == 100 && ls::stepped_down(103) == 100);
+    CHECK(ls::stepped_up(0) == 105 && ls::stepped_down(999) == 195);
     CHECK(std::fabs(ls::factor(100) - 1.0f) < 1e-6f);
-    CHECK(std::fabs(ls::factor(80) - 0.8f) < 1e-6f);
+    CHECK(std::fabs(ls::factor(80) - 1.0f) < 1e-6f);
     CHECK(std::fabs(ls::factor(130) - 1.3f) < 1e-6f);
     CHECK(std::fabs(ls::factor(500) - 2.0f) < 1e-6f);
     int p = ls::kMin;
@@ -35,10 +36,10 @@ int main() {
         p = ls::stepped_up(p);
         ++steps;
     }
-    CHECK(steps == 24 && p == ls::kMax);
+    CHECK(steps == 20 && p == ls::kMax);
     CHECK(std::round(16.0f * 1.3f * ls::factor(100)) == 21.0f);
     CHECK(std::round(16.0f * 1.0f * ls::factor(130)) == 21.0f);
-    CHECK(std::round(16.0f * 1.0f * ls::factor(80)) == 13.0f);
+    CHECK(std::round(16.0f * 1.0f * ls::factor(80)) == 16.0f);
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

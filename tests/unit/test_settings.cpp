@@ -317,7 +317,7 @@ static void test_line_spacing_round_trips() {
     s.load_save_file();
     CHECK(s.get_line_spacing() == 130);
     s.set_line_spacing(20);
-    CHECK(s.get_line_spacing() == 80);
+    CHECK(s.get_line_spacing() == 100);
     s.set_line_spacing(900);
     CHECK(s.get_line_spacing() == 200);
     s.set_line_spacing(100);

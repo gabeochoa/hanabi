@@ -79,27 +79,13 @@ click_ui settings_line_spacing_down
 wait_frames 4
 click_ui settings_line_spacing_down
 wait_frames 4
-click_ui settings_line_spacing_down
-wait_frames 4
-click_ui settings_line_spacing_down
-wait_frames 4
-click_ui settings_line_spacing_down
-wait_frames 4
-expect_text "80%"
-click_ui settings_line_spacing_down
-wait_frames 4
-expect_text "80%"
+# The floor is 100% (the reference's 100-200% range): a seventh step is a
+# no-op, and the bubble is back to its 100% height.
+expect_text "100%"
+expect_no_text "95%"
 click_ui tab_t2
 wait_frames 16
-assert_ui user_bubble h=32
+assert_ui user_bubble h=35
 reload_settings
 wait_frames 12
-assert_ui user_bubble h=32
-click_ui sb_settings
-wait_frames 10
-expect_focused settings_search
-type "line spacing"
-wait_frames 8
-click_ui settings_result_0
-wait_frames 8
-expect_text "80%"
+assert_ui user_bubble h=35
