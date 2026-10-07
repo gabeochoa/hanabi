@@ -75,6 +75,43 @@ kt-y7w7, kt-acwr, kt-3vkn, kt-pb52, kt-ai4w, kt-38gg (in order).
 | A markdown table honours its separator row's column alignment | kt-gkph (a held proposal there) | DONE |
 | Diff links open in the browser by default; "Open diffs in Hanabi" (Settings > General, default off) opens them in the Companion; tasks still open in the Companion | kt-exuw (the owner's 2026-09-24 ruling; the reference's NativeDiffPreference) | DONE |
 
+### From the reference's work 2026-10-04 19:10 -> 2026-10-06 21:00 ET (weekly feed 2026-W41)
+
+Enumerated from the reference's landed commits on master (200 commits, back to
+the 2026-10-05 feed's window; 113 not tests/snapshots), deduped against the
+section above. Knots are filed in gabeochoa/manager, tagged hanabi.
+
+| Item | Source | Knot | Status |
+|---|---|---|---|
+| Automation-born threads stay off the sidebar list unless pinned; reserved machine-run names (`medi_mission_<32 hex>`, `Automation TaskAttempt <n>`) count as automation whatever the origin; List options > Automations · N brings them back | D123743261 (+ the 0.8.6 cut) | kt-tp4t | DONE |
+| /goal and /plan on the slash menu; Return sends them as ordinary text (live thread or a new thread's first input) | D123649564 | kt-3n69 | DONE |
+| Group by Origin: one section per origin term (chat, cli, metamate, web...) | D122502051 | kt-xk2o | DONE |
+| A std/Table nested in a Card draws its rows in place of its summary line | D123313992 | kt-kxc4 | DONE |
+| Line spacing runs 100-200%; a stored value under 100% reads 100% | D123401186 | kt-riry | DONE (range). TODO: the extra room goes between lines, not above the first (a one-line bubble grows 35 -> 40 at 130%) |
+| A message's time and verbs sit under its words, above its link cards | D123322904 | kt-tbwp | VERIFIED (the verbs row is an overlay on the text bubble, `message_actions`; link cards draw after the bubble) |
+| The command picker hides sub-agents by default | D123317198 | kt-2lvo | VERIFIED for the default (the palette reads the main catalog, which carries no sub-agent rows); TODO: the sidebar's sub-agent mode bringing them back |
+| The collapsed sidebar: a dot per Home session, hover card with the last message sent, scroll with edge arrows | D122996655-66 | kt-9vy8 | TODO |
+| A transcript picture opens in the in-app viewer | D123319957 | kt-u4t7 | TODO (check) |
+| An inline image that scrolls away mid-load keeps its loading chip | D123319242 | kt-9s10 | TODO (check) |
+| A click on an artifact row with its hover preview up opens the Companion | D123345757 | kt-wxqg | TODO (check) |
+| A docked Companion stays docked when a new artifact opens | D123331079 | kt-koaz | TODO (check) |
+| A chart fence draws as a chart | D123317236 | kt-exwb | TODO (large: no chart renderer) |
+| Pixelcloud pictures draw, or say where to see them | D123327745 | kt-g05s | TODO (check) |
+| Settings > Chat Behavior: return-position help under its switch; one row per minimap mark switch | D123350952, D123350899 | kt-dvhg | TODO (check) |
+| handoff / hook_delay_notice inputs, context commands, every origin name parse as real arms | D123323994 | kt-0yfj | TODO (check) |
+| Sidebar search row glyphs carry accessibility names | D123315532 | kt-xm2v | TODO (check) |
+| Catalog counts read a repeated id once | D123317171 | kt-zxuf | TODO (check) |
+| Settings search finds theme, typeface and shortcut controls | D123370242 | -- | VERIFIED (ui/settings_catalog.h rows) |
+| node__connect / node__copy rows are named | D123346605 | -- | VERIFIED (api::tools::display_name spells "node connect" / "node copy") |
+| An archived-on-the-web thread leaves Recents after a relaunch | D123539502 | -- | VERIFIED (previous feed) |
+| Pinging an archived thread unarchives it | D123311128 | -- | DONE earlier (02ccc4e, kt-vzgj) |
+| Push-to-talk transcript stays in the active composer | D121295166 | -- | N/A (no voice input) |
+| A relaunch after a managed update reopens no closed window | D123355431 | -- | N/A (no managed updates) |
+
+Not converted (the reference's own implementation, no behaviour Hanabi shares):
+search-index and memo work, pane-fill/turn budgets, the legacy transcript's
+removal, shader frame slots, stall sampling, test and snapshot changes.
+
 ### Hanabi backlog (unowned)
 
 | Item | Source knot | Status |
