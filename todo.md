@@ -87,20 +87,20 @@ section above. Knots are filed in gabeochoa/manager, tagged hanabi.
 | /goal and /plan on the slash menu; Return sends them as ordinary text (live thread or a new thread's first input) | D123649564 | kt-3n69 | DONE |
 | Group by Origin: one section per origin term (chat, cli, metamate, web...) | D122502051 | kt-xk2o | DONE |
 | A std/Table nested in a Card draws its rows in place of its summary line | D123313992 | kt-kxc4 | DONE |
-| Line spacing runs 100-200%; a stored value under 100% reads 100% | D123401186 | kt-riry | DONE (range). TODO: the extra room goes between lines, not above the first (a one-line bubble grows 35 -> 40 at 130%) |
-| A message's time and verbs sit under its words, above its link cards | D123322904 | kt-tbwp | VERIFIED (the verbs row is an overlay on the text bubble, `message_actions`; link cards draw after the bubble) |
-| The command picker hides sub-agents by default | D123317198 | kt-2lvo | VERIFIED for the default (the palette reads the main catalog, which carries no sub-agent rows); TODO: the sidebar's sub-agent mode bringing them back |
-| The collapsed sidebar: a dot per Home session, hover card with the last message sent, scroll with edge arrows | D122996655-66 | kt-9vy8 | TODO |
-| A transcript picture opens in the in-app viewer | D123319957 | kt-u4t7 | TODO (check) |
-| An inline image that scrolls away mid-load keeps its loading chip | D123319242 | kt-9s10 | TODO (check) |
-| A click on an artifact row with its hover preview up opens the Companion | D123345757 | kt-wxqg | TODO (check) |
-| A docked Companion stays docked when a new artifact opens | D123331079 | kt-koaz | TODO (check) |
-| A chart fence draws as a chart | D123317236 | kt-exwb | TODO (large: no chart renderer) |
-| Pixelcloud pictures draw, or say where to see them | D123327745 | kt-g05s | TODO (check) |
-| Settings > Chat Behavior: return-position help under its switch; one row per minimap mark switch | D123350952, D123350899 | kt-dvhg | TODO (check) |
-| handoff / hook_delay_notice inputs, context commands, every origin name parse as real arms | D123323994 | kt-0yfj | TODO (check) |
-| Sidebar search row glyphs carry accessibility names | D123315532 | kt-xm2v | TODO (check) |
-| Catalog counts read a repeated id once | D123317171 | kt-zxuf | TODO (check) |
+| Line spacing runs 100-200%; a stored value under 100% reads 100% | D123401186 | kt-riry | DONE (range). QUEUED (ETA 2026-10-08): the extra room goes between lines, not above the first (a one-line bubble grows 35 -> 40 at 130%) |
+| A message's time and verbs sit under its words, above its link cards | D123322904 | kt-tbwp | VERIFIED (the verbs row is an overlay on the text bubble, `message_actions`; link cards draw after the bubble); knot closed |
+| The command picker hides sub-agents unless the sidebar shows them (or one is an open tab) | D123317198 | kt-2lvo | DONE (7a9191d) |
+| The collapsed sidebar: a dot per Home session, hover card with the last message sent, scroll with edge arrows | D122996655-66 | kt-9vy8 | QUEUED (ETA 2026-10-09) |
+| A transcript picture opens in the in-app viewer | D123319957 | kt-u4t7 | DONE (a994c2b) |
+| An inline image that scrolls away mid-load keeps its loading chip | D123319242 | kt-9s10 | N/A (Hanabi decodes pictures from disk synchronously and never fetches one; no mid-load state) |
+| A click on an artifact row with its hover preview up opens the Companion | D123345757 | kt-wxqg | N/A (artifact rows have no hover preview) |
+| A docked Companion stays docked when a new artifact opens | D123331079 | kt-koaz | N/A (the Companion has no docked/floating modes) |
+| A chart fence draws as a chart | D123317236 | kt-exwb | QUEUED (ETA 2026-10-10; no chart renderer yet) |
+| Pixelcloud pictures draw, or say where to see them | D123327745 | kt-g05s | DONE (a994c2b: the chip says Pixelcloud; Hanabi fetches no picture bytes, so it is a chip, never an HTTP code) |
+| Settings > Chat Behavior: return-position help under its switch; one row per minimap mark switch | D123350952, D123350899 | kt-dvhg | N/A (no help line to move; the marks are one evenly divided five-button row) |
+| handoff / hook_delay_notice inputs, context commands, every origin name parse as real arms | D123323994 | kt-0yfj | DONE (c8994fb delivery labels; b324d60 origin names; Hanabi draws no context-entry rows) |
+| Sidebar search row glyphs carry accessibility names | D123315532 | kt-xm2v | DONE (7a9191d: Clear search; List options already named; no pop-out glyph in Hanabi) |
+| Catalog counts read a repeated id once | D123317171 | kt-zxuf | VERIFIED (replace_sessions keeps one row per id; no Dock badge) |
 | Settings search finds theme, typeface and shortcut controls | D123370242 | -- | VERIFIED (ui/settings_catalog.h rows) |
 | node__connect / node__copy rows are named | D123346605 | -- | VERIFIED (api::tools::display_name spells "node connect" / "node copy") |
 | An archived-on-the-web thread leaves Recents after a relaunch | D123539502 | -- | VERIFIED (previous feed) |
