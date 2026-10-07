@@ -3045,6 +3045,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_on_draw_fg(hanabi::icons::draw_fg(
                         "close", "\xc3\x97", theme::text_faint(), 12.0f))
                     .with_debug_name("sb_search_clear"));
+            hanabi::a11y::set_name(clr.ent(), "Clear search");
             if (clr) app.searchQuery.clear();
         }
 

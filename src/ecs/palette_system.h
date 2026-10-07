@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -265,6 +266,24 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
                 continue;
             out.push_back({s.title, fmtutil::relative_time(s.updated_at),
                            std::nullopt, s.id});
+        }
+        // Sub-agents (the reference's D123317198): listed only while the
+        // sidebar shows them, or when one is already an open tab. The main
+        // catalog above carries none, so this is the only way one is listed.
+        if (!app.subagentSessions.empty() && out.size() < kMaxRows) {
+            std::set<std::string> openTabs;
+            if (!app.subagentSidebarOpen)
+                for (auto& ref : afterhours::EntityQuery({.force_merge = true})
+                                     .whereHasComponent<Tab>()
+                                     .gen())
+                    openTabs.insert(ref.get().get<Tab>().sessionId);
+            for (const auto& s : app.subagentSessions) {
+                if (out.size() >= kMaxRows) break;
+                if (!app.subagentSidebarOpen && openTabs.count(s.id) == 0) continue;
+                ++considered;
+                if (s.title.empty() || !fmtutil::contains_lower(s.title, q)) continue;
+                out.push_back({s.title, fmtutil::relative_time(s.updated_at), std::nullopt, s.id});
+            }
         }
         // What the filter actually looked at. alloc_gate's palette2000 arm
         // gates a per-candidate cost, so it needs to know the fixture produced

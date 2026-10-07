@@ -1,0 +1,30 @@
+# The command palette leaves sub-agents out by default and lists them while
+# the sidebar's sub-agent mode is on (the reference's D123317198): a search
+# for a sub-agent's title finds nothing, then finds it.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","subagent_sidebar_open":false}
+
+require_thread t2
+wait_frames 30
+key CMD+K
+wait_frames 10
+expect_text "Command palette"
+click_ui palette_input
+wait_frames 4
+type "Ledger diff"
+wait_frames 8
+expect_no_ui palette_row_0
+key ESCAPE
+wait_frames 8
+
+click_ui sb_subagents_toggle
+wait_frames 30
+expect_text "SUB-AGENTS"
+key CMD+K
+wait_frames 10
+click_ui palette_input
+wait_frames 4
+type "Ledger diff"
+wait_frames 8
+assert_ui palette_row_0 hidden=false
+expect_no_ui palette_row_1
