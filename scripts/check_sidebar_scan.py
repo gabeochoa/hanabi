@@ -40,10 +40,14 @@ FORBIDDEN_IN = ("render_folder", "render_group", "render_chat_row")
 # Rule 2: the walks that are allowed to exist, by the function that holds them.
 # Three one-shot request handlers in `for_each_with` (they run only when a
 # toggle request is pending and they `break` on the match), and `view_counts`,
-# the deliberate per-frame pass for the two smart-view badges.
+# the deliberate per-frame pass for the two smart-view badges. And
+# `render_rail_dots`, the folded rail's one-dot-per-Home-thread list (kt-9vy8):
+# rebuilt only when the catalog revision or the automation switch moves, never
+# per frame.
 BASELINE = {
     "for_each_with": 3,
     "view_counts": 1,
+    "render_rail_dots": 1,
 }
 
 # A MENTION is any reference to the catalog; a WALK is a loop over it. Handing

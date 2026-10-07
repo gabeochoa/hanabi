@@ -1,0 +1,24 @@
+# The collapsed sidebar (the reference's SidebarRailDots, D122996657..66):
+# under the shelf, search as one more shelf row, a hairline, then one dot per
+# thread Home lists -- top level only, no archived thread, no thread an
+# automation started -- in list order. Dots are 10px on a 19px row, the whole
+# rail width clickable; the column has a 10px slot above and below for an
+# edge arrow, empty while every dot fits.
+#
+# The mock has 20 Home threads; two marked automation-born (t5, r9) drop out.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}
+# env: HANABI_MOCK_AUTOMATION=t5,r9
+require_thread t2
+wait_frames 16
+assert_ui rail_search x=14 h=30
+assert_ui rail_rule x=0 w=52 h=1
+assert_ui rail_arrow_slot_up h=10
+assert_ui rail_dot_0 x=0 w=52 h=19
+assert_ui rail_dot_17 h=19
+expect_no_ui rail_dot_18
+expect_no_ui rail_arrow_up
+expect_no_ui rail_arrow_down
+# A click opens that thread.
+click_ui rail_dot_0
+wait_frames 10
+expect_text "profiling the disk"

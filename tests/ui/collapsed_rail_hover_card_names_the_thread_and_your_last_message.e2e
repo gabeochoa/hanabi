@@ -1,0 +1,25 @@
+# Resting 0.2 s on a dot opens a card with the thread's name and the last
+# message you sent it (D122996658). An open card follows the pointer to the
+# next dot at once, and closes once the pointer leaves the dots. Hanabi has
+# no server read that leaves a dormant session asleep, so the line comes from
+# the transcript this client holds -- t2 is open in a tab; "profiling the
+# disk" has no transcript here, so it says there is nothing to show.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}
+# env: HANABI_TIP_FIXED_CLOCK=1
+require_thread t2
+wait_frames 16
+hover_ui rail_dot_8
+wait_frames 6
+expect_no_ui rail_card
+wait_frames 14
+assert_ui rail_card x=54 w=300
+assert_ui_text "needs a decision before it can go on" h=21
+assert_ui_text "Reconcile this cycle's Stars payouts against the" h=18
+assert_ui_text "ledger before the batch runs." h=18
+hover_ui rail_dot_0
+wait_frames 2
+expect_text "profiling the disk"
+expect_text "No recent message from you"
+hover_ui composer_reply_input
+wait_frames 20
+expect_no_ui rail_card

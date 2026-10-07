@@ -1,0 +1,32 @@
+# More dots than fit: the column scrolls by whole rows, and an arrow shows
+# only on a side with dots out of view; the slots are always reserved, so the
+# dots never move when an arrow comes or goes. One click pages a screenful
+# less one row, never past either end (D122996659). 20 mock threads plus 20
+# synthetic ones, the first 10 of those archived: 30 dots, 26 of which fit.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}
+# env: HANABI_STRESS_SESSIONS=20 HANABI_STRESS_ARCHIVED=10 HANABI_TIP_FIXED_CLOCK=1
+require_thread t2
+wait_frames 16
+expect_no_ui rail_arrow_up
+assert_ui rail_arrow_down h=10
+assert_ui rail_dot_0 y=247
+assert_ui rail_dot_25 y=722
+expect_no_ui rail_dot_26
+# t2 is the ninth thread: the ninth dot before the page, the fifth after it
+# (the page is 25 rows, held to the 4 left below).
+hover_ui rail_dot_8
+wait_frames 16
+expect_text "needs a decision before it can go on"
+click_ui rail_arrow_down
+wait_frames 6
+assert_ui rail_arrow_up h=10
+expect_no_ui rail_arrow_down
+assert_ui rail_dot_0 y=247
+expect_no_ui rail_card
+hover_ui rail_dot_4
+wait_frames 16
+expect_text "needs a decision before it can go on"
+click_ui rail_arrow_up
+wait_frames 6
+expect_no_ui rail_arrow_up
+assert_ui rail_arrow_down h=10

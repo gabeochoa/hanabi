@@ -1,0 +1,12 @@
+# The rail's search glyph is one more shelf row; the rail has no room for a
+# field, so it opens the sidebar and puts the caret in the search field.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","sidebar_collapsed":true}
+require_thread t2
+wait_frames 16
+expect_a11y "Search"
+click_ui rail_search
+wait_frames 20
+expect_no_ui rail_search
+expect_no_ui rail_dot_0
+assert_ui sidebar w=280
+expect_focused sb_search_text

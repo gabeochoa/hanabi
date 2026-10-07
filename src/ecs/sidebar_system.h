@@ -23,6 +23,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <deque>
+#include <future>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -57,6 +60,9 @@
 #include "folder_state.h"
 #include "line_draw_state.h"
 #include "subagent_parent_index.h"
+#include "sidebar_rail.h"
+#include "keyboard_focus.h"
+#include "../api/disk_cache.h"
 #include "thread_model.h"
 #include "tab_model.h"
 #include "sidebar_footer_status.h"
@@ -71,10 +77,14 @@
 namespace ecs {
 
 struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
-    void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
+    void for_each_with(Entity&, UIContext<InputAction>& ctx, float dt) override {
         auto* layout = find_singleton<LayoutComponent>();
         auto* app = find_singleton<AppComponent>();
         if (!layout || !app) return;
+        // The rail's hover clock: frame time, or a fixed 1/60 s a frame under
+        // the scripted harness (the tooltip's own rule), so a 0.2 s rest is a
+        // number of frames a script can wait for.
+        railClock_ += hanabi::test_hooks::tip_fixed_clock() ? 1.0 / 60.0 : static_cast<double>(dt);
         sweep_row_phases();
 
         // text_input takes its TEXT colour from theme.font, which is global
@@ -223,11 +233,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
 
         if (folded) {
             render_smart_views(ctx, panel.ent(), *app, folded, r.width);
-            // The rail has no rows of its own, but a digest card in the main
-            // pane can have opened the menu, so it still gets a chance to draw.
+            // Under the shelf, the reference's collapsed column
+            // (D122996657..66): search as one more shelf row, the expanded
+            // column's rule, then a dot per thread Home lists.
+            render_rail_search(ctx, panel.ent(), *layout);
+            render_rail_rule(ctx, panel.ent());
+            render_rail_dots(ctx, panel.ent(), uiRoot, *app, r);
+            // A digest card in the main pane can have opened the menu, so it
+            // still gets a chance to draw.
             render_row_menu(ctx, uiRoot, *app);
             return;
         }
+        railHover_.close();
 
         // Unfolded: the measured order — traffic-light gap, VIEWS strip,
         // view rows, rule, then EITHER the settings pane list or the search
@@ -825,6 +842,388 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // the backend actually has the verb; Archive and Mute are machine-local,
     // so they are
     // always there.
+    // ---- the folded rail below the shelf (kt-9vy8) -------------------------
+    // The reference's collapsed sidebar (D122996657..D122996666): under the
+    // shelf icons, a search glyph styled as one more shelf row, a hairline,
+    // and one dot per thread Home lists (sidebar_rail.h has the arithmetic).
+
+    // The search glyph: the rail has no room for a field, so it opens the
+    // sidebar and puts the caret in the search field there.
+    void render_rail_search(UIContext<InputAction>& ctx, Entity& parent,
+                            LayoutComponent& layout) {
+        auto wrap = div(ctx, mk(parent, 61),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(0), .right = pixels(4.0f),
+                                      .bottom = pixels(0),
+                                      .left = pixels(kRailIconInset)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("rail_search_wrap"));
+        // A shelf row's own box: 30 tall, the same hover wash and corners.
+        auto row = div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(30.0f)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.top = pixels(kSvPadTop), .right = pixels(kBadgeRightPad),
+                                      .bottom = pixels(4.0f), .left = pixels(0)})
+                .with_margin(Margin{.top = pixels(kSvFillTop), .right = pixels(0),
+                                    .bottom = pixels(1.0f), .left = pixels(0)})
+                .with_custom_background(theme::chrome::sidebar())
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_roundness(0.3f)
+                .with_debug_name("rail_search"));
+        hanabi::a11y::set_name(row.ent(), "Search");
+        row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(kRailIconSlot), pixels(22)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg(hanabi::icons::draw_fg(
+                    "search", "", theme::text_faint(), kViewIconPx, -1.0f))
+                .with_debug_name("rail_search_icon"));
+        if (pointer_click(ctx, row.ent())) {
+            layout.sidebarCollapsed = false;
+            Settings::get().set_sidebar_collapsed(false);
+            focusSearchNext_ = true;
+            railHover_.close();
+        }
+    }
+
+    // The hairline between the search glyph and the dots: the expanded
+    // column's rule colour, across the whole rail.
+    void render_rail_rule(UIContext<InputAction>& ctx, Entity& parent) {
+        div(ctx, mk(parent, 62),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(1.0f)})
+                .with_margin(Margin{.top = pixels(4.0f)})
+                .with_custom_background(theme::border())
+                .with_roundness(0.0f)
+                .with_debug_name("rail_rule"));
+    }
+
+    // One dot per Home thread, scrolling by whole rows under two arrow slots.
+    void render_rail_dots(UIContext<InputAction>& ctx, Entity& parent,
+                          Entity& uiRoot, AppComponent& app,
+                          const LayoutComponent::Rect& r) {
+        // The list, rebuilt only when the catalog or the switch moves.
+        const bool hideTitles = app.collapsedFolders.count(kHideAutoKey) > 0;
+        if (railRevision_ != app.sessionCatalogRevision ||
+            railShowAuto_ != app.showAutomation || railHideTitles_ != hideTitles) {
+            railSessions_.clear();
+            for (const api::SessionSummary& s : app.sessions)
+                if (rail::shows(s, app.showAutomation, hideTitles))
+                    railSessions_.push_back(s.id);
+            railRevision_ = app.sessionCatalogRevision;
+            railShowAuto_ = app.showAutomation;
+            railHideTitles_ = hideTitles;
+        }
+        const std::size_t n = railSessions_.size();
+
+        // The column runs from under the rule to the rail's foot. Its top is
+        // last frame's (everything above it is fixed-height); the dots are
+        // sized from it rather than by an expanding box, which would grow
+        // with the dots it holds.
+        const float colH = railColTop_ > 0.0f ? std::max(0.0f, r.y + r.height - railColTop_) : 0.0f;
+        auto col = div(ctx, mk(parent, 63),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(colH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("rail_dots_col"));
+
+        if (col.ent().has<afterhours::ui::UIComponent>())
+            railColTop_ = col.ent().get<afterhours::ui::UIComponent>().rect().y;
+        // The visible column, snapped to whole rows so no dot is ever cut by
+        // an edge.
+        const float viewH = std::max(0.0f, colH - 2.0f * rail::kArrowSlotH);
+        const float visibleH = std::floor(viewH / rail::kRowH) * rail::kRowH;
+        railScroll_.visibleH = visibleH;
+        railScroll_.contentH = rail::content_h(n);
+        // A wheel over the dots moves whole rows.
+        const bool overDots = afterhours::ui::is_mouse_inside(ctx.mouse.pos, railViewRect_);
+        if (overDots) {
+            const auto wheel = afterhours::input::get_mouse_wheel_move_v();
+            if (wheel.y != 0.0f) {
+                const float rows = wheel.y > 0.0f ? -std::ceil(wheel.y) : std::ceil(-wheel.y);
+                railScroll_.top += rows * rail::kRowH;
+            }
+        }
+        railScroll_.top = railScroll_.clamp(std::round(railScroll_.top / rail::kRowH) * rail::kRowH);
+
+        const auto arrow = [&](int key, bool down) {
+            const bool shown = down ? railScroll_.hides_below() : railScroll_.hides_above();
+            auto slot = div(ctx, mk(col.ent(), key),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(rail::kArrowSlotH)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name(down ? "rail_arrow_slot_down" : "rail_arrow_slot_up"));
+            if (!shown) return;
+            auto btn = div(ctx, mk(slot.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{percent(1.0f), pixels(rail::kArrowSlotH)})
+                    .with_transparent_bg()
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([down](RectangleType rc) {
+                        const float cx = rc.x + rc.width * 0.5f;
+                        const float cy = rc.y + rc.height * 0.5f;
+                        const float hw = rail::kArrowGlyphPx * 0.5f;
+                        const float hh = rail::kArrowGlyphPx * 0.25f;
+                        const float dy = down ? hh : -hh;
+                        const theme::Color c = theme::text_secondary();
+                        afterhours::draw_line_ex(afterhours::vec2{cx - hw, cy - dy},
+                                                 afterhours::vec2{cx, cy + dy}, 1.6f, c);
+                        afterhours::draw_line_ex(afterhours::vec2{cx, cy + dy},
+                                                 afterhours::vec2{cx + hw, cy - dy}, 1.6f, c);
+                    })
+                    .with_debug_name(down ? "rail_arrow_down" : "rail_arrow_up"));
+            hanabi::a11y::set_name(btn.ent(), down ? "Scroll down" : "Scroll up");
+            btn.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            if (pointer_click(ctx, btn.ent()))
+                railScroll_.top = railScroll_.page_target(down);
+        };
+
+        arrow(1, false);
+        auto view = div(ctx, mk(col.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(viewH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("rail_dots"));
+        arrow(3, true);
+        if (view.ent().has<afterhours::ui::UIComponent>()) {
+            const RectangleType vr = view.ent().get<afterhours::ui::UIComponent>().rect();
+            railViewRect_ = vr;
+        }
+
+        const std::size_t first = static_cast<std::size_t>(railScroll_.top / rail::kRowH);
+        const std::size_t cap = static_cast<std::size_t>(visibleH / rail::kRowH);
+        const std::size_t last = std::min(n, first + cap);
+        std::string under;
+        for (std::size_t i = first; i < last; ++i) {
+            const api::SessionSummary* s = app.find_summary(railSessions_[i]);
+            if (s == nullptr) continue;
+            const theme::Color tint = mark_color(sidebar_glyph(*s));
+            auto dot = div(ctx, mk(view.ent(), static_cast<afterhours::EntityID>(i)),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{percent(1.0f), pixels(rail::kRowH)})
+                    .with_transparent_bg()
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([tint](RectangleType rc) {
+                        afterhours::draw_circle_v(
+                            afterhours::vec2{rc.x + rc.width * 0.5f, rc.y + rc.height * 0.5f},
+                            rail::kDotDiameter * 0.5f, tint);
+                    })
+                    .with_debug_name("rail_dot_" + std::to_string(i - first)));
+            hanabi::a11y::set_name(dot.ent(), s->title.empty() ? s->id : s->title);
+            dot.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
+                [](Entity&) {});
+            if (dot.ent().has<afterhours::ui::UIComponent>()) {
+                const RectangleType dr = dot.ent().get<afterhours::ui::UIComponent>().rect();
+                if (dr.width > 0.0f && afterhours::ui::is_mouse_inside(ctx.mouse.pos, dr))
+                    under = s->id;
+            }
+            if (pointer_click(ctx, dot.ent())) {
+                railHover_.close();
+                app.requestOpenTab = s->id;
+                app.requestOpenTabPane = app.focusedPane;
+                app.requestOpenTabKeep = false;
+                app.view = SmartView::Chat;
+            }
+        }
+        railHover_.step(under, railClock_);
+        render_rail_card(ctx, uiRoot, app, r);
+    }
+
+    // The card a dot opens: the thread's name and the last message you sent
+    // it, beside the rail with its arrow on the dot.
+    void render_rail_card(UIContext<InputAction>& ctx, Entity& uiRoot,
+                          AppComponent& app, const LayoutComponent::Rect& r) {
+        const std::string& id = railHover_.shown;
+        if (id.empty()) return;
+        const api::SessionSummary* s = app.find_summary(id);
+        if (s == nullptr) return;
+        // A card never points at a dot scrolled out of view.
+        std::size_t index = railSessions_.size();
+        for (std::size_t i = 0; i < railSessions_.size(); ++i)
+            if (railSessions_[i] == id) index = i;
+        if (index == railSessions_.size() || !rail::row_visible(railScroll_, index)) return;
+
+        const std::string message = rail_peek_line(app, *s);
+        const std::string title = s->title.empty() ? std::string("Untitled") : s->title;
+        const float textW = rail::kCardW - 2.0f * rail::kCardPad - rail::kCardArrowDepth;
+        const float titlePx = theme::type::BODY;
+        const float msgPx = theme::type::SM;
+        const float titleLineH = std::round(titlePx * 1.35f);
+        const float msgLineH = std::round(msgPx * 1.4f);
+        const auto lines_of = [&](const std::string& text, float px, int cap) {
+            std::vector<std::string> ls = afterhours::ui::wrap_text(
+                text, textW - 2.0f * afterhours::ui::kTextInset,
+                afterhours::ui::UIComponent::DEFAULT_FONT, px);
+            if (ls.empty()) ls.push_back(text);
+            if (static_cast<int>(ls.size()) > cap) {
+                ls.resize(static_cast<std::size_t>(cap));
+                ls.back() += "\xe2\x80\xa6";
+            }
+            return ls;
+        };
+        const std::vector<std::string> titleLines = lines_of(title, titlePx, rail::kCardTitleLines);
+        const std::vector<std::string> msgLines = lines_of(message, msgPx, rail::kCardMessageLines);
+        const float cardH = 2.0f * rail::kCardPad +
+                            static_cast<float>(titleLines.size()) * titleLineH + 4.0f +
+                            static_cast<float>(msgLines.size()) * msgLineH;
+        // Fixed-height rows, so a dot's centre is arithmetic.
+        const float dotY = railViewRect_.y + rail::dot_center(index) - railScroll_.top;
+        const auto place = rail::card_placement(dotY, cardH, r.y, r.height);
+        const float arrowY = rail::arrow_tip(place.arrowY, cardH);
+
+        auto card = div(ctx, mk(uiRoot, 8896),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(rail::kCardW), pixels(cardH)})
+                .with_absolute_position()
+                .with_translate(r.x + r.width + rail::kCardGap, place.top)
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(rail::kCardPad), .right = pixels(rail::kCardPad),
+                                      .bottom = pixels(rail::kCardPad),
+                                      .left = pixels(rail::kCardPad + rail::kCardArrowDepth)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_render_layer(20)
+                .with_on_draw_bg([arrowY](RectangleType rc) {
+                    // The body, then the arrow on its leading edge pointing
+                    // at the dot: each drawn twice, hairline colour then the
+                    // fill 1px inside it, so the two read as one outlined
+                    // shape (filled triangles, not stroked lines, which do
+                    // not survive a 1px diagonal at 1x).
+                    const float left = rc.x + rail::kCardArrowDepth;
+                    const RectangleType body{left, rc.y, rc.width - rail::kCardArrowDepth, rc.height};
+                    const float rad = rail::kCardCorner / (std::min(body.width, body.height) * 0.5f);
+                    const theme::Color line = theme::border();
+                    const theme::Color fill = theme::chrome::raised();
+                    afterhours::draw_rectangle_rounded(body, rad, 6, line);
+                    const RectangleType inner{body.x + 1.0f, body.y + 1.0f, body.width - 2.0f,
+                                              body.height - 2.0f};
+                    afterhours::draw_rectangle_rounded(inner, rad, 6, fill);
+                    const float half = rail::kCardArrowW * 0.5f;
+                    const float tip = rc.y + arrowY;
+                    afterhours::draw_triangle(afterhours::vec2{left + 1.0f, tip - half - 1.0f},
+                                              afterhours::vec2{rc.x - 1.0f, tip},
+                                              afterhours::vec2{left + 1.0f, tip + half + 1.0f}, line);
+                    afterhours::draw_triangle(afterhours::vec2{left + 1.5f, tip - half},
+                                              afterhours::vec2{rc.x + 0.5f, tip},
+                                              afterhours::vec2{left + 1.5f, tip + half}, fill);
+                })
+                .with_debug_name("rail_card"));
+        int key = 1;
+        for (std::size_t i = 0; i < titleLines.size(); ++i)
+            div(ctx, mk(card.ent(), key++),
+                ComponentConfig{}
+                    .with_label(titleLines[i])
+                    .with_size(ComponentSize{pixels(textW), pixels(titleLineH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(titlePx)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("rail_card_title"));
+        div(ctx, mk(card.ent(), key++),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(textW), pixels(4.0f)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("rail_card_gap"));
+        for (std::size_t i = 0; i < msgLines.size(); ++i)
+            div(ctx, mk(card.ent(), key++),
+                ComponentConfig{}
+                    .with_label(msgLines[i])
+                    .with_size(ComponentSize{pixels(textW), pixels(msgLineH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(msgPx)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("rail_card_message"));
+    }
+
+    // The card's second line. The reference reads the session's events
+    // newest-first from the server (D122996655/6); Hanabi has no such read
+    // that leaves a dormant session asleep (get_session attaches a
+    // subscription), so this quotes what the client already holds: the
+    // transcript open in a pane, else the one cached on disk -- read on a
+    // worker, once per thread and catalog stamp.
+    std::string rail_peek_line(AppComponent& app, const api::SessionSummary& s) {
+        if (railPeekId_ != s.id || railPeekStamp_ != s.updated_at) {
+            railPeekId_ = s.id;
+            railPeekStamp_ = s.updated_at;
+            railPeekState_ = PeekState::Loading;
+            railPeekText_.clear();
+            railPeekWanted_ = true;
+        }
+        for (const Pane& p : app.panes)
+            if (p.openSession && p.openSession->summary.id == s.id) {
+                railPeekText_ = rail::last_sent(p.openSession->messages);
+                railPeekState_ = railPeekText_.empty() ? PeekState::None : PeekState::Found;
+                railPeekWanted_ = false;
+            }
+        if (railPeekFuture_.valid() &&
+            railPeekFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            std::optional<api::Session> got = railPeekFuture_.get();
+            if (railPeekFutureId_ == railPeekId_ && railPeekState_ == PeekState::Loading) {
+                railPeekText_ = got ? rail::last_sent(got->messages) : std::string();
+                railPeekState_ = railPeekText_.empty() ? PeekState::None : PeekState::Found;
+                railPeekWanted_ = false;
+            }
+        }
+        if (railPeekWanted_ && !railPeekFuture_.valid()) {
+            railPeekWanted_ = false;
+            if (rail_disk_cache_on(app)) {
+                const std::string id = s.id;
+                railPeekFutureId_ = id;
+                railPeekFuture_ = std::async(std::launch::async, [id] {
+                    return api::disk_cache::load_transcript(id);
+                });
+            } else {
+                railPeekState_ = PeekState::None;
+            }
+        }
+        switch (railPeekState_) {
+            case PeekState::Loading: return "Loading\xe2\x80\xa6";
+            case PeekState::Found: return railPeekText_;
+            case PeekState::None: break;
+        }
+        return "No recent message from you";
+    }
+    // The loader's rule (LoaderSystem::disk_cache_enabled): the mock backend
+    // keeps no disk cache unless a fixture asks for one.
+    static bool rail_disk_cache_on(const AppComponent& app) {
+        static const bool mockDisk = [] {
+            const char* v = std::getenv("HANABI_MOCK_DISK_CACHE");
+            return v != nullptr && *v == '1';
+        }();
+        return app.backend_label != "mock" || mockDisk;
+    }
+
     void render_row_menu(UIContext<InputAction>& ctx, Entity& uiRoot,
                          AppComponent& app) {
         if (!app.rowMenuOpen) return;
@@ -3023,6 +3422,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_placeholder("Search")
                 .with_debug_name("sb_search_text"));
         s_searchInputId = searchRes.ent().id;
+        // The rail's search glyph opened the sidebar to type here.
+        if (focusSearchNext_) {
+            ctx.set_focus(focusable_field(searchRes.ent()));
+            focusSearchNext_ = false;
+        }
 
         // Clear affordance (only when a query is present): an ✕ that empties
         // the query and restores the full tree.
@@ -3117,6 +3521,26 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     std::vector<const api::SessionSummary*> pinnedMembers_;
     std::vector<const api::SessionSummary*> recentMembers_;
     model::SidebarBuckets buckets_;
+    // The folded rail (kt-9vy8): its dots, scroll, hover card, and the
+    // card's last-sent line.
+    std::vector<std::string> railSessions_;
+    std::uint64_t railRevision_ = 0;
+    bool railShowAuto_ = false;
+    bool railHideTitles_ = false;
+    rail::Scroll railScroll_;
+    float railColTop_ = 0.0f;
+    RectangleType railViewRect_{};
+    rail::Hover railHover_;
+    double railClock_ = 0.0;
+    bool focusSearchNext_ = false;
+    enum class PeekState { Loading, Found, None };
+    std::string railPeekId_;
+    std::int64_t railPeekStamp_ = 0;
+    PeekState railPeekState_ = PeekState::Loading;
+    std::string railPeekText_;
+    bool railPeekWanted_ = false;
+    std::future<std::optional<api::Session>> railPeekFuture_;
+    std::string railPeekFutureId_;
     model::ChildIndex childIndex_;
     std::vector<const api::SessionSummary*> subagentMembers_;
     // The held order of the sub-agent list and what it was computed for.
