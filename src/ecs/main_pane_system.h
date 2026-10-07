@@ -1,4 +1,7 @@
 #pragma once
+
+#include <deque>
+#include <memory>
 #include "../api/shortcode.h"
 #include "../ui/md_image.h"
 #include "../api/agentcloud_hosts.h"
@@ -86,6 +89,7 @@
 #include "../settings.h"
 #include "line_draw_state.h"
 #include "../line_spacing.h"
+#include "../ui/chart_spec.h"
 #include "../text_zoom.h"
 #include "text_edit_actions.h"
 #include "ui_imports.h"
@@ -11698,6 +11702,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 continue;
             }
             if (is_code_fence(line)) {
+                // A closed ```chart fence that parses is a chart; one that
+                // does not keeps its source under a line saying why. Mirrors
+                // render_rich_body.
+                float chartReasonH = 0.0f;
+                if (hanabi::chart::is_chart_lang(fence_lang(line))) {
+                    std::string src;
+                    std::size_t after = 0;
+                    const std::size_t from = (nl == std::string::npos) ? body.size() : nl + 1;
+                    if (chart_fence_body(body, from, src, after)) {
+                        const auto ce = chart_entry(src);
+                        if (ce->parse.ok()) {
+                            h += chart_block_h(*ce->parse.spec);
+                            start = after;
+                            continue;
+                        }
+                        chartReasonH = chart_reason_h(ce->parse.failure, textW);
+                    }
+                }
+                h += chartReasonH;
                 // A fenced block is ONE atomic segment: scan to its closing
                 // fence, count inner lines, add the whole block's height. Both
                 // render + measure do this identical scan so heights agree.
@@ -12573,6 +12596,452 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return spans;
     }
 
+    // ---- ```chart fences (kt-exwb, the reference's D123317236) -------------
+    //
+    // A settled ```chart fence whose body parses (ui/chart_spec.h) draws as a
+    // chart -- the reference's ChartBlockView: an optional title, a 220pt plot
+    // (scaled with the text, 0.7x..2x) with four gridlines and their values,
+    // at most eight category labels placed so they never overlap, bars or
+    // lines (each later line dashed, alternate series marked with squares,
+    // every bar numbered with its series), the axis names, and a legend whose
+    // numbers match the marks, so colour never carries a series alone. A fence
+    // that does not parse keeps its source and says why above it, as the
+    // reference does ("Chart not drawn: ..."). One height function,
+    // chart_block_h, sizes both the measure and the draw.
+    struct ChartEntry {
+        hanabi::chart::Parse parse;
+        std::optional<hanabi::chart::Layout> layout;
+        std::string summary;
+    };
+    // Parsed once per body: a transcript redraw does not re-read the JSON. A
+    // small LRU, like the reference's memo of 16; an oversized body is
+    // refused before it is hashed into it.
+    static std::shared_ptr<const ChartEntry> chart_entry(const std::string& body) {
+        if (hanabi::chart::detail::utf16_len(body) > hanabi::chart::kMaxSourceUtf16) {
+            auto e = std::make_shared<ChartEntry>();
+            e->parse = hanabi::chart::parse(body);
+            return e;
+        }
+        static std::unordered_map<std::string, std::shared_ptr<const ChartEntry>> memo;
+        static std::deque<std::string> order;
+        constexpr std::size_t kLimit = 32;
+        if (const auto it = memo.find(body); it != memo.end()) return it->second;
+        auto e = std::make_shared<ChartEntry>();
+        e->parse = hanabi::chart::parse(body);
+        if (e->parse.ok()) {
+            e->layout.emplace(*e->parse.spec);
+            e->summary = hanabi::chart::summary(*e->parse.spec);
+        }
+        memo.emplace(body, e);
+        order.push_back(body);
+        if (order.size() > kLimit) {
+            memo.erase(order.front());
+            order.pop_front();
+        }
+        return e;
+    }
+    // The fence's body, when the fence is a ```chart and is CLOSED. A fence
+    // still open is still arriving and is not a chart yet.
+    static bool chart_fence_body(const std::string& body, std::size_t from,
+                                 std::string& out, std::size_t& after) {
+        out.clear();
+        std::size_t p = from;
+        while (p <= body.size()) {
+            const std::size_t n2 = body.find('\n', p);
+            const std::size_t e2 = (n2 == std::string::npos) ? body.size() : n2;
+            const std::string cl = body.substr(p, e2 - p);
+            if (is_code_fence(cl)) {
+                after = (n2 == std::string::npos) ? body.size() : n2 + 1;
+                return true;
+            }
+            if (p != from) out += '\n';
+            out += cl;
+            if (n2 == std::string::npos) return false;
+            p = n2 + 1;
+        }
+        return false;
+    }
+
+    static float chart_scale() {
+        return std::min(2.0f, std::max(0.7f, static_cast<float>(text_zoom())));
+    }
+    static float chart_plot_h() { return std::round(220.0f * chart_scale()); }
+    static float chart_title_h() { return std::round(theme::type::SM * 1.5f); }
+    static float chart_text_h() { return std::round(theme::type::MICRO * 1.6f); }
+    static constexpr float kChartGap = 6.0f;
+    static constexpr float kChartPadX = 10.0f;
+    static constexpr float kChartPadTop = 4.0f;
+    static constexpr float kChartPadBot = 8.0f;
+    static constexpr float kChartLegendGap = 12.0f;
+    static constexpr float kChartLegendNumGap = 4.0f;
+
+    // The legend: one row, as the reference's HStack -- each item the series
+    // number (in its ink) and its name, the names sharing what the row has
+    // left so the row never wraps. One row at any width keeps the chart's
+    // height a function of the spec and the text size alone.
+    struct LegendItem {
+        std::size_t series = 0;
+        std::string num;
+        std::string name;
+        float numW = 0.0f;
+        float nameW = 0.0f;
+    };
+    static std::vector<LegendItem> chart_legend(const hanabi::chart::Spec& spec, float innerW) {
+        std::vector<LegendItem> items;
+        const float px = theme::type::MICRO;
+        const float inset2 = 2.0f * afterhours::ui::kTextInset;
+        float fixed = 0.0f;
+        for (std::size_t i = 0; i < spec.series.size(); ++i) {
+            LegendItem it;
+            it.series = i;
+            it.num = std::to_string(i + 1);
+            it.name = hanabi::chart::display_label(spec.series[i].name, 48);
+            it.numW = std::ceil(theme::text_px(it.num, px)) + inset2;
+            it.nameW = std::ceil(theme::text_px(it.name, px)) + inset2;
+            fixed += it.numW + kChartLegendNumGap + (i ? kChartLegendGap : 0.0f);
+            items.push_back(std::move(it));
+        }
+        float names = 0.0f;
+        for (const auto& it : items) names += it.nameW;
+        const float room = std::max(0.0f, innerW - fixed);
+        if (names > room && !items.empty()) {
+            // Share the room: no name narrower than its share is cut, and
+            // what it leaves goes to the longer ones.
+            std::vector<float> w;
+            for (const auto& it : items) w.push_back(it.nameW);
+            std::vector<std::size_t> order(items.size());
+            for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+            std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return w[a] < w[b]; });
+            float left = room;
+            std::size_t remaining = items.size();
+            for (const std::size_t i : order) {
+                const float share = left / static_cast<float>(remaining);
+                items[i].nameW = std::floor(std::min(w[i], share));
+                left -= items[i].nameW;
+                --remaining;
+            }
+        }
+        return items;
+    }
+
+    // THE height of a drawn chart, measure and draw alike.
+    static float chart_block_h(const hanabi::chart::Spec& spec) {
+        float h = kCodeVMarginTop + kCodeBarH + kChartPadTop;
+        if (spec.title) h += chart_title_h() + kChartGap;
+        h += chart_plot_h() + kChartGap;
+        if (spec.xLabel || spec.yLabel) h += chart_text_h() + kChartGap;
+        h += chart_text_h();  // the legend's one row
+        h += kChartPadBot + kCodeVMarginBot;
+        return h;
+    }
+    // The line that says why a chart fence did not draw, above its source.
+    static float chart_reason_h(const std::string& reason, float textW) {
+        return kChartPadTop + static_cast<float>(count_lines("Chart not drawn: " + reason, textW,
+                                                             theme::type::SM)) *
+                                  std::round(theme::type::SM * 1.4f);
+    }
+
+    // The reference's inks, in its order, at their dark-appearance values.
+    static theme::Color chart_ink(std::size_t i) {
+        static const theme::Color kInks[] = {
+            {10, 132, 255, 255}, {255, 159, 10, 255}, {48, 209, 88, 255},  {191, 90, 242, 255},
+            {255, 69, 58, 255},  {64, 200, 224, 255}, {255, 55, 95, 255}, {94, 92, 230, 255}};
+        return kInks[i % 8];
+    }
+
+    // A polyline stroked with an on/off dash, the phase carried across its
+    // joints; afterhours draws only solid lines (afterhours_gaps.md #612).
+    static void draw_dashed(const std::vector<afterhours::vec2>& pts, float on, float off,
+                            float width, theme::Color c) {
+        float phase = 0.0f;  // distance into the current on+off period
+        for (std::size_t i = 1; i < pts.size(); ++i) {
+            const afterhours::vec2 a = pts[i - 1], b = pts[i];
+            const float dx = b.x - a.x, dy = b.y - a.y;
+            const float len = std::sqrt(dx * dx + dy * dy);
+            if (len <= 0.0f) continue;
+            float t = 0.0f;
+            while (t < len) {
+                const float period = on + off;
+                const float inPeriod = std::fmod(phase, period);
+                const bool drawing = inPeriod < on;
+                const float left = drawing ? on - inPeriod : period - inPeriod;
+                const float step = std::min(left, len - t);
+                if (drawing) {
+                    const float t0 = t / len, t1 = (t + step) / len;
+                    afterhours::draw_line_ex(afterhours::vec2{a.x + dx * t0, a.y + dy * t0},
+                                             afterhours::vec2{a.x + dx * t1, a.y + dy * t1}, width, c);
+                }
+                t += step;
+                phase += step;
+            }
+        }
+    }
+
+    // The plot itself: gridlines, their values, the category labels, and the
+    // marks. Drawn, not laid out, from the entry the measure parsed.
+    static void draw_chart_plot(const ChartEntry& e, RectangleType rc, float scale) {
+        if (!e.parse.ok() || !e.layout) return;
+        const hanabi::chart::Spec& spec = *e.parse.spec;
+        const hanabi::chart::Layout& lay = *e.layout;
+        const float tickPx = std::round(9.0f * scale);
+        const float left = 52.0f * scale;
+        const float top = 16.0f * scale;
+        const float width = std::max(1.0f, rc.width - left - 8.0f * scale);
+        const float height = std::max(1.0f, rc.height - top - 22.0f * scale);
+        const theme::Color muted = theme::text_secondary();
+        const theme::Color grid = theme::over(theme::Color{muted.r, muted.g, muted.b, 64}, theme::code_bg());
+        const auto X = [&](const std::string& label) {
+            return rc.x + left + static_cast<float>(lay.x_fraction(label, spec.mark)) * width;
+        };
+        const auto Y = [&](double v) {
+            return rc.y + top + (1.0f - static_cast<float>(lay.y_fraction(v))) * height;
+        };
+        for (int tick = 0; tick <= 4; ++tick) {
+            const double f = static_cast<double>(tick) / 4.0;
+            const float yy = rc.y + top + (1.0f - static_cast<float>(f)) * height;
+            afterhours::draw_line_ex(afterhours::vec2{rc.x + left, yy},
+                                     afterhours::vec2{rc.x + left + width, yy}, 1.0f, grid);
+            const std::string v = hanabi::chart::tick_label(lay.tick_value(f));
+            const float w = theme::text_px(v, tickPx);
+            afterhours::draw_text(v.c_str(), rc.x + left - 4.0f - w, yy - tickPx * 0.5f, tickPx, muted);
+        }
+        // Measured, so a long first or last label stays inside the plot and a
+        // narrow pane drops labels rather than overlapping them.
+        std::vector<hanabi::chart::AxisCandidate> cands;
+        std::vector<std::string> texts(lay.labels.size());
+        for (const std::size_t i : lay.axis_label_indices()) {
+            texts[i] = hanabi::chart::display_label(lay.labels[i], 12);
+            cands.push_back({i, X(lay.labels[i]), theme::text_px(texts[i], tickPx)});
+        }
+        for (const auto& spot : hanabi::chart::place_axis_labels(cands, rc.x, rc.x + rc.width, 4.0 * scale)) {
+            const float w = theme::text_px(texts[spot.index], tickPx);
+            afterhours::draw_text(texts[spot.index].c_str(), static_cast<float>(spot.x) - w * 0.5f,
+                                  rc.y + top + height + 4.0f * scale, tickPx, muted);
+        }
+        const float band = width / static_cast<float>(std::max<std::size_t>(1, lay.labels.size()));
+        const float barW = band * 0.8f / static_cast<float>(std::max<std::size_t>(1, spec.series.size()));
+        for (std::size_t si = 0; si < spec.series.size(); ++si) {
+            const hanabi::chart::Series& s = spec.series[si];
+            const theme::Color ink = chart_ink(si);
+            if (spec.mark == hanabi::chart::Mark::Bar) {
+                const std::string num = std::to_string(si + 1);
+                const float numW = theme::text_px(num, tickPx);
+                for (const auto& p : s.points) {
+                    const float base = Y(0.0), pos = Y(p.value);
+                    const float x0 = X(p.label) - band * 0.4f + static_cast<float>(si) * barW;
+                    afterhours::draw_rectangle(
+                        RectangleType{x0, std::min(base, pos), barW, std::fabs(base - pos)}, ink);
+                    if (barW >= 8.0f * scale)
+                        afterhours::draw_text(num.c_str(), x0 + barW * 0.5f - numW * 0.5f,
+                                              p.value >= 0.0 ? pos - 2.0f - tickPx : pos + 2.0f, tickPx,
+                                              muted);
+                }
+            } else {
+                std::vector<afterhours::vec2> pts;
+                pts.reserve(s.points.size());
+                for (const auto& p : s.points) pts.push_back(afterhours::vec2{X(p.label), Y(p.value)});
+                if (si == 0) {
+                    for (std::size_t k = 1; k < pts.size(); ++k)
+                        afterhours::draw_line_ex(pts[k - 1], pts[k], 2.0f, ink);
+                } else {
+                    draw_dashed(pts, static_cast<float>(si + 2) * 2.0f, 3.0f, 2.0f, ink);
+                }
+                const float r = 2.5f * scale;
+                for (const auto& pt : pts) {
+                    if (si % 2 == 0)
+                        afterhours::draw_circle_v(pt, r, ink);
+                    else
+                        afterhours::draw_rectangle(RectangleType{pt.x - r, pt.y - r, 2.0f * r, 2.0f * r}, ink);
+                }
+            }
+        }
+    }
+
+    void render_chart_block(UIContext<InputAction>& ctx, Entity& parent, int id,
+                            const std::shared_ptr<const ChartEntry>& entry,
+                            const std::string& lang, const std::string& source,
+                            float textW) {
+        const hanabi::chart::Spec& spec = *entry->parse.spec;
+        const float innerW = std::max(40.0f, textW - 2.0f * kChartPadX);
+        const float blockH = chart_block_h(spec);
+        auto block = div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(blockH - kCodeVMarginTop - kCodeVMarginBot)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_margin(Margin{.top = pixels(kCodeVMarginTop), .bottom = pixels(kCodeVMarginBot)})
+                .with_custom_background(theme::code_bg())
+                .with_corner_radius(8.0f)
+                .with_debug_name("chart_block"));
+        // The fence's own header: its language, and Copy for the JSON.
+        auto bar = div(ctx, mk(block.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kCodeBarH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.right = pixels(10), .left = pixels(12)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("chart_block_bar"));
+        const float copyW = 42.0f;
+        div(ctx, mk(bar.ent(), 1),
+            ComponentConfig{}
+                .with_label(lang)
+                .with_size(ComponentSize{pixels(std::max(0.0f, textW - 22.0f - copyW)), pixels(14)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_letter_spacing(0.8f)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("chart_block_lang"));
+        const std::string ckey = "chart:" + std::to_string(id);
+        const bool copied = recently_copied(ckey);
+        const bool show = copied || ctx.mouse_was_in_subtree(block.ent().id);
+        auto copy = button(ctx, mk(bar.ent(), 2),
+            ComponentConfig{}
+                .with_label(show ? (copied ? "Copied" : "Copy") : " ")
+                .with_size(ComponentSize{pixels(copyW), pixels(15)})
+                .with_custom_background(show ? theme::panel_bg_2() : theme::code_bg())
+                .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
+                .with_custom_text_color(copied ? theme::status_active() : theme::text_secondary())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name("chart_block_copy"));
+        hanabi::a11y::set_name(copy.ent(), "Copy the chart's JSON");
+        if (copy) {
+            hanabi::clipboard::set_text(source);
+            hanabi::test_hooks::record_clipboard_text(source);
+            record_copied(ckey);
+        }
+        auto body = div(ctx, mk(block.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_padding(Padding{.top = pixels(kChartPadTop), .right = pixels(kChartPadX),
+                                      .bottom = pixels(kChartPadBot), .left = pixels(kChartPadX)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("chart_block_body"));
+        int key = 1;
+        if (spec.title)
+            div(ctx, mk(body.ent(), key++),
+                ComponentConfig{}
+                    .with_label(hanabi::chart::display_label(*spec.title))
+                    .with_size(ComponentSize{pixels(innerW), pixels(chart_title_h())})
+                    .with_margin(Margin{.bottom = pixels(kChartGap)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("chart_title"));
+        const float scale = chart_scale();
+        std::shared_ptr<const ChartEntry> held = entry;
+        auto plot = div(ctx, mk(body.ent(), key++),
+            ComponentConfig{}
+                .with_label(" ")
+                .with_size(ComponentSize{pixels(innerW), pixels(chart_plot_h())})
+                .with_margin(Margin{.bottom = pixels(kChartGap)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_on_draw_fg([held, scale](RectangleType rc) { draw_chart_plot(*held, rc, scale); })
+                .with_debug_name("chart_plot"));
+        hanabi::a11y::set_name(plot.ent(), entry->summary);
+        if (spec.xLabel || spec.yLabel) {
+            auto axis = div(ctx, mk(body.ent(), key++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(innerW), pixels(chart_text_h())})
+                    .with_margin(Margin{.bottom = pixels(kChartGap)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("chart_axes"));
+            const float half = std::floor(innerW * 0.5f);
+            div(ctx, mk(axis.ent(), 1),
+                ComponentConfig{}
+                    .with_label(spec.yLabel ? hanabi::chart::display_label(*spec.yLabel) : " ")
+                    .with_size(ComponentSize{pixels(half), pixels(chart_text_h())})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("chart_y_label"));
+            div(ctx, mk(axis.ent(), 2),
+                ComponentConfig{}
+                    .with_label(spec.xLabel ? hanabi::chart::display_label(*spec.xLabel) : " ")
+                    .with_size(ComponentSize{pixels(innerW - half), pixels(chart_text_h())})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Right)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("chart_x_label"));
+        }
+        const auto items = chart_legend(spec, innerW);
+        auto row = div(ctx, mk(body.ent(), 100),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(innerW), pixels(chart_text_h())})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("chart_legend"));
+        int k = 1;
+        for (std::size_t ii = 0; ii < items.size(); ++ii) {
+            const LegendItem& it = items[ii];
+            div(ctx, mk(row.ent(), k++),
+                ComponentConfig{}
+                    .with_label(it.num)
+                    .with_size(ComponentSize{pixels(it.numW), pixels(chart_text_h())})
+                    .with_margin(Margin{.left = pixels(ii == 0 ? 0.0f : kChartLegendGap),
+                                        .right = pixels(kChartLegendNumGap)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(chart_ink(it.series))
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_debug_name("chart_legend_num"));
+            div(ctx, mk(row.ent(), k++),
+                ComponentConfig{}
+                    .with_label(it.name)
+                    .with_size(ComponentSize{pixels(it.nameW), pixels(chart_text_h())})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("chart_legend_name"));
+        }
+    }
+
+    void render_chart_reason(UIContext<InputAction>& ctx, Entity& parent, int id,
+                             const std::string& reason, float textW) {
+        div(ctx, mk(parent, id),
+            ComponentConfig{}
+                .with_label("Chart not drawn: " + reason)
+                .with_size(ComponentSize{percent(1.0f), pixels(chart_reason_h(reason, textW) - kChartPadTop)})
+                .with_margin(Margin{.top = pixels(kChartPadTop)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_text_overflow(TextOverflow::Wrap)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("chart_reason"));
+    }
+
     void render_code_block(UIContext<InputAction>& ctx, Entity& parent, int id,
                            const std::string& lang,
                            const std::vector<std::string>& lines,
@@ -13135,6 +13604,34 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // ---- Fenced code block: ONE atomic segment (container) ----------
             if (is_code_fence(line)) {
                 const std::string lang = fence_lang(line);
+                // ```chart: drawn as a chart when it is closed and parses
+                // (kt-exwb); otherwise its source, under the reason.
+                std::string chartReason;
+                if (hanabi::chart::is_chart_lang(lang)) {
+                    std::string src;
+                    std::size_t after = 0;
+                    const std::size_t from = (nl == std::string::npos) ? shown.size() : nl + 1;
+                    if (chart_fence_body(shown, from, src, after)) {
+                        const auto ce = chart_entry(src);
+                        if (ce->parse.ok()) {
+                            const float blockH = chart_block_h(*ce->parse.spec);
+                            const float segTop = y;
+                            const float segBot = y + blockH;
+                            y = segBot;
+                            const bool visible = !cull || (segBot >= winTop && segTop <= winBot);
+                            if (!visible) {
+                                pending += blockH;
+                            } else {
+                                flush(9000 + seg);
+                                render_chart_block(ctx, parent, 100 + seg, ce, lang, src, textW);
+                            }
+                            ++seg;
+                            start = after;
+                            continue;
+                        }
+                        chartReason = ce->parse.failure;
+                    }
+                }
                 std::vector<std::string> codeLines;
                 std::vector<unsigned char> codeStarts;  // 1 = a source line starts here
                 size_t p = (nl == std::string::npos) ? shown.size() : nl + 1;
@@ -13160,7 +13657,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     if (n2 == std::string::npos) { p = shown.size() + 1; break; }
                     p = n2 + 1;
                 }
-                const float blockH = code_block_h(
+                const float reasonH =
+                    chartReason.empty() ? 0.0f : chart_reason_h(chartReason, textW);
+                const float blockH = reasonH + code_block_h(
                     static_cast<int>(codeLines.size()), !lang.empty());
                 const float segTop = y;
                 const float segBot = y + blockH;
@@ -13171,6 +13670,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     pending += blockH;
                 } else {
                     flush(9000 + seg);
+                    if (!chartReason.empty())
+                        render_chart_reason(ctx, parent, 30000 + seg, chartReason, textW);
                     render_code_block(ctx, parent, 100 + seg, lang, codeLines,
                                       textW, &codeStarts);
                 }

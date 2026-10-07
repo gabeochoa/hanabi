@@ -2821,7 +2821,7 @@ class MockClient : public Client {
     // here too. That coupling is the price of the cache; the alternative was
     // rebuilding a 2000-row catalog on every get_session().
     static constexpr const char* kFixtureEnv[] = {
-        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_ELEMENTS_CARD_TABLE", "HANABI_CODE_WRAP_DEMO", "HANABI_MD_IMAGE_DEMO",
+        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_ELEMENTS_CARD_TABLE", "HANABI_CODE_WRAP_DEMO", "HANABI_CHART_DEMO", "HANABI_MD_IMAGE_DEMO",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
@@ -4325,6 +4325,36 @@ class MockClient : public Client {
                  "```",
                  hrs_ago(1), ""},
                 {"cw3", Role::User, "thanks, that reads well", hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        // ```chart fences (kt-exwb): a bar chart with a title and axis names,
+        // a two-series line chart, and one that does not parse. Only under
+        // HANABI_CHART_DEMO.
+        if (const char* ch = std::getenv("HANABI_CHART_DEMO"); ch && *ch == '1') {
+            Session s;
+            s.summary = calm("rchart", "chart the payout drift", hrs_ago(1), "active",
+                             ThreadState::Unknown, "chart fixture");
+            s.messages = {
+                {"ch1", Role::User, "chart the mismatches by day", hrs_ago(2), ""},
+                {"ch2", Role::Assistant,
+                 "Mismatches by day:\n\n```chart\n"
+                 "{\"type\":\"bar\",\"title\":\"Payout mismatches\",\"x\":\"Day\",\"y\":{\"label\":\"Accounts\"},"
+                 "\"series\":[{\"name\":\"Rounding\",\"points\":[{\"x\":\"Mon\",\"y\":4},{\"x\":\"Tue\",\"y\":7},"
+                 "{\"x\":\"Wed\",\"y\":2},{\"x\":\"Thu\",\"y\":5}]},"
+                 "{\"name\":\"Promo credit\",\"points\":[{\"x\":\"Mon\",\"y\":1},{\"x\":\"Tue\",\"y\":3},"
+                 "{\"x\":\"Wed\",\"y\":6},{\"x\":\"Thu\",\"y\":2}]}]}\n"
+                 "```",
+                 hrs_ago(2), ""},
+                {"ch3", Role::User, "and the running total?", hrs_ago(1), ""},
+                {"ch4", Role::Assistant,
+                 "```chart\n"
+                 "{\"type\":\"line\",\"series\":[{\"name\":\"Ledger\",\"points\":[{\"x\":1,\"y\":120.5},"
+                 "{\"x\":2,\"y\":128.6},{\"x\":3,\"y\":131}]},{\"name\":\"Computed\",\"points\":[{\"x\":1,\"y\":116.2},"
+                 "{\"x\":2,\"y\":118},{\"x\":3,\"y\":127.4}]}]}\n"
+                 "```\n\n"
+                 "And one I got wrong:\n\n```chart\n{\"type\":\"pie\",\"series\":[]}\n```",
+                 hrs_ago(1), ""},
             };
             v.push_back(std::move(s));
         }

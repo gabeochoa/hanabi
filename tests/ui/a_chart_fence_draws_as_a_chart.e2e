@@ -1,0 +1,32 @@
+# A ```chart fence in a reply draws as a chart, not as its JSON (the
+# reference's D123317236, ChartBlockView): the fence's header and Copy, an
+# optional title, a 220px plot, the axis names, and a legend whose numbers
+# match the marks. The plot is one drawn element, so what a screen reader
+# hears is its summary -- the kind, the title, every series and value. A fence
+# that does not parse keeps its source under the reason it did not draw.
+# HANABI_CHART_DEMO's thread: a bar chart, a two-series line chart, then a
+# "pie" the parser refuses.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["rchart"],"active_tab":"rchart","theme":"dark"}
+# env: HANABI_CHART_DEMO=1
+require_thread rchart
+wait_frames 30
+# The newest reply is in view: the line chart, and the refusal over its code.
+expect_a11y "Line chart: Ledger, 1 120.5, 2 128.6, 3 131; Computed, 1 116.2, 2 118, 3 127.4"
+expect_text "Chart not drawn: Chart type must be"
+expect_text "Computed"
+assert_ui chart_plot w=571 h=220
+# The bar chart, further up.
+hover_ui chart_reason
+scroll_wheel 0 30
+wait_frames 12
+expect_text "Payout mismatches"
+expect_text "Accounts"
+expect_text "Promo credit"
+expect_a11y "Bar chart, Payout mismatches: Rounding, Mon 4, Tue 7, Wed 2, Thu 5; Promo credit, Mon 1, Tue 3, Wed 6, Thu 2"
+assert_ui chart_block h=323
+# Copy takes the fence's JSON, not what is drawn.
+hover_ui chart_block_copy
+wait_frames 4
+click_ui chart_block_copy
+wait_frames 4
+expect_clipboard_contains "Payout mismatches"

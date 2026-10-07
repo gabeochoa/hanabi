@@ -14486,3 +14486,21 @@ CLASS: TESTING / MISSING
 **Hanabi reference.** `src/ecs/e2e_commands.h` (`HandleCoordArgsCheckCommand`), `src/ecs/e2e_coord_args.h` (`coord_args_ok`), `tests/unit/test_e2e_coord_args.cpp`.
 
 CLASS: TESTING / FOOTGUN
+
+### #612 — a chart needs bars, a categorical axis and dashed lines, and the library's chart offers none of them: `imm::line_chart` plots numeric x only, draws solid lines, and there is no dashed stroke primitive to build one with
+
+**Class:** UI / MISSING (`plugins/ui/line_chart.h`: `ChartSeries` holds `charts::Point` -- numeric x and y -- and the plot is a numeric x extent with solid `draw_line_ex` segments; its `on_draw_fg` lambda captures the whole series vector and the options by value, so every frame copies them through each `ComponentConfig` clone; the backends' drawing helpers have `draw_line_ex` and `draw_triangle` but no dash pattern or polyline stroke; vendor at the 2026-10-07 pin).
+
+**What the reference draws.** A ```chart fence (the web app's chart block, the reference's ChartBlockView, wired into chat by D123317236) is a bar or line chart over CATEGORY labels ("Mon", "Tue", or numbers printed as labels), up to 8 series and 200 points; bars sit side by side in a band per label; lines after the first are dashed with a per-series pattern ([2(i+2), 3]) and alternate series mark their points with squares, so colour never carries a series alone; at most eight axis labels, measured and slid so none overlap.
+
+**How Hanabi hit it.** kt-exwb. `line_chart` cannot draw bars at all, has no categorical axis (its x is a number placed proportionally), and its lines are solid; using it would have meant a second chart that looks and lays out unlike the reference and allocates per frame.
+
+**Workaround.** `src/ui/chart_spec.h` (parse and layout, a port of the reference's ChartSpec / ChartSpecLayout, unit-tested in `tests/unit/test_chart_spec.cpp`) and `main_pane_system.h` `draw_chart_plot` draw the plot from primitives in one `on_draw_fg` that captures a shared pointer to the parsed entry and a float (24 bytes): `draw_rectangle` bars, `draw_line_ex` segments, `draw_circle_v` / square point marks, and `draw_dashed`, an app-side dash walker that carries the on/off phase across a polyline's joints.
+
+**Ask.** A stroke with a dash pattern (`draw_polyline_ex(points, width, color, dash = {})`), and either a bar mark and categorical x in `line_chart` or a lower-level plot primitive both could share; and capture the series by pointer or index rather than by value.
+
+**Upstream acceptance test.** A dashed polyline of total length 30 with pattern {4, 3} draws 5 segments whose lengths sum to 18 (phase carried across a joint); a bar chart over labels {"a","b"} places bar centres at 1/4 and 3/4 of the plot width.
+
+**Hanabi reference.** `src/ui/chart_spec.h`, `src/ecs/main_pane_system.h` (`draw_chart_plot`, `draw_dashed`, `render_chart_block`), `tests/ui/a_chart_fence_draws_as_a_chart.e2e`.
+
+CLASS: UI / MISSING
