@@ -89,10 +89,35 @@ inline std::string name(const Image& im) {
     return a.empty() ? std::string("Image") : std::string(a);
 }
 
-inline std::string chip_label(const Image& im, Kind kind) {
+// The host of an http(s) URL, lowercased; "" for anything else.
+inline std::string host_of(std::string_view url) {
+    const std::size_t scheme = url.find("://");
+    if (scheme == std::string_view::npos) return {};
+    std::string_view rest = url.substr(scheme + 3);
+    rest = rest.substr(0, rest.find_first_of("/?#"));
+    std::string out(rest.substr(0, rest.find(':')));
+    for (char& c : out)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return out;
+}
+
+// Where a web chip's button takes the reader, in words. A Pixelcloud post
+// (pxl.cl redirects to a gated page, which is why it cannot be drawn: the
+// reference's D123327745) says Pixelcloud; the web app's own addresses say
+// the web app; any other address opens in the browser. `webBase` is the web
+// app's origin; empty keeps the old wording.
+inline std::string web_place(std::string_view where, std::string_view webBase) {
+    const std::string host = host_of(where);
+    if (host == "pxl.cl" || host.find("pixelcloud") != std::string::npos) return "Pixelcloud";
+    if (webBase.empty() || host.empty() || host == host_of(webBase)) return "the web app";
+    return "the browser";
+}
+
+inline std::string chip_label(const Image& im, Kind kind, std::string_view where = {},
+                              std::string_view webBase = {}) {
     if (kind == Kind::None) return name(im) + " \xc2\xb7 this picture has no address Hanabi can open";
-    const char* where = kind == Kind::Repo ? "CodeHub" : "the web app";
-    return name(im) + " \xc2\xb7 can't be shown here \xc2\xb7 open it in " + where;
+    const std::string place = kind == Kind::Repo ? std::string("CodeHub") : web_place(where, webBase);
+    return name(im) + " \xc2\xb7 can't be shown here \xc2\xb7 open it in " + place;
 }
 
 }  // namespace hanabi::md_image

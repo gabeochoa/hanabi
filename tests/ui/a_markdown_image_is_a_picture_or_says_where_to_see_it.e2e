@@ -2,7 +2,8 @@
 # `![alt](...)` text (the reference's MarkdownImageView, kt-g07i: "an image
 # that cannot load must SAY so"). A file on this Mac draws; an app-relative
 # web address is a chip whose button opens it in the web app (its intern auth
-# is a wall this app has no cookie for); a repo path opens in CodeHub.
+# is a wall this app has no cookie for); a repo path opens in CodeHub. A
+# click on the drawn picture opens it full size in the app's own viewer.
 #
 # settings: {"window_width":1100,"window_height":900,"open_tabs":[],"active_tab":"","theme":"dark"}
 # env: HANABI_MD_IMAGE_DEMO=1 HANABI_OPEN=rmdimage HANABI_LINK_AUDIT=1
@@ -16,3 +17,13 @@ expect_text "app logo · can't be shown here · open it in CodeHub"
 click_text "Zoom test chart · can't be shown here · open it in the web app"
 wait_frames 6
 expect_link_opened https://agentcloud.internalmeta.com/api/attachments/view?file_id=123
+
+# A click on the picture opens it in the app's own viewer, not the browser
+# (the reference's D123319957); Escape puts it away.
+click_ui md_image
+wait_frames 6
+assert_ui artifact_viewer_image hidden=false
+expect_text "Esc closes"
+key ESCAPE
+wait_frames 6
+expect_no_ui artifact_viewer_image

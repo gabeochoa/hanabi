@@ -11202,13 +11202,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // this Mac, else a chip. One height function for measure and draw.
     static constexpr float kMdImageMaxH = 320.0f;  // the reference's maxHeight
     static constexpr float kMdImageChipH = 30.0f;
-    static hanabi::md_image::Target md_image_target(const hanabi::md_image::Image& im) {
-        // The web app's origin: the configured base, else the agentcloud web
-        // origin the app-relative addresses an agent writes belong to.
+    // The web app's origin: the configured base, else the agentcloud web
+    // origin the app-relative addresses an agent writes belong to.
+    static std::string md_web_base() {
         const AppComponent* app = app_singleton();
-        const std::string base = (app && !app->webBaseUrl.empty())
-                                     ? app->webBaseUrl
-                                     : std::string("https://") + api::agentcloud_hosts::kWebOrigin;
+        return (app && !app->webBaseUrl.empty())
+                   ? app->webBaseUrl
+                   : std::string("https://") + api::agentcloud_hosts::kWebOrigin;
+    }
+    static hanabi::md_image::Target md_image_target(const hanabi::md_image::Image& im) {
+        const std::string base = md_web_base();
         return hanabi::md_image::resolve(im.source, base,
                                          [](const std::string& p) {
                                              std::error_code ec;
@@ -12900,20 +12903,37 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (t.kind == hanabi::md_image::Kind::Local && hanabi::inline_image::available(t.where)) {
             const std::string path = t.where;
             const float imgH = blockH - 12.0f;
-            div(ctx, mk(parent, id),
+            auto img = div(ctx, mk(parent, id),
                 ComponentConfig{}
                     .with_label(" ")
                     .with_size(ComponentSize{pixels(textW), pixels(imgH)})
                     .with_margin(Margin{.top = pixels(6), .bottom = pixels(6)})
                     .with_transparent_bg()
                     .with_roundness(0.0f)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
                     .with_on_draw_fg([path, textW, imgH](RectangleType r) {
                         hanabi::inline_image::draw(path, r.x, r.y, textW, imgH);
                     })
                     .with_debug_name("md_image"));
+            // A click opens the picture in the app's own viewer, full size,
+            // not the browser (the reference's D123319957, kt-5uml) -- the
+            // same viewer an artifact picture opens in.
+            img.ent().addComponentIfMissing<afterhours::ui::HasClickListener>([](Entity&) {});
+            if (img.ent().get<afterhours::ui::HasClickListener>().down) {
+                if (AppComponent* app = app_singleton()) {
+                    if (app->viewerImagePath.empty()) {
+                        app->viewerFocusBefore = hanabi::native_menu::viewer_focus_before(
+                            static_cast<long long>(ctx.focus_id), static_cast<long long>(img.ent().id),
+                            app->focusBeforeLastPress);
+                        app->viewerOpenerEntity = static_cast<long long>(img.ent().id);
+                    }
+                    app->viewerImagePath = path;
+                    app->viewerImageName = hanabi::md_image::name(im);
+                }
+            }
             return;
         }
-        const std::string label = hanabi::md_image::chip_label(im, t.kind);
+        const std::string label = hanabi::md_image::chip_label(im, t.kind, t.where, md_web_base());
         const float chipW = std::min(textW, theme::text_px(label, theme::type::SM) + 28.0f);
         // A fresh config per call: div MOVES the one it is handed.
         const auto chip = [&]() {

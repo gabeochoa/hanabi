@@ -44,6 +44,10 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
                 if (m.kind == api::EventKind::Artifact && !m.artifact.hidden &&
                     m.image_path == path)
                     return true;
+                // A markdown picture in a message's text (ui/md_image.h)
+                // opens here too, and stays while its message is shown.
+                else if (m.kind == api::EventKind::Text && m.text.find(path) != std::string::npos)
+                    return true;
         }
         return false;
     }

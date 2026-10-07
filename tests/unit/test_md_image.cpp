@@ -41,6 +41,16 @@ int main() {
     CHECK(mi::resolve("", web, none).kind == mi::Kind::None);
     CHECK(mi::resolve("data:image/png;base64,AAAA", web, none).kind == mi::Kind::None);
     CHECK(mi::name(mi::Image{"  ", "u"}) == "Image");
+    // Where a web chip says it opens (D123327745: a Pixelcloud post says so).
+    CHECK(mi::host_of("https://Pxl.CL:443/abc?x") == "pxl.cl");
+    CHECK(mi::web_place("https://pxl.cl/7Hq2", web) == "Pixelcloud");
+    CHECK(mi::web_place("https://agentcloud.example.com/api/x", web) == "the web app");
+    CHECK(mi::web_place("https://x.example/p.png", web) == "the browser");
+    CHECK(mi::web_place("https://x.example/p.png", "") == "the web app");
+    CHECK(mi::chip_label(mi::Image{"shot", "u"}, mi::Kind::Web, "https://pxl.cl/7Hq2", web) ==
+          "shot \xc2\xb7 can't be shown here \xc2\xb7 open it in Pixelcloud");
+    CHECK(mi::chip_label(mi::Image{"logo", "u"}, mi::Kind::Repo) ==
+          "logo \xc2\xb7 can't be shown here \xc2\xb7 open it in CodeHub");
     if (failures == 0) {
         std::printf("OK\n");
         return 0;
