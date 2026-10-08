@@ -3,6 +3,7 @@
 #include "pins_wire.h"
 #include "element_table.h"
 #include "agentcloud_client.h"
+#include "resume_paging.h"
 #include "wire_clock.h"
 #include "disk_cache.h"
 #include "inbox_state_wire.h"
@@ -20,6 +21,7 @@
 #include <vector>
 #include <mutex>
 #include <future>
+#include <optional>
 #include <set>
 #include <unordered_map>
 #include <utility>
@@ -2582,7 +2584,6 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     // real limit would ask for a single frame and hand back a one-message
     // transcript, which is how this first went wrong.
     const bool want_all = (limit <= 0);
-    const int per_page = want_all ? 500 : (limit > 500 ? 500 : limit);
     // A resume pages until it reaches the seq the caller already holds, so a
     // long absence is drained whole instead of clipped to one window.
     const bool resume = !want_all && since_seq > 0;
@@ -2590,54 +2591,68 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     // sit here for". 20 pages of 500 is 10k frames, well past any transcript a
     // person reads, and the caller still learns there is more.
     constexpr int kMaxPages = 20;
-
+    const int pageBound = hanabi::api::resume_paging::page_bound(want_all, resume, kMaxPages);
     // Pages arrive newest-first, oldest-first WITHIN a page. Collect them and
     // splice in ascending seq order so the fold sees one continuous history --
     // a tool_result must be able to find an intent from an earlier page.
     std::vector<json> pages;
     uint64_t before = std::numeric_limits<uint64_t>::max();
     bool done = false;
-    for (int p = 0; p < ((want_all || resume) ? kMaxPages : 1) && !done; ++p) {
+    bool reached = !resume;
+    const auto page_failure = [&](const std::string& why) -> std::optional<std::string> {
+        const auto gap = hanabi::api::resume_paging::on_page_error(
+            resume, static_cast<int>(pages.size()), before);
+        if (!gap.keepPages) return fail(why);
+        out->resume_retry_before = gap.retryBefore;
+        done = false;
+        return std::nullopt;
+    };
+    for (int p = 0; p < pageBound && !done; ++p) {
+        const int per_page = hanabi::api::resume_paging::page_limit(p, limit, resume);
         const json page_env = {{"sub", 1},
                                {"payload",
                                 {{"cmd", "page"},
                                  {"before", before},
                                  {"limit", per_page}}}};
         const std::string page_wire = page_env.dump();
-        if (!ws_send_text(conn, page_wire.data(), page_wire.size()))
-            return fail("socket closed before page was sent");
-
+        if (!ws_send_text(conn, page_wire.data(), page_wire.size())) {
+            if (auto f = page_failure("socket closed before page was sent")) return *f;
+            break;
+        }
         const json page = q.wait_for_type("page", kReplyTimeoutSecs);
-        if (page.is_discarded())
-            return fail("no page for " + id + " (" + q.why_closed() + ")");
-        if (str_or(page, "type", "") == "error")
-            return fail("page refused: " +
-                        str_or(page, "message", "(no message)"));
-
+        if (page.is_discarded()) {
+            if (auto f = page_failure("no page for " + id + " (" + q.why_closed() + ")")) return *f;
+            break;
+        }
+        if (str_or(page, "type", "") == "error") {
+            if (auto f = page_failure("page refused: " + str_or(page, "message", "(no message)"))) return *f;
+            break;
+        }
         const json& frames = page.contains("frames") && page["frames"].is_array()
                                  ? page["frames"]
                                  : json::array();
         if (frames.empty()) { done = true; break; }
-
-        // Next page ends where this one begins.
         const uint64_t oldest =
             static_cast<uint64_t>(int_or(frames.front(), "seq", 0));
         pages.push_back(frames);
         done = bool_or(page, "done", true);
-        if (oldest == 0) break;  // no usable cursor; stop rather than spin
-        if (resume && oldest <= since_seq) break;
-        before = oldest;
+        switch (hanabi::api::resume_paging::after_page(resume, oldest, since_seq)) {
+            case hanabi::api::resume_paging::Next::Reached: reached = true; done = true; break;
+            case hanabi::api::resume_paging::Next::NoCursor: done = true; break;
+            // Next page ends where this one begins.
+            case hanabi::api::resume_paging::Next::Continue: before = oldest; break;
+        }
+        if (done && !reached && resume) out->resume_retry_before = oldest;
     }
-
+    if (resume && !reached && !done) out->resume_retry_before = before;
     json all = json::array();
     for (auto it = pages.rbegin(); it != pages.rend(); ++it)
         for (const json& f : *it) all.push_back(f);
-
     const json combined = {{"type", "page"}, {"frames", all}};
     agentcloud::install_paged_transcript(combined.dump(), *out);
     agentcloud::parse_element_state(hello.dump(), *out);
     // Only claim there is more when the server said so and we stopped asking.
-    out->has_more_older = !done;
+    out->has_more_older = !done || (resume && !reached);
     return hello.dump();
 }
 

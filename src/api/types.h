@@ -910,6 +910,7 @@ struct Session {
     // (no limit) it is false. Defaults false so a full/mock transcript reads as
     // complete.
     bool has_more_older = false;
+    std::uint64_t resume_retry_before = 0;
 
     // Token accounting from the backend (see ContextUsage). Left at its
     // defaults by any adapter that reports none.
