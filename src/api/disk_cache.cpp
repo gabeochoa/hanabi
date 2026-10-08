@@ -1,4 +1,5 @@
 #include "disk_cache.h"
+#include "transcript_export.h"
 #include "wire_clock.h"
 #include <branding.h>
 
@@ -880,9 +881,16 @@ std::string slugify(const std::string& s, const std::string& fallback) {
 }
 }  // namespace
 
+namespace {
+ExportTally g_last_export_tally;
+}
+
+ExportTally last_export_tally() { return g_last_export_tally; }
+
 int export_all_markdown() { return export_all_markdown(export_dir()); }
 
 int export_all_markdown(const std::string& dst) {
+    g_last_export_tally = ExportTally{};
     const std::string src = cache_dir();
     if (src.empty() || dst.empty()) return 0;
     std::error_code ec;
@@ -907,6 +915,8 @@ int export_all_markdown(const std::string& dst) {
             if (doc.contains("messages") && doc["messages"].is_array())
                 for (const auto& e : doc["messages"])
                     s.messages.push_back(message_from_json(e));
+            if (doc.contains("has_more_older") && doc["has_more_older"].is_boolean())
+                s.has_more_older = doc["has_more_older"].get<bool>();
         } catch (...) {
             continue;
         }
@@ -921,12 +931,31 @@ int export_all_markdown(const std::string& dst) {
             if (!m.tool_result.empty())
                 md += "```\n" + m.tool_result + "\n```\n\n";
         }
-        const std::string fname =
-            slugify(s.summary.title, s.summary.id) + ".md";
-        std::ofstream out(fs::path(dst) / fname, std::ios::trunc);
+        const std::string slug = slugify(s.summary.title, s.summary.id);
+        std::ofstream out(fs::path(dst) / (slug + ".md"), std::ios::trunc);
         if (out.good()) {
             out << md;
             ++written;
+            ++g_last_export_tally.markdown;
+        }
+        hanabi::api::transcript_export::Document structured;
+        switch (hanabi::api::transcript_export::build(s, structured)) {
+            case hanabi::api::transcript_export::Outcome::RefusedSeqOrder:
+                ++g_last_export_tally.refused_seq;
+                break;
+            case hanabi::api::transcript_export::Outcome::Empty:
+                break;
+            case hanabi::api::transcript_export::Outcome::Written: {
+                std::ofstream js(fs::path(dst) / (slug + ".json"), std::ios::trunc);
+                std::ofstream jl(fs::path(dst) / (slug + ".jsonl"), std::ios::trunc);
+                if (js.good() && jl.good()) {
+                    js << hanabi::api::transcript_export::to_json(structured);
+                    jl << hanabi::api::transcript_export::to_jsonl(structured);
+                    ++g_last_export_tally.structured;
+                    if (!structured.header.complete) ++g_last_export_tally.incomplete;
+                }
+                break;
+            }
         }
     }
     return written;

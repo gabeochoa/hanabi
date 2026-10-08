@@ -2439,9 +2439,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         static int s_exported = -1;  // -1 = not yet; >=0 = last export count
         const std::string dest = export_destination();
         std::string left = "Export threads to " + tilde(dest);
-        if (s_exported >= 0)
+        if (s_exported >= 0) {
+            const api::disk_cache::ExportTally tally = api::disk_cache::last_export_tally();
             left = "Exported " + std::to_string(s_exported) + " threads to " +
-                   tilde(dest);
+                   tilde(dest) + " (Markdown + JSON/JSONL for " +
+                   std::to_string(tally.structured) + ")";
+            if (tally.refused_seq > 0)
+                left += "; " + std::to_string(tally.refused_seq) +
+                        " out of order, Markdown only";
+            if (tally.incomplete > 0)
+                left += "; " + std::to_string(tally.incomplete) +
+                        " marked incomplete";
+        }
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
                 .with_label(left)

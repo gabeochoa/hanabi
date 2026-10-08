@@ -104,6 +104,13 @@ int export_all_markdown();
 // exists because a destination the user picked has to be honoured over the
 // default, and neither should have to know about the other.
 int export_all_markdown(const std::string& dst);
+struct ExportTally {
+    int markdown = 0;
+    int structured = 0;
+    int refused_seq = 0;
+    int incomplete = 0;
+};
+ExportTally last_export_tally();
 
 // --- Local full-text search (local-first idea #3) -----------------------
 // content_matches(id, lowerQuery): true if the CACHED transcript for `id`
