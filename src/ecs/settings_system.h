@@ -2446,7 +2446,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                    std::to_string(tally.structured) + ")";
             if (tally.refused_seq > 0)
                 left += "; " + std::to_string(tally.refused_seq) +
-                        " out of order, Markdown only";
+                        " with a sequence that runs backwards, Markdown only";
             if (tally.incomplete > 0)
                 left += "; " + std::to_string(tally.incomplete) +
                         " marked incomplete";

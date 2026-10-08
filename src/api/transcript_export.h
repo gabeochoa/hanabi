@@ -114,18 +114,18 @@ inline Outcome build(const ::api::Session& s, Document& out) {
         if (m.created_at > 0) r.created_at_unix_ms = m.created_at * 1000;
         out.records.push_back(std::move(r));
     }
-    if (anySeq && anyMissing) return Outcome::RefusedSeqOrder;
-    out.header.seq_axis = anySeq ? "valid" : "absent";
+    out.header.seq_axis = !anySeq ? "absent" : (anyMissing ? "partial" : "valid");
     return out.records.empty() ? Outcome::Empty : Outcome::Written;
 }
 
-inline nlohmann::json header_json(const Header& h) {
+inline nlohmann::json metadata_json(const Header& h) {
     return nlohmann::json{{"schema", std::string(kSchema)},
                           {"session_id", h.session_id},
                           {"title", h.title},
                           {"complete", h.complete},
                           {"seq", h.seq_axis},
-                          {"contents", h.contents}};
+                          {"contents", h.contents},
+                          {"source", "local_cache"}};
 }
 
 inline nlohmann::json record_json(const Record& r) {
@@ -136,17 +136,22 @@ inline nlohmann::json record_json(const Record& r) {
 }
 
 inline std::string to_json(const Document& d) {
-    nlohmann::json j = header_json(d.header);
     nlohmann::json records = nlohmann::json::array();
     for (const Record& r : d.records) records.push_back(record_json(r));
-    j["records"] = std::move(records);
+    const nlohmann::json j{{"metadata", metadata_json(d.header)}, {"records", std::move(records)}};
     return j.dump(2) + "\n";
 }
 
 inline std::string to_jsonl(const Document& d) {
-    std::string out = header_json(d.header).dump() + "\n";
+    const nlohmann::json first{{"kind", "export_metadata"}, {"metadata", metadata_json(d.header)}};
+    std::string out = first.dump() + "\n";
     for (const Record& r : d.records) out += record_json(r).dump() + "\n";
     return out;
+}
+
+inline std::string markdown_provenance(const Header& h) {
+    if (h.complete) return std::string();
+    return "_Exported from this Mac's local cache window; older history is not included._\n\n";
 }
 
 }

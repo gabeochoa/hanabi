@@ -48,15 +48,20 @@ int main() {
     CHECK(d.records[1].role == "assistant" && !d.records[1].created_at_unix_ms.has_value() == false);
 
     auto j = nlohmann::json::parse(te::to_json(d));
-    CHECK(j["schema"] == "puffin.transcript.v1" && j["records"].size() == 2 && j["records"][0]["seq"] == 10);
+    CHECK(j["metadata"]["schema"] == "puffin.transcript.v1" && j["metadata"]["source"] == "local_cache");
+    CHECK(j["records"].size() == 2 && j["records"][0]["seq"] == 10);
+    CHECK(!j.contains("schema"));
     const std::string jl = te::to_jsonl(d);
     CHECK(std::count(jl.begin(), jl.end(), '\n') == 3);
     auto first = nlohmann::json::parse(jl.substr(0, jl.find('\n')));
-    CHECK(first["schema"] == "puffin.transcript.v1" && first["complete"] == true);
+    CHECK(first["kind"] == "export_metadata" && first["metadata"]["schema"] == "puffin.transcript.v1" &&
+          first["metadata"]["complete"] == true);
+    CHECK(te::markdown_provenance(d.header).empty());
 
     api::Session windowed = s;
     windowed.has_more_older = true;
     CHECK(te::build(windowed, d) == te::Outcome::Written && !d.header.complete);
+    CHECK(te::markdown_provenance(d.header).find("local cache window") != std::string::npos);
 
     api::Session unordered = s;
     unordered.messages[1].id = "9";
@@ -67,8 +72,12 @@ int main() {
     CHECK(te::build(dup, d) == te::Outcome::RefusedSeqOrder);
 
     api::Session mixed = s;
-    mixed.messages[1].id = "local:abc";
-    CHECK(te::build(mixed, d) == te::Outcome::RefusedSeqOrder);
+    mixed.messages[1].id = "";
+    mixed.messages[1].local_id = "pending-1";
+    CHECK(te::build(mixed, d) == te::Outcome::Written && d.header.seq_axis == "partial");
+    CHECK(d.records[0].seq == 10u && !d.records[1].seq.has_value());
+    auto mj = nlohmann::json::parse(te::to_json(d));
+    CHECK(mj["records"][0].contains("seq") && !mj["records"][1].contains("seq"));
 
     api::Session noSeq = s;
     noSeq.messages[0].id = "tk1";

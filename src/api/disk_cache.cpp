@@ -924,6 +924,8 @@ int export_all_markdown(const std::string& dst) {
         std::string md = "# " + (s.summary.title.empty() ? s.summary.id
                                                           : s.summary.title) +
                          "\n\n";
+        md += hanabi::api::transcript_export::markdown_provenance(
+            hanabi::api::transcript_export::Header{s.summary.id, s.summary.title, !s.has_more_older, {}, {}});
         for (const auto& m : s.messages) {
             md += "**" + std::string(role_word(m.role)) + "**\n\n";
             md += m.text;
