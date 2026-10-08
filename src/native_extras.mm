@@ -1329,11 +1329,21 @@ bool native_take_clipboard_image(char* out, int cap) {
         std::string_view ext = hanabi::paste_image::kFallbackExtension;
         for (const hanabi::paste_image::Kind& k : hanabi::paste_image::kPreferred) {
             NSData* data = [pb dataForType:[NSString stringWithUTF8String:std::string(k.uti).c_str()]];
-            if (data != nil && [data length] > 0) {
-                png = data;
-                ext = k.extension;
-                break;
+            if (data == nil || [data length] == 0) continue;
+            switch (hanabi::paste_image::decide(k.uti, [data length],
+                                                api::attachments::kMaxFileBytes)) {
+                case hanabi::paste_image::Decision::KeepOriginal:
+                    png = data;
+                    ext = k.extension;
+                    break;
+                case hanabi::paste_image::Decision::Refuse:
+                    NSLog(@"native_extras: pasted %s is %lu bytes, over the attachment cap; not flattened",
+                          std::string(k.uti).c_str(), (unsigned long)[data length]);
+                    return false;
+                case hanabi::paste_image::Decision::Reencode:
+                    break;
             }
+            break;
         }
         if (png == nil) {
             NSImage* img = [[NSImage alloc] initWithPasteboard:pb];
