@@ -2598,13 +2598,13 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     std::vector<json> pages;
     uint64_t before = std::numeric_limits<uint64_t>::max();
     bool done = false;
+    bool serverDone = false;
     bool reached = !resume;
     const auto page_failure = [&](const std::string& why) -> std::optional<std::string> {
         const auto gap = hanabi::api::resume_paging::on_page_error(
             resume, static_cast<int>(pages.size()), before);
         if (!gap.keepPages) return fail(why);
-        out->resume_retry_before = gap.retryBefore;
-        done = false;
+        serverDone = false;
         return std::nullopt;
     };
     for (int p = 0; p < pageBound && !done; ++p) {
@@ -2635,16 +2635,15 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
         const uint64_t oldest =
             static_cast<uint64_t>(int_or(frames.front(), "seq", 0));
         pages.push_back(frames);
-        done = bool_or(page, "done", true);
+        serverDone = bool_or(page, "done", true);
+        done = serverDone;
         switch (hanabi::api::resume_paging::after_page(resume, oldest, since_seq)) {
             case hanabi::api::resume_paging::Next::Reached: reached = true; done = true; break;
             case hanabi::api::resume_paging::Next::NoCursor: done = true; break;
             // Next page ends where this one begins.
             case hanabi::api::resume_paging::Next::Continue: before = oldest; break;
         }
-        if (done && !reached && resume) out->resume_retry_before = oldest;
     }
-    if (resume && !reached && !done) out->resume_retry_before = before;
     json all = json::array();
     for (auto it = pages.rbegin(); it != pages.rend(); ++it)
         for (const json& f : *it) all.push_back(f);
@@ -2652,7 +2651,7 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     agentcloud::install_paged_transcript(combined.dump(), *out);
     agentcloud::parse_element_state(hello.dump(), *out);
     // Only claim there is more when the server said so and we stopped asking.
-    out->has_more_older = !done || (resume && !reached);
+    out->has_more_older = hanabi::api::resume_paging::has_more_older(resume, reached, serverDone, done);
     return hello.dump();
 }
 

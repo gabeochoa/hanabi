@@ -34,11 +34,18 @@ int main() {
     CHECK(rp::after_page(false, 12, 50) == rp::Next::Continue);
 
     const rp::GapOutcome none = rp::on_page_error(true, 0, 999);
-    CHECK(!none.keepPages && !none.hasMoreOlder && none.retryBefore == 0);
+    CHECK(!none.keepPages && !none.hasMoreOlder);
     const rp::GapOutcome kept = rp::on_page_error(true, 2, 777);
-    CHECK(kept.keepPages && kept.hasMoreOlder && kept.retryBefore == 777);
+    CHECK(kept.keepPages && kept.hasMoreOlder);
     const rp::GapOutcome plain = rp::on_page_error(false, 2, 777);
     CHECK(!plain.keepPages);
+
+    CHECK(!rp::has_more_older(true, true, true, true));
+    CHECK(rp::has_more_older(true, true, false, true));
+    CHECK(rp::has_more_older(true, false, true, true));
+    CHECK(rp::has_more_older(true, false, false, false));
+    CHECK(!rp::has_more_older(false, false, false, true));
+    CHECK(rp::has_more_older(false, false, true, false));
 
     CHECK(rp::gap_closed(false, 0, 0));
     CHECK(rp::gap_closed(true, 50, 50));

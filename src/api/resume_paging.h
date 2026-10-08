@@ -30,12 +30,16 @@ inline Next after_page(bool resume, std::uint64_t oldestSeq, std::uint64_t since
 struct GapOutcome {
     bool keepPages;
     bool hasMoreOlder;
-    std::uint64_t retryBefore;
 };
 
-inline GapOutcome on_page_error(bool resume, int pagesHeld, std::uint64_t before) {
-    if (!resume || pagesHeld == 0) return GapOutcome{false, false, 0};
-    return GapOutcome{true, true, before};
+inline GapOutcome on_page_error(bool resume, int pagesHeld, std::uint64_t) {
+    if (!resume || pagesHeld == 0) return GapOutcome{false, false};
+    return GapOutcome{true, true};
+}
+
+inline bool has_more_older(bool resume, bool reached, bool serverDone, bool loopDone) {
+    if (!resume) return !loopDone;
+    return !reached || !serverDone;
 }
 
 inline bool gap_closed(bool resume, std::uint64_t oldestSeq, std::uint64_t sinceSeq) {
