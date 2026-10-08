@@ -20,6 +20,7 @@
 #include "../api/disk_cache.h"
 #include "load_older_model.h"
 #include "created_at_walk.h"
+#include "../test_hooks.h"
 #include "../util/capture_clock.h"
 #include "../native_snooze_prompt.h"
 #include "surface_tabs.h"
@@ -3005,6 +3006,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.streamActive = true;
                 app.streamSessionId = id;
                 app.streamBuffer.clear();
+                hanabi::test_hooks::rearm_stream_demo();
                 app.streamQueue = std::move(got.chunks);
                 app.streamCursor = 0;
                 app.streamFinal = got.finalMsg;
@@ -3046,7 +3048,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
             return 0;
         }();
-        if (kDemoCapSet && app.streamCursor >= kDemoCap) {
+        if (kDemoCapSet && !hanabi::test_hooks::stream_demo_released() &&
+            app.streamCursor >= kDemoCap) {
             // Held for the demo capture. At K==0 keep the phase THINKING (no
             // tokens yet → thinking indicator shows); at K>0 keep it Streaming
             // so the mid-stream caret shows.

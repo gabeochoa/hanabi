@@ -1,5 +1,5 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
-# env: HANABI_SYNTAX_AUDIT=1 HANABI_MOCK_STREAM_CHUNK_HOLD_MS=80
+# env: HANABI_SYNTAX_AUDIT=1 HANABI_STREAM_DEMO_MAXTOKENS=12
 require_thread t2
 wait_frames 10
 click_ui composer_reply_input
@@ -7,10 +7,12 @@ wait_frames 4
 type "show the python helper"
 wait_frames 4
 key ENTER
-wait_frames 30
+wait_frames 60
 expect_text "Here is the helper:"
+expect_no_text "It caps at five seconds."
 assert_ui code_block hidden=false
 assert_ui code_block_audit_PYTHON text=kw0/ty0/str0/com0/num0
-wait_frames 240
+release_stream_demo
+wait_frames 40
 expect_text "It caps at five seconds."
 assert_ui code_block_audit_PYTHON text=kw2/ty0/str0/com1/num3

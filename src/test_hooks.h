@@ -195,6 +195,14 @@ inline CardAuditCounts& card_audit_counts() {
 // #61) — so without this the only assertable thing is that the code is still
 // on screen, which was true before the highlighter existed. Same contract as
 // the two above: read once, hard no-op when unset.
+inline bool& stream_demo_released_flag() {
+    static bool released = false;
+    return released;
+}
+inline bool stream_demo_released() { return stream_demo_released_flag(); }
+inline void release_stream_demo() { stream_demo_released_flag() = true; }
+inline void rearm_stream_demo() { stream_demo_released_flag() = false; }
+
 inline bool syntax_audit() {
     static const bool on = [] {
         const char* v = std::getenv("HANABI_SYNTAX_AUDIT");

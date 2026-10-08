@@ -2917,6 +2917,17 @@ struct HandleReleaseHaltObserveCommand
 // stays green until some later assertion happens to notice. Registered ahead
 // of the library's handlers (register_hanabi_pre_handlers), so the refusal
 // is at the line that mixed the two paths, not at the assertion after it.
+struct HandleReleaseStreamDemoCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("release_stream_demo")) return;
+        hanabi::test_hooks::release_stream_demo();
+        cmd.consume();
+    }
+};
+
 struct HandleInjectedInputWhileNativeCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     static bool is_injected_input(const afterhours::testing::PendingE2ECommand& cmd) {
@@ -4899,6 +4910,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectHaltCommand>());
     sm.register_update_system(std::make_unique<HandleExpectAccessCommand>());
     sm.register_update_system(std::make_unique<HandleReleaseHaltObserveCommand>());
+    sm.register_update_system(std::make_unique<HandleReleaseStreamDemoCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());

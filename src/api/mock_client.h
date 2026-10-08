@@ -1296,11 +1296,7 @@ class MockClient : public Client {
                 compaction_marker_payload(
                     markerId, s ? compaction_summary_of(*s) : std::string())});
         }
-        for (const auto& c : plan.chunks) {
-            sink.emit_delta(c);
-            if (const int hold = stream_chunk_hold_ms(); hold > 0)
-                std::this_thread::sleep_for(std::chrono::milliseconds(hold));
-        }
+        for (const auto& c : plan.chunks) sink.emit_delta(c);
         sink.emit_done(plan.final);
     }
 
@@ -2512,13 +2508,6 @@ class MockClient : public Client {
     // `latch` holds it until release_compaction() -- the e2e command of the
     // same name -- flips the flag, which is how a scripted test observes the
     // running row and then the promotion without a clock in the loop.
-    static int stream_chunk_hold_ms() {
-        const char* v = std::getenv("HANABI_MOCK_STREAM_CHUNK_HOLD_MS");
-        if (v == nullptr || *v == '\0') return 0;
-        const int n = std::atoi(v);
-        return n < 0 ? 0 : n;
-    }
-
     static int compact_hold_ms() {
         static const int hold = [] {
             const char* v = std::getenv("HANABI_MOCK_COMPACT_HOLD_MS");
