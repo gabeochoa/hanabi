@@ -29,12 +29,14 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "api/attachments.h"
 #include "ui/image_markup.h"
 #include "native_e2e_guard.h"
 #include "native_extras.h"
+#include "paste_image.h"
 
 // Debug-only native logging. The hotkey register/unregister fires on EVERY
 // focus change (app activate/resign), which floods the console (Gabe: "you can
@@ -1270,13 +1272,14 @@ static NSPasteboard* hanabi_paste_source(void) {
 // Raw pasted pixels have no file behind them, so give them one: a PNG under
 // the temp dir, named uniquely so two pastes never collide. Returns "" if the
 // data cannot be turned into a PNG or cannot be written.
-static std::string write_temp_png(NSData* png) {
+static std::string write_temp_png(NSData* png,
+                                  std::string_view ext = hanabi::paste_image::kFallbackExtension) {
     if (png == nil || [png length] == 0) return std::string();
     NSString* dir = NSTemporaryDirectory();
     NSString* prefix = [NSString
         stringWithUTF8String:product_branding::kStorageName];
-    NSString* name = [NSString stringWithFormat:@"%@-paste-%@.png", prefix,
-        [[NSUUID UUID] UUIDString]];
+    NSString* name = [NSString stringWithFormat:@"%@-paste-%@%s", prefix,
+        [[NSUUID UUID] UUIDString], std::string(ext).c_str()];
     NSString* path = [dir stringByAppendingPathComponent:name];
     NSError* err = nil;
     if (![png writeToFile:path options:NSDataWritingAtomic error:&err]) {
@@ -1322,7 +1325,16 @@ bool native_take_clipboard_image(char* out, int cap) {
         // from a browser. PNG if the pasteboard has it; otherwise anything
         // NSImage can read is re-encoded, because the chip and every future
         // send path want ONE format rather than whatever the source felt like.
-        NSData* png = [pb dataForType:NSPasteboardTypePNG];
+        NSData* png = nil;
+        std::string_view ext = hanabi::paste_image::kFallbackExtension;
+        for (const hanabi::paste_image::Kind& k : hanabi::paste_image::kPreferred) {
+            NSData* data = [pb dataForType:[NSString stringWithUTF8String:std::string(k.uti).c_str()]];
+            if (data != nil && [data length] > 0) {
+                png = data;
+                ext = k.extension;
+                break;
+            }
+        }
         if (png == nil) {
             NSImage* img = [[NSImage alloc] initWithPasteboard:pb];
             if (img == nil) return false;
@@ -1333,7 +1345,7 @@ bool native_take_clipboard_image(char* out, int cap) {
             png = [rep representationUsingType:NSBitmapImageFileTypePNG
                                     properties:@{}];
         }
-        const std::string path = write_temp_png(png);
+        const std::string path = write_temp_png(png, ext);
         if (path.empty()) return false;
         std::strncpy(out, path.c_str(), static_cast<size_t>(cap - 1));
         out[cap - 1] = '\0';
