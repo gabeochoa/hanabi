@@ -10,8 +10,10 @@
 #include "../ui/md_table_align.h"
 #include "../ui/selection_quote.h"
 #include "../api/list_failure.h"
+#include <algorithm>
 #include <array>
 #include <bitset>
+#include <cctype>
 #include <branding.h>
 
 // Renders the main pane (right of the sidebar, below the tab strip). Dispatches
@@ -4422,7 +4424,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const bool live = streamingHere && static_cast<size_t>(i) == liveIdx;
             if (is_thinking(m) && !live) {
                 c.kind = model::RowGeom::Thinking;
-                c.hidden = !lf.show_reasoning;
+                c.hidden = !lf.show_reasoning || thinking_is_blank(m);
                 return c;
             }
             c.kind = m.role == api::Role::System ? model::RowGeom::System
@@ -15587,6 +15589,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static constexpr float kThinkingRowH = 26.0f;
     static constexpr float kThinkingInset = 22.0f;
     static constexpr float kThinkingPadBot = 8.0f;
+
+    static bool thinking_is_blank(const api::Message& m) {
+        return hanabi::thinking_tags::is_blank(hanabi::thinking_tags::unwrap(m.text));
+    }
 
     static bool is_thinking(const api::Message& m) {
         // The kind is the answer; the subtitle is how the adapter used to say

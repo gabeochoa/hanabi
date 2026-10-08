@@ -4036,6 +4036,7 @@ class MockClient : public Client {
                               "or per-request before saying which.",
                               hrs_ago(1), ""};
             reasoning.subtitle = "thinking";
+            if (std::string(tk) == "blank") reasoning.text.clear();
             s.messages = {
                 {"tk1", Role::User, "why did the retry budget run out?",
                  hrs_ago(2), ""},
