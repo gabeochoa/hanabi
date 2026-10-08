@@ -15,13 +15,19 @@ static int failures = 0;
 
 int main() {
     std::printf("=== test_resume_paging ===\n");
-    CHECK(rp::page_limit(0, 40, true) == 25);
+    CHECK(rp::page_limit(0, 40, true) == 40);
     CHECK(rp::page_limit(1, 40, true) == 40);
     CHECK(rp::page_limit(5, 40, true) == 40);
     CHECK(rp::page_limit(0, 40, false) == 40);
     CHECK(rp::page_limit(0, 10, true) == 10);
     CHECK(rp::page_limit(0, 0, true) == 500);
     CHECK(rp::page_limit(1, 900, true) == 500);
+    CHECK(rp::page_limit(0, 40, true) >= rp::probe_frames(40));
+    CHECK(rp::probe_frames(40) == 25 && rp::probe_frames(10) == 10 && rp::probe_frames(0) == 25);
+    CHECK(rp::after_page(true, 76, 95) == rp::Next::Reached);
+    CHECK(rp::after_page(true, 61, 95) == rp::Next::Reached);
+    CHECK(rp::after_page(true, 61, 30) == rp::Next::Continue);
+    CHECK(rp::after_page(true, 21, 30) == rp::Next::Reached);
 
     CHECK(rp::page_bound(false, true, 20) == rp::kSafetyPages);
     CHECK(rp::page_bound(true, false, 20) == 20);

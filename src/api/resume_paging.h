@@ -8,10 +8,15 @@ inline constexpr int kProbeFrames = 25;
 inline constexpr int kSafetyPages = 200;
 
 inline int page_limit(int pageIndex, int window, bool resume) {
+    (void)pageIndex;
+    (void)resume;
     if (window <= 0) return 500;
-    const int full = window > 500 ? 500 : window;
-    if (!resume || pageIndex > 0) return full;
-    return kProbeFrames < full ? kProbeFrames : full;
+    return window > 500 ? 500 : window;
+}
+
+inline int probe_frames(int window) {
+    if (window <= 0) return kProbeFrames;
+    return window < kProbeFrames ? window : kProbeFrames;
 }
 
 inline int page_bound(bool wantAll, bool resume, int wholeTranscriptPages) {
