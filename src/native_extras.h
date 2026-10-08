@@ -197,6 +197,7 @@ bool native_take_open_settings(char* out, int cap);
 // frame, but the caller should only ask on the paste chord — reading the
 // pasteboard allocates.
 bool native_take_clipboard_image(char* out, int cap);
+const char* native_take_clipboard_image_refusal(void);
 
 // Register the app window as a drag destination for supported attachment files.
 // Idempotent; main-thread + an existing window required, so the frame loop installs it on

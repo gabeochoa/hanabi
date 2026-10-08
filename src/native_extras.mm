@@ -1290,8 +1290,24 @@ static std::string write_temp_png(NSData* png,
     return p != nullptr ? std::string(p) : std::string();
 }
 
+static std::string g_paste_refusal;
+
+const char* native_take_clipboard_image_refusal(void) {
+    static std::string handed;
+    if (const char* test = std::getenv("HANABI_PASTE_IMAGE_REFUSE_TEST");
+        test != nullptr && test[0] != '\0' && g_paste_refusal.empty())
+        g_paste_refusal = std::string(hanabi::paste_image::kRefusalSentence);
+    handed = g_paste_refusal;
+    g_paste_refusal.clear();
+    return handed.c_str();
+}
+
 bool native_take_clipboard_image(char* out, int cap) {
     if (out == nullptr || cap <= 0) return false;
+    g_paste_refusal.clear();
+    if (const char* test = std::getenv("HANABI_PASTE_IMAGE_REFUSE_TEST");
+        test != nullptr && test[0] != '\0')
+        return false;
     // TEST HOOK, the same shape as HANABI_PICK_FILE_TEST and HANABI_DROP_TEST:
     // a scripted paste. Deliberately NOT one-shot -- the whole point of the
     // focus gate is that the same clipboard is asked twice and only one of the
@@ -1339,6 +1355,7 @@ bool native_take_clipboard_image(char* out, int cap) {
                 case hanabi::paste_image::Decision::Refuse:
                     NSLog(@"native_extras: pasted %s is %lu bytes, over the attachment cap; not flattened",
                           std::string(k.uti).c_str(), (unsigned long)[data length]);
+                    g_paste_refusal = std::string(hanabi::paste_image::kRefusalSentence);
                     return false;
                 case hanabi::paste_image::Decision::Reencode:
                     break;

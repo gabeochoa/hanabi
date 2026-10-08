@@ -71,6 +71,13 @@ struct AttachmentIntakeSystem : afterhours::System<UIContext<InputAction>> {
         while (native_take_dropped_image(path, sizeof(path))) add(*app, path);
     }
 
+    static void refuse(AppComponent& app, const char* why) {
+        const api::OutgoingTarget target = app.current_composer_target();
+        auto& state = model::pane_states().touch(
+            model::pane_key(target.pane_index, target.draft_key));
+        state.attachmentNotice = why;
+    }
+
     static void add(AppComponent& app, const char* path) {
         const api::OutgoingTarget target = app.current_composer_target();
         auto& state = model::pane_states().touch(

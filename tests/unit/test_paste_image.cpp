@@ -39,6 +39,8 @@ int main() {
     CHECK(pi::decide("public.heic", 10, budget) == Decision::Reencode);
     CHECK(pi::decide("", 0, budget) == Decision::Reencode);
     for (const pi::Kind& k : pi::kPreferred) CHECK(!k.extension.empty() && k.extension.front() == '.');
+    CHECK(pi::kRefusalSentence == "That animated image is too large to send (limit 7 MB); it was not flattened.");
+    CHECK(budget == 7ULL * 1024ULL * 1024ULL);
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

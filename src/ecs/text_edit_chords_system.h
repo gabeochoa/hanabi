@@ -61,9 +61,16 @@ inline EditOwner perform(AppComponent& app, EditVerb verb) {
     const Focus focus{composer_field_focused(), area != nullptr, field != nullptr};
     char path[4096] = {};
     const bool image = verb == EditVerb::Paste && focus.composer && native_take_clipboard_image(path, sizeof(path));
-    const EditOwner owner = owner_for(verb, focus, image);
+    const char* refusal = (verb == EditVerb::Paste && focus.composer && !image)
+                              ? native_take_clipboard_image_refusal()
+                              : "";
+    const bool refused = refusal != nullptr && refusal[0] != '\0';
+    const EditOwner owner = owner_for(verb, focus, image || refused);
     switch (owner) {
-        case EditOwner::Image: AttachmentIntakeSystem::add(app, path); break;
+        case EditOwner::Image:
+            if (refused) AttachmentIntakeSystem::refuse(app, refusal);
+            else AttachmentIntakeSystem::add(app, path);
+            break;
         case EditOwner::Field: pending_field_edits().push(focused_text_entity(), verb); break;
         case EditOwner::Transcript: hanabi::text_select::copy(); break;
         case EditOwner::None: break;

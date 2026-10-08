@@ -1,0 +1,12 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_PASTE_IMAGE_REFUSE_TEST=1
+require_thread t2
+wait_frames 16
+click_ui composer_reply_input
+wait_frames 8
+type "before"
+wait_frames 4
+key CMD+V
+wait_frames 16
+expect_text "That animated image is too large to send (limit 7 MB); it was not flattened."
+expect_input_text composer_reply_input "before"

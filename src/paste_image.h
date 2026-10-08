@@ -29,6 +29,9 @@ inline const Kind* kind_for(std::string_view uti) {
     return nullptr;
 }
 
+inline constexpr std::string_view kRefusalSentence =
+    "That animated image is too large to send (limit 7 MB); it was not flattened.";
+
 inline Decision decide(std::string_view uti, std::uint64_t bytes, std::uint64_t budget) {
     const Kind* k = kind_for(uti);
     if (k == nullptr) return Decision::Reencode;
