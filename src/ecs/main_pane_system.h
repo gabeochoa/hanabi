@@ -1644,6 +1644,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // other's field.
     std::array<size_t, 2> composerRows_ = {1, 1};
     double lastTextZoom_ = 1.0;
+    bool liveBody_ = false;
     int lastLineSpacing_ = hanabi::line_spacing::kDefault;
     // Whether each pane's field had the caret last frame (the caret-follow
     // rule acts on the rising edge).
@@ -13282,8 +13283,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // renderer draws the runs INSTEAD of the label, so a gap between
             // two coloured runs would be a hole in the code.
             const std::vector<hanabi::syntax::Run> runs =
-                cl.empty() ? std::vector<hanabi::syntax::Run>{}
-                           : hanabi::syntax::scan(slang, cl, sstate);
+                (cl.empty() || liveBody_) ? std::vector<hanabi::syntax::Run>{}
+                                          : hanabi::syntax::scan(slang, cl, sstate);
             if (!runs.empty())
                 cfg = cfg.with_styled_label(code_spans(shown, runs, &audit));
             div(ctx, mk(body.ent(), 1 + li), cfg);
@@ -14610,8 +14611,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         } else {
             // The drawn thread names in this reply, for its lines' links.
             richTitleLabels_ = titled_refs_of(m).labels;
+            liveBody_ = isLive;
             render_rich_body(ctx, asstBubble.ent(), shown, textW, winTop,
                              winBot, bodyStartY, paint_query_for(index), index);
+            liveBody_ = false;
             richTitleLabels_.clear();
         }
 
