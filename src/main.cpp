@@ -3284,7 +3284,15 @@ int main(int argc, char* argv[]) {
         std::string(product_branding::kAppName) + "  ·  build " +
         hanabi::build_stamp();
     cfg.title = s_title.c_str();
-    cfg.target_fps = 120;
+    // 0, no cap: the display link paces frames. Up to Afterhours 60b0b92 the
+    // Metal backend ignored target_fps; since upstream 8198a72 (in the 65d5292
+    // pin) it skips any frame callback that comes sooner than 1/target_fps
+    // after the last one, measured in sapp_frame_duration() steps. At 120 on a
+    // 120 Hz display that refused every other tick and every live-resize
+    // same-step draw (sokol_impl.mm), and resize_drive_gate failed with 0 of
+    // ~100 sizes drawn in their own step. hanabi already decides when a frame
+    // is worth drawing; a second clock in the backend only drops them.
+    cfg.target_fps = 0;
     cfg.flags = afterhours::graphics::FLAG_WINDOW_RESIZABLE;
     cfg.init = app_init;
     cfg.frame = app_frame;
