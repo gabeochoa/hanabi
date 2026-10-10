@@ -168,8 +168,21 @@ static void test_the_chrome_state_hierarchy_survives_both_themes() {
     theme::set_mode(theme::Mode::Dark);
 }
 
+// Gap #81: the sokol backend reads the corner bitset as 3=TL 2=TR 1=BL 0=BR.
+// A folder tab rounds its top two corners only, so those are the bits the
+// helper must produce, whatever the library's enum calls them (the enum's
+// names flipped upstream at 62bc429).
+static void test_the_tab_rounds_its_top_corners_only() {
+    const std::bitset<4> c = ecs::tab_colors::tab_corners_top_round_bottom_square();
+    CHECK(c.test(3));   // top-left
+    CHECK(c.test(2));   // top-right
+    CHECK(!c.test(1));  // bottom-left
+    CHECK(!c.test(0));  // bottom-right
+}
+
 int main() {
     std::printf("== tab colors ==\n");
+    test_the_tab_rounds_its_top_corners_only();
     test_the_pin_matches_the_reference_on_an_inactive_tab();
     test_the_pin_matches_the_reference_on_the_active_tab();
     test_the_pin_does_not_follow_the_title_colour();

@@ -14,11 +14,12 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
-# The pin moved with batch 2: upstream main c1d0e0b plus ONE local commit,
-# 60b0b92, the Metal build fix afterhours_gaps.md #607 records (upstream
-# submission pending). The PIN is the gitlink, so it names the local commit.
-BASE = "60b0b92ce5e0305373b74b51fd73dbb5bc189612"
-PIN = "60b0b92ce5e0305373b74b51fd73dbb5bc189612"
+# The pin is upstream main 65d5292 (2026-10-08), an upstream revision again:
+# the local Metal build fix 60b0b92 (afterhours_gaps.md #607) is dropped
+# because upstream 62bc429 qualifies the same four shader-mode calls with
+# ::afterhours::. The PIN is the gitlink.
+BASE = "65d5292bdf0341c1afe963a57b78e0d706f3a1ae"
+PIN = "65d5292bdf0341c1afe963a57b78e0d706f3a1ae"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 # 210 and 255 are gone: both landed upstream between 9ff9079 and 1ac6db2
 # (865c4e6 checks the sampler and sizes its pool; 7208d0c exposes

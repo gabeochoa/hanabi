@@ -3390,7 +3390,9 @@ CLASS: WORKAROUND
 
 ---
 
-### #81 — The per-corner rounding bits are named for the OPPOSITE corner
+### #81 — PARTLY FIXED upstream at 62bc429: The per-corner rounding bits are named for the OPPOSITE corner
+
+**Re-read at upstream main 65d5292 (2026-10-09).** `62bc429` flipped `CornerPosition` to the backend layout (`TOP_LEFT=3, TOP_RIGHT=2, BOTTOM_LEFT=1, BOTTOM_RIGHT=0`), so a named corner is now the corner drawn. `top_round()` still sets BOTTOM_RIGHT to ROUND as well, so that half stands. Hanabi's helper now names `top_left`/`top_right`, and `tests/unit/test_tab_colors.cpp::test_the_tab_rounds_its_top_corners_only` pins the backend bits (3 and 2 set, 1 and 0 clear). The filed text stays below.
 
 **What was wanted.** The reference's tab is a folder tab: top corners rounded,
 bottom corners square, standing on the strip's hairline. `RoundedCorners`
@@ -3420,7 +3422,7 @@ in `tab_colors::tab_corners_top_round_bottom_square()` with a comment telling
 the next reader not to "fix" it.
 
 
-**Hanabi reference.** `src/ecs/tab_colors.h::tab_corners_top_round_bottom_square` — rounds the bottom-left and bottom-right bits to render top-only rounded tabs under the inverted backend mapping. `src/ecs/tab_bar_system.h::with_rounded_corners(tab_colors::tab_corners_top_round_bottom_square())` — uses the inverted-corner helper for active and inactive tab chips.
+**Hanabi reference.** `src/ecs/tab_colors.h::tab_corners_top_round_bottom_square` — names top-left and top-right since the 65d5292 pin (before it, named the bottom two to render top-only rounded tabs under the inverted mapping); `tests/unit/test_tab_colors.cpp::test_the_tab_rounds_its_top_corners_only` pins the bits. `src/ecs/tab_bar_system.h::with_rounded_corners(tab_colors::tab_corners_top_round_bottom_square())` — uses the inverted-corner helper for active and inactive tab chips.
 
 
 **Minimal upstream fix.** One of the two layouts has to move. Making the
@@ -14395,7 +14397,7 @@ CLASS: UI / WRONG
 
 CLASS: UI / MISSING
 
-### #607 — upstream main does not compile for a Metal consumer: four unqualified `begin_shader_mode` / `end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL`
+### #607 — FIXED upstream at 62bc429: upstream main does not compile for a Metal consumer: four unqualified `begin_shader_mode` / `end_shader_mode` calls in the ui plugin are ambiguous under `AFTER_HOURS_USE_METAL`
 
 **Class:** BUILD / WRONG (`plugins/ui/render_primitives.h` :721 and :726, `plugins/ui/rendering.h` :1941 and :1944, all from upstream 809bdd1 "Shader scope per widget", 2026-09-20; unchanged through main c1d0e0b, 2026-09-23).
 
@@ -14406,6 +14408,8 @@ CLASS: UI / MISSING
 **Cost.** A consumer on the Metal backend cannot take any upstream commit at or after 809bdd1 without a local change to the library, which is the situation hanabi's "the library is never edited by us" rule exists to avoid.
 
 **Workaround (batch 2).** Hanabi's vendor gitlink points at a local vendor commit, 60b0b92 on top of upstream main c1d0e0b, carrying exactly the wrapper qualification (an earlier cut, 27a4d4e, carried the `graphics::` form and is superseded; both are banked). The fix has not been submitted upstream: that submission is pending the user's authorization.
+
+**Closed upstream (re-read 2026-10-09).** Upstream `62bc429` ("Rendering nits: float circle centre, corner bit names, shader call ambiguity", 2026-09-27) qualifies the four call sites as `::afterhours::begin_shader_mode` / `::afterhours::end_shader_mode` (`plugins/ui/render_primitives.h` :721/:726, `plugins/ui/rendering.h` :2015/:2018 at main 65d5292). Hanabi's gitlink moved from the local 60b0b92 to upstream main 65d5292, an upstream revision, and builds against it unmodified. The submission question is moot. The filed text stays above and below.
 
 **Ask.** Qualify the four calls with `afterhours::` (or route them through `graphics::` and include `graphics.h` where the ui plugin is compiled without a backend), and add a Metal build to the library's own checks so a plugin that compiles under raylib is not taken as compiling everywhere.
 

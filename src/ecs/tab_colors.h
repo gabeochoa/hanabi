@@ -146,16 +146,19 @@ inline constexpr float kRasterGrow = 1.0f;
 // obligation on one icon set to sit where the other one does. The ink is a
 // real defect; half a pixel between two different glyphs is not.
 inline constexpr float kPlusYBias = 0.0f;
-// Gap #81. The corner bits are named for the OPPOSITE corner: the enum is
-// TOP_LEFT=0..BOTTOM_RIGHT=3 and the sokol backend reads the same bitset as
-// 3=TL 2=TR 1=BL 0=BR. Naming the bottom two is what rounds the top two on
-// screen. Do not "fix" this to read top_left/top_right; it renders inverted.
+// Gap #81, fixed upstream at 62bc429: the enum now names the bits the way the
+// backends read them (TOP_LEFT=3, TOP_RIGHT=2, BOTTOM_LEFT=1, BOTTOM_RIGHT=0),
+// so the corners named here are the corners rounded on screen. Before that pin
+// this helper had to name the bottom two to round the top two; the bits it must
+// produce are pinned by test_tab_colors (bits 3 and 2 set, 1 and 0 clear).
+// RoundedCorners::top_round() still also rounds BOTTOM_RIGHT, so keep naming
+// the two corners explicitly.
 inline std::bitset<4> tab_corners_top_round_bottom_square() {
     using afterhours::ui::imm::CornerState;
     return afterhours::ui::imm::RoundedCorners()
         .all_sharp()
-        .bottom_left(CornerState::ROUND)
-        .bottom_right(CornerState::ROUND)
+        .top_left(CornerState::ROUND)
+        .top_right(CornerState::ROUND)
         .get();
 }
 }  // namespace tab_colors
