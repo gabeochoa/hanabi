@@ -110,7 +110,9 @@ inline void apply_focus_edge(afterhours::EntityID fieldId, bool focused,
             accent, afterhours::ui::pixels(kFocusEdgeThickness));
 }
 
-// Drop the focused border text_input puts on its own field.
+// Drop the focused border text_input puts on its own field. Since the 65d5292
+// pin text_area does the same, plus a 1px control border when unfocused; this
+// clears whichever is there.
 //
 // The widget adds `Border::all(ctx.theme.accent, 2px)` to the field entity
 // while focused (text_input/component.h:257). When an app draws the focused

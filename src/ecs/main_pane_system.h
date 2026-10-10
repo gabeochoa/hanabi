@@ -9724,6 +9724,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .get<afterhours::text_input::HasTextAreaState>()
                 .is_focused;
         hanabi::ui::field_chrome::clear_forced_fill(composerFieldId);
+        // Since upstream 409976f (in the 65d5292 pin) text_area also gives its
+        // field a 1px control border and, while focused, a 2px accent one
+        // (gaps #262/#263 on the library side). The composer's edge is the
+        // wrap's hairline, which stays put on focus (`make chrome-gate`), so
+        // the field's own border is cleared every frame, both states.
+        hanabi::ui::field_chrome::clear_focus_border(composerFieldId);
         if (composerFocused) ctx.theme.focus_ring_thickness = 0.0f;
         // The caret landing in this pane's field IS the pane taking focus:
         // sends, steer and Stop from here go to this pane's thread, and the
