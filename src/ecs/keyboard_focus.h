@@ -14,6 +14,20 @@
 
 namespace ecs {
 
+// Did this frame's focus move come from the reader, or from try_to_grab?
+// afterhours resets focus_source to Grab every frame and stamps the source that
+// moved focus: Explicit for an app's own set_focus and, since upstream 940ba03
+// (:focus-visible, in the 65d5292 pin), Pointer for a click (HandleClicks /
+// HandleDrags). Both are on purpose; only Grab is automatic. Reading only
+// Explicit stopped counting a click on the composer as a claim once clicks
+// became Pointer, so the keyboard stayed with whatever field held it before.
+[[nodiscard]] constexpr bool focus_claimed_on_purpose(afterhours::ui::FocusSource src) {
+    return src != afterhours::ui::FocusSource::Grab;
+}
+static_assert(focus_claimed_on_purpose(afterhours::ui::FocusSource::Pointer));
+static_assert(focus_claimed_on_purpose(afterhours::ui::FocusSource::Explicit));
+static_assert(!focus_claimed_on_purpose(afterhours::ui::FocusSource::Grab));
+
 // The focused field's own state, for the editing chords afterhours has no
 // action for (text_edit_chords_system.h). Null when nothing is focused.
 inline afterhours::text_input::HasTextInputState* focused_text_field() {
