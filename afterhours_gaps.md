@@ -14508,3 +14508,21 @@ CLASS: TESTING / FOOTGUN
 **Hanabi reference.** `src/ui/chart_spec.h`, `src/ecs/main_pane_system.h` (`draw_chart_plot`, `draw_dashed`, `render_chart_block`), `tests/ui/a_chart_fence_draws_as_a_chart.e2e`.
 
 CLASS: UI / MISSING
+
+### #613 — every label longer than the small-string buffer costs two heap allocations per frame with pseudo-localization OFF: `apply_label` builds `pseudo_localize(config.label, None)` twice, and `None` returns a fresh `std::string` copy
+
+**Class:** PERF / WRONG (`plugins/ui/component_init.h` `apply_label` :277 `addComponentIfMissing<ui::HasLabel>(pseudo_localize(config.label, pseudo), ...)` and :279 `lbl.set_label(pseudo_localize(config.label, pseudo))`; `plugins/ui/pseudo_locale.h` :83 `if (mode == PseudoLocale::None) return std::string(text);`; from upstream 79c87ec "Pseudo-localization: DoubleWords and RtlWords label stress", 2026-09-26; read at main 65d5292).
+
+**What happens.** Up to 60b0b92 `apply_label` passed `config.label` by reference to both calls, and `HasLabel::set_label(const std::string&)` copy-assigns into the label's existing capacity, so a label that did not change allocated nothing. Since 79c87ec both arguments are temporaries built by `pseudo_localize`, which copies the text even when the mode is `None`: the argument to `addComponentIfMissing` is built (and thrown away) on every frame although the component already exists, and the argument to `set_label` is built and then copied from. libc++ keeps 22 characters inline, so every label of 23 characters or more pays two `operator new` calls per frame, and so does every tooltip.
+
+**Cost as a number.** Hanabi's allocation gate, 600 frames per arm, old pin 60b0b92 against 65d5292 with the same app source (2026-10-09, Aspen): home20 665 -> 743 allocs/frame (ceiling 670), home2000 708 -> 806 (730), draft6 852 -> 930 (920), search2000 1027 -> 1211 (1130), palette2000 730 -> 832 (780). `scripts/alloc_sites.sh 2000 300` names the new sites: `pseudo_localize [pseudo_locale.h:83] <- apply_label [component_init.h:277]` and `[:279]`, 59.2 labels x 2 = 118.4 calls/frame, absent from the old pin's table. Nothing leaks; it is malloc traffic at the frame rate.
+
+**Workaround.** None in Hanabi. The labels are content (thread titles, digest lines), so they cannot be shortened, and a label cannot be set without `config.label`: `apply_label` clears a `HasLabel` whose config label is empty. The allocation gate stays red on this pin; its ceilings were not raised.
+
+**Ask.** Return early when the mode is `None` and pass `config.label` itself: for example `const std::string &shown = pseudo == PseudoLocale::None ? config.label : (storage = pseudo_localize(config.label, pseudo));`, used by both calls (and the same for `tooltip_text` and `pseudo_localize_spans`).
+
+**Upstream acceptance test.** With `pseudo_locale = None`, building the same div with a 40-character label for 100 frames allocates no more on frames 2..100 than with a 10-character label (count `operator new` calls inside `apply_label`).
+
+**Hanabi reference.** None — no app-side workaround is implemented. The measurement is `scripts/alloc_gate.sh` and `scripts/alloc_sites.sh`.
+
+CLASS: PERF / WRONG
