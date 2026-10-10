@@ -28,7 +28,7 @@ for chk in scripts/check_label_padding.py scripts/check_autorelease.py scripts/c
            scripts/check_fixture_env.py scripts/check_gap_references.py scripts/check_div_routing.py \
            scripts/check_sidebar_scan.py scripts/check_home_scan.py scripts/check_theme_config.py \
            scripts/check_vocabulary.py scripts/check_settings_readers.py scripts/check_resize_deferral.py \
-           scripts/check_frame_signal_merge.py scripts/check_wire_event_vocabulary.py \
+           scripts/check_frame_signal_merge.py scripts/check_wire_event_vocabulary.py scripts/check_copied_counts.py \
            scripts/focus_edge_gate.py scripts/attachment_route_gate.py scripts/check_build_graph.py \
            scripts/check_build_switches.py; do
     # python3 off PATH, not /usr/bin: focus_edge_gate.py (and compare.py

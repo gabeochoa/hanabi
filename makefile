@@ -2,7 +2,7 @@
 # still type make: every target name below is the same step name in build.zig
 # (`zig build --help` lists them all), so `make test` is `zig build test`.
 #
-# The graph itself -- sources, flags, generated headers, the 75 test
+# The graph itself -- sources, flags, generated headers, the test
 # executables, the gates -- lives in build.zig and nowhere else. Do not add a
 # rule here that builds anything.
 #
