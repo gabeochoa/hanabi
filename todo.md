@@ -137,6 +137,22 @@ removal, shader frame slots, stall sampling, test and snapshot changes.
 
 ---
 
+## OPEN — Afterhours 65d5292 repin follow-ups (2026-10-10)
+- [ ] GATE RED, KNOWN (owner OK 2026-10-10): alloc-gate fails on main since the
+      repin to Afterhours 65d5292 -- home20 743/670, home2000 806/730, draft6
+      930/920, search2000 1211/1130, palette2000 832/780. Cause is upstream
+      79c87ec (apply_label copies each 23+ char label twice per frame), gap #613.
+      Repin when the library fixes it; do not raise the ceilings.
+- [ ] FLAKE: composer_chrome_gate failed 1 run in 5 on the 65d5292 pin ("focusing
+      the composer changed pixels outside the composer band", diff bbox
+      (304,191)-(921,290), far from the composer); 4/4 on the new pin and 3/3 on
+      the old pin passed in isolation. Find what repaints the transcript on focus.
+- [ ] UNGATED CHANGE: since 65d5292 (upstream 409976f) the settings and bug-report
+      text_areas draw a 1px control border and a 2px accent border while focused.
+      The composer clears both (98ab9cc); these two do not, and no gate or fast
+      screenshot covers them. Look at them and decide whether to keep the library
+      default or match the composer.
+
 ## OPEN — lead lane (2026-10-02)
 - [x] PERF (fixed 2026-10-02, TranscriptLedger window memo): an UNCHANGED transcript frame still re-walks the viewport. `TranscriptLedger::materialize`
       runs every frame and `ensure()`s every row it covers, so a frame where nothing moved visits the
