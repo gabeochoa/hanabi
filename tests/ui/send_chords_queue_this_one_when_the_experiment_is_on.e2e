@@ -10,6 +10,6 @@ expect_text "1 queued"
 expect_queued t9 later please
 expect_input_text composer_reply_input ""
 type "right now"
-key CMD+ENTER
+key ENTER
 wait_frames 30
 expect_backend_message t9 right now

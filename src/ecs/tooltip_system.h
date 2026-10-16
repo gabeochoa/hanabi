@@ -129,7 +129,7 @@ struct TooltipSystem : afterhours::System<UIContext<InputAction>> {
                                     const std::string& control) {
         auto* app = find_singleton<AppComponent>();
         const bool running = app != nullptr && app->should_steer_open();
-        const auto rows = hanabi::send_chords::hint_rows(running, false);
+        const auto rows = hanabi::send_chords::hint_rows(running);
         const float h = kHintRowH * static_cast<float>(rows.size()) + 8.0f;
         const auto at = hanabi::surface::place_tooltip(anchor, kHintW, h, ctx.screen_width,
                                                        ctx.screen_height);

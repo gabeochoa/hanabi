@@ -8775,9 +8775,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 } else if (canStream || canSend) {
                     remember_composer_snapshot(submitted.message);
                     consume_composer_snapshot(submitted.message);
-                    if (submitted.chord == AppComponent::SendChord::SendNow &&
-                        !target.session_id.empty() && app.should_steer(target))
-                        submitted.message.interrupt = true;
                     if (target.session_id.empty())
                         app.request_kickoff(std::move(submitted.message));
                     else if (canStream)
@@ -10717,20 +10714,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         *appPtr, std::move(text),
                         appPtr->composer_target_for(paneIndex));
                     submitted.withCmd = hanabi::keys::cmd_down();
-                    if (Settings::get().get_send_chords()) {
-                        switch (hanabi::send_chords::classify(
-                            hanabi::keys::cmd_down(), hanabi::keys::option_down(),
-                            Settings::get().get_send_key() == hanabi::kSendKeyCmdReturn)) {
-                            case hanabi::send_chords::Chord::QueueThisOne:
-                                submitted.chord = AppComponent::SendChord::QueueThisOne;
-                                break;
-                            case hanabi::send_chords::Chord::SendNow:
-                                submitted.chord = AppComponent::SendChord::SendNow;
-                                break;
-                            case hanabi::send_chords::Chord::None:
-                                break;
-                        }
-                    }
+                    if (Settings::get().get_send_chords() &&
+                        hanabi::send_chords::classify(hanabi::keys::cmd_down(),
+                                                      hanabi::keys::option_down()) ==
+                            hanabi::send_chords::Chord::QueueThisOne)
+                        submitted.chord = AppComponent::SendChord::QueueThisOne;
                     appPtr->composerSubmit = std::move(submitted);
                 });
         }

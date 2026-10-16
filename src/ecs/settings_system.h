@@ -3451,7 +3451,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         (void)app;
         const bool on = Settings::get().get_send_chords();
         row_name_with(ctx, parent, 778, "Send chords (experiment)",
-                      on ? std::string("   \xc2\xb7   \xe2\x8c\x98\xe2\x8c\xa5\xe2\x86\xa9 queue this one  \xc2\xb7  \xe2\x8c\x98\xe2\x86\xa9 send now")
+                      on ? std::string("   \xc2\xb7   \xe2\x8c\x98\xe2\x8c\xa5\xe2\x86\xa9 queues this one message")
                          : std::string(),
                       "settings_send_chords_label");
         real_switch(ctx, parent, 779, on, "settings_send_chords",

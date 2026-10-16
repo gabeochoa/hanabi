@@ -65,6 +65,43 @@ Scripts: `two_composers_keep_their_own_drafts`,
 `stop_targets_its_own_pane_and_keeps_the_draft`,
 `attachment_stays_with_its_split_pane`, `attachment_send_keeps_split_owner`.
 
+## Send chords (experiment, default off)
+
+Settings › Chat › "Send chords (experiment)". The web's composer, read from
+the parity review extract (R5, R10), gives Return three chords while a turn is
+running: ⌘⇧Return flips steer↔queue for that one message, ⌘⌥Return sends now,
+and ⌘Return opens a new chat. Hanabi does NOT take that table, and a reader of
+this tree should know why without the commit log:
+
+- **⇧Return is a newline before anything else sees it.** The afterhours text
+  area turns Shift+Return into an inserted line break
+  (`text_area.h`, `config.text_area_submit_on_enter` with the Shift check) and
+  never calls the submit listener, so a Shift chord cannot reach the send.
+  Hanabi's own "New line with" setting rides the same key, and the reference's
+  ComposerReturn also reserves ⇧↩ for a newline.
+- **Ctrl is Cmd under the harness.** The scripted UI cannot hold Super; its
+  `CMD+` becomes Ctrl (afterhours gaps #49, #256), so a Ctrl chord would be
+  indistinguishable from a Cmd one in every test we can write.
+- **"Send now" is what plain Return already does.** Every mid-run steer is sent
+  with `interrupt = true` (the loader sets it for the steer path), so a
+  separate send-now chord would be a second name for the same send.
+- **⌘Return stays the send key.** The extract itself flags ⌘↩-as-new-chat as a
+  change to the Return table; Hanabi keeps ⌘↩ as the ordinary "Send message
+  with" alias and adds no meaning to it.
+
+What the experiment adds is therefore one chord: **⌘⌥Return queues this one
+message** for the end of the running turn (the path `/queue` uses), while
+plain Return keeps the existing policy (steer while running, send when idle).
+The chord is classified at submit from the live modifiers
+(`ui/send_chords.h`) and rides the `ComposerSubmission`. With the experiment
+on, hovering Send shows a two-row card instead of the one-line tip — Return
+"Steer this one", ⌘⌥↩ "Queue this one" (idle: Return "Send") — each chord
+drawn as keycaps by the shared keycap row. Off, nothing changes: no chord is
+read and the tip is the usual one. Scripts:
+`send_chords_queue_this_one_when_the_experiment_is_on`,
+`send_chords_do_nothing_when_the_experiment_is_off`,
+`the_send_button_teaches_its_chords_with_keycaps`.
+
 ## Icons
 
 Five Lucide glyphs added to the atlas (`waypoints`, `server`,
