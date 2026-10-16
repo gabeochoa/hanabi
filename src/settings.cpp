@@ -254,6 +254,11 @@ bool Settings::load_save_file() {
             for (const auto& [k, v] : j["last_read"].items())
                 if (v.is_number_integer()) last_read_[k] = v.get<int64_t>();
         }
+        read_seq_.clear();
+        if (j.contains("read_seq") && j["read_seq"].is_object()) {
+            for (const auto& [k, v] : j["read_seq"].items())
+                if (v.is_number_integer() && v.get<int64_t>() > 0) read_seq_[k] = v.get<int64_t>();
+        }
         prune_last_read();
         tool_fold_.clear();
         if (j.contains("tool_fold") && j["tool_fold"].is_object()) {
@@ -451,6 +456,7 @@ void Settings::write_save_file() {
     hanabi::views::save(j, saved_views_, saved_views_unreadable_);
     j["row_order"] = row_order_;
     j["last_read"] = last_read_;
+    j["read_seq"] = read_seq_;
     j["tool_fold"] = tool_fold_;
     j["sound_override"] = sound_override_;
     j["starred_turns"] = starred_turns_;
@@ -883,6 +889,17 @@ int64_t Settings::get_last_read(const std::string& id) const {
     auto it = last_read_.find(id);
     return it == last_read_.end() ? 0 : it->second;
 }
+int64_t Settings::get_read_seq(const std::string& id) const {
+    auto it = read_seq_.find(id);
+    return it == read_seq_.end() ? 0 : it->second;
+}
+void Settings::set_read_seq(const std::string& id, int64_t seq) {
+    if (id.empty() || seq <= 0) return;
+    auto it = read_seq_.find(id);
+    if (it != read_seq_.end() && it->second >= seq) return;
+    read_seq_[id] = seq;
+    if (auto_save_enabled) write_save_file();
+}
 void Settings::set_last_read(const std::string& id, int64_t stamp) {
     if (id.empty() || stamp <= 0) return;
     auto it = last_read_.find(id);
@@ -914,7 +931,10 @@ void Settings::prune_last_read() {
     std::vector<std::string> doomed;
     doomed.reserve(drop);
     for (std::size_t i = 0; i < drop; ++i) doomed.push_back(*byStamp[i].second);
-    for (const std::string& id : doomed) last_read_.erase(id);
+    for (const std::string& id : doomed) {
+        last_read_.erase(id);
+        read_seq_.erase(id);
+    }
 }
 
 int Settings::get_tool_fold(const std::string& id) const {

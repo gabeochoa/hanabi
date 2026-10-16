@@ -33,6 +33,7 @@
 #include "client.h"
 #include "elicitation.h"
 #include "agentcloud_auth.h"
+#include "inbox_state_wire.h"
 
 namespace api {
 
@@ -142,6 +143,9 @@ class AgentcloudClient : public Client {
         return ready() && auth_.config().web_configured();
     }
     Result<InboxStateRead> read_inbox_state() override;
+    Result<InboxStateWrite> write_read(const std::string& session_id) override;
+    Result<InboxStateWrite> post_inbox_patch(const std::string& session_id,
+                                             const inbox_state::Patch& patch, const char* what);
     Result<InboxStateWrite> write_snooze(const std::string& session_id,
                                          std::optional<int64_t> snoozed_until_sec) override;
     void seed_web_token(agentcloud::Token token);

@@ -429,6 +429,7 @@ struct SessionSummary {
     std::string title;
     // Unix epoch seconds of the most recent activity. 0 means "unknown".
     int64_t updated_at = 0;
+    int64_t last_seq = 0;
     // Unix epoch seconds the session was CREATED. 0 means "unknown", which is
     // the usual answer: the agentcloud `list` row carries no creation time,
     // so this is learned per session (Client::session_created_at) and kept in

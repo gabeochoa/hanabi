@@ -1384,6 +1384,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
 
+        if (!app.requestReadWrite.empty() && !app.readWriteFuture.valid() && app.client) {
+            const std::string id = app.requestReadWrite;
+            app.requestReadWrite.clear();
+            std::shared_ptr<api::Client> c = app.client;
+            app.readWriteFuture = std::async(std::launch::async, [c, id] {
+                return c->write_read(id);
+            });
+        }
+        if (app.readWriteFuture.valid() &&
+            app.readWriteFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            (void)app.readWriteFuture.get();
+
         if (!app.haltInFlight && !app.haltWrites.empty() && app.client &&
             app.client->supports_halt()) {
             app.haltInFlight = app.haltWrites.front();

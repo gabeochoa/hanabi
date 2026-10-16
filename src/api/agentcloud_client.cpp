@@ -290,6 +290,7 @@ SessionSummary summary_from_row(const json& s) {
     sum.parent_id = str_or(s, "parent", "");
     sum.forked_from = str_or(obj_at(s, "forked_from"), "session_id", "");
     sum.origin_application = str_or(s, "origin_application", "");
+    sum.last_seq = int_or(s, "last_seq", 0);
     if (s.contains("attached_nodes") && s["attached_nodes"].is_array())
         for (const json& n : s["attached_nodes"])
             if (n.is_string()) sum.attached_nodes.push_back(n.get<std::string>());
@@ -447,12 +448,24 @@ Result<InboxStateRead> AgentcloudClient::read_inbox_state() {
     return Result<InboxStateRead>::success(std::move(out));
 }
 
+Result<InboxStateWrite> AgentcloudClient::write_read(const std::string& session_id) {
+    inbox_state::Patch patch;
+    patch.read = true;
+    return post_inbox_patch(session_id, patch, "read");
+}
+
 Result<InboxStateWrite> AgentcloudClient::write_snooze(const std::string& session_id,
                                                        std::optional<int64_t> snoozed_until_sec) {
-    if (!supports_inbox_state())
-        return Result<InboxStateWrite>::failure("inbox state is not addressable from this orchestrator");
     inbox_state::Patch patch;
     patch.snoozed_until = std::optional<std::optional<int64_t>>{snoozed_until_sec};
+    return post_inbox_patch(session_id, patch, "snooze");
+}
+
+Result<InboxStateWrite> AgentcloudClient::post_inbox_patch(const std::string& session_id,
+                                                           const inbox_state::Patch& patch,
+                                                           const char* what) {
+    if (!supports_inbox_state())
+        return Result<InboxStateWrite>::failure("inbox state is not addressable from this orchestrator");
     const auto body = inbox_state::body_for(session_id, patch);
     if (!body) return Result<InboxStateWrite>::failure("the session id is not one the inbox accepts");
     const auto& cfg = web_auth_.config();
@@ -478,7 +491,7 @@ Result<InboxStateWrite> AgentcloudClient::write_snooze(const std::string& sessio
     if (res->status == 401 || res->status == 403) web_auth_.invalidate();
     if (res->status != 200)
         return Result<InboxStateWrite>{false, std::move(out),
-                                       "snooze write HTTP " + std::to_string(res->status), false};
+                                       std::string(what) + " write HTTP " + std::to_string(res->status), false};
     return Result<InboxStateWrite>::success(std::move(out));
 }
 

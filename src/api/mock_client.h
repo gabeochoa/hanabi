@@ -2259,6 +2259,15 @@ class MockClient : public Client {
         out.body = body.dump();
         return Result<InboxStateRead>::success(std::move(out));
     }
+    Result<InboxStateWrite> write_read(const std::string& session_id) override {
+        outbound_calls().fetch_add(1);
+        if (mock_journal::enabled())
+            mock_journal::append(mock_journal::Entry{session_id, "read", "", 0, 0, ""});
+        InboxStateWrite out;
+        out.http_status = 200;
+        out.body = R"({"ok":true})";
+        return Result<InboxStateWrite>::success(std::move(out));
+    }
     Result<InboxStateWrite> write_snooze(const std::string& session_id,
                                          std::optional<int64_t> snoozed_until_sec) override {
         outbound_calls().fetch_add(1);
@@ -2854,7 +2863,7 @@ class MockClient : public Client {
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_STOPPED_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
-        "HANABI_DIFF_DEMO",         "HANABI_BIG_TABLE_DEMO",
+        "HANABI_DIFF_DEMO",         "HANABI_BIG_TABLE_DEMO", "HANABI_READ_SEQ_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
@@ -4364,6 +4373,21 @@ class MockClient : public Client {
         // comment that spans two lines, a shell pipeline, and JSON literals.
         // Markdown images: a file on this Mac (drawn), an app-relative web
         // address and a repo path (chips). Only under HANABI_MD_IMAGE_DEMO.
+        if (const char* rs = std::getenv("HANABI_READ_SEQ_DEMO"); rs && *rs == '1') {
+            Session s;
+            s.summary = calm("rseq", "the read cursor", hrs_ago(1), "active",
+                             ThreadState::Unknown, "read seq fixture");
+            s.summary.last_seq = 6;
+            s.messages = {
+                {"1", Role::User, "first question", hrs_ago(6), ""},
+                {"2", Role::Assistant, "first answer", hrs_ago(5), ""},
+                {"3", Role::User, "second question", hrs_ago(4), ""},
+                {"4", Role::Assistant, "second answer", hrs_ago(3), ""},
+                {"5", Role::User, "third question", hrs_ago(2), ""},
+                {"6", Role::Assistant, "third answer", hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
         if (const char* bt = std::getenv("HANABI_BIG_TABLE_DEMO"); bt && *bt == '1') {
             Session s;
             s.summary = calm("rbigtable", "the shard table", hrs_ago(1), "active",

@@ -323,6 +323,8 @@ struct Settings {
     // call site is what lets a test place the boundary anywhere it likes.
     int64_t get_last_read(const std::string& id) const;
     void set_last_read(const std::string& id, int64_t stamp);  // auto-persists
+    int64_t get_read_seq(const std::string& id) const;
+    void set_read_seq(const std::string& id, int64_t seq);
 
     // The read-stamp map is the ONE per-thread record this app writes without
     // being asked. Star, mute, archive and tool-fold are all a deliberate act
@@ -627,6 +629,7 @@ struct Settings {
     hanabi::views::Store saved_views_;
     std::optional<std::string> saved_views_unreadable_;
     std::map<std::string, int64_t> last_read_;
+    std::map<std::string, int64_t> read_seq_;
     // Drop the oldest stamps down to kMaxLastRead. Called after an insert and
     // after a load, so a file written by an older build shrinks on first run.
     void prune_last_read();

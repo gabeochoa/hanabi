@@ -1657,6 +1657,8 @@ struct AppComponent : public afterhours::BaseComponent {
     std::array<std::uint64_t, 2> queuedEditing{0, 0};
     std::set<std::string> expandedTables;
     std::vector<std::vector<std::string>> menuTableRows;
+    std::string requestReadWrite;
+    std::future<api::Result<api::InboxStateWrite>> readWriteFuture;
     [[nodiscard]] bool queue_held(const std::string& id) const {
         for (std::uint64_t q : queuedEditing) {
             if (q == 0) continue;

@@ -71,6 +71,7 @@
 #include "settings_system.h"
 #include "../ui/transcript_copy.h"
 #include "../ui/share.h"
+#include "../ui/read_cursor.h"
 #include "../keys.h"
 #include "text_edit_actions.h"
 #include "ui_imports.h"
@@ -5155,7 +5156,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // moves. Checked LAST so it is the first column dropped as the
         // sidebar narrows (the collapse tween sweeps 280 -> 52 and every
         // intermediate width has to fit without overflowing).
-        const std::string countLabel = ecs::model::sub_agent_label(s);
+        std::string countLabel = ecs::model::sub_agent_label(s);
+        bool unreadCount = false;
+        if (countLabel.empty()) {
+            const int unread = hanabi::read_cursor::unread_count(
+                s.last_seq, Settings::get().get_read_seq(s.id));
+            if (unread > 0) {
+                countLabel = hanabi::read_cursor::unread_label(unread) + " new";
+                unreadCount = true;
+            }
+        }
         float countW = 0.0f;
         if (!countLabel.empty()) {
             countW = std::ceil(theme::text_px(countLabel.c_str(),
@@ -5313,7 +5323,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // steals hot from it (the star already costs one).
         if (showCount) {
             const bool live = ecs::model::sub_agents_live(s);
-            theme::Color countColor = live ? theme::accent() : theme::text_faint();
+            theme::Color countColor = (live || unreadCount) ? theme::accent() : theme::text_faint();
             if (archived) countColor = theme::text_faint();
             div(ctx, mk(row.ent(), 6),
                 ComponentConfig{}
@@ -5328,7 +5338,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     // edge, which is what right-aligning could not do.
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name("row_subagent_count"));
+                    .with_debug_name(unreadCount ? "row_unread_count" : "row_subagent_count"));
         }
 
         // Right-click opens the row's context menu at the cursor. Always

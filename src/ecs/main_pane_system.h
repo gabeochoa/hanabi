@@ -105,6 +105,7 @@
 #include "../ui/changed_files.h"
 #include "../ui/unified_diff.h"
 #include "../ui/md_table_ops.h"
+#include "../ui/read_cursor.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
 
@@ -4333,7 +4334,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // touch() calls further down cannot evict it.
         model::PaneState& mark =
             model::pane_states().touch(model::pane_key(pane_index(app, pane), openId0));
-        const int64_t lastRead = Settings::get().get_last_read(openId0);
+        const int64_t lastRead = hanabi::read_cursor::stamp_at_or_before_seq(
+            msgs, Settings::get().get_read_seq(openId0),
+            Settings::get().get_last_read(openId0));
         // Recomputed when the thread is first seen, and again if messages were
         // PREPENDED (load-older shifts every index, so a held index would
         // point at the wrong message).
@@ -4912,6 +4915,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (newest > 0 && newest > Settings::get().get_last_read(openId0)) {
                 Settings::get().set_last_read(openId0, newest);
                 mark.unreadStamp = newest;  // our own write, not a re-mark
+            }
+            const int64_t newestSeq = hanabi::read_cursor::newest_seq(msgs);
+            if (newestSeq > 0 && newestSeq > Settings::get().get_read_seq(openId0)) {
+                Settings::get().set_read_seq(openId0, newestSeq);
+                if (const api::SessionSummary* sum = app.find_summary(openId0);
+                    sum != nullptr && sum->last_seq > 0 && newestSeq >= sum->last_seq &&
+                    app.client && app.client->supports_inbox_state())
+                    app.requestReadWrite = openId0;
             }
         }
 
