@@ -4,6 +4,9 @@
 wait_frames 10
 expect_text "Start a task from anywhere"
 expect_text "Search from anywhere"
+assert_ui settings_global_keys_global_new_task_cap0 text="⌘"
+assert_ui settings_global_keys_global_new_task_cap1 text="⇧"
+assert_ui settings_global_keys_global_new_task_cap2 text="N"
 expect_text "Brings the app forward and opens a new task, whatever you were in."
 
 click_ui settings_global_switch_global_new_task

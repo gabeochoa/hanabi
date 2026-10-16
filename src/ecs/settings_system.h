@@ -67,6 +67,7 @@
 #include "ui_imports.h"
 
 #include "../ui/icons.h"
+#include "keycap_row.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/settings_catalog.h"
 #include "../line_spacing.h"
@@ -1364,11 +1365,17 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 armed ? "Press shortcut..."
                       : hanabi::shortcuts::display(
                             Settings::get().get_global_shortcut(item.slot));
+            const bool caps =
+                on && !armed && !hanabi::keycaps::split(chord).empty();
             auto recorder = button(ctx, mk(row.ent(), 2),
                 ComponentConfig{}
-                    .with_label(on ? chord : "Off")
+                    .with_label(caps ? "" : on ? chord : "Off")
                     .with_size(ComponentSize{pixels(110), pixels(26)})
                     .with_margin(Margin{.right = pixels(8)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_padding(Padding{.left = pixels(6)})
                     .with_custom_background(armed ? theme::selected_bg()
                                                   : theme::panel_bg_2())
                     .with_custom_hover_bg(
@@ -1381,6 +1388,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                     .with_corner_radius(hanabi::surface::kControlCorner)
                     .with_debug_name(std::string("settings_global_record_") +
                                      std::string(item.key)));
+            if (caps)
+                keycap_row::render(ctx, recorder.ent(), 1, chord,
+                                   std::string("settings_global_keys_") +
+                                       std::string(item.key),
+                                   true);
             if (recorder && on) {
                 app.globalRecording = static_cast<int>(item.slot);
                 app.shortcutRecording = -1;
@@ -1609,11 +1621,17 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                 armed ? "Press shortcut..."
                       : hanabi::shortcuts::display(
                             Settings::get().get_shortcut(item.command));
+            const bool caps =
+                on && !armed && !hanabi::keycaps::split(chord).empty();
             auto recorder = button(ctx, mk(row.ent(), 2),
                 ComponentConfig{}
-                    .with_label(on ? chord : "Off")
+                    .with_label(caps ? "" : on ? chord : "Off")
                     .with_size(ComponentSize{pixels(110), pixels(26)})
                     .with_margin(Margin{.right = pixels(8)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_padding(Padding{.left = pixels(6)})
                     .with_custom_background(armed ? theme::selected_bg()
                                                   : theme::panel_bg_2())
                     .with_custom_hover_bg(
@@ -1626,6 +1644,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                     .with_corner_radius(hanabi::surface::kControlCorner)
                     .with_debug_name(std::string("settings_chord_record_") +
                                      std::string(item.key)));
+            if (caps)
+                keycap_row::render(ctx, recorder.ent(), 1, chord,
+                                   std::string("settings_chord_keys_") +
+                                       std::string(item.key),
+                                   true);
             if (recorder && on) {
                 app.shortcutRecording = static_cast<int>(item.command);
                 app.shortcutMessage.clear();

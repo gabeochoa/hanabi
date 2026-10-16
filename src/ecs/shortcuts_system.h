@@ -11,6 +11,7 @@
 #include "../menubar.h"
 #include "../settings.h"
 #include "../ui/icons.h"
+#include "keycap_row.h"
 #include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
 #include "global_hotkey_apply.h"
@@ -322,10 +323,10 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name("shortcut_command_label"));
         const bool active = app.shortcutRecording == static_cast<int>(item.command);
-        const std::string label =
-            active ? "Press shortcut..."
-                   : hanabi::shortcuts::display(
-                         Settings::get().get_shortcut(item.command));
+        const std::string display =
+            hanabi::shortcuts::display(Settings::get().get_shortcut(item.command));
+        const bool caps = !active && !hanabi::keycaps::split(display).empty();
+        const std::string label = active ? "Press shortcut..." : caps ? "" : display;
         auto recorder = button(
             ctx, mk(row.ent(), 2),
             ComponentConfig{}
@@ -333,6 +334,10 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{
                     pixels(kKeyColW),
                     pixels(hanabi::control::kMinHitTarget)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{.left = pixels(8)})
                 .with_custom_background(active ? theme::selected_bg()
                                                : theme::panel_bg_2())
                 .with_custom_hover_bg(theme::hover_over(theme::panel_bg_2()))
@@ -343,6 +348,9 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_font_size(theme::type::SM)
                 .with_corner_radius(hanabi::surface::kControlCorner)
                 .with_debug_name("shortcut_record_" + std::string(item.key)));
+        if (caps)
+            keycap_row::render(ctx, recorder.ent(), 1, display,
+                       "shortcut_keys_" + std::string(item.key), false);
         if (recorder) {
             app.shortcutRecording = static_cast<int>(item.command);
             app.shortcutMessage = "Press a shortcut with Command. Escape cancels.";
@@ -363,17 +371,17 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                            .with_transparent_bg()
                            .with_roundness(0.0f)
                            .with_debug_name("shortcuts_reference_row"));
-        div(ctx, mk(row.ent(), 1),
+        auto keyCol = div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
-                .with_label(std::string(keys))
-                .with_size(ComponentSize{pixels(kKeyColW), pixels(19)})
-                .with_custom_background(theme::panel_bg_2())
-                .with_border(theme::border(), pixels(1.0f))
-                .with_custom_text_color(theme::text_secondary())
-                .with_font_size(theme::type::SM)
-                .with_alignment(TextAlignment::Left)
-                .with_roundness(0.3f)
+                .with_size(ComponentSize{pixels(kKeyColW), pixels(keycap_row::kCapH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
                 .with_debug_name("shortcuts_reference_keys"));
+        keycap_row::render(ctx, keyCol.ent(), 1, keys,
+                   "shortcuts_reference_" + std::to_string(id - 200) + "_key", true);
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
                 .with_label(std::string(title))

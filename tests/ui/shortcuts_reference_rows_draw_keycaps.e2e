@@ -1,0 +1,15 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=shortcuts
+expect_text "Keyboard shortcuts"
+expect_text "Move a word"
+assert_ui shortcuts_reference_1_key_cap0 text="⌥"
+assert_ui shortcuts_reference_1_key_cap1 text="←"
+assert_ui shortcuts_reference_1_key_sep2 text="/"
+assert_ui shortcuts_reference_1_key_cap3 text="→"
+assert_ui shortcuts_reference_15_key_cap0 text="⌘"
+assert_ui shortcuts_reference_15_key_cap1 text="⇧"
+assert_ui shortcuts_reference_15_key_cap2 text="N"
+expect_no_text "Opt Left/Right"
+expect_no_text "Cmd Shift N"
+expect_text "Bring the app forward and start a task"
+key ESCAPE
