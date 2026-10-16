@@ -4859,3 +4859,155 @@ the clipped-target click itself not re-captured, so the entry stays open),
 #606 (no line-height for wrapped labels), #607 (upstream main unbuildable
 for Metal consumers since 809bdd1; the portable wrapper qualification and
 the local vendor commit that carries it).
+
+## The parity program: remote main as the base, Section C ported, the vendor moved (2026-10-16)
+
+Written on the source lane (devserver, no Mac build). Everything in this
+section is on `parity-ports`, forty-seven commits (this one included) on top of remote main
+`f8d43886`; the Mac verification each commit's Test Plan names as "Not
+run (Mac)" is still owed and is listed at the end.
+
+### Which tree was the base
+
+The program began against a local main that had drifted from the lead
+lane's. Remote main (`github.com/gabeochoa/hanabi`, reachable only from
+the user's Mac, read through a banked bundle) was already a different
+tree: it carried the chart fences (`ui/chart_spec.h`), markdown table
+alignment, a find that starts from the newest match, and the vendor pin
+`65d5292`, none of which the local tree had. The directive became
+"REMOTE MAIN IS THE BASE": the stages were re-based onto `f8d43886`, the
+inventory of what the local tree had that the remote lacked was re-done
+against it, and one local behaviour — U11, the find's own newest-first
+rule — was dropped for the remote's `find_newest_first`. The Section C
+batch-3 work, first written against the old base as `batch3`
+(`e75243f`), was ported commit by commit rather than merged; the old
+branch is kept for the record and is not an ancestor of `parity-ports`.
+
+### The vendor bump and the ledger
+
+`6ab7d69d` moves the gitlink `65d5292 -> d1d7f0e` (upstream main
+2026-10-12): thirteen additive upstream commits, no vendor edits, no local
+vendor commits. The ledger moved with it — #605 (the wrap memo's key
+omitted the font) and #606 (no line height for a wrapped label) are
+closed upstream inside the `65d5292` pin and confirmed at `d1d7f0e`
+(`597778ec`); #607 (upstream main did not compile for a Metal consumer) is
+closed at `62bc429`; `3ba5d190` records why `wrap_memo::clear()` on a
+zoom change stays on the new pin. One gap was opened: **#614**, the
+grid's column tracks are declared and never measured
+(`GridConfig::col_widths`, `grid_track`, `grid_cell` in `grid.h` at
+`d1d7f0e`), filed from the R2 table work below because the ledger had no
+entry for it; the index counts are 287 / 282 / 285.
+
+### What Section C changed, and where it departs from the reference
+
+- **Slash verbs** `/queue` and `/title`; `/queue` consumes the composer
+  snapshot and on an idle thread just sends (a review fix: the first cut
+  double-sent and said "queued" on an idle thread).
+- **Thinking** rows: an empty finished row is not drawn; a settled row
+  says how long the thought took, from its own field so tool totals do not
+  inflate (review fix).
+- **Escape stops the turn** behind `escape_stops`; the stop control stays
+  beside Send while a draft is typed; a turn you stopped reads "Stopped by
+  you".
+- **Keycaps** wherever a chord is shown (`ui/keycaps.h`,
+  `ecs/keycap_row.h`), drawn in the mono face because the symbol glyphs are
+  missing from Roboto and Hyperlegible (review fix).
+- **Popovers fade their edges** where more content waits.
+- **Sidebar**: Group by Node, Newest-created-first beside Oldest-first;
+  per-thread notification sound over the global switch.
+- **Tool rows** carry the task's shape (background, timeout, check
+  interval) and say when a tool is in the background or slow.
+- **Star Turn** from the message menu, with a mark on the minimap. The
+  star is keyed on the turn's opening user message; the author row and
+  the minimap first looked it up by the assistant message's id and never
+  lit — fixed by resolving through `turn_key_at` (review fix).
+- **Share…** on a thread and on a turn puts the link on the clipboard and
+  says so in a toast. There is no share sheet: afterhours exposes no
+  native sharing service, so "share" is the clipboard carrying the thread's
+  web URL, or its deep link when there is no web URL (`ui/share.h`),
+  recorded as the limitation.
+- **Per-side text size** (your messages / replies), beside the per-side
+  typeface. The first cut scaled the glyphs but not the line pitch; the
+  pitch now follows the side under the row's `SideScale`, and both side
+  scales are in the render cache key (review fix).
+- **Inbox triage keys**, opt-in and remappable (j k Return e s / and
+  g-then-i/s/e). The recorder for a two-key binding is the shortcuts
+  recorder with a second stop; a follow-up is owed to let it capture the
+  g-prefix pair in one gesture rather than two fields.
+- **Send chords**, an experiment default off. The web's table (⌘⇧↩ flip,
+  ⌘⌥↩ send now, ⌘↩ new chat) is not taken, for reasons written in
+  `docs/composer-parity.md` § Send chords: Shift+Return is a newline
+  inside the text area before any submit fires; Ctrl is Cmd under the
+  scripted harness (#49, #256); and "send now" is what plain Return
+  already does mid-run (every steer is sent with `interrupt`). What ships
+  is one chord — ⌘⌥↩ queues this one message — and a two-row keycap card
+  on Send (review: the first cut had a send-now row that duplicated
+  Return).
+- **Changed-file rows** in the files-changed panel (the one surface the
+  session_changes data reaches; the transcript has no per-file rows):
+  Docs / Code / Tests groups, a mark tile, aligned counts. The marks are
+  W (written in full this session) and M (edited in place): the tool data
+  cannot tell a creation from an overwrite, and nothing in it renames or
+  deletes, so there is no A, R or D (review: the first cut called a whole
+  write "A").
+- **Diff cards**: a fence tagged diff/patch, or an untagged one with
+  ---/+++ and @@, draws as a card with the path and counts and tinted
+  lines; the card is the labelled code block's height so the ledger is
+  unchanged.
+- **Tables**: Copy as Markdown / TSV on the message menu, a horizontal
+  scroll when the content estimate exceeds the lane, a 50-row cap with "N
+  more rows". The columns stay equal — #614 above.
+- **Read seq per thread** beside the last-read stamp. Ids on the wire are
+  journal seqs; the newest seq on screen at the bottom becomes the read
+  seq, the divider compares seqs where ids are seqs (stamp only as the
+  fallback; review: the first cut fed a stamp-at-seq into the stamp
+  divider and hid same-second messages), the list row says "N new" from
+  `last_seq - read_seq`. The web inbox state carries a `read` set and
+  `lastSeenAt`, no seq: the client posts `read=true` through the inbox
+  Patch when the seq reaches `last_seq`, and the seq itself stays local —
+  that is the recorded limitation.
+- **Mock**: a durable send journal (`HANABI_MOCK_JOURNAL`), a paging
+  delay, a once-only failed open; the knob table `docs/mock-knobs.md` is
+  generated from the source and regenerated whenever a read site moves.
+
+### How it was checked without a Mac
+
+gcc 11 on the devserver compiles neither the ECS headers nor
+`settings.cpp` (no `<format>`, afterhours core). What ran: every std-only
+unit (`tests/unit/test_*.cpp` that includes only `src/ui` or `src/api`
+headers; eighteen at the tip, `test_settings_catalog` at 429 checks),
+`-fsyntax-only` of `agentcloud_client.cpp`, `disk_cache.cpp`,
+`config.cpp` and a mock-client translation unit against a one-file
+`mach-o/dyld.h` stub, and the scripts: `check_build_graph`
+(169 test rows), `check_settings_readers` (79 settings, every one read),
+`check_vocabulary --tree`, `check_gap_references` (287 entries),
+`verify_vendor_patches` (pin `d1d7f0e`, no proof patches), the knob-table
+diff, and a lever that counts prose comment lines added to source since
+the base (zero across the program; docs are prose). Each fixture was
+mode-checked for native-vs-injected input. Banks: a git bundle of
+`f8d43886..parity-ports`, the patches, a whole-diff, README and SHA256SUMS
+per batch, restore-rehearsed from an `f8d`-only clone, on two devservers.
+
+### Owed on a Mac
+
+Build at the tip and run every fixture the Test Plans mark "Not run
+(Mac)". Batch 4 and the review fixes: `send_chords_queue_this_one_when_the_experiment_is_on`,
+`send_chords_do_nothing_when_the_experiment_is_off`,
+`the_send_button_teaches_its_chords_with_keycaps`,
+`changed_file_rows_show_their_mark_and_group`,
+`changed_file_rows_can_be_turned_off`,
+`a_unified_diff_in_a_reply_draws_as_a_diff_card`,
+`diff_cards_can_be_turned_off`,
+`a_long_table_is_capped_and_says_how_many_more_rows`,
+`a_table_can_be_copied_as_markdown_or_tsv`,
+`the_unread_divider_follows_the_read_seq`,
+`a_list_row_counts_its_unread_from_the_read_seq`,
+`a_turn_can_be_starred_from_its_menu` (asst_star now draws),
+`each_side_of_the_transcript_has_its_own_text_size` (h=18 / h=14 now
+measure the side pitch). Batches 1–3 and the stages: the thirty-four
+fixtures added or changed between `f8d43886` and `8a1cb8a0`
+(`git diff --name-only f8d43886 8a1cb8a0 -- tests/ui`). Units that need
+the Mac toolchain: `test_data` (turn_key_at), `test_pane_memory` (read
+seq), `test_settings` (starred turns, read_seq round trip). The
+allocation gate (#613) was red on main before this program and is not
+touched by it.
