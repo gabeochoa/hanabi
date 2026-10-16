@@ -83,13 +83,14 @@ inline bool is_named_folder(const std::string& folder) {
 // grouping controls): by Metamate Space (else workspace folder -- the
 // default), by folder only, by Status (no named sections: Pinned and
 // Recents), or Flat (one list).
-enum class Grouping { Space, Folder, Status, Flat, Origin };
+enum class Grouping { Space, Folder, Status, Flat, Origin, Node };
 
 inline Grouping grouping_from(std::string_view s) {
     if (s == "folder") return Grouping::Folder;
     if (s == "status") return Grouping::Status;
     if (s == "flat") return Grouping::Flat;
     if (s == "origin") return Grouping::Origin;
+    if (s == "node") return Grouping::Node;
     return Grouping::Space;
 }
 inline const char* grouping_name(Grouping g) {
@@ -98,6 +99,7 @@ inline const char* grouping_name(Grouping g) {
         case Grouping::Status: return "status";
         case Grouping::Flat: return "flat";
         case Grouping::Origin: return "origin";
+        case Grouping::Node: return "node";
         case Grouping::Space: break;
     }
     return "space";
@@ -118,6 +120,14 @@ inline bool grouping_has_ungrouped(Grouping g) {
 // Recents. Interned: section_of hands back a reference, and the node-based
 // map keeps each key's address for the life of the process.
 inline bool is_origin_section(const std::string& key) { return key.rfind("origin:", 0) == 0; }
+inline bool is_node_section(const std::string& key) { return key.rfind("node:", 0) == 0; }
+inline const std::string& node_section_of(const api::SessionSummary& s) {
+    static std::unordered_map<std::string, std::string> keys;
+    const std::string& node = s.attached_nodes.empty() ? std::string() : s.attached_nodes.front();
+    auto it = keys.find(node);
+    if (it == keys.end()) it = keys.emplace(node, "node:" + node).first;
+    return it->second;
+}
 inline const std::string& origin_section_of(const api::SessionSummary& s) {
     static std::unordered_map<std::string, std::string> keys;
     auto it = keys.find(s.origin_application);
@@ -136,6 +146,7 @@ inline const std::string& section_of(const api::SessionSummary& s,
         case Grouping::Status:
         case Grouping::Flat: return kNone;
         case Grouping::Origin: return origin_section_of(s);
+        case Grouping::Node: return node_section_of(s);
         case Grouping::Space: break;
     }
     return s.space_group.empty() ? s.folder : s.space_group;

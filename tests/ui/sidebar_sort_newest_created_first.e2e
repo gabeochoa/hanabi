@@ -1,0 +1,19 @@
+# settings: {"window_width":1100,"window_height":1500,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_CREATED_AT_UNKNOWN=t8
+wait_frames 20
+expect_ui_rel chat_row_id_t7 above chat_row_id_t6
+click_ui sb_settings
+wait_frames 10
+expect_focused settings_search
+type "sort threads"
+wait_frames 8
+click_ui settings_result_0
+wait_frames 8
+expect_text "Newest first"
+click_ui settings_sort_order_2
+wait_frames 30
+key CMD+W
+wait_frames 20
+expect_ui_rel chat_row_id_t7 above chat_row_id_t6
+expect_ui_rel chat_row_id_t6 above chat_row_id_t8
+expect_mock_created_at_calls 20

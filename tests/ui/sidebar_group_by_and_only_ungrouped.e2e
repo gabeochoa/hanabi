@@ -41,6 +41,16 @@ wait_frames 20
 # None: one list, headed Threads.
 click_ui settings_group_by_4
 wait_frames 10
+expect_text "Only threads in no group — a thread with no node is its own group"
+click_ui tab_close
+wait_frames 20
+expect_text "DEVVM-ASPEN"
+expect_text "BOULDER-MAC"
+expect_text "NO NODE"
+click_ui sb_settings
+wait_frames 20
+click_ui settings_group_by_5
+wait_frames 10
 expect_text "Only threads in no group — nothing is grouped"
 click_ui tab_close
 wait_frames 20

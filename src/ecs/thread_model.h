@@ -287,6 +287,22 @@ inline bool sidebar_oldest_before(const api::SessionSummary* a,
     return a->id < b->id;
 }
 
+inline bool sidebar_newest_created_before(const api::SessionSummary* a,
+                                          const api::SessionSummary* b) {
+    if (a->starred != b->starred) return a->starred;
+    const bool ak = a->created_at > 0, bk = b->created_at > 0;
+    if (ak != bk) return ak;
+    if (ak && a->created_at != b->created_at) return a->created_at > b->created_at;
+    return a->id < b->id;
+}
+
+using SidebarOrder = bool (*)(const api::SessionSummary*, const api::SessionSummary*);
+inline SidebarOrder sidebar_order_for(const std::string& order) {
+    if (order == "oldest") return sidebar_oldest_before;
+    if (order == "newest") return sidebar_newest_created_before;
+    return sidebar_before;
+}
+
 // ---- Manual sidebar row order (drag-to-reorder) ---------------------------
 //
 // The sidebar list is sorted by ACTIVITY — newest-touched first, recomputed

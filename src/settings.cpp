@@ -104,8 +104,8 @@ bool Settings::load_save_file() {
             j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
         find_newest_first_ = j.value("find_newest_first", find_newest_first_);
-        sort_oldest_first_ =
-            j.value("session_sort_order", std::string("activity")) == "oldest";
+        sort_order_ = j.value("session_sort_order", std::string("activity"));
+        if (sort_order_ != "oldest" && sort_order_ != "newest") sort_order_ = "activity";
         pins_migrated_version_ = j.value("pins_migrated_to_web", pins_migrated_version_);
         account_autocompact_ = j.value("account_autocompact", 0);
         if (account_autocompact_ < 25 || account_autocompact_ > 90) account_autocompact_ = 0;
@@ -346,7 +346,7 @@ void Settings::write_save_file() {
     j["notification_sound"] = notification_sound_;
     j["show_timestamps"] = show_timestamps_;
     j["find_newest_first"] = find_newest_first_;
-    j["session_sort_order"] = sort_oldest_first_ ? "oldest" : "activity";
+    j["session_sort_order"] = sort_order_;
     j["pins_migrated_to_web"] = pins_migrated_version_;
     if (account_autocompact_ != 0) j["account_autocompact"] = account_autocompact_;
     j["capture_hotkey"] = capture_hotkey_enabled_;
@@ -948,10 +948,13 @@ void Settings::set_pins_migrated_version(int v) {
     if (auto_save_enabled) write_save_file();
 }
 
-bool Settings::get_sort_oldest_first() const { return sort_oldest_first_; }
-void Settings::set_sort_oldest_first(bool on) {
-    if (on == sort_oldest_first_) return;
-    sort_oldest_first_ = on;
+const std::string& Settings::get_sort_order() const { return sort_order_; }
+bool Settings::sort_uses_created_at() const { return sort_order_ != "activity"; }
+void Settings::set_sort_order(const std::string& order) {
+    const std::string next =
+        order == "oldest" || order == "newest" ? order : std::string("activity");
+    if (next == sort_order_) return;
+    sort_order_ = next;
     if (auto_save_enabled) write_save_file();
 }
 

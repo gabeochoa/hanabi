@@ -487,6 +487,7 @@ struct SessionSummary {
     // whether a session is automation-born -- see is_automation_born below.
     std::string origin_application;
     bool title_is_human = false;
+    std::vector<std::string> attached_nodes;
 
     // "space:<fbid>" when the thread is filed in a Metamate Space this viewer
     // can see, from the session->Space index (spaces_wire.h); "" otherwise.

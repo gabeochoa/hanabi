@@ -388,12 +388,12 @@ struct Settings {
     void set_find_newest_first(bool on);
 
     // The order inside every sidebar section (the reference's Sort by,
-    // the reference's 0.8.9): false = recent activity, the order the list always
-    // had; true = oldest CREATED first, unknown creation times last. Stored
-    // as "activity" / "oldest" so a third order has somewhere to go.
-    // Auto-persists.
-    bool get_sort_oldest_first() const;
-    void set_sort_oldest_first(bool on);
+    // the reference's 0.8.9): "activity" = recent activity, the order the list
+    // always had; "oldest" = oldest CREATED first; "newest" = newest CREATED
+    // first; unknown creation times last in both. Auto-persists.
+    const std::string& get_sort_order() const;
+    void set_sort_order(const std::string& order);
+    bool sort_uses_created_at() const;
 
     // Which version of the one-shot carry of this Mac's pins to the web's
     // pin column has COMPLETED here (kt-if8e; the reference's
@@ -612,7 +612,7 @@ struct Settings {
     bool notification_sound_ = true;
     bool show_timestamps_ = true;
     bool find_newest_first_ = false;
-    bool sort_oldest_first_ = false;
+    std::string sort_order_ = "activity";
     int pins_migrated_version_ = 0;
     int account_autocompact_ = 0;
     bool capture_hotkey_enabled_ = false;

@@ -3366,10 +3366,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                AppComponent& app) {
         (void)app;
         row_name(ctx, parent, 602, "Sort threads by", "settings_sort_order_label");
-        const bool oldest = Settings::get().get_sort_oldest_first();
-        real_segmented(ctx, parent, 603, {"Recent activity", "Oldest first"},
-                       oldest ? 1 : 0, "settings_sort_order",
-                       [](int i) { Settings::get().set_sort_oldest_first(i == 1); });
+        const std::string& order = Settings::get().get_sort_order();
+        const int idx = order == "oldest" ? 1 : order == "newest" ? 2 : 0;
+        real_segmented(ctx, parent, 603, {"Recent activity", "Oldest first", "Newest first"},
+                       idx, "settings_sort_order", [](int i) {
+                           static constexpr const char* kOrders[] = {"activity", "oldest",
+                                                                     "newest"};
+                           Settings::get().set_sort_order(kOrders[i]);
+                       });
     }
 
     // How the sidebar sections threads (the reference's Group by): Space
@@ -3379,13 +3383,14 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         (void)app;
         row_name(ctx, parent, 606, "Group threads by", "settings_group_by_label");
         const std::string g = Settings::get().get_session_grouping();
-        const int idx = g == "folder" ? 1 : g == "status" ? 2 : g == "origin" ? 3 : g == "flat" ? 4 : 0;
+        const int idx = g == "folder" ? 1 : g == "status" ? 2 : g == "origin" ? 3
+                      : g == "node" ? 4 : g == "flat" ? 5 : 0;
         // Origin (the reference's Group by Origin): one section per place a
         // thread was started -- chat, cli, metamate, web...
-        real_segmented(ctx, parent, 607, {"Space", "Folder", "Status", "Origin", "None"}, idx,
-                       "settings_group_by", [](int i) {
+        real_segmented(ctx, parent, 607, {"Space", "Folder", "Status", "Origin", "Node", "None"},
+                       idx, "settings_group_by", [](int i) {
                            static constexpr const char* kNames[] = {"space", "folder", "status",
-                                                                    "origin", "flat"};
+                                                                    "origin", "node", "flat"};
                            Settings::get().set_session_grouping(kNames[i]);
                        });
     }
@@ -3404,6 +3409,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
                                        ? std::string(" \xe2\x80\x94 every thread has a status")
                                        : g == model::Grouping::Origin
                                        ? std::string(" \xe2\x80\x94 every thread has an origin")
+                                       : g == model::Grouping::Node
+                                       ? std::string(" \xe2\x80\x94 a thread with no node is its own group")
                                        : std::string(" \xe2\x80\x94 nothing is grouped")),
                       "settings_only_ungrouped_label");
         const bool on = offerable && Settings::get().get_only_ungrouped();

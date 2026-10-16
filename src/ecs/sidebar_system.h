@@ -4050,6 +4050,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Group by Origin: the heading IS the origin term, the same word the
         // web's origin: search takes.
         if (model::is_origin_section(key)) return key.substr(7);
+        if (model::is_node_section(key)) {
+            const std::string node = key.substr(5);
+            return node.empty() ? std::string("No node") : node;
+        }
         if (!model::is_space_section(key)) return folder_display_name(key);
         const std::string id = key.substr(6);
         for (const auto& sp : app.spaces)
@@ -4295,9 +4299,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // Settings > General > Sort threads by: Oldest first swaps the
             // comparator and nothing else -- the pin still lifts, the prefix
             // argument below holds for any total order.
-            const bool oldest = Settings::get().get_sort_oldest_first();
-            const auto newestFirst = oldest ? model::sidebar_oldest_before
-                                            : model::sidebar_before;
+            const auto newestFirst =
+                model::sidebar_order_for(Settings::get().get_sort_order());
             // Sort only as far as the rows that will be drawn. The list is
             // capped at roughly two viewports, so at a 2000-session catalog a
             // full sort ordered 2000 rows to show forty of them, every frame.
@@ -4333,11 +4336,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     [](const api::SessionSummary* s) { return s->updated_at; });
                 std::copy(head.begin(), head.end(), members.begin());
             }
-        } else if (Settings::get().get_sort_oldest_first()) {
+        } else if (Settings::get().sort_uses_created_at()) {
             // A named folder keeps the catalog's activity order by default;
             // the reference's Sort by applies to every section, so Oldest
             // first orders it too.
-            std::sort(members.begin(), members.end(), model::sidebar_oldest_before);
+            std::sort(members.begin(), members.end(),
+                      model::sidebar_order_for(Settings::get().get_sort_order()));
         }
         // The rows the user has hand-arranged rise to the top of the group in
         // the order they were left in; everything else keeps the activity order
@@ -4357,7 +4361,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                             app.expandedRevision, app.rowOrderRevision, limit,
                             static_cast<int>(members.size()), q,
                             hysteresis_[key].reorders,
-                            Settings::get().get_sort_oldest_first(),
+                            Settings::get().get_sort_order(),
                             app.createdAtRevision};
         // One cache per folder: PINNED and RECENTS both draw every frame,
         // and a single slot would rebuild on every alternation.
@@ -4387,7 +4391,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         std::uint64_t hysteresisRev = 0;
         // The order the members were sorted in, and the creation times that
         // order reads: either moving re-sorts the drawn list.
-        bool oldestFirst = false;
+        std::string sortOrder;
         std::uint64_t createdAtRev = 0;
         bool operator==(const VisibleKey& o) const {
             return folder == o.folder && bucketsRev == o.bucketsRev &&
@@ -4395,7 +4399,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                    orderRev == o.orderRev && limit == o.limit &&
                    members == o.members && query == o.query &&
                    hysteresisRev == o.hysteresisRev &&
-                   oldestFirst == o.oldestFirst && createdAtRev == o.createdAtRev;
+                   sortOrder == o.sortOrder && createdAtRev == o.createdAtRev;
         }
     };
     struct VisibleCache {

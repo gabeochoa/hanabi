@@ -144,6 +144,22 @@ static void test_group_by_origin_sections_every_thread() {
     CHECK(ecs::model::grouping_from("origin") == ecs::model::Grouping::Origin);
     CHECK(std::string(ecs::model::grouping_name(ecs::model::Grouping::Origin)) == "origin");
     CHECK(!ecs::model::grouping_has_ungrouped(ecs::model::Grouping::Origin));
+
+    std::printf("test_group_by_node_sections_by_first_attached_node\n");
+    cat[0].attached_nodes = {"devvm-a"};
+    cat[1].attached_nodes = {"devvm-a", "mac-b"};
+    cat[2].attached_nodes = {"mac-b"};
+    ecs::model::SidebarBuckets n;
+    n.set_grouping(ecs::model::Grouping::Node, true);
+    n.rebuild(1, cat, "", false, none);
+    CHECK(n.recent().empty());
+    CHECK(has(n.members("node:devvm-a"), "w") && has(n.members("node:devvm-a"), "c"));
+    CHECK(has(n.members("node:mac-b"), "l"));
+    CHECK(has(n.members("node:"), "u") && has(n.members("node:"), "m"));
+    CHECK(ecs::model::grouping_from("node") == ecs::model::Grouping::Node);
+    CHECK(std::string(ecs::model::grouping_name(ecs::model::Grouping::Node)) == "node");
+    CHECK(!ecs::model::grouping_has_ungrouped(ecs::model::Grouping::Node));
+    CHECK(ecs::model::is_node_section("node:devvm-a") && !ecs::model::is_node_section("origin:web"));
 }
 
 static void test_goal_and_plan_go_to_the_session_as_text() {

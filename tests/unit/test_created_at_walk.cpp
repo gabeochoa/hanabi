@@ -63,6 +63,21 @@ static void test_oldest_first_orders_by_creation_unknown_last() {
     CHECK(order(rows, ecs::model::sidebar_oldest_before) == want);
 }
 
+static void test_newest_created_first_mirrors_oldest_unknown_still_last() {
+    std::vector<SessionSummary> rows{
+        row("busy", 900, 300), row("old", 100, 100), row("young", 200, 500),
+        row("unknown_b", 999, 0), row("unknown_a", 1, 0), row("pinned", 50, 400, true),
+    };
+    const auto newest = order(rows, ecs::model::sidebar_newest_created_before);
+    const std::vector<std::string> want{"pinned", "young", "busy", "old",
+                                        "unknown_a", "unknown_b"};
+    CHECK(newest == want);
+    CHECK(ecs::model::sidebar_order_for("newest") == ecs::model::sidebar_newest_created_before);
+    CHECK(ecs::model::sidebar_order_for("oldest") == ecs::model::sidebar_oldest_before);
+    CHECK(ecs::model::sidebar_order_for("activity") == ecs::model::sidebar_before);
+    CHECK(ecs::model::sidebar_order_for("") == ecs::model::sidebar_before);
+}
+
 static void test_ties_break_on_id() {
     std::vector<SessionSummary> rows{row("b", 1, 10), row("a", 2, 10), row("c", 3, 10)};
     CHECK((order(rows, ecs::model::sidebar_oldest_before) ==
@@ -104,6 +119,7 @@ static void test_next_batch_skips_known_and_refused() {
 
 int main() {
     test_oldest_first_orders_by_creation_unknown_last();
+    test_newest_created_first_mirrors_oldest_unknown_still_last();
     test_ties_break_on_id();
     test_apply_fills_only_unknown_rows();
     test_next_batch_skips_known_and_refused();

@@ -115,7 +115,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             }
         }
         if (app.createdAtPending || !app.liveListSeen || !app.client) return;
-        if (!Settings::get().get_sort_oldest_first()) return;
+        if (!Settings::get().sort_uses_created_at()) return;
         if (!app.client->supports_created_at()) return;
         std::vector<std::string> batch = hanabi::created_at::next_batch(
             app.sessions, app.createdAt, app.createdAtRefused);

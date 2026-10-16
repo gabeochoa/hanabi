@@ -4867,6 +4867,9 @@ class MockClient : public Client {
             for (Session& s : v)
                 if (s.summary.id == "r7")
                     s.summary.folder = "/work/subscriptions";
+            v[0].summary.attached_nodes = {"devvm-aspen"};
+            v[1].summary.attached_nodes = {"devvm-aspen"};
+            v[2].summary.attached_nodes = {"boulder-mac"};
         }
 
         // THE BRAKES AND THE TWO NEW MARKS, on demand.
