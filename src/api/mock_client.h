@@ -2373,6 +2373,8 @@ class MockClient : public Client {
             target->summary.state != ThreadState::Working)
             return Result<std::string>::failure("nothing is running");
         target->summary.state = ThreadState::Ready;
+        if (!target->messages.empty() && target->messages.back().run_outcome.empty())
+            target->messages.back().run_outcome = "interrupted";
         return Result<std::string>::success("interrupt sent");
     }
 
@@ -2850,6 +2852,7 @@ class MockClient : public Client {
     static constexpr const char* kFixtureEnv[] = {
         "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_ELEMENTS_CARD_TABLE", "HANABI_CODE_WRAP_DEMO", "HANABI_CHART_DEMO", "HANABI_MD_IMAGE_DEMO",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
+        "HANABI_STOPPED_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
@@ -4014,6 +4017,23 @@ class MockClient : public Client {
         // seeded only under HANABI_MD_DEMO so the ordinary mock list is
         // unchanged. Every level 1-4 appears once, plus a "#42" line that must
         // stay body text.
+        if (const char* st = std::getenv("HANABI_STOPPED_DEMO");
+            st && *st && std::string(st) != "0") {
+            Session s;
+            s.summary = calm("rstop", "the retry sweep you stopped",
+                             mins_ago(40), "idle", ThreadState::Ready,
+                             "stopped fixture");
+            s.messages = {
+                {"st1", Role::User, "sweep every retry site and list them",
+                 mins_ago(50), ""},
+                {"st2", Role::Assistant,
+                 "Starting with the client package. Three sites so far: the "
+                 "upload loop, the token refresh, and",
+                 mins_ago(45), ""},
+            };
+            s.messages[1].run_outcome = "interrupted";
+            v.push_back(std::move(s));
+        }
         if (const char* md = std::getenv("HANABI_MD_DEMO");
             md && *md && std::string(md) != "0") {
             Session s;

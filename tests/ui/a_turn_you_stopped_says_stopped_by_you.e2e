@@ -1,0 +1,8 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["rstop"],"active_tab":"rstop","theme":"dark"}
+# env: HANABI_STOPPED_DEMO=1 HANABI_OPEN=rstop
+require_thread rstop
+wait_frames 12
+expect_text "the upload loop, the token refresh, and"
+expect_text "Stopped by you"
+expect_no_text "interrupted"
+expect_ui_rel run_outcome_label inside run_outcome_divider

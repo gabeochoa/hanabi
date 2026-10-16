@@ -47,6 +47,7 @@
 #include "../ui/harness_names.h"
 #include "../ui/thinking_tags.h"
 #include "../ui/thinking_elapsed.h"
+#include "../ui/run_outcome_label.h"
 #include "keyboard_focus.h"
 #include "digest_layout.h"
 #include "home_buckets.h"
@@ -3366,7 +3367,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return !m.run_note.empty() || draws_outcome(m.run_outcome, isLast);
     }
     static std::string outcome_label(const api::Message& m) {
-        return m.run_note.empty() ? m.run_outcome : m.run_outcome + " \xc2\xb7 " + m.run_note;
+        return hanabi::run_outcome::label(m.run_outcome, m.run_note);
     }
 
     static bool outcome_is_failure(const std::string& outcome) {
