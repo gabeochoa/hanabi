@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 53> kRows{{
+inline constexpr std::array<Row, 55> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -203,6 +203,12 @@ inline constexpr std::array<Row, 53> kRows{{
     {"assistant_font", Pane::Appearance, "Replies",
      "typeface font family assistant replies side answers", Origin::Device,
      "Typeface"},
+    {"user_text_size", Pane::Appearance, "Your messages size",
+     "text size font size scale user side messages mine smaller larger", Origin::Device,
+     "Typeface"},
+    {"assistant_text_size", Pane::Appearance, "Replies size",
+     "text size font size scale assistant replies side answers smaller larger",
+     Origin::Device, "Typeface"},
     {"font", Pane::Appearance, "App font",
      "typeface family text letters serif mono", Origin::Device, "Typeface"},
     {"font_weight", Pane::Appearance, "Font weight",

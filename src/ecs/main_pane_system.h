@@ -145,8 +145,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         app->focusBeforeLastPress = app->focusAtFrameStart;
         app->focusAtFrameStart = static_cast<long long>(ctx.focus_id);
         for (Pane& p : app->panes) hanabi::tab_find::sync_pane(app->findStates, p, p.selectedId);
-        if (text_zoom() != lastTextZoom_ || Settings::get().get_line_spacing() != lastLineSpacing_) {
-            lastTextZoom_ = text_zoom();
+        const double zoomSignature =
+            text_zoom() + side_zoom(true) * 1000.0 + side_zoom(false) * 1000000.0;
+        if (zoomSignature != lastTextZoom_ || Settings::get().get_line_spacing() != lastLineSpacing_) {
+            lastTextZoom_ = zoomSignature;
             lastLineSpacing_ = Settings::get().get_line_spacing();
             model::transcript_ledgers().mark_all_dirty();
             afterhours::ui::detail::wrap_memo::clear();
@@ -940,10 +942,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // it: the strip's reserved height, the outlined box and the field.
     static constexpr float kComposerLineHPt = 21.0f;
     static double text_zoom() { return Settings::get().get_text_scale(); }
+    static double side_zoom(bool user) { return Settings::get().get_side_text_scale(user); }
+    static bool any_side_zoom() { return side_zoom(true) != 1.0 || side_zoom(false) != 1.0; }
+    struct SideScale {
+        float prev;
+        explicit SideScale(bool user) : prev(theme::type::point_scale()) {
+            const double z = side_zoom(user);
+            if (z != 1.0) theme::type::set_point_scale(prev * static_cast<float>(z));
+        }
+        ~SideScale() { theme::type::set_point_scale(prev); }
+        SideScale(const SideScale&) = delete;
+        SideScale& operator=(const SideScale&) = delete;
+    };
     static float zoomed(float px) { return std::round(px * static_cast<float>(text_zoom())); }
     static float composer_line_h() { return zoomed(kComposerLineHPt); }
     static std::string zoom_key() {
-        if (text_zoom() == 1.0 && Settings::get().get_line_spacing() == hanabi::line_spacing::kDefault)
+        if (text_zoom() == 1.0 && !any_side_zoom() &&
+            Settings::get().get_line_spacing() == hanabi::line_spacing::kDefault)
             return std::string();
         return "|z" + std::to_string(theme::type::BODY) + "/" + std::to_string(line_pitch()) + "/" +
                std::to_string(line_gap()) + "/" + std::to_string(code_line_pitch()) + "/" +
@@ -4502,12 +4517,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case model::RowGeom::System:
                 case model::RowGeom::Bubble:
-                default:
+                default: {
+                    const SideScale sideScale(m.role == api::Role::User);
                     r.h = bubble_height(m, colW, g.live, i, g.showAuthor);
                     // Exact at this width only; the per-message render cache
                     // underneath serves its own interval on the re-ask.
                     r.validLo = colW; r.validHi = colW;
                     break;
+                }
             }
             return r;
         };
@@ -4855,13 +4872,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         break;
                     case model::RowGeom::System:
                     case model::RowGeom::Bubble:
-                    default:
-                        render_bubble(ctx, col, i, m, colW, g.live,
-                                      app.streamPhase, visTop, visBot, top,
-                                      g.showAuthor);
+                    default: {
+                        {
+                            const SideScale sideScale(m.role == api::Role::User);
+                            render_bubble(ctx, col, i, m, colW, g.live,
+                                          app.streamPhase, visTop, visBot, top,
+                                          g.showAuthor);
+                        }
                         if (g.after > 0.0f)
                             run_outcome_divider(ctx, col, i, m, colW);
                         break;
+                    }
                 }
                 y += g.total();
             }

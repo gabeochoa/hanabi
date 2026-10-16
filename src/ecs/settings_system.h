@@ -1286,6 +1286,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "icon_set") render_icon_set_row(ctx, parent, app);
         else if (id == "palette") render_palette_row(ctx, parent, app);
         else if (id == "user_font") render_user_font_row(ctx, parent, app);
+        else if (id == "user_text_size") render_side_size_row(ctx, parent, app, true);
+        else if (id == "assistant_text_size") render_side_size_row(ctx, parent, app, false);
         else if (id == "assistant_font")
             render_assistant_font_row(ctx, parent, app);
         else if (id == "minimap_marks")
@@ -4152,6 +4154,21 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         for (const auto& entry : kPalettes)
             if (app.themeChoice == entry.key) return entry.label;
         return theme::mode() == theme::Mode::Light ? "Light" : "Dark";
+    }
+
+    void render_side_size_row(UIContext<InputAction>& ctx, Entity& parent,
+                              AppComponent& app, bool user) {
+        (void)app;
+        row_name(ctx, parent, user ? 772 : 774, user ? "Your messages size" : "Replies size",
+                 user ? "settings_user_text_size" : "settings_assistant_text_size");
+        const double scale = Settings::get().get_side_text_scale(user);
+        const int sel = scale < 0.95 ? 0 : scale > 1.05 ? 2 : 1;
+        real_segmented(ctx, parent, user ? 773 : 775, {"Smaller", "Same", "Larger"}, sel,
+                       user ? "settings_user_text_size" : "settings_assistant_text_size",
+                       [user](int i) {
+                           static constexpr double kScales[] = {0.9, 1.0, 1.15};
+                           Settings::get().set_side_text_scale(user, kScales[i]);
+                       });
     }
 
     void render_user_font_row(UIContext<InputAction>& ctx, Entity& parent,

@@ -165,6 +165,8 @@ struct Settings {
     void set_escape_stops(bool on);
     double get_text_scale() const;
     void set_text_scale(double scale);
+    double get_side_text_scale(bool user) const;
+    void set_side_text_scale(bool user, double scale);
     int get_line_spacing() const;
     void set_line_spacing(int percent);
     void set_restore_tabs(bool on);  // auto-persists
@@ -569,6 +571,8 @@ struct Settings {
     std::string font_weight_ = "semibold";
     std::string user_font_;
     std::string assistant_font_;
+    double user_text_scale_ = 1.0;
+    double assistant_text_scale_ = 1.0;
     std::string accent_choice_ = "default";
     std::string highlight_choice_ = "default";
     std::string settings_pane_ = "general";

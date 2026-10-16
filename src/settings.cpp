@@ -83,6 +83,10 @@ bool Settings::load_save_file() {
         confirm_quit_ = j.value("confirm_quit", confirm_quit_);
         escape_stops_ = j.value("escape_stops", escape_stops_);
         text_scale_ = hanabi::text_zoom::sanitize(j.value("text_scale", text_scale_));
+        user_text_scale_ =
+            hanabi::text_zoom::sanitize(j.value("user_text_scale", user_text_scale_));
+        assistant_text_scale_ =
+            hanabi::text_zoom::sanitize(j.value("assistant_text_scale", assistant_text_scale_));
         line_spacing_ = hanabi::line_spacing::clamp(j.value("line_spacing", line_spacing_));
         jump_to_latest_ = j.value("jump_to_latest", jump_to_latest_);
         show_minimap_ = j.value("show_minimap", show_minimap_);
@@ -344,6 +348,8 @@ void Settings::write_save_file() {
     j["confirm_quit"] = confirm_quit_;
     j["escape_stops"] = escape_stops_;
     j["text_scale"] = text_scale_;
+    j["user_text_scale"] = user_text_scale_;
+    j["assistant_text_scale"] = assistant_text_scale_;
     j["line_spacing"] = line_spacing_;
     j["jump_to_latest"] = jump_to_latest_;
     j["show_minimap"] = show_minimap_;
@@ -567,6 +573,17 @@ void Settings::set_text_scale(double scale) {
     const double next = hanabi::text_zoom::sanitize(scale);
     if (next == text_scale_) return;
     text_scale_ = next;
+    if (auto_save_enabled) write_save_file();
+}
+
+double Settings::get_side_text_scale(bool user) const {
+    return user ? user_text_scale_ : assistant_text_scale_;
+}
+void Settings::set_side_text_scale(bool user, double scale) {
+    const double next = hanabi::text_zoom::sanitize(scale);
+    double& slot = user ? user_text_scale_ : assistant_text_scale_;
+    if (next == slot) return;
+    slot = next;
     if (auto_save_enabled) write_save_file();
 }
 
