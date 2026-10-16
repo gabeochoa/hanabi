@@ -109,7 +109,7 @@ its `# env:` line, and the app honours them when launched by hand too.
 | `HANABI_MOCK_ACCESS` | `src/api/mock_client.h:2869` | 5 |  |
 | `HANABI_MOCK_AUTOCOMPACT` | `src/api/mock_client.h:292` | 1 |  |
 | `HANABI_MOCK_AUTOMATION` | `src/api/mock_client.h:415` | 3 |  |
-| `HANABI_MOCK_CREATED_AT_UNKNOWN` | `src/api/mock_client.h:1005` | 1 |  |
+| `HANABI_MOCK_CREATED_AT_UNKNOWN` | `src/api/mock_client.h:1005` | 2 |  |
 | `HANABI_MOCK_HALT_OBSERVE_LATCH` | `src/api/mock_client.h:1724` | 2 |  |
 | `HANABI_MOCK_INBOX_GET` | `src/api/mock_client.h:2231` | 2 |  |
 | `HANABI_MOCK_INBOX_POST` | `src/api/mock_client.h:2267` | 1 |  |
