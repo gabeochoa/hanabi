@@ -70,6 +70,7 @@
 #include "sidebar_hysteresis.h"
 #include "settings_system.h"
 #include "../ui/transcript_copy.h"
+#include "../ui/share.h"
 #include "../keys.h"
 #include "text_edit_actions.h"
 #include "ui_imports.h"
@@ -1274,6 +1275,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             CopyTitle,
             Fork,
             CopyWeblink,
+            Share,
             CopyDeeplink,
             Pin,
             ExportClipboard,
@@ -1332,6 +1334,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         add("Copy Weblink", "row_menu_copy_weblink", Action::CopyWeblink, "copy_weblink",
             !webBase);
         add("Copy Deeplink", "row_menu_copy_deeplink", Action::CopyDeeplink, "copy_deeplink");
+        add("Share\xe2\x80\xa6", "row_menu_share", Action::Share, "share");
         add("Copy Session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
         add("Open in Web", "row_menu_open_web", Action::OpenWeb, "open_web", !webBase);
         divider("row_menu_divider_copy");
@@ -1566,6 +1569,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 case Action::CopyDeeplink:
                     hanabi::clipboard::set_text(model::deep_link_for(targetId));
                     break;
+                case Action::Share: {
+                    const api::SessionSummary* s = app.find_summary(targetId);
+                    const auto payload = hanabi::share::session_link(
+                        s ? s->title : std::string(), model::web_url_for(app.webBaseUrl, targetId),
+                        model::deep_link_for(targetId));
+                    hanabi::clipboard::set_text(payload.text);
+                    hanabi::test_hooks::record_clipboard_text(payload.text);
+                    app.raise_toast(payload.notice, std::string(), AppComponent::ToastUndo::None);
+                    break;
+                }
                 case Action::CopyId:
                     hanabi::clipboard::set_text(targetId);
                     break;

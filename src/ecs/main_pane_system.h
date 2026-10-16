@@ -100,6 +100,7 @@
 #include "ui_imports.h"
 #include "../ui/context_menu.h"
 #include "../ui/transcript_copy.h"
+#include "../ui/share.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
 
@@ -14338,6 +14339,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::surface::MenuItem copyTurn{"Copy Turn", "message_menu_copy_turn", false, false};
         copyTurn.action_id = "copy_turn";
         items.push_back(std::move(copyTurn));
+        hanabi::surface::MenuItem shareTurn{"Share Turn\xe2\x80\xa6", "message_menu_share_turn", false, false};
+        shareTurn.action_id = "share_turn";
+        items.push_back(std::move(shareTurn));
         const auto turnSpan = hanabi::transcript_copy::turn_around(session->messages,
                                                                    app.messageMenuMessageId);
         const std::string turnId =
@@ -14386,7 +14390,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             else if (pickedAction == "copy_turn")
                 payload = hanabi::transcript_copy::copy_turn_payload(session->messages,
                                                                      app.messageMenuMessageId);
-            else if (pickedAction == "star_turn" || pickedAction == "unstar_turn") {
+            else if (pickedAction == "share_turn") {
+                const auto shared = hanabi::share::turn(
+                    hanabi::transcript_copy::copy_turn_payload(session->messages,
+                                                               app.messageMenuMessageId),
+                    model::web_url_for(app.webBaseUrl, app.messageMenuSessionId),
+                    model::deep_link_for(app.messageMenuSessionId));
+                payload = shared.text;
+                app.raise_toast(shared.notice, std::string(), AppComponent::ToastUndo::None);
+            } else if (pickedAction == "star_turn" || pickedAction == "unstar_turn") {
                 Settings::get().set_turn_starred(app.messageMenuSessionId, turnId,
                                                  pickedAction == "star_turn");
                 model::transcript_ledgers().mark_all_dirty();

@@ -23,6 +23,7 @@ assert_ui row_menu_copy_title w=176 h=36
 assert_ui row_menu_fork w=176 h=36
 assert_ui row_menu_copy_weblink w=176 h=36
 assert_ui row_menu_copy_deeplink w=176 h=36
+assert_ui row_menu_share w=176 h=36
 assert_ui row_menu_copy_id w=176 h=36
 assert_ui row_menu_open_web w=176 h=36
 assert_ui row_menu_export_clipboard w=176 h=36

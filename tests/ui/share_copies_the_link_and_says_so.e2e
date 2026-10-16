@@ -1,0 +1,21 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+require_thread t2
+wait_frames 12
+reset_clipboard_probe
+right_click_text "Reconciled 4,812 accounts"
+wait_frames 6
+expect_text "Share Turn…"
+click_text "Share Turn…"
+wait_frames 8
+expect_toast_holds "Copied the turn with"
+expect_clipboard_contains "Reconciled 4,812 accounts"
+expect_clipboard_contains "— hanabi://"
+reset_clipboard_probe
+right_click_ui chat_row_id_t2
+wait_frames 8
+expect_text "Share…"
+click_ui row_menu_share
+wait_frames 8
+expect_toast_holds "Copied the conversation's link"
+expect_clipboard_contains "hanabi://"
