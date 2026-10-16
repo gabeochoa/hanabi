@@ -43,6 +43,9 @@ wait_frames 6
 expect_focused settings_escape_stops_track
 key TAB
 wait_frames 6
+expect_focused settings_inbox_triage_track
+key TAB
+wait_frames 6
 expect_focused settings_sort_order_row
 key TAB
 wait_frames 6
@@ -64,6 +67,9 @@ expect_focused settings_group_by_row
 shift_tab
 wait_frames 6
 expect_focused settings_sort_order_row
+shift_tab
+wait_frames 6
+expect_focused settings_inbox_triage_track
 shift_tab
 wait_frames 6
 expect_focused settings_escape_stops_track

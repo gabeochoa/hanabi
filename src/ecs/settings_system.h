@@ -68,6 +68,7 @@
 
 #include "../ui/icons.h"
 #include "keycap_row.h"
+#include "../ui/inbox_triage.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/settings_catalog.h"
 #include "../line_spacing.h"
@@ -1273,6 +1274,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "native_diffs") render_native_diffs_row(ctx, parent, app);
         else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
         else if (id == "escape_stops") render_escape_stops_row(ctx, parent, app);
+        else if (id == "inbox_triage") render_inbox_triage_row(ctx, parent, app);
         else if (id == "sort_order") render_sort_order_row(ctx, parent, app);
         else if (id == "group_by") render_group_by_row(ctx, parent, app);
         else if (id == "only_ungrouped") render_only_ungrouped_row(ctx, parent, app);
@@ -4003,6 +4005,23 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const bool on = Settings::get().get_escape_stops();
         real_switch(ctx, parent, 771, on, "settings_escape_stops",
                     [](bool v) { Settings::get().set_escape_stops(v); });
+    }
+
+    void render_inbox_triage_row(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        (void)app;
+        const bool on = Settings::get().get_inbox_triage();
+        std::string keys;
+        for (const auto& d : hanabi::triage::kDefinitions) {
+            if (!keys.empty()) keys += "  \xc2\xb7  ";
+            keys += hanabi::triage::display(hanabi::triage::parse_binding(
+                Settings::get().get_triage_binding(std::string(d.key))));
+        }
+        row_name_with(ctx, parent, 776, "Inbox triage keys",
+                      on ? "   \xc2\xb7   " + keys : std::string(),
+                      "settings_inbox_triage_label");
+        real_switch(ctx, parent, 777, on, "settings_inbox_triage",
+                    [](bool v) { Settings::get().set_inbox_triage(v); });
     }
 
     void render_native_diffs_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {

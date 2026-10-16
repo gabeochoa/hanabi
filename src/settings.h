@@ -163,6 +163,10 @@ struct Settings {
     void set_confirm_quit(bool on);
     bool get_escape_stops() const;
     void set_escape_stops(bool on);
+    bool get_inbox_triage() const;
+    void set_inbox_triage(bool on);
+    std::string get_triage_binding(const std::string& key) const;
+    void set_triage_binding(const std::string& key, const std::string& binding);
     double get_text_scale() const;
     void set_text_scale(double scale);
     double get_side_text_scale(bool user) const;
@@ -579,6 +583,8 @@ struct Settings {
     bool restore_tabs_ = true;
     bool confirm_quit_ = true;
     bool escape_stops_ = false;
+    bool inbox_triage_ = false;
+    std::map<std::string, std::string> triage_bindings_;
     double text_scale_ = 1.0;
     int line_spacing_ = 100;
     bool jump_to_latest_ = true;

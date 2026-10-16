@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "ui/inbox_triage.h"
 #include "text_zoom.h"
 #include "line_spacing.h"
 #include "util/acknowledged.h"
@@ -82,6 +83,11 @@ bool Settings::load_save_file() {
         restore_tabs_ = j.value("restore_tabs", restore_tabs_);
         confirm_quit_ = j.value("confirm_quit", confirm_quit_);
         escape_stops_ = j.value("escape_stops", escape_stops_);
+        inbox_triage_ = j.value("inbox_triage", inbox_triage_);
+        triage_bindings_.clear();
+        if (j.contains("triage_bindings") && j["triage_bindings"].is_object())
+            for (const auto& [k, v] : j["triage_bindings"].items())
+                if (v.is_string()) triage_bindings_[k] = v.get<std::string>();
         text_scale_ = hanabi::text_zoom::sanitize(j.value("text_scale", text_scale_));
         user_text_scale_ =
             hanabi::text_zoom::sanitize(j.value("user_text_scale", user_text_scale_));
@@ -347,6 +353,8 @@ void Settings::write_save_file() {
     j["restore_tabs"] = restore_tabs_;
     j["confirm_quit"] = confirm_quit_;
     j["escape_stops"] = escape_stops_;
+    j["inbox_triage"] = inbox_triage_;
+    j["triage_bindings"] = triage_bindings_;
     j["text_scale"] = text_scale_;
     j["user_text_scale"] = user_text_scale_;
     j["assistant_text_scale"] = assistant_text_scale_;
@@ -561,6 +569,32 @@ void Settings::set_confirm_quit(bool on) {
     if (auto_save_enabled) write_save_file();
 }
 
+bool Settings::get_inbox_triage() const { return inbox_triage_; }
+void Settings::set_inbox_triage(bool on) {
+    if (on == inbox_triage_) return;
+    inbox_triage_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+std::string Settings::get_triage_binding(const std::string& key) const {
+    auto it = triage_bindings_.find(key);
+    if (it != triage_bindings_.end()) return it->second;
+    if (const auto* d = hanabi::triage::find(key)) return std::string(d->shipped);
+    return {};
+}
+void Settings::set_triage_binding(const std::string& key, const std::string& binding) {
+    const auto* d = hanabi::triage::find(key);
+    if (d == nullptr) return;
+    const std::string normalized =
+        hanabi::triage::serialize_binding(hanabi::triage::parse_binding(binding));
+    if (normalized == std::string(d->shipped)) {
+        if (triage_bindings_.erase(key) == 0) return;
+    } else {
+        auto it = triage_bindings_.find(key);
+        if (it != triage_bindings_.end() && it->second == normalized) return;
+        triage_bindings_[key] = normalized;
+    }
+    if (auto_save_enabled) write_save_file();
+}
 bool Settings::get_escape_stops() const { return escape_stops_; }
 void Settings::set_escape_stops(bool on) {
     if (on == escape_stops_) return;
