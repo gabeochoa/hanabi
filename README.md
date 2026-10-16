@@ -257,6 +257,10 @@ Every config key also has an env var, which overrides the file:
 If `http` is selected but no base URL is set, the app cleanly falls back to the
 `mock` backend.
 
+The mock's own knobs (fixture seeds, failure injection, holds, the send
+journal) are listed in `docs/mock-knobs.md`, generated from the source by
+`scripts/mock_knobs_table.py`.
+
 ### HTTPS backends use TLS by default
 
 When Homebrew OpenSSL is installed, a plain `zig build` builds HTTPS support.
