@@ -1670,6 +1670,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     double lastTextZoom_ = 1.0;
     bool liveBody_ = false;
     std::string renderSessionId_;
+    const std::vector<api::Message>* renderMessages_ = nullptr;
     int lastLineSpacing_ = hanabi::line_spacing::kDefault;
     // Whether each pane's field had the caret last frame (the caret-follow
     // rule acts on the rising edge).
@@ -2529,10 +2530,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // The mark a row wears on the rail: the row's kind, and for a bubble its
     // author. O(1) from the ledger's classification and the message's role.
+    bool turn_starred_at(int index) const {
+        if (renderMessages_ == nullptr) return false;
+        const std::string_view key = hanabi::transcript_copy::turn_key_at(*renderMessages_, index);
+        return !key.empty() && Settings::get().is_turn_starred(renderSessionId_, std::string(key));
+    }
+
     hanabi::minimap::Mark row_mark(const model::RowGeom& g,
-                                   const api::Message& m) const {
-        if (g.kind == model::RowGeom::Bubble &&
-            Settings::get().is_turn_starred(renderSessionId_, m.id))
+                                   const api::Message& m, int index) const {
+        if (g.kind == model::RowGeom::Bubble && turn_starred_at(index))
             return hanabi::minimap::Mark::Starred;
         switch (g.kind) {
             case model::RowGeom::ToolPile:
@@ -2579,7 +2585,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 const model::RowGeom& g = led.geom(r);
                 ++rowsVisited;
                 if (g.hidden || g.total() <= 0.0f) continue;
-                const auto mark = row_mark(g, msgs[r]);
+                const auto mark = row_mark(g, msgs[r], static_cast<int>(r));
                 if (hanabi::minimap::mark_hidden(hiddenMarks, mark)) continue;
                 out.push_back(hanabi::minimap::Slot{static_cast<int>(r),
                                                     subH + led.top_of(r),
@@ -2604,7 +2610,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 const model::RowGeom& g = led.geom(r);
                 ++rowsVisited;
                 if (g.hidden) continue;
-                const auto mark = row_mark(g, msgs[r]);
+                const auto mark = row_mark(g, msgs[r], static_cast<int>(r));
                 if (hanabi::minimap::mark_hidden(hiddenMarks, mark)) continue;
                 const int pri = hanabi::minimap::mark_priority(mark);
                 if (!any || pri < bestPri) {
@@ -4143,6 +4149,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         renderSessionId_ = pane.openSession->summary.id;
+        renderMessages_ = &pane.openSession->messages;
 
         float refusalH = 0.0f;
         if (const std::string* why = app.attach_refusal_reason(pane.selectedId))
@@ -14957,7 +14964,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool authorRow = has_author_row(m, isLive, showAuthor);
         if (authorRow) {
         const std::string ts = turn_meta_text(m, isLive);
-        const bool starred = Settings::get().is_turn_starred(renderSessionId_, m.id);
+        const bool starred = turn_starred_at(index);
         auto arow = div(ctx, mk(turn.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kAuthorH)})

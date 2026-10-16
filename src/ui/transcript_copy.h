@@ -46,11 +46,21 @@ struct TurnSpan {
     int last = -1;
     bool empty() const { return first < 0; }
 };
+inline int turn_start_index(const std::vector<api::Message>& messages, int at) {
+    if (at < 0 || at >= static_cast<int>(messages.size())) return -1;
+    int start = at;
+    while (start > 0 && !is_turn_start(messages[static_cast<std::size_t>(start)])) --start;
+    return start;
+}
+inline std::string_view turn_key_at(const std::vector<api::Message>& messages, int at) {
+    const int start = turn_start_index(messages, at);
+    if (start < 0) return {};
+    return messages[static_cast<std::size_t>(start)].id;
+}
 inline TurnSpan turn_around(const std::vector<api::Message>& messages, std::string_view id) {
     const int at = index_of(messages, id);
     if (at < 0) return {};
-    int start = at;
-    while (start > 0 && !is_turn_start(messages[static_cast<std::size_t>(start)])) --start;
+    const int start = turn_start_index(messages, at);
     int end = at;
     while (end + 1 < static_cast<int>(messages.size()) &&
            !is_turn_start(messages[static_cast<std::size_t>(end + 1)]))

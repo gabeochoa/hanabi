@@ -1948,6 +1948,11 @@ static void test_copy_turn_spans_from_the_opening_user_message_to_the_next() {
     const auto span2 = tc::turn_around(ms, "a2");
     CHECK(span2.first == 4 && span2.last == 5);
     CHECK(tc::turn_around(ms, "missing").empty());
+    CHECK(tc::turn_key_at(ms, 3) == "u1");
+    CHECK(tc::turn_key_at(ms, 0) == "u1");
+    CHECK(tc::turn_key_at(ms, 5) == "u2");
+    CHECK(tc::turn_key_at(ms, 9).empty() && tc::turn_key_at(ms, -1).empty());
+    CHECK(tc::turn_key_at(ms, 3) == ms[static_cast<std::size_t>(span1.first)].id);
 
     const std::string turn1 = tc::copy_turn_payload(ms, "a1");
     const std::string want1 =
