@@ -86,6 +86,7 @@ bool Settings::load_save_file() {
         inbox_triage_ = j.value("inbox_triage", inbox_triage_);
         send_chords_ = j.value("send_chords", send_chords_);
         changed_file_rows_ = j.value("changed_file_rows", changed_file_rows_);
+        diff_cards_ = j.value("diff_cards", diff_cards_);
         triage_bindings_.clear();
         if (j.contains("triage_bindings") && j["triage_bindings"].is_object())
             for (const auto& [k, v] : j["triage_bindings"].items())
@@ -358,6 +359,7 @@ void Settings::write_save_file() {
     j["inbox_triage"] = inbox_triage_;
     j["send_chords"] = send_chords_;
     j["changed_file_rows"] = changed_file_rows_;
+    j["diff_cards"] = diff_cards_;
     j["triage_bindings"] = triage_bindings_;
     j["text_scale"] = text_scale_;
     j["user_text_scale"] = user_text_scale_;
@@ -573,6 +575,12 @@ void Settings::set_confirm_quit(bool on) {
     if (auto_save_enabled) write_save_file();
 }
 
+bool Settings::get_diff_cards() const { return diff_cards_; }
+void Settings::set_diff_cards(bool on) {
+    if (on == diff_cards_) return;
+    diff_cards_ = on;
+    if (auto_save_enabled) write_save_file();
+}
 bool Settings::get_changed_file_rows() const { return changed_file_rows_; }
 void Settings::set_changed_file_rows(bool on) {
     if (on == changed_file_rows_) return;

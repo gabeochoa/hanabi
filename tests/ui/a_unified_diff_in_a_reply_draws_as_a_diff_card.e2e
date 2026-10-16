@@ -1,0 +1,11 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["rdiff"],"active_tab":"rdiff","theme":"dark"}
+# env: HANABI_DIFF_DEMO=1 HANABI_OPEN=rdiff
+require_thread rdiff
+wait_frames 14
+expect_text "Here is the change."
+assert_ui diff_card hidden=false
+assert_ui diff_card_title text="src/worker/retry.rs  ·  +2 −1"
+assert_ui diff_line_added text="+    8"
+assert_ui diff_line_removed text="-    5"
+assert_ui diff_line_hunk text="@@ -1,3 +1,4 @@"
+assert_ui code_block_lang text="rust"

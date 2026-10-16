@@ -9,41 +9,42 @@ its `# env:` line, and the app honours them when launched by hand too.
 
 | Variable | Read at | Fixtures | Meaning |
 |---|---|---|---|
-| `HANABI_ARTIFACT_DEMO` | `src/api/mock_client.h:2863` | 9 |  |
-| `HANABI_ARTIFACT_DEMO_AUDIO_TYPE` | `src/api/mock_client.h:2864` | 1 |  |
+| `HANABI_ARTIFACT_DEMO` | `src/api/mock_client.h:2864` | 9 |  |
+| `HANABI_ARTIFACT_DEMO_AUDIO_TYPE` | `src/api/mock_client.h:2865` | 1 |  |
 | `HANABI_ASK_DEMO` | `src/api/mock_client.h:1248` | 56 |  |
 | `HANABI_ASK_FAIL` | `src/api/mock_client.h:489` | 11 |  |
-| `HANABI_ASK_FILE_LIMITS` | `src/api/mock_client.h:2861` | 2 |  |
+| `HANABI_ASK_FILE_LIMITS` | `src/api/mock_client.h:2862` | 2 |  |
 | `HANABI_ASK_GONE` | `src/api/mock_client.h:487` | 3 |  |
 | `HANABI_ASK_NO_RESOLVE` | `src/api/mock_client.h:467` | 0 |  |
 | `HANABI_ASK_RAISED_GAP` | `src/api/mock_client.h:600` | 1 |  |
 | `HANABI_ASK_VANISH_AFTER` | `src/api/mock_client.h:589` | 1 |  |
-| `HANABI_BIG_EVENTS` | `src/api/mock_client.h:2858` | 0 |  |
-| `HANABI_BIG_TRANSCRIPT` | `src/api/mock_client.h:2857` | 12 |  |
-| `HANABI_BIG_TURNS` | `src/api/mock_client.h:2857` | 0 |  |
-| `HANABI_BRAKES_DEMO` | `src/api/mock_client.h:2860` | 7 |  |
-| `HANABI_CHANGES_DEMO` | `src/api/mock_client.h:2864` | 1 |  |
+| `HANABI_BIG_EVENTS` | `src/api/mock_client.h:2859` | 0 |  |
+| `HANABI_BIG_TRANSCRIPT` | `src/api/mock_client.h:2858` | 12 |  |
+| `HANABI_BIG_TURNS` | `src/api/mock_client.h:2858` | 0 |  |
+| `HANABI_BRAKES_DEMO` | `src/api/mock_client.h:2861` | 7 |  |
+| `HANABI_CHANGES_DEMO` | `src/api/mock_client.h:2865` | 3 |  |
 | `HANABI_CHART_DEMO` | `src/api/mock_client.h:2853` | 1 |  |
 | `HANABI_CODE_DEMO` | `src/api/mock_client.h:2856` | 1 |  |
 | `HANABI_CODE_WRAP_DEMO` | `src/api/mock_client.h:2853` | 2 |  |
-| `HANABI_COMPACT_DEMO` | `src/api/mock_client.h:2862` | 1 |  |
+| `HANABI_COMPACT_DEMO` | `src/api/mock_client.h:2863` | 1 |  |
 | `HANABI_DATES_DEMO` | `src/api/mock_client.h:2856` | 2 |  |
+| `HANABI_DIFF_DEMO` | `src/api/mock_client.h:2857` | 2 |  |
 | `HANABI_ELEMENTS_CARD_TABLE` | `src/api/mock_client.h:2853` | 1 |  |
-| `HANABI_ELEMENTS_DEMO` | `src/api/mock_client.h:2865` | 4 |  |
+| `HANABI_ELEMENTS_DEMO` | `src/api/mock_client.h:2866` | 4 |  |
 | `HANABI_ELEMENTS_TABLE` | `src/api/mock_client.h:2853` | 1 |  |
-| `HANABI_FOLDER_DEMO` | `src/api/mock_client.h:2858` | 3 |  |
+| `HANABI_FOLDER_DEMO` | `src/api/mock_client.h:2859` | 3 |  |
 | `HANABI_FOLD_DEMO` | `src/api/mock_client.h:2856` | 4 |  |
 | `HANABI_LINK_PREVIEW_DEMO` | `src/api/mock_client.h:1801` | 3 |  |
-| `HANABI_LONGMSG_DEMO` | `src/api/mock_client.h:2857` | 3 |  |
-| `HANABI_LONGMSG_LINES` | `src/api/mock_client.h:2857` | 0 |  |
+| `HANABI_LONGMSG_DEMO` | `src/api/mock_client.h:2858` | 3 |  |
+| `HANABI_LONGMSG_LINES` | `src/api/mock_client.h:2858` | 0 |  |
 | `HANABI_MD_DEMO` | `src/api/mock_client.h:2854` | 2 |  |
 | `HANABI_MD_IMAGE_DEMO` | `src/api/mock_client.h:2853` | 2 |  |
-| `HANABI_MODEL_DEMO` | `src/api/mock_client.h:2862` | 1 |  |
-| `HANABI_PLAN_DEMO` | `src/api/mock_client.h:2860` | 5 |  |
+| `HANABI_MODEL_DEMO` | `src/api/mock_client.h:2863` | 1 |  |
+| `HANABI_PLAN_DEMO` | `src/api/mock_client.h:2861` | 5 |  |
 | `HANABI_STOPPED_DEMO` | `src/api/mock_client.h:2855` | 1 |  |
 | `HANABI_STRESS_SESSIONS` | `src/api/mock_client.h:2854` | 8 |  |
 | `HANABI_THINKING_DEMO` | `src/api/mock_client.h:2854` | 4 |  |
-| `HANABI_TOOLS_DEMO` | `src/api/mock_client.h:2861` | 2 |  |
+| `HANABI_TOOLS_DEMO` | `src/api/mock_client.h:2862` | 2 |  |
 
 ## Failure and refusal injection
 
@@ -96,7 +97,7 @@ its `# env:` line, and the app honours them when launched by hand too.
 | `HANABI_MOCK_NO_COMPACT` | `src/api/mock_client.h:1519` | 1 |  |
 | `HANABI_MOCK_NO_FORK` | `src/api/mock_client.h:897` | 3 |  |
 | `HANABI_MOCK_NO_HALT` | `src/api/mock_client.h:1675` | 1 |  |
-| `HANABI_MOCK_NO_HALT_ADVERT` | `src/api/mock_client.h:2871` | 1 |  |
+| `HANABI_MOCK_NO_HALT_ADVERT` | `src/api/mock_client.h:2872` | 1 |  |
 | `HANABI_MOCK_NO_MODEL_MENU` | `src/api/mock_client.h:1582` | 1 |  |
 | `HANABI_MOCK_NO_NODES` | `src/api/mock_client.h:901` | 0 |  |
 | `HANABI_MOCK_NO_RENAME` | `src/api/mock_client.h:1488` | 7 |  |
@@ -106,7 +107,7 @@ its `# env:` line, and the app honours them when launched by hand too.
 
 | Variable | Read at | Fixtures | Meaning |
 |---|---|---|---|
-| `HANABI_MOCK_ACCESS` | `src/api/mock_client.h:2869` | 5 |  |
+| `HANABI_MOCK_ACCESS` | `src/api/mock_client.h:2870` | 5 |  |
 | `HANABI_MOCK_AUTOCOMPACT` | `src/api/mock_client.h:292` | 1 |  |
 | `HANABI_MOCK_AUTOMATION` | `src/api/mock_client.h:415` | 3 |  |
 | `HANABI_MOCK_CREATED_AT_UNKNOWN` | `src/api/mock_client.h:1005` | 2 |  |

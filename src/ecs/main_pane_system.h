@@ -103,6 +103,7 @@
 #include "../ui/share.h"
 #include "../ui/send_chords.h"
 #include "../ui/changed_files.h"
+#include "../ui/unified_diff.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
 
@@ -11992,7 +11993,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 }
                 if (hanabi::text::FitInterval* sink = fit_interval_sink())
                     sink->merge(code_fit(codeLongest, textW));
-                h += code_block_h(codeLines, !fence_lang(line).empty());
+                const bool cardMeasured =
+                    diff_card_applies(fence_lang(line), body,
+                                      (nl == std::string::npos) ? body.size() : nl + 1);
+                h += code_block_h(codeLines, cardMeasured || !fence_lang(line).empty());
                 start = p;
                 continue;
             }
@@ -12888,6 +12892,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
     // The fence's body, when the fence is a ```chart and is CLOSED. A fence
     // still open is still arriving and is not a chart yet.
+    static bool diff_card_applies(const std::string& lang, const std::string& body,
+                                  std::size_t from) {
+        if (!Settings::get().get_diff_cards()) return false;
+        std::string src;
+        std::size_t after = 0;
+        if (!chart_fence_body(body, from, src, after)) return false;
+        if (hanabi::unified_diff::is_lang(lang)) return hanabi::unified_diff::looks_like(src);
+        return lang.empty() && hanabi::unified_diff::looks_like(src);
+    }
     static bool chart_fence_body(const std::string& body, std::size_t from,
                                  std::string& out, std::size_t& after) {
         out.clear();
@@ -13292,8 +13305,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                            const std::string& lang,
                            const std::vector<std::string>& lines,
                            float blockW = 0.0f,
-                           const std::vector<unsigned char>* starts = nullptr) {
+                           const std::vector<unsigned char>* starts = nullptr,
+                           const std::vector<hanabi::unified_diff::Kind>* tints = nullptr) {
         const int n = lines.empty() ? 1 : static_cast<int>(lines.size());
+        const bool diffCard = tints != nullptr;
         auto block = div(ctx, mk(parent, id),
             ComponentConfig{}
                 .with_size(ComponentSize{
@@ -13321,7 +13336,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // bubble's (33,33,54) -- and plainly visible to a reader.
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name("code_block"));
+                .with_debug_name(diffCard ? "diff_card" : "code_block"));
         // Lang bar: uppercase language label on a slightly-raised strip with a
         // hairline bottom divider.
         //
@@ -13364,14 +13379,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         div(ctx, mk(bar.ent(), 1),
             ComponentConfig{}
                 .with_label(lang)
-                .with_size(ComponentSize{pixels(120), pixels(14)})
+                .with_size(ComponentSize{pixels(diffCard ? 260 : 120), pixels(14)})
                 .with_transparent_bg()
-                .with_custom_text_color(theme::text_faint())
+                .with_custom_text_color(diffCard ? theme::text_secondary() : theme::text_faint())
                 .with_font_size(theme::type::MICRO)
-                .with_letter_spacing(0.8f)
+                .with_letter_spacing(diffCard ? 0.0f : 0.8f)
+                .with_text_overflow(TextOverflow::Ellipsis)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name("code_block_lang"));
+                .with_debug_name(diffCard ? "diff_card_title" : "code_block_lang"));
         // Copy button (right of the lang label): copies the whole block to the
         // clipboard (mock's `.copy`). A spacer pushes it flush-right (no
         // flex-grow — gap #18 — so size the lang label fixed + a flexer).
@@ -13504,6 +13520,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const float chipW =
                 std::ceil(theme::text_px_mono(shown.c_str(), theme::type::MD)) +
                 2.0f * kCodeChipPadX;
+            const hanabi::unified_diff::Kind tint =
+                (tints != nullptr && static_cast<std::size_t>(li) < tints->size())
+                    ? (*tints)[static_cast<std::size_t>(li)]
+                    : hanabi::unified_diff::Kind::Context;
+            const theme::Color lineInk =
+                !diffCard ? theme::text_primary()
+                : tint == hanabi::unified_diff::Kind::Added ? theme::status_review()
+                : tint == hanabi::unified_diff::Kind::Removed ? theme::status_blocked()
+                : tint == hanabi::unified_diff::Kind::Hunk ? theme::accent()
+                : tint == hanabi::unified_diff::Kind::Context ? theme::text_primary()
+                                                              : theme::text_secondary();
             auto cfg =
                 ComponentConfig{}
                     .with_label(shown)
@@ -13511,17 +13538,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         lastLine ? pixels(chipW) : percent(1.0f),
                         pixels(code_line_pitch())})
                     .with_custom_background(theme::code_bg())
-                    .with_custom_text_color(theme::text_primary())
+                    .with_custom_text_color(lineInk)
                     .with_font("mono", theme::type::MD)
                     .with_alignment(TextAlignment::Left)
                     .with_roundness(0.0f)
-                    .with_debug_name("code_block_line");
+                    .with_debug_name(!diffCard ? "code_block_line"
+                                     : tint == hanabi::unified_diff::Kind::Added ? "diff_line_added"
+                                     : tint == hanabi::unified_diff::Kind::Removed ? "diff_line_removed"
+                                     : tint == hanabi::unified_diff::Kind::Hunk ? "diff_line_hunk"
+                                                                                : "diff_line");
             // The spans re-say the whole line, plain parts included: the
             // renderer draws the runs INSTEAD of the label, so a gap between
             // two coloured runs would be a hole in the code.
             const std::vector<hanabi::syntax::Run> runs =
-                (cl.empty() || liveBody_) ? std::vector<hanabi::syntax::Run>{}
-                                          : hanabi::syntax::scan(slang, cl, sstate);
+                (cl.empty() || liveBody_ || diffCard) ? std::vector<hanabi::syntax::Run>{}
+                                                      : hanabi::syntax::scan(slang, cl, sstate);
             if (!runs.empty())
                 cfg = cfg.with_styled_label(code_spans(shown, runs, &audit));
             div(ctx, mk(body.ent(), 1 + li), cfg);
@@ -13880,7 +13911,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 }
                 std::vector<std::string> codeLines;
                 std::vector<unsigned char> codeStarts;  // 1 = a source line starts here
+                std::vector<hanabi::unified_diff::Kind> diffTints;
+                std::optional<hanabi::unified_diff::Parse> diffParse;
                 size_t p = (nl == std::string::npos) ? shown.size() : nl + 1;
+                if (diff_card_applies(lang, shown, p)) {
+                    std::string src;
+                    std::size_t after = 0;
+                    chart_fence_body(shown, p, src, after);
+                    diffParse = hanabi::unified_diff::parse(src);
+                    if (!diffParse->ok) diffParse.reset();
+                }
+                std::size_t diffLineIndex = 0;
                 while (p <= shown.size()) {
                     size_t n2 = shown.find('\n', p);
                     size_t e2 = (n2 == std::string::npos) ? shown.size() : n2;
@@ -13896,17 +13937,28 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     // A long line wraps between tokens (code_wrap.h); the
                     // copy button still copies the source lines.
                     const auto pieces = hanabi::code_wrap::wrap(cl, code_cols(textW));
+                    const hanabi::unified_diff::Kind tint =
+                        diffParse && diffLineIndex < diffParse->lines.size()
+                            ? diffParse->lines[diffLineIndex].kind
+                            : hanabi::unified_diff::Kind::Context;
+                    ++diffLineIndex;
                     for (std::size_t k = 0; k < pieces.size(); ++k) {
                         codeLines.push_back(pieces[k]);
                         codeStarts.push_back(k == 0 ? 1 : 0);
+                        diffTints.push_back(tint);
                     }
                     if (n2 == std::string::npos) { p = shown.size() + 1; break; }
                     p = n2 + 1;
                 }
+                const std::string cardTitle =
+                    diffParse ? diffParse->title() + "  \xc2\xb7  " +
+                                    hanabi::unified_diff::counts(diffParse->additions,
+                                                                 diffParse->deletions)
+                              : std::string();
                 const float reasonH =
                     chartReason.empty() ? 0.0f : chart_reason_h(chartReason, textW);
                 const float blockH = reasonH + code_block_h(
-                    static_cast<int>(codeLines.size()), !lang.empty());
+                    static_cast<int>(codeLines.size()), diffParse.has_value() || !lang.empty());
                 const float segTop = y;
                 const float segBot = y + blockH;
                 y = segBot;
@@ -13918,8 +13970,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     flush(9000 + seg);
                     if (!chartReason.empty())
                         render_chart_reason(ctx, parent, 30000 + seg, chartReason, textW);
-                    render_code_block(ctx, parent, 100 + seg, lang, codeLines,
-                                      textW, &codeStarts);
+                    if (diffParse)
+                        render_code_block(ctx, parent, 100 + seg, cardTitle, codeLines,
+                                          textW, &codeStarts, &diffTints);
+                    else
+                        render_code_block(ctx, parent, 100 + seg, lang, codeLines,
+                                          textW, &codeStarts);
                 }
                 ++seg;
                 start = p;

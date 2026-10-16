@@ -1,0 +1,8 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["rdiff"],"active_tab":"rdiff","theme":"dark","diff_cards":false}
+# env: HANABI_DIFF_DEMO=1 HANABI_OPEN=rdiff
+require_thread rdiff
+wait_frames 14
+expect_text "Here is the change."
+expect_no_ui diff_card
+assert_ui code_block_lang text="diff"
+expect_text "+    8"

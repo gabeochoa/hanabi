@@ -2854,6 +2854,7 @@ class MockClient : public Client {
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_STOPPED_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
+        "HANABI_DIFF_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
@@ -4363,6 +4364,22 @@ class MockClient : public Client {
         // comment that spans two lines, a shell pipeline, and JSON literals.
         // Markdown images: a file on this Mac (drawn), an app-relative web
         // address and a repo path (chips). Only under HANABI_MD_IMAGE_DEMO.
+        if (const char* dd = std::getenv("HANABI_DIFF_DEMO"); dd && *dd == '1') {
+            Session s;
+            s.summary = calm("rdiff", "the retry budget patch", hrs_ago(1), "active",
+                             ThreadState::Unknown, "diff card fixture");
+            s.messages = {
+                {"df1", Role::User, "show me the patch", hrs_ago(2), ""},
+                {"df2", Role::Assistant,
+                 "Here is the change.\n\n```diff\n"
+                 "--- a/src/worker/retry.rs\n+++ b/src/worker/retry.rs\n"
+                 "@@ -1,3 +1,4 @@\n fn retry_budget() -> u32 {\n-    5\n+    8\n"
+                 "+    // room for the fifth attempt\n }\n```\n\n"
+                 "And a plain block for comparison:\n\n```rust\nfn a() {}\n```",
+                 hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
         if (const char* mi = std::getenv("HANABI_MD_IMAGE_DEMO"); mi && *mi == '1') {
             std::error_code ec;
             const std::string png =

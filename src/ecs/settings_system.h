@@ -1305,6 +1305,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "find_newest") render_find_newest_row(ctx, parent, app);
         else if (id == "send_chords") render_send_chords_row(ctx, parent, app);
         else if (id == "changed_file_rows") render_changed_file_rows_row(ctx, parent, app);
+        else if (id == "diff_cards") render_diff_cards_row(ctx, parent, app);
         else if (id == "minimap") render_minimap_row(ctx, parent, app);
         else if (id == "notify_show") render_notify_show_row(ctx, parent, app);
         else if (id == "notify_sound") render_notification_row(ctx, parent, app);
@@ -3427,6 +3428,15 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     // Find: where a fresh Cmd+F lands. Off (the default) is the oldest match
     // and Cmd+G walks newer; on is the newest match and Cmd+G walks older.
+    void render_diff_cards_row(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 782, "Diffs draw as diff cards", "settings_diff_cards_label");
+        const bool on = Settings::get().get_diff_cards();
+        real_switch(ctx, parent, 783, on, "settings_diff_cards",
+                    [](bool v) { Settings::get().set_diff_cards(v); });
+    }
+
     void render_changed_file_rows_row(UIContext<InputAction>& ctx, Entity& parent,
                                       AppComponent& app) {
         (void)app;
