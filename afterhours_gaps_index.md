@@ -26,10 +26,10 @@ that do not exist, and `make source-checks` runs it.
 
 | | |
 |---|---|
-| Numbered headings parsed by the reference checker | **286** (recount at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610 + #611 + #612 + #613; the number 604 is unused) |
-| Distinct numeric gap numbers | **281** (271 at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610 + #611 + #612 + #613; several numbers are used twice, #31 three times - §5) |
+| Numbered headings parsed by the reference checker | **287** (recount at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610 + #611 + #612 + #613 + #614; the number 604 is unused) |
+| Distinct numeric gap numbers | **282** (271 at 7fd3276 + #603 + #605 + #606 + #607 + #608 + #609 + #610 + #611 + #612 + #613 + #614; several numbers are used twice, #31 three times - §5) |
 | Plus the `AN-8`…`AN-12` animation sub-series | **5** |
-| **Rows in the triage table (§6)** | **284** rows, **284** unique identifiers - includes index-only ids with no detailed entry |
+| **Rows in the triage table (§6)** | **285** rows, **285** unique identifiers - includes index-only ids with no detailed entry |
 | Standalone live asks | not recounted; see §6 verdicts |
 | **Live with NO app-side workaround** (status pass 2026-10-02) | **6** — #36 #54 #92 #155 #212 #336, each judged not app-fixable (migration risk / library seam / vendor renderer / library-level); every other live row's status now names what Hanabi does instead (app workaround, proof patch, negative result, or perf finding) |
 | Live but subsumed into a family canonical | **56** (§3) |
@@ -903,6 +903,7 @@ correction narrows them rather than closing them.
 | 611 | A coordinate command with no coordinates aborts the whole run: empty args reach `coord_arg`, `stof` throws, no line is reported (markup drag fixture, c1d0e0b) | TESTING / FOOTGUN | MED | XS | live - worked around app-side (`HandleCoordArgsCheckCommand`, registered after the entity merge) |
 | 612 | A chart needs bars, a categorical axis and dashed lines: `imm::line_chart` plots numeric x with solid lines (and copies its series every frame), and no stroke takes a dash pattern (chart fence port, kt-exwb) | UI / MISSING | MED | M | live - worked around app-side (`chart_spec.h` + `draw_chart_plot` / `draw_dashed` from primitives) |
 | 613 | Every label of 23+ characters costs two heap allocations per frame with pseudo-locale off: `apply_label` builds `pseudo_localize(label, None)` twice and `None` returns a copy (79c87ec; repin to 65d5292) | PERF / WRONG | HIGH | XS | live - no app-side workaround; Hanabi's allocation gate is KNOWINGLY RED on main since the 65d5292 push, owner OK 2026-10-10 (home20 743/670, 5 arms over) |
+| 614 | A grid's column tracks are declared, never measured: `GridConfig::col_widths` takes caller `Size`s and `grid_track` hands them back, so a table cannot size a column to its widest cell (grid.h :42/:90/:140/:174 at d1d7f0e) | UI / MISSING | MED | M | live - worked around app-side (equal columns, ellipsized cells, horizontal scroll when the content estimate `md_table_ops::natural_width` exceeds the lane) |
 | 550–559 | Session-lifecycle audit: no new framework gaps; existing #112/#458 and #326/#420 apply | NOT A GAP | — | — | unassigned |
 ---
 

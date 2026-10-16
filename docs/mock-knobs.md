@@ -19,6 +19,7 @@ its `# env:` line, and the app honours them when launched by hand too.
 | `HANABI_ASK_RAISED_GAP` | `src/api/mock_client.h:600` | 1 |  |
 | `HANABI_ASK_VANISH_AFTER` | `src/api/mock_client.h:589` | 1 |  |
 | `HANABI_BIG_EVENTS` | `src/api/mock_client.h:2859` | 0 |  |
+| `HANABI_BIG_TABLE_DEMO` | `src/api/mock_client.h:2857` | 1 |  |
 | `HANABI_BIG_TRANSCRIPT` | `src/api/mock_client.h:2858` | 12 |  |
 | `HANABI_BIG_TURNS` | `src/api/mock_client.h:2858` | 0 |  |
 | `HANABI_BRAKES_DEMO` | `src/api/mock_client.h:2861` | 7 |  |
@@ -37,7 +38,7 @@ its `# env:` line, and the app honours them when launched by hand too.
 | `HANABI_LINK_PREVIEW_DEMO` | `src/api/mock_client.h:1801` | 3 |  |
 | `HANABI_LONGMSG_DEMO` | `src/api/mock_client.h:2858` | 3 |  |
 | `HANABI_LONGMSG_LINES` | `src/api/mock_client.h:2858` | 0 |  |
-| `HANABI_MD_DEMO` | `src/api/mock_client.h:2854` | 2 |  |
+| `HANABI_MD_DEMO` | `src/api/mock_client.h:2854` | 3 |  |
 | `HANABI_MD_IMAGE_DEMO` | `src/api/mock_client.h:2853` | 2 |  |
 | `HANABI_MODEL_DEMO` | `src/api/mock_client.h:2863` | 1 |  |
 | `HANABI_PLAN_DEMO` | `src/api/mock_client.h:2861` | 5 |  |

@@ -104,6 +104,7 @@
 #include "../ui/send_chords.h"
 #include "../ui/changed_files.h"
 #include "../ui/unified_diff.h"
+#include "../ui/md_table_ops.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
 
@@ -11745,6 +11746,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return kTableVMargin + static_cast<float>(nRows) * kTableRowH +
                divider + kTableVMargin;
     }
+    static std::string table_key(const std::vector<std::vector<std::string>>& rows, int seg) {
+        std::string k = "t" + std::to_string(seg) + ":";
+        if (!rows.empty() && !rows[0].empty()) k += rows[0][0];
+        k += ":" + std::to_string(rows.size());
+        return k;
+    }
+    static int table_rows_drawn(const std::vector<std::vector<std::string>>& rows, bool expanded) {
+        const auto cap = hanabi::md_table_ops::cap_rows(static_cast<int>(rows.size()), expanded);
+        return cap.shown + (cap.hidden > 0 ? 1 : 0);
+    }
 
     // ---- Markdown headings (H1-H4) --------------------------------------
     // An assistant that structures a long answer writes "## Findings", and the
@@ -11932,6 +11943,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         float h = 0.0f;
         size_t start = 0;
         bool prevProse = false;
+        int tableSeg = 0;
         while (start <= body.size()) {
             size_t nl = body.find('\n', start);
             size_t end = (nl == std::string::npos) ? body.size() : nl;
@@ -11944,7 +11956,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (is_table_start(body, start)) {
                 std::vector<std::vector<std::string>> rows;
                 size_t p = scan_table(body, start, &rows);
-                h += table_h(static_cast<int>(rows.size()));
+                const bool expanded = app_singleton() != nullptr &&
+                                      app_singleton()->expandedTables.count(table_key(rows, tableSeg)) != 0;
+                h += table_h(table_rows_drawn(rows, expanded));
+                ++tableSeg;
                 start = p;
                 continue;
             }
@@ -12690,29 +12705,67 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // table_h() so virtualization stays exact.
     void render_table(UIContext<InputAction>& ctx, Entity& parent, int id,
                       const std::vector<std::vector<std::string>>& rows,
-                      float textW, const std::vector<hanabi::md_table::Align>& aligns = {}) {
+                      float textW, const std::vector<hanabi::md_table::Align>& aligns = {},
+                      const std::string& tableKey = {}, bool expanded = true) {
         if (rows.empty()) return;
         // Column count = the widest row (ragged rows are padded with blanks).
         size_t nCols = 0;
         for (const auto& r : rows) nCols = std::max(nCols, r.size());
         if (nCols == 0) nCols = 1;
-        const int nRows = static_cast<int>(rows.size());
-        const float gridW = textW;
+        const auto cap = hanabi::md_table_ops::cap_rows(static_cast<int>(rows.size()), expanded);
+        const int nRows = cap.shown;
+        const int drawnRows = table_rows_drawn(rows, expanded);
+        const float naturalW = hanabi::md_table_ops::natural_width(rows, 6.1f, 16.0f);
+        const bool wide = naturalW > textW + 0.5f;
+        const float gridW = wide ? naturalW : textW;
         const float colW = gridW / static_cast<float>(nCols);
 
-        auto grid = div(ctx, mk(parent, id),
+        auto frame = div(ctx, mk(parent, id),
             ComponentConfig{}
-                .with_size(ComponentSize{pixels(gridW),
-                                         pixels(table_h(nRows) -
+                .with_size(ComponentSize{pixels(textW),
+                                         pixels(table_h(drawnRows) -
                                                 2.0f * kTableVMargin)})
                 .with_flex_direction(FlexDirection::Column)
                 .with_flex_wrap(FlexWrap::NoWrap)
+                .with_overflow(wide ? Overflow::Scroll : Overflow::Visible, Axis::X)
                 .with_margin(Margin{.top = pixels(kTableVMargin),
                                     .bottom = pixels(kTableVMargin)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(wide ? "md_table_scroll" : "md_table_frame"));
+        auto grid = div(ctx, mk(frame.ent(), 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(gridW),
+                                         pixels(table_h(drawnRows) -
+                                                2.0f * kTableVMargin)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
                 .with_custom_background(theme::panel_bg())
                 .with_border(theme::border(), pixels(1.0f))
                 .with_roundness(0.18f)
                 .with_debug_name("md_table"));
+        if (AppComponent* app = app_singleton();
+            app != nullptr && ctx.is_right_click(grid.ent().id))
+            app->menuTableRows = rows;
+        if (cap.hidden > 0) {
+            auto more = button(ctx, mk(grid.ent(), 1 + nRows * 2 + 1),
+                ComponentConfig{}
+                    .with_label(hanabi::md_table_ops::more_rows_label(cap.hidden))
+                    .with_size(ComponentSize{percent(1.0f), pixels(kTableRowH)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::panel_bg()))
+                    .with_custom_text_color(theme::accent())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_border_top(theme::row_separator(), pixels(1.0f))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_roundness(0.0f)
+                    .with_debug_name("md_table_more_rows"));
+            if (AppComponent* app = app_singleton(); more && app != nullptr && !tableKey.empty()) {
+                app->expandedTables.insert(tableKey);
+                model::transcript_ledgers().mark_all_dirty();
+            }
+        }
 
         for (int ri = 0; ri < nRows; ++ri) {
             const bool header = (ri == 0);
@@ -13848,6 +13901,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         };
         const float probeStartY = bodyStartY;
         bool prevProse = false;
+        int tableSeg = 0;
         while (start <= shown.size()) {
             size_t nl = shown.find('\n', start);
             size_t end = (nl == std::string::npos) ? shown.size() : nl;
@@ -13861,7 +13915,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 std::vector<std::vector<std::string>> rows;
                 std::vector<hanabi::md_table::Align> aligns;
                 size_t p = scan_table(shown, start, &rows, &aligns);
-                const float blockH = table_h(static_cast<int>(rows.size()));
+                const std::string tkey = table_key(rows, tableSeg++);
+                const bool expanded = app_singleton() != nullptr &&
+                                      app_singleton()->expandedTables.count(tkey) != 0;
+                const float blockH = table_h(table_rows_drawn(rows, expanded));
                 const float segTop = y;
                 const float segBot = y + blockH;
                 y = segBot;
@@ -13871,7 +13928,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     pending += blockH;
                 } else {
                     flush(9000 + seg);
-                    render_table(ctx, parent, 100 + seg, rows, textW, aligns);
+                    render_table(ctx, parent, 100 + seg, rows, textW, aligns, tkey, expanded);
                 }
                 ++seg;
                 start = p;
@@ -14518,6 +14575,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::surface::MenuItem shareTurn{"Share Turn\xe2\x80\xa6", "message_menu_share_turn", false, false};
         shareTurn.action_id = "share_turn";
         items.push_back(std::move(shareTurn));
+        if (!app.menuTableRows.empty()) {
+            items.push_back(hanabi::surface::MenuItem::divider("message_menu_divider_table"));
+            hanabi::surface::MenuItem copyMd{"Copy Table as Markdown", "message_menu_copy_table_md", false, false};
+            copyMd.action_id = "copy_table_md";
+            items.push_back(std::move(copyMd));
+            hanabi::surface::MenuItem copyTsv{"Copy Table as TSV", "message_menu_copy_table_tsv", false, false};
+            copyTsv.action_id = "copy_table_tsv";
+            items.push_back(std::move(copyTsv));
+        }
         const auto turnSpan = hanabi::transcript_copy::turn_around(session->messages,
                                                                    app.messageMenuMessageId);
         const std::string turnId =
@@ -14566,6 +14632,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             else if (pickedAction == "copy_turn")
                 payload = hanabi::transcript_copy::copy_turn_payload(session->messages,
                                                                      app.messageMenuMessageId);
+            else if (pickedAction == "copy_table_md")
+                payload = hanabi::md_table_ops::to_markdown(app.menuTableRows);
+            else if (pickedAction == "copy_table_tsv")
+                payload = hanabi::md_table_ops::to_tsv(app.menuTableRows);
             else if (pickedAction == "share_turn") {
                 const auto shared = hanabi::share::turn(
                     hanabi::transcript_copy::copy_turn_payload(session->messages,

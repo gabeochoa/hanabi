@@ -14569,3 +14569,18 @@ and the same for `tooltip_text` and `pseudo_localize_spans`. (`pseudo_localize` 
 **Hanabi reference.** None — no app-side workaround is implemented. The measurement is `scripts/alloc_gate.sh` and `scripts/alloc_sites.sh`.
 
 CLASS: PERF / WRONG
+
+### #614 — a grid's column tracks are declared, never measured: `GridConfig::col_widths` takes `Size` values from the caller and `grid_track` hands them back, so a table cannot size a column to its own widest cell
+
+**Class:** UI / MISSING (`plugins/ui/grid.h` at d1d7f0e: `GridConfig` :42 holds `std::vector<Size> col_widths` and `Size row_height`; `grid()` :90 lays the tracks out from those values; `grid_track` :140 returns the declared `Size` for a column (a span sums the declared tracks :157); `grid_cell` :174 sizes the cell FROM `grid_track` :191. Nothing in the file reads a cell's label or measures text, and the header's own words are "the column tracks are declared once and every row uses them".)
+
+**What happens.** A markdown table in a reply has columns whose natural width is the widest cell in that column — a `Shard` column of eleven characters next to a description column of eighty. The library's grid can only be told widths; it cannot discover them. So Hanabi's table (`render_table`, `ecs/main_pane_system.h`) splits the lane into equal columns, ellipsizes each cell to its share, and — since R2 — scrolls the whole grid horizontally when the sum of the widest cells (measured app-side at a mono-ish 6.1px per character) exceeds the lane. Equal columns waste the lane on short columns and clip long ones; the reference's web table sizes each column to its content and scrolls only what is left over.
+
+**What was wanted.** Either a `Size` that means "this column's widest cell" (an auto track, the `grid-template-columns: auto` of CSS grid), resolved by the grid from its cells' measured labels at layout time, or a `grid_measure_columns(rows)` helper that returns per-column `Size`s a caller can pass to `with_col_widths`. Either one lets a table keep narrow columns narrow and give the lane to the column that needs it.
+
+**Hanabi reference.** `src/ui/md_table_ops.h` (`natural_width`) and `src/ecs/main_pane_system.h` (`render_table`) are the app-side stand-in: `natural_width` is a character-count estimate of the content width, used only to decide WHETHER to scroll; the columns themselves stay equal. Fixture `a_long_table_is_capped_and_says_how_many_more_rows` exercises the scroll on a three-column table whose third column is a sentence.
+
+**Cost of the workaround.** Equal columns are the visible cost; the estimate is a second, cruder measurement beside the renderer's own, and it is wrong for proportional faces by the usual ±20%.
+
+CLASS: UI / MISSING
+

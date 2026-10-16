@@ -2854,7 +2854,7 @@ class MockClient : public Client {
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_STOPPED_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
-        "HANABI_DIFF_DEMO",
+        "HANABI_DIFF_DEMO",         "HANABI_BIG_TABLE_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
         "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
@@ -4364,6 +4364,20 @@ class MockClient : public Client {
         // comment that spans two lines, a shell pipeline, and JSON literals.
         // Markdown images: a file on this Mac (drawn), an app-relative web
         // address and a repo path (chips). Only under HANABI_MD_IMAGE_DEMO.
+        if (const char* bt = std::getenv("HANABI_BIG_TABLE_DEMO"); bt && *bt == '1') {
+            Session s;
+            s.summary = calm("rbigtable", "the shard table", hrs_ago(1), "active",
+                             ThreadState::Unknown, "big table fixture");
+            std::string table = "Every shard:\n\n| Shard | Rows | A very long description column that will not fit the lane at all |\n|---|---:|---|\n";
+            for (int i = 1; i <= 60; ++i)
+                table += "| shard-" + std::to_string(i) + " | " + std::to_string(i * 1000) +
+                         " | row " + std::to_string(i) + " of the shard health table, with notes that run on |\n";
+            s.messages = {
+                {"bt1", Role::User, "show me every shard", hrs_ago(2), ""},
+                {"bt2", Role::Assistant, table, hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
         if (const char* dd = std::getenv("HANABI_DIFF_DEMO"); dd && *dd == '1') {
             Session s;
             s.summary = calm("rdiff", "the retry budget patch", hrs_ago(1), "active",

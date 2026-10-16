@@ -1655,6 +1655,8 @@ struct AppComponent : public afterhours::BaseComponent {
     // frame from each pane's composer state; while a qid is here, that
     // thread's queue holds -- the message, and everything behind it, waits.
     std::array<std::uint64_t, 2> queuedEditing{0, 0};
+    std::set<std::string> expandedTables;
+    std::vector<std::vector<std::string>> menuTableRows;
     [[nodiscard]] bool queue_held(const std::string& id) const {
         for (std::uint64_t q : queuedEditing) {
             if (q == 0) continue;
@@ -1781,6 +1783,7 @@ struct AppComponent : public afterhours::BaseComponent {
         messageMenuOpen = false;
         messageMenuSessionId.clear();
         messageMenuMessageId.clear();
+        menuTableRows.clear();
         messageMenuLinkId.clear();
         messageMenuLinkUrl.clear();
         menuCursor = {};
