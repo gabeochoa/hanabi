@@ -20,12 +20,14 @@ struct F { std::string path; std::vector<E> edits; };
 
 int main() {
     std::printf("=== test_changed_files ===\n");
-    CHECK(cf::mark_of(F{"a", {{true}}}) == cf::Mark::Added);
-    CHECK(cf::mark_of(F{"a", {{true}, {true}}}) == cf::Mark::Added);
+    CHECK(cf::mark_of(F{"a", {{true}}}) == cf::Mark::Written);
+    CHECK(cf::mark_of(F{"a", {{true}, {true}}}) == cf::Mark::Written);
     CHECK(cf::mark_of(F{"a", {{false}}}) == cf::Mark::Modified);
     CHECK(cf::mark_of(F{"a", {{true}, {false}}}) == cf::Mark::Modified);
     CHECK(cf::mark_of(F{"a", {}}) == cf::Mark::Modified);
-    CHECK(cf::letter(cf::Mark::Added) == 'A' && cf::letter(cf::Mark::Modified) == 'M');
+    CHECK(cf::letter(cf::Mark::Written) == 'W' && cf::letter(cf::Mark::Modified) == 'M');
+    CHECK(cf::mark_tip(cf::Mark::Written).find("overwrite") != std::string_view::npos);
+    CHECK(cf::mark_tip(cf::Mark::Modified) == "Edited in place this session");
     CHECK(cf::group_of("src/worker/retry.rs") == cf::Group::Code);
     CHECK(cf::group_of("src/worker/retry_test.rs") == cf::Group::Tests);
     CHECK(cf::group_of("tests/unit/test_x.cpp") == cf::Group::Tests);
@@ -41,7 +43,7 @@ int main() {
                          {"src/w/a.rs", {{false}}}, {"src/w/README.md", {{true}}}};
     const auto rows = cf::rows(files);
     CHECK(rows.size() == 4);
-    CHECK(rows[0].group == cf::Group::Docs && rows[0].shown == "README.md" && rows[0].mark == cf::Mark::Added);
+    CHECK(rows[0].group == cf::Group::Docs && rows[0].shown == "README.md" && rows[0].mark == cf::Mark::Written);
     CHECK(rows[1].group == cf::Group::Code && rows[1].shown == "a.rs");
     CHECK(rows[2].group == cf::Group::Code && rows[2].shown == "dir/z.rs");
     CHECK(rows[3].group == cf::Group::Tests && rows[3].shown == "test_x.rs");

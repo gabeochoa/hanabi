@@ -18,6 +18,9 @@ inline std::string_view text_for(std::string_view control) {
     if (control == "composer_sensitive")
         return "Let the agent ask to switch this thread to sensitive mode. "
                "If you approve a switch, it cannot be undone.";
+    if (control == "changes_mark_written")
+        return "Written in full this session (the data cannot tell a new file from an overwrite)";
+    if (control == "changes_mark_modified") return "Edited in place this session";
     if (control == "code_block_copy") return "Copy this code block";
     if (control == "find_close") return "Close find";
     if (control == "jump_to_bottom") return "Jump to the newest message";

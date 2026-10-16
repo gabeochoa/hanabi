@@ -1,5 +1,5 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
-# env: HANABI_CHANGES_DEMO=1 HANABI_OPEN=t1
+# env: HANABI_CHANGES_DEMO=1 HANABI_OPEN=t1 HANABI_TEST_TIP=changes_mark_modified HANABI_TIP_FIXED_CLOCK=1
 require_thread t1
 wait_frames 10
 click_ui composer_changes
@@ -11,7 +11,10 @@ expect_no_ui changes_group_tests
 assert_ui changes_path_0 text="src/billing/prorate.ts"
 assert_ui changes_path_1 text="docs/upgrade-plan.md"
 assert_ui changes_mark_modified text="M"
-expect_no_ui changes_mark_added
+expect_no_ui changes_mark_written
 expect_ui_rel changes_group_docs above changes_group_code
 expect_ui_rel changes_counts_0 same_y changes_path_0
+hover_ui changes_mark_modified
+wait_frames 45
+expect_text "Edited in place this session"
 key ESCAPE

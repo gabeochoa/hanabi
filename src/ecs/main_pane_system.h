@@ -7953,8 +7953,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_flex_wrap(FlexWrap::NoWrap)
                         .with_align_items(AlignItems::Center)
                         .with_debug_name("changes_file_" + std::to_string(r.index)));
-                const bool added = r.mark == hanabi::changed_files::Mark::Added;
-                div(ctx, mk(row.ent(), 1),
+                const bool added = r.mark == hanabi::changed_files::Mark::Written;
+                auto markTile = button(ctx, mk(row.ent(), 1),
                     ComponentConfig{}
                         .with_label(std::string(1, hanabi::changed_files::letter(r.mark)))
                         .with_size(ComponentSize{pixels(18), pixels(18)})
@@ -7966,7 +7966,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_alignment(TextAlignment::Center)
                         .with_roundness(0.3f)
                         .with_render_layer(8)
-                        .with_debug_name(added ? "changes_mark_added" : "changes_mark_modified"));
+                        .with_cursor(afterhours::ui::CursorType::Pointer)
+                        .with_debug_name(added ? "changes_mark_written" : "changes_mark_modified"));
+                hanabi::ui::act_on_press(markTile, [&app, key = f.key] {
+                    app.changesFileKey = key;
+                    app.changesShowWhole = false;
+                    app.changesStayOpen = true;
+                });
                 div(ctx, mk(row.ent(), 2),
                     ComponentConfig{}
                         .with_label(r.shown + (f.node.empty() ? std::string() : "   \xc2\xb7 " + f.node))

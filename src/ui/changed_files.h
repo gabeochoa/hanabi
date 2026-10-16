@@ -8,16 +8,22 @@
 
 namespace hanabi::changed_files {
 
-enum class Mark { Added, Modified };
+enum class Mark { Written, Modified };
 
-inline char letter(Mark m) { return m == Mark::Added ? 'A' : 'M'; }
+inline char letter(Mark m) { return m == Mark::Written ? 'W' : 'M'; }
+
+inline std::string_view mark_tip(Mark m) {
+    return m == Mark::Written
+               ? "Written in full this session (the data cannot tell a new file from an overwrite)"
+               : "Edited in place this session";
+}
 
 template <typename File>
 Mark mark_of(const File& f) {
     bool allWhole = !f.edits.empty();
     for (const auto& e : f.edits)
         if (!e.writesWhole) allWhole = false;
-    return allWhole ? Mark::Added : Mark::Modified;
+    return allWhole ? Mark::Written : Mark::Modified;
 }
 
 enum class Group { Docs, Code, Tests };
