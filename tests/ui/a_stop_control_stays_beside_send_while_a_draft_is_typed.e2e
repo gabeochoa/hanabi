@@ -1,0 +1,15 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark"}
+require_thread t9
+wait_frames 14
+expect_backend_state t9 running
+expect_no_ui composer_stop
+click_ui composer_reply_input
+type "hold on"
+wait_frames 6
+expect_text "Enter to steer"
+assert_ui composer_stop hidden=false
+click_ui composer_stop
+wait_frames 12
+expect_backend_state t9 ready
+expect_input_text composer_reply_input "hold on"
+expect_no_ui composer_stop

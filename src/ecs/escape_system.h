@@ -82,6 +82,10 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseFoldPicker;
         else if (app->nodePopoverOpen)
             app->escape = EscapeIntent::CloseNodePicker;
+        else if (Settings::get().get_escape_stops() && app->client &&
+                 app->client->supports_interrupt() && !app->interruptPending &&
+                 app->should_steer_open())
+            app->escape = EscapeIntent::StopTurn;
         else if (app->askFocused && any_text_field_focused())
             app->escape = EscapeIntent::None;
         else if (app->askFocused)

@@ -161,6 +161,8 @@ struct Settings {
     bool get_restore_tabs() const;
     bool get_confirm_quit() const;
     void set_confirm_quit(bool on);
+    bool get_escape_stops() const;
+    void set_escape_stops(bool on);
     double get_text_scale() const;
     void set_text_scale(double scale);
     int get_line_spacing() const;
@@ -566,6 +568,7 @@ struct Settings {
     std::string settings_pane_ = "general";
     bool restore_tabs_ = true;
     bool confirm_quit_ = true;
+    bool escape_stops_ = false;
     double text_scale_ = 1.0;
     int line_spacing_ = 100;
     bool jump_to_latest_ = true;

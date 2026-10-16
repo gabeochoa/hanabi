@@ -81,6 +81,7 @@ bool Settings::load_save_file() {
         settings_pane_ = j.value("settings_pane", settings_pane_);
         restore_tabs_ = j.value("restore_tabs", restore_tabs_);
         confirm_quit_ = j.value("confirm_quit", confirm_quit_);
+        escape_stops_ = j.value("escape_stops", escape_stops_);
         text_scale_ = hanabi::text_zoom::sanitize(j.value("text_scale", text_scale_));
         line_spacing_ = hanabi::line_spacing::clamp(j.value("line_spacing", line_spacing_));
         jump_to_latest_ = j.value("jump_to_latest", jump_to_latest_);
@@ -325,6 +326,7 @@ void Settings::write_save_file() {
     j["settings_pane"] = settings_pane_;
     j["restore_tabs"] = restore_tabs_;
     j["confirm_quit"] = confirm_quit_;
+    j["escape_stops"] = escape_stops_;
     j["text_scale"] = text_scale_;
     j["line_spacing"] = line_spacing_;
     j["jump_to_latest"] = jump_to_latest_;
@@ -532,6 +534,13 @@ bool Settings::get_confirm_quit() const { return confirm_quit_; }
 void Settings::set_confirm_quit(bool on) {
     if (on == confirm_quit_) return;
     confirm_quit_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_escape_stops() const { return escape_stops_; }
+void Settings::set_escape_stops(bool on) {
+    if (on == escape_stops_) return;
+    escape_stops_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

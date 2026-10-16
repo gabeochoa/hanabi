@@ -99,6 +99,7 @@ enum class EscapeIntent {
     CloseFoldPicker,
     CloseNodePicker,
     DeclineAsk,
+    StopTurn,
     ClearTranscript,
 };
 

@@ -1271,6 +1271,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "confirm_quit") render_confirm_quit_row(ctx, parent, app);
         else if (id == "native_diffs") render_native_diffs_row(ctx, parent, app);
         else if (id == "timestamps") render_timestamps_row(ctx, parent, app);
+        else if (id == "escape_stops") render_escape_stops_row(ctx, parent, app);
         else if (id == "sort_order") render_sort_order_row(ctx, parent, app);
         else if (id == "group_by") render_group_by_row(ctx, parent, app);
         else if (id == "only_ungrouped") render_only_ungrouped_row(ctx, parent, app);
@@ -3962,6 +3963,16 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // Diff links: the browser by default; on, the app's Companion.
+    void render_escape_stops_row(UIContext<InputAction>& ctx, Entity& parent,
+                                 AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 770, "Escape stops the running turn",
+                 "settings_escape_stops_label");
+        const bool on = Settings::get().get_escape_stops();
+        real_switch(ctx, parent, 771, on, "settings_escape_stops",
+                    [](bool v) { Settings::get().set_escape_stops(v); });
+    }
+
     void render_native_diffs_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
         (void)app;
         row_name(ctx, parent, 760, "Open diffs in Hanabi", "settings_native_diffs");

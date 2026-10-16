@@ -9478,8 +9478,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_debug_name(cname("composer_row")));
 
+        const bool stopBeside = steerMode && !brake.refuses_input && hasText &&
+                                !targetKickoff && app.client &&
+                                app.client->supports_interrupt();
         const float inputRoom = paneW - (composerGutter * 2.0f) - sendW -
-                                kSendGap;
+                                kSendGap - (stopBeside ? sendW + kSendGap : 0.0f);
         float inputW = inputRoom < 1.0f ? 1.0f : inputRoom;
 
         auto inputWrap = div(ctx, mk(row.ent(), 1),
@@ -10605,6 +10608,40 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool showsStop = steerIcon && !hasText && !targetKickoff &&
                                app.client && app.client->supports_interrupt();
         const bool stopping = app.interruptPending;
+        if (stopBeside) {
+            auto stopBtn = button(ctx, mk(row.ent(), 3),
+                ComponentConfig{}
+                    .with_label("")
+                    .with_size(ComponentSize{pixels(sendW), pixels(sendH)})
+                    .with_margin(Margin{.right = pixels(kSendGap)})
+                    .with_custom_background(theme::text_primary())
+                    .with_custom_hover_bg(theme::text_secondary())
+                    .with_custom_text_color(theme::window_bg())
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_corner_radius(kSendDia * 0.5f)
+                    .with_cursor(stopping ? afterhours::ui::CursorType::Default
+                                          : afterhours::ui::CursorType::Pointer)
+                    .with_on_draw_fg([stopping](RectangleType rr) {
+                        const theme::Color ink = theme::window_bg();
+                        if (stopping)
+                            afterhours::draw_ring(rr.x + rr.width * 0.5f,
+                                                  rr.y + rr.height * 0.5f, 2.5f,
+                                                  4.5f, 18, ink);
+                        else
+                            hanabi::glyph::stop_square(rr, ink);
+                    })
+                    .with_debug_name(cname("composer_stop")));
+            if (stopBtn && !stopping && !openId.empty()) {
+                app.requestInterruptId = openId;
+                app.requestInterruptPane = paneIndex;
+            }
+        }
+        if (app.escape == EscapeIntent::StopTurn && !stopping &&
+            !openId.empty() && paneIndex == app.focusedPane) {
+            app.requestInterruptId = openId;
+            app.requestInterruptPane = paneIndex;
+            app.escape = EscapeIntent::None;
+        }
         const bool sendPressable = sendEnabled || (showsStop && !stopping);
         const theme::Color sendFill =
             sendEnabled ? theme::button_primary()

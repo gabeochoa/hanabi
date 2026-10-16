@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 52> kRows{{
+inline constexpr std::array<Row, 53> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -174,6 +174,8 @@ inline constexpr std::array<Row, 52> kRows{{
      "diff native browser web phabricator companion tabs", Origin::Device},
     {"timestamps", Pane::General, "Show timestamps",
      "time clock when sent stamp date", Origin::Device},
+    {"escape_stops", Pane::General, "Escape stops the running turn",
+     "escape esc stop interrupt cancel running turn key", Origin::Device},
     {"sort_order", Pane::General, "Sort threads by",
      "sort order sidebar oldest newest created recent activity queue",
      Origin::Device},
