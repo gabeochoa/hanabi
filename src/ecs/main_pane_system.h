@@ -4352,9 +4352,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // touch() calls further down cannot evict it.
         model::PaneState& mark =
             model::pane_states().touch(model::pane_key(pane_index(app, pane), openId0));
-        const int64_t lastRead = hanabi::read_cursor::stamp_at_or_before_seq(
-            msgs, Settings::get().get_read_seq(openId0),
-            Settings::get().get_last_read(openId0));
+        const int64_t lastRead = Settings::get().get_last_read(openId0);
+        const int64_t readSeq = Settings::get().get_read_seq(openId0);
         // Recomputed when the thread is first seen, and again if messages were
         // PREPENDED (load-older shifts every index, so a held index would
         // point at the wrong message).
@@ -4363,7 +4362,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // does not look like an external change and does not delete the line
         // the reader is looking at. Anything else — another window, a test
         // placing the boundary — is a real re-mark and is honoured.
-        model::update_unread(mark, msgs, lastRead, pane.transcriptMutation);
+        model::update_unread(mark, msgs, lastRead, pane.transcriptMutation, readSeq);
         const int firstUnread = mark.unreadFirst;
         const int unreadCount = mark.unreadCount;
 

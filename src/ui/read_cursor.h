@@ -41,22 +41,6 @@ int first_unread_by_seq(const Messages& messages, std::int64_t readSeq) {
 }
 
 template <typename Messages>
-std::int64_t stamp_at_or_before_seq(const Messages& messages, std::int64_t readSeq,
-                                    std::int64_t fallbackStamp) {
-    if (readSeq <= 0) return fallbackStamp;
-    std::int64_t best = 0;
-    bool anySeq = false;
-    for (const auto& m : messages) {
-        const std::int64_t s = seq_of(m.id);
-        if (s <= 0) continue;
-        anySeq = true;
-        if (s <= readSeq && m.created_at > best) best = m.created_at;
-    }
-    if (!anySeq) return fallbackStamp;
-    return best > 0 ? best : fallbackStamp;
-}
-
-template <typename Messages>
 std::int64_t newest_seq(const Messages& messages) {
     std::int64_t best = 0;
     for (const auto& m : messages) {

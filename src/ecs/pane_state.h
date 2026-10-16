@@ -59,6 +59,7 @@
 #include "../api/types.h"
 #include "composer_notice.h"
 #include "../ui/minimap_marks.h"
+#include "../ui/read_cursor.h"
 #include "../ui/minimap_scrub.h"
 #include "follow_latch.h"
 #include "transcript_ledger.h"
@@ -81,6 +82,7 @@ struct PaneState {
     // deleted the line while the reader was looking at it.
     bool unreadComputed = false;
     std::int64_t unreadStamp = 0;  // the persisted stamp it was computed from
+    std::int64_t unreadSeq = 0;
     std::size_t unreadSeen = 0;    // message count when it was computed
     std::uint64_t unreadRevision = 0;
     std::int64_t unreadLastCreatedAt = 0;
@@ -164,13 +166,25 @@ inline api::OutgoingMessage snapshot_outgoing(
     return message;
 }
 
-template <class Messages>
+template <typename Message>
+bool is_unread(const Message& m, std::int64_t lastRead, std::int64_t readSeq) {
+    if constexpr (requires { m.id; }) {
+        if (readSeq > 0) {
+            const std::int64_t seq = hanabi::read_cursor::seq_of(m.id);
+            if (seq > 0) return seq > readSeq;
+        }
+    }
+    return m.created_at > lastRead;
+}
+
+template <typename Messages>
 void update_unread(PaneState& state, const Messages& messages,
                    std::int64_t lastRead,
-                   const TranscriptMutation& mutation) {
+                   const TranscriptMutation& mutation,
+                   std::int64_t readSeq = 0) {
     const std::size_t size = messages.size();
     bool recompute = !state.unreadComputed || lastRead != state.unreadStamp ||
-                     size < state.unreadSeen;
+                     readSeq != state.unreadSeq || size < state.unreadSeen;
     const bool mutationChanged = mutation.revision != state.unreadRevision;
     const bool updatedAppendedTail =
         mutationChanged && mutation.kind == TranscriptMutationKind::Update &&
@@ -195,11 +209,12 @@ void update_unread(PaneState& state, const Messages& messages,
     if (recompute) {
         state.unreadComputed = true;
         state.unreadStamp = lastRead;
+        state.unreadSeq = readSeq;
         state.unreadFirst = -1;
         state.unreadCount = 0;
-        if (lastRead > 0) {
+        if (lastRead > 0 || readSeq > 0) {
             for (std::size_t i = 0; i < size; ++i) {
-                if (messages[i].created_at <= lastRead) continue;
+                if (!is_unread(messages[i], lastRead, readSeq)) continue;
                 if (state.unreadFirst < 0)
                     state.unreadFirst = static_cast<int>(i);
                 ++state.unreadCount;
@@ -215,7 +230,7 @@ void update_unread(PaneState& state, const Messages& messages,
             updatedAppendedTail ? state.unreadSeen
                                 : std::min(mutation.first, size);
         for (std::size_t i = first; i < size; ++i) {
-            if (messages[i].created_at <= lastRead) continue;
+            if (!is_unread(messages[i], lastRead, readSeq)) continue;
             if (state.unreadFirst < 0)
                 state.unreadFirst = static_cast<int>(i);
             ++state.unreadCount;

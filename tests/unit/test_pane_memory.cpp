@@ -428,6 +428,25 @@ static void test_same_id_content_change_invalidates_geometry() {
     CHECK(cache.changed() == 1);
 }
 
+static void test_unread_follows_the_read_seq_when_ids_are_seqs() {
+    std::printf("test_unread_follows_the_read_seq_when_ids_are_seqs\n");
+    struct S { std::string id; std::int64_t created_at; };
+    std::vector<S> messages{{"1", 10}, {"2", 20}, {"3", 20}, {"4", 5}};
+    ecs::model::PaneState state;
+    ecs::model::TranscriptMutation mutation;
+    ecs::model::update_unread(state, messages, 20, mutation, 2);
+    CHECK(state.unreadFirst == 2);
+    CHECK(state.unreadCount == 2);
+    ecs::model::update_unread(state, messages, 20, mutation, 4);
+    CHECK(state.unreadFirst == -1);
+    CHECK(state.unreadCount == 0);
+    std::vector<S> mixed{{"m1", 10}, {"m2", 30}};
+    ecs::model::PaneState other;
+    ecs::model::update_unread(other, mixed, 20, mutation, 7);
+    CHECK(other.unreadFirst == 1);
+    CHECK(other.unreadCount == 1);
+}
+
 static void test_unread_tracks_append_prepend_and_replace() {
     std::printf("test_unread_tracks_append_prepend_and_replace\n");
     struct M { std::int64_t created_at; };
@@ -483,6 +502,7 @@ int main() {
     test_render_cache_holds_both_panes();
     test_same_id_content_change_invalidates_geometry();
     test_unread_tracks_append_prepend_and_replace();
+    test_unread_follows_the_read_seq_when_ids_are_seqs();
     test_two_panes_at_two_widths_do_not_thrash();
     test_an_unwrapped_entry_serves_every_wider_width();
     test_a_rich_natural_advance_covers_the_raw_line();
