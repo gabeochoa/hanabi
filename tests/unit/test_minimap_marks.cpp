@@ -155,6 +155,11 @@ static void test_a_group_keeps_the_most_worth_seeing_kind() {
     // is what the group-wearing above depends on.
     CHECK(mm::mark_priority(mm::Mark::Ask) <
           mm::mark_priority(mm::Mark::Notice));
+    CHECK(mm::mark_priority(mm::Mark::Starred) < mm::mark_priority(mm::Mark::Ask));
+    CHECK(mm::kAllMarks.size() == 6 && mm::kAllMarks[0] == mm::Mark::Starred);
+    CHECK(mm::mark_key(mm::Mark::Starred) == "starred");
+    CHECK(!mm::mark_hidden("", mm::Mark::Starred));
+    CHECK(mm::mark_hidden(mm::toggle_mark("", mm::Mark::Starred), mm::Mark::Starred));
     CHECK(mm::mark_priority(mm::Mark::Notice) <
           mm::mark_priority(mm::Mark::Reply));
     CHECK(mm::mark_priority(mm::Mark::Reply) <

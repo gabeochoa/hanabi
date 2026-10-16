@@ -247,6 +247,16 @@ bool Settings::load_save_file() {
             for (const auto& [k, v] : j["tool_fold"].items())
                 if (v.is_number_integer()) tool_fold_[k] = v.get<int>();
         }
+        starred_turns_.clear();
+        if (j.contains("starred_turns") && j["starred_turns"].is_object()) {
+            for (const auto& [k, v] : j["starred_turns"].items()) {
+                if (!v.is_array()) continue;
+                std::vector<std::string> ids;
+                for (const auto& id : v)
+                    if (id.is_string() && !id.get<std::string>().empty()) ids.push_back(id.get<std::string>());
+                if (!ids.empty()) starred_turns_[k] = std::move(ids);
+            }
+        }
         sound_override_.clear();
         if (j.contains("sound_override") && j["sound_override"].is_object()) {
             for (const auto& [k, v] : j["sound_override"].items())
@@ -423,6 +433,7 @@ void Settings::write_save_file() {
     j["last_read"] = last_read_;
     j["tool_fold"] = tool_fold_;
     j["sound_override"] = sound_override_;
+    j["starred_turns"] = starred_turns_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
 }
@@ -834,6 +845,29 @@ void Settings::prune_last_read() {
 int Settings::get_tool_fold(const std::string& id) const {
     auto it = tool_fold_.find(id);
     return it == tool_fold_.end() ? 0 : it->second;
+}
+bool Settings::is_turn_starred(const std::string& session_id, const std::string& message_id) const {
+    auto it = starred_turns_.find(session_id);
+    if (it == starred_turns_.end()) return false;
+    return std::find(it->second.begin(), it->second.end(), message_id) != it->second.end();
+}
+const std::vector<std::string>& Settings::starred_turns(const std::string& session_id) const {
+    static const std::vector<std::string> kNone;
+    auto it = starred_turns_.find(session_id);
+    return it == starred_turns_.end() ? kNone : it->second;
+}
+void Settings::set_turn_starred(const std::string& session_id, const std::string& message_id, bool on) {
+    if (session_id.empty() || message_id.empty()) return;
+    auto& ids = starred_turns_[session_id];
+    auto found = std::find(ids.begin(), ids.end(), message_id);
+    if (on == (found != ids.end())) {
+        if (ids.empty()) starred_turns_.erase(session_id);
+        return;
+    }
+    if (on) ids.push_back(message_id);
+    else ids.erase(found);
+    if (ids.empty()) starred_turns_.erase(session_id);
+    if (auto_save_enabled) write_save_file();
 }
 int Settings::get_sound_override(const std::string& id) const {
     auto it = sound_override_.find(id);

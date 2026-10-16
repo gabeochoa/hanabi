@@ -1648,6 +1648,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     std::array<size_t, 2> composerRows_ = {1, 1};
     double lastTextZoom_ = 1.0;
     bool liveBody_ = false;
+    std::string renderSessionId_;
     int lastLineSpacing_ = hanabi::line_spacing::kDefault;
     // Whether each pane's field had the caret last frame (the caret-follow
     // rule acts on the rising edge).
@@ -2507,8 +2508,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // The mark a row wears on the rail: the row's kind, and for a bubble its
     // author. O(1) from the ledger's classification and the message's role.
-    static hanabi::minimap::Mark row_mark(const model::RowGeom& g,
-                                          const api::Message& m) {
+    hanabi::minimap::Mark row_mark(const model::RowGeom& g,
+                                   const api::Message& m) const {
+        if (g.kind == model::RowGeom::Bubble &&
+            Settings::get().is_turn_starred(renderSessionId_, m.id))
+            return hanabi::minimap::Mark::Starred;
         switch (g.kind) {
             case model::RowGeom::ToolPile:
             case model::RowGeom::ToolBlock:
@@ -2537,7 +2541,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // mark per row, which is the density the navigator test expects; that
     // walk is bounded by the rail, not the thread. Never O(N) on a width
     // step, a token or a total change: O(cap * (log N + probes)).
-    static std::vector<hanabi::minimap::Slot> sample_minimap_slots(
+    std::vector<hanabi::minimap::Slot> sample_minimap_slots(
         const model::TranscriptLedger& led,
         const std::vector<api::Message>& msgs, float subH, float totalH,
         float railH, std::string_view hiddenMarks, std::size_t& rowsVisited) {
@@ -4117,6 +4121,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             loading_spinner(ctx, parent, "Loading conversation\xe2\x80\xa6");
             return;
         }
+        renderSessionId_ = pane.openSession->summary.id;
 
         float refusalH = 0.0f;
         if (const std::string* why = app.attach_refusal_reason(pane.selectedId))
@@ -14333,6 +14338,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         hanabi::surface::MenuItem copyTurn{"Copy Turn", "message_menu_copy_turn", false, false};
         copyTurn.action_id = "copy_turn";
         items.push_back(std::move(copyTurn));
+        const auto turnSpan = hanabi::transcript_copy::turn_around(session->messages,
+                                                                   app.messageMenuMessageId);
+        const std::string turnId =
+            turnSpan.empty() ? app.messageMenuMessageId
+                             : session->messages[static_cast<std::size_t>(turnSpan.first)].id;
+        const bool turnStarred = Settings::get().is_turn_starred(app.messageMenuSessionId, turnId);
+        items.push_back(hanabi::surface::MenuItem::divider("message_menu_divider_star"));
+        hanabi::surface::MenuItem starTurn{turnStarred ? "Unstar Turn" : "Star Turn",
+                                           "message_menu_star_turn", false, false};
+        starTurn.action_id = turnStarred ? "unstar_turn" : "star_turn";
+        items.push_back(std::move(starTurn));
 
         hanabi::surface::MenuMetrics metrics;
         metrics.width = hanabi::surface::kContextMenuW;
@@ -14370,6 +14386,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             else if (pickedAction == "copy_turn")
                 payload = hanabi::transcript_copy::copy_turn_payload(session->messages,
                                                                      app.messageMenuMessageId);
+            else if (pickedAction == "star_turn" || pickedAction == "unstar_turn") {
+                Settings::get().set_turn_starred(app.messageMenuSessionId, turnId,
+                                                 pickedAction == "star_turn");
+                model::transcript_ledgers().mark_all_dirty();
+            }
             if (!payload.empty()) {
                 hanabi::clipboard::set_text(payload);
                 hanabi::test_hooks::record_clipboard_text(payload);
@@ -14667,6 +14688,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const bool authorRow = has_author_row(m, isLive, showAuthor);
         if (authorRow) {
         const std::string ts = turn_meta_text(m, isLive);
+        const bool starred = Settings::get().is_turn_starred(renderSessionId_, m.id);
         auto arow = div(ctx, mk(turn.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kAuthorH)})
@@ -14678,6 +14700,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("asst_arow"));
+        if (starred)
+            div(ctx, mk(arow.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(kAuthorH), pixels(kAuthorH)})
+                    .with_transparent_bg()
+                    .with_margin(Margin{.right = pixels(4)})
+                    .with_on_draw_fg([](RectangleType r) {
+                        hanabi::icons::draw_at("star", r.x + r.width * 0.5f,
+                                               r.y + r.height * 0.5f, 11.0f,
+                                               theme::accent());
+                    })
+                    .with_debug_name("asst_star"));
         div(ctx, mk(arow.ent(), 2),
             ComponentConfig{}
                 .with_label(ts)

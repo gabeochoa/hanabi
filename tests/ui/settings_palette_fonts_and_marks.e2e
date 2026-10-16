@@ -30,16 +30,16 @@ wait_frames 10
 mouse_move 700 500
 scroll_wheel 0 -40
 wait_frames 12
-expect_text "Marks on the minimap   ·   5 of 5"
+expect_text "Marks on the minimap   ·   6 of 6"
 click_ui settings_mark_machinery
 wait_frames 10
-expect_text "Marks on the minimap   ·   4 of 5"
+expect_text "Marks on the minimap   ·   5 of 6"
 click_ui settings_mark_reply
 wait_frames 10
-expect_text "Marks on the minimap   ·   3 of 5"
+expect_text "Marks on the minimap   ·   4 of 6"
 click_ui settings_mark_machinery
 wait_frames 10
-expect_text "Marks on the minimap   ·   4 of 5"
+expect_text "Marks on the minimap   ·   5 of 6"
 
 click_ui settings_minimap_0
 wait_frames 10
@@ -49,7 +49,7 @@ wait_frames 10
 expect_text "Marks on the minimap   ·   the minimap is off"
 click_ui settings_minimap_1
 wait_frames 10
-expect_text "Marks on the minimap   ·   4 of 5"
+expect_text "Marks on the minimap   ·   5 of 6"
 
 click_ui settings_search
 wait_frames 6

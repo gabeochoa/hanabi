@@ -26,6 +26,7 @@ namespace hanabi::minimap {
 
 inline theme::Color colour_of(Mark m) {
     switch (m) {
+        case Mark::Starred: return theme::accent();
         case Mark::Machinery: return theme::role_tool();
         case Mark::Reply: return theme::role_assistant();
         case Mark::Ask: return theme::role_user();

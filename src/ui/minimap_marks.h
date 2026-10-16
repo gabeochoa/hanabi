@@ -25,6 +25,7 @@ namespace hanabi::minimap {
 // a reader scanning the rail wants "where are the answers, where did it go off
 // and do things, where did I ask something", not a row-type taxonomy.
 enum class Mark {
+    Starred,
     Machinery,  // tool runs — a pile or a single block
     Reply,      // an assistant turn
     Ask,        // something the reader said
@@ -37,6 +38,7 @@ enum class Mark {
 // some other kind's bit and hide the wrong marks.
 inline constexpr std::string_view mark_key(Mark mark) {
     switch (mark) {
+        case Mark::Starred: return "starred";
         case Mark::Machinery: return "machinery";
         case Mark::Reply: return "reply";
         case Mark::Ask: return "ask";
@@ -46,8 +48,8 @@ inline constexpr std::string_view mark_key(Mark mark) {
     return "note";
 }
 
-inline constexpr std::array<Mark, 5> kAllMarks{
-    {Mark::Machinery, Mark::Reply, Mark::Ask, Mark::Notice, Mark::Note}};
+inline constexpr std::array<Mark, 6> kAllMarks{
+    {Mark::Starred, Mark::Machinery, Mark::Reply, Mark::Ask, Mark::Notice, Mark::Note}};
 
 // `hidden` is a comma-separated list of mark keys. Empty means show
 // everything, which is the behaviour that shipped before there was a filter.
@@ -152,6 +154,7 @@ struct Slot {
 // collapsed with the forty tool rows after it should still read as a turn.
 inline int mark_priority(Mark m) {
     switch (m) {
+        case Mark::Starred: return -1;
         case Mark::Ask: return 0;
         case Mark::Notice: return 1;
         case Mark::Reply: return 2;

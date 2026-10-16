@@ -536,6 +536,27 @@ static void test_per_thread_sound_round_trips() {
     CHECK(s.get_sound_override("") == 0);
 }
 
+static void test_starred_turns_round_trip() {
+    std::printf("test_starred_turns_round_trip\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    CHECK(!s.is_turn_starred("t2", "m4"));
+    s.set_turn_starred("t2", "m4", true);
+    s.set_turn_starred("t2", "m9", true);
+    CHECK(s.is_turn_starred("t2", "m4") && s.is_turn_starred("t2", "m9"));
+    CHECK(!s.is_turn_starred("t3", "m4"));
+    CHECK(s.starred_turns("t2").size() == 2);
+    s.load_save_file();
+    CHECK(s.is_turn_starred("t2", "m4") && s.starred_turns("t2").size() == 2);
+    s.set_turn_starred("t2", "m4", false);
+    s.set_turn_starred("t2", "m9", false);
+    s.load_save_file();
+    CHECK(!s.is_turn_starred("t2", "m4") && s.starred_turns("t2").empty());
+    s.set_turn_starred("", "m1", true);
+    s.set_turn_starred("t2", "", true);
+    CHECK(s.starred_turns("").empty() && s.starred_turns("t2").empty());
+}
+
 static void test_finished_subagents_round_trips() {
     std::printf("test_finished_subagents_round_trips\n");
     isolate_settings();
@@ -962,6 +983,7 @@ int main() {
     test_archive_overlay_round_trips();
     test_mute_round_trips();
     test_per_thread_sound_round_trips();
+    test_starred_turns_round_trip();
     test_finished_subagents_round_trips();
     test_subagent_sidebar_toggle_round_trips();
     test_font_preferences_round_trip_and_reject_unknown_values();

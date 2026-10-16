@@ -1,0 +1,19 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+require_thread t2
+wait_frames 12
+expect_no_ui asst_star
+right_click_text "Reconciled 4,812 accounts"
+wait_frames 6
+expect_text "Star Turn"
+click_text "Star Turn"
+wait_frames 8
+expect_no_text "Star Turn"
+assert_ui asst_star hidden=false
+expect_ui_rel asst_star inside asst_arow
+right_click_text "Reconciled 4,812 accounts"
+wait_frames 6
+expect_text "Unstar Turn"
+click_text "Unstar Turn"
+wait_frames 8
+expect_no_ui asst_star

@@ -4234,8 +4234,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         constexpr float kGap = 6.0f;
         const int n = static_cast<int>(hanabi::minimap::kAllMarks.size());
         const float segW = (content_w() - kGap * (n - 1)) / static_cast<float>(n);
-        static const char* kLabels[5] = {"Tools", "Replies", "Asks", "Events",
-                                         "Quiet"};
+        static const char* kLabels[6] = {"Starred", "Tools", "Replies", "Asks",
+                                         "Events", "Quiet"};
         for (int i = 0; i < n; ++i) {
             const auto mark = hanabi::minimap::kAllMarks[static_cast<size_t>(i)];
             const bool on = !hanabi::minimap::mark_hidden(hidden, mark);
@@ -4274,7 +4274,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (rowActivate_)
             Settings::get().set_minimap_hidden_marks(
                 hanabi::minimap::toggle_mark(hidden,
-                                             hanabi::minimap::kAllMarks[0]));
+                                             hanabi::minimap::kAllMarks[1]));
     }
 
     void render_endpoint_row(UIContext<InputAction>& ctx, Entity& parent,
