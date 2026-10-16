@@ -10253,6 +10253,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 set_target_field(target, typed);
                 return;
             }
+            if (cmd->name == "queue") {
+                if (p.args.empty()) {
+                    app.slashNotice = "Type the message to queue after /queue.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (target.session_id.empty()) {
+                    app.slashNotice = "Open a thread to queue a message for.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                api::OutgoingMessage message =
+                    captured != nullptr ? *captured
+                                        : snapshot_composer_message(app, p.args, target);
+                message.text = p.args;
+                api::disk_cache::outbox_add(target.session_id, message);
+                app.enqueue_send(target.session_id, std::move(message));
+                app.slashNotice = std::to_string(app.pending_send_count(target.session_id)) + " queued";
+                app.slashNoticePane = target.pane_index;
+                set_target_field(target, "");
+                return;
+            }
             if (cmd->name == "new") {
                 // The same surface every other entry point opens, carrying
                 // whatever was typed after the verb. It used to throw the

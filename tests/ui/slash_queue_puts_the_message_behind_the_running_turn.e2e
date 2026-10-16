@@ -1,0 +1,17 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_OPEN=t1 HANABI_MOCK_STREAM_HOLD=1
+require_thread t1
+wait_frames 10
+click_ui composer_reply_input
+type "first, in flight"
+key ENTER
+wait_frames 6
+type "/queue second, by verb"
+key ENTER
+wait_frames 6
+expect_text "1 queued"
+expect_queued t1 second, by verb
+expect_input_text composer_reply_input ""
+mock_release_stream
+wait_frames 60
+expect_backend_message t1 second, by verb

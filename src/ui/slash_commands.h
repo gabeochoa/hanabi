@@ -70,6 +70,7 @@ inline const std::vector<Command>& all() {
         {"effort", "", "choose the thinking effort", true, ""},
         {"btw", "<question>", "fork this thread", true, ""},
         {"knot", "<task>", "file a knot linked to this thread", true, ""},
+        {"queue", "<message>", "send this after the running turn finishes", true, ""},
         {"compact", "", "compact the context now", false,
          std::string(product_branding::kAppName) + " has no compact call yet"},
     };
