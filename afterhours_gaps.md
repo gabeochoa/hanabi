@@ -14369,7 +14369,7 @@ CLASS: PORTABILITY (compiles on clang only)
 
 CLASS: TESTING / MISSING
 
-### #605 — the label wrap memo's key omits the font: `wrap_memo::key_for(runs, max_width)` hashes run text, weight, colour and width, so a label wrapped at one font size is redrawn at another with the old line breaks
+### #605 — FIXED upstream at 158003b: the label wrap memo's key omits the font: `wrap_memo::key_for(runs, max_width)` hashes run text, weight, colour and width, so a label wrapped at one font size is redrawn at another with the old line breaks
 
 **Class:** UI rendering (`plugins/ui/text_selection.h` :96-108 `key_for`, :139 "the key cannot see the font"; both label wrap sites read it, `plugins/ui/rendering.h` :1004 and :2405, each serving styled and plain labels; LRU of 512 entries, d90db15). The memo has a public `clear()` and no caller in the library or, before this batch, in the app.
 
@@ -14383,9 +14383,11 @@ CLASS: TESTING / MISSING
 
 **Re-read at upstream main c1d0e0b (2026-09-23; hanabi vendor 60b0b92 = c1d0e0b + the #607 fix).** `key_for` is unchanged (`text_selection.h` :96-108) and the "cannot see the font" note is still there (:138); the app's `clear()` guard stays.
 
+**Closed upstream (re-read 2026-10-16 at the 65d5292 pin, confirmed at d1d7f0e).** Upstream `158003b` ("Prepared-text caches: wrap key, reload invalidation, glyph coverage, run offsets", 2026-09-26, inside 65d5292) gives `wrap_memo::key_for` the face name, font size and spacing (`text_selection.h` :101-119 at d1d7f0e), ties wrap entries to `measure_memo`'s generation, and clears both memos and the shared `TextMeasureCache` when `FontManager::load_font` reloads a name. The app's `wrap_memo::clear()` on a metrics change becomes belt-and-braces; it stays until the batch-2 zoom fixtures are re-run on the new pin without it.
+
 CLASS: UI / WRONG
 
-### #606 — a wrapped label has no line-height or leading control: only `text_area` takes `with_line_height`, and a label's row pitch is whatever `measure_text("Ag")` says
+### #606 — FIXED upstream at 4502f9f: a wrapped label has no line-height or leading control: only `text_area` takes `with_line_height`, and a label's row pitch is whatever `measure_text("Ag")` says
 
 **Class:** UI / MISSING (`plugins/ui/component_config.h` :193 `text_area_line_height`, :432 `with_line_height` writes only that field; `plugins/ui/rendering.h` :889/:894 and :1104/:1111 derive a wrapped label's `line_h` from `measure_text(font, "Ag", font_size, spacing).y`, with no config input). Read at upstream main c1d0e0b and unchanged from d90db15.
 
@@ -14394,6 +14396,8 @@ CLASS: UI / WRONG
 **Ask.** A `with_line_height(Size)` (or a leading multiple) honoured by the label wrap paths, so a multi-line label's rows advance by the configured height instead of the face's "Ag" measure. The `text_area` field already exists; the label paths would read the same value.
 
 **Second cost: the room must go BETWEEN lines (kt-riry, 2026-10-07).** The reference's follow-ups (D123401188-D123401190) put the extra room between the lines of a message, never above the first, so a one-line bubble keeps its 100% height. A taller label box cannot say that either: the wrap paths centre the packed block in the box, so a taller box only moves the gap above and below the text. **Workaround:** a spaced block that wraps is drawn as a host over one label per wrapped line (`main_pane_system.h` `render_spaced_lines`, `spaced_host_cfg`), each `line_pitch()` tall with `line_gap()` between, and hard-broken lines of one paragraph get the same gap as a spacer; selection, find bands and link rects read the host's text through a `find_highlight::Leading` that knows where the lines went. Pinned by `tests/ui/line_spacing_opens_room_between_lines.e2e` and `tests/ui/find_paints_a_wrapped_match_with_line_spacing.e2e`; the measure probe reports 0 drifts at 170%. The ask above would retire all of it: with a per-label line advance plus "advance between lines only", the paragraph would be one label again.
+
+**Closed upstream (re-read 2026-10-16 at the 65d5292 pin, confirmed at d1d7f0e).** Upstream `4502f9f` ("ui: with_line_height pins label row height", 2026-10-04, inside 65d5292) makes `with_line_height(Size)` set `HasLabel::line_height` as well as the text-area field (`component_config.h` :439-442), and both wrapped-label paths advance by it instead of the "Ag" measure (`rendering.h`, `line_height_px` threaded through the plain and styled draws). Hanabi's line-spacing port still does its own row pitch (one label per line), which is now a choice, not a necessity; moving the prose onto `with_line_height` is a follow-up, not part of the closure.
 
 CLASS: UI / MISSING
 
