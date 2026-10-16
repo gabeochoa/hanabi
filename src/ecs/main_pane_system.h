@@ -10309,9 +10309,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     captured != nullptr ? *captured
                                         : snapshot_composer_message(app, p.args, target);
                 message.text = p.args;
-                api::disk_cache::outbox_add(target.session_id, message);
-                app.enqueue_send(target.session_id, std::move(message));
-                app.slashNotice = std::to_string(app.pending_send_count(target.session_id)) + " queued";
+                remember_composer_snapshot(message);
+                consume_composer_snapshot(message);
+                const bool busy = app.sending_for(target.session_id) ||
+                                  app.should_steer(target);
+                if (busy) {
+                    api::disk_cache::outbox_add(target.session_id, message);
+                    app.enqueue_send(target.session_id, std::move(message));
+                    app.slashNotice =
+                        std::to_string(app.pending_send_count(target.session_id)) + " queued";
+                } else {
+                    if (app.client && app.client->supports_stream())
+                        app.requestStream = std::move(message);
+                    else
+                        app.requestSend = std::move(message);
+                    app.slashNotice = "Sent";
+                }
                 app.slashNoticePane = target.pane_index;
                 set_target_field(target, "");
                 return;
