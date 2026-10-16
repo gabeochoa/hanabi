@@ -43,7 +43,7 @@ its `# env:` line, and the app honours them when launched by hand too.
 | `HANABI_STOPPED_DEMO` | `src/api/mock_client.h:2855` | 1 |  |
 | `HANABI_STRESS_SESSIONS` | `src/api/mock_client.h:2854` | 8 |  |
 | `HANABI_THINKING_DEMO` | `src/api/mock_client.h:2854` | 4 |  |
-| `HANABI_TOOLS_DEMO` | `src/api/mock_client.h:2861` | 1 |  |
+| `HANABI_TOOLS_DEMO` | `src/api/mock_client.h:2861` | 2 |  |
 
 ## Failure and refusal injection
 
