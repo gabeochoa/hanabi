@@ -1641,7 +1641,7 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                     m.kind = EventKind::Thinking;
                     m.subtitle = "thinking";
                     if (created > 0 && began > 0 && created >= began)
-                        m.tool_duration_ms = (created - began) * 1000;
+                        m.thinking_duration_ms = (created - began) * 1000;
                 }
             }
         } else if (type == "tool_intent") {

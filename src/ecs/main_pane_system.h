@@ -16007,7 +16007,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // minutes of it are different facts about the turn, and a reader deciding
     // whether to open the fold has nothing else to decide on.
     static std::string thinking_summary(const api::Message& m) {
-        return hanabi::thinking_elapsed::summary(m.text, m.tool_duration_ms);
+        return hanabi::thinking_elapsed::summary(m.text, m.thinking_duration_ms);
     }
 
     // ---- The compaction divider ------------------------------------------

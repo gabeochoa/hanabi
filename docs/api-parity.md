@@ -55,6 +55,17 @@ Same session / message / stream / event concept-shape, with three adaptations:
 
 All three sit behind the SAME adapter seam — no second bespoke client.
 
+### Durations read off the journal — 2026-10-16
+A tool row's `tool_duration_ms` is `tool_result.created − tool_intent.created`
+(completedAt − startedAt), the tool's own span. A thinking row's
+`thinking_duration_ms` is the thinking block's frame time minus the previous
+DRAWN row's: a block is journaled when it finishes, so that difference is how
+long the model thought — with one caveat: frames that push no row (a
+`tool_result` folded into its intent, `run_started`, `model_call_started`) are
+skipped, so a thought that follows a long tool can over-count by the tool's
+settle time. The two fields are separate on purpose; the tool pile's "Worked
+for" sums `tool_duration_ms` only, never reasoning time.
+
 ### Session options (spec 115) — wired 2026-09-13
 
 `patch_session_options` rides the session websocket as
