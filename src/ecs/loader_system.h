@@ -1511,16 +1511,26 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 std::future_status::ready) {
             auto r = app.renameFuture.get();
             app.renamePending = false;
+            const bool fromVerb = app.requestRenamePane >= 0;
             if (r.ok) {
                 app.apply_renamed_title(app.renameInFlightId, r.value);
                 app.renameOpen = false;
                 app.renameSessionId.clear();
                 app.renameDraft.clear();
                 app.renameError.clear();
+                if (fromVerb) {
+                    app.slashNotice.clear();
+                    app.raise_toast("Renamed to \xe2\x80\x9c" + r.value + "\xe2\x80\x9d", "",
+                                    AppComponent::ToastUndo::None);
+                }
+            } else if (fromVerb) {
+                app.slashNotice = "Rename refused: " + r.error;
+                app.slashNoticePane = app.requestRenamePane;
             } else {
                 app.renameError = r.error;
                 ++app.renameRefusals;
             }
+            app.requestRenamePane = -1;
             app.renameInFlightId.clear();
         }
 

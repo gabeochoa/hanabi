@@ -1,0 +1,10 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+require_thread t2
+wait_frames 10
+click_ui composer_reply_input
+type "/title Ship notes"
+key ENTER
+wait_frames 30
+expect_text "Ship notes"
+expect_toast_holds "Renamed to"
+expect_input_text composer_reply_input ""

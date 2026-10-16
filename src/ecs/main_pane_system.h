@@ -10253,6 +10253,40 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 set_target_field(target, typed);
                 return;
             }
+            if (cmd->name == "title") {
+                if (p.args.empty()) {
+                    app.slashNotice = "Type the new name after /title.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (target.session_id.empty()) {
+                    app.slashNotice = "Open a thread to rename.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (!app.client || !app.client->supports_rename()) {
+                    app.slashNotice = "This backend cannot rename a conversation.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (app.renamePending || !app.requestRenameId.empty()) {
+                    app.slashNotice = "A rename is already in flight.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                app.requestRenameId = target.session_id;
+                app.requestRenameTitle = p.args;
+                app.requestRenamePane = target.pane_index;
+                app.renamePending = true;
+                app.slashNotice = "Renaming\xe2\x80\xa6";
+                app.slashNoticePane = target.pane_index;
+                set_target_field(target, "");
+                return;
+            }
             if (cmd->name == "queue") {
                 if (p.args.empty()) {
                     app.slashNotice = "Type the message to queue after /queue.";

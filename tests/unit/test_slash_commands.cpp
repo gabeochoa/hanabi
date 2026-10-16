@@ -25,6 +25,11 @@ int main() {
     CHECK(bare.matched && bare.known && bare.args.empty());
     CHECK(!sl::sends_as_text("/queue later", false));
     CHECK(sl::find("knot") != nullptr && sl::find("btw") != nullptr && sl::find("new") != nullptr);
+    const sl::Command* t = sl::find("title");
+    CHECK(t != nullptr && t->runnable && t->arg == "<name>" && !t->sends_as_text);
+    const sl::Parsed tp = sl::parse("/title  Ship notes ");
+    CHECK(tp.known && tp.verb == "title" && tp.args == "Ship notes ");
+    CHECK(!sl::sends_as_text("/title x", false));
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

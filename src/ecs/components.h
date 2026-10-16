@@ -2011,6 +2011,7 @@ struct AppComponent : public afterhours::BaseComponent {
     int interruptPane = 0;
     std::string requestRenameId;     // one-shot: what the loader should send
     std::string requestRenameTitle;
+    int requestRenamePane = -1;
     bool renamePending = false;      // in flight; the modal shows a spinner
     std::string renameInFlightId;
     std::future<api::Result<std::string>> renameFuture;
