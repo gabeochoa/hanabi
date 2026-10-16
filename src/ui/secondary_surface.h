@@ -6,6 +6,8 @@
 
 #include "control_state.h"
 #include "theme.h"
+#include "edge_fade.h"
+#include "div.h"
 
 namespace hanabi::surface {
 
@@ -70,6 +72,52 @@ inline ComponentConfig menu(float width, float height, int layer) {
         .with_corner_radius(kMenuCorner)
         .with_render_layer(layer);
     return out;
+}
+
+inline void edge_fades(UIContextType& ctx,
+                       afterhours::Entity& parent, int id,
+                       afterhours::Entity& scroll, theme::Color ground,
+                       int layer, const std::string& name) {
+    using afterhours::ui::imm::mk;
+    const afterhours::EntityID scrollId = scroll.id;
+    hanabi::ui::div(ctx, mk(parent, id),
+        ComponentConfig{}
+            .with_size(ComponentSize{afterhours::ui::percent(1.0f),
+                                     afterhours::ui::percent(1.0f)})
+            .with_absolute_position()
+            .with_translate(0.0f, 0.0f)
+            .with_transparent_bg()
+            .with_roundness(0.0f)
+            .with_ignore_pointer_events()
+            .with_skip_tabbing(true)
+            .with_render_layer(layer)
+            .with_on_draw_fg([scrollId, ground](RectangleType) {
+                auto opt = afterhours::ui::UICollectionHolder::getEntityForID(scrollId);
+                if (!opt.valid() || !opt->has<afterhours::ui::HasScrollView>() ||
+                    !opt->has<afterhours::ui::UIComponent>())
+                    return;
+                const auto& sv = opt->get<afterhours::ui::HasScrollView>();
+                const RectangleType r = opt->get<afterhours::ui::UIComponent>().rect();
+                const float content = std::max(sv.content_size.y, sv.unbuilt_content_size.y);
+                const auto f = hanabi::edge_fade::strength(sv.scroll_offset.y, content, r.height);
+                theme::Color clear = ground;
+                clear.a = 0;
+                if (f.top > 0.0f) {
+                    theme::Color top = ground;
+                    top.a = hanabi::edge_fade::alpha_for(f.top, ground.a);
+                    afterhours::draw_rectangle_gradient_v(
+                        RectangleType{r.x, r.y, r.width, hanabi::edge_fade::kFadeH}, top, clear);
+                }
+                if (f.bottom > 0.0f) {
+                    theme::Color bottom = ground;
+                    bottom.a = hanabi::edge_fade::alpha_for(f.bottom, ground.a);
+                    afterhours::draw_rectangle_gradient_v(
+                        RectangleType{r.x, r.y + r.height - hanabi::edge_fade::kFadeH, r.width,
+                                      hanabi::edge_fade::kFadeH},
+                        clear, bottom);
+                }
+            })
+            .with_debug_name(name));
 }
 
 inline ComponentConfig field(float width, int layer, float height = kFieldH) {

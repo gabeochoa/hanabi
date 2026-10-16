@@ -113,6 +113,8 @@ struct ShortcutsSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.0f)
                 .with_render_layer(11)
                 .with_debug_name("shortcuts_cols"));
+        hanabi::surface::edge_fades(ctx, panel.ent(), 3, cols.ent(),
+                                    theme::panel_bg(), 12, "shortcuts_fades");
 
         auto content = div(
             ctx, mk(cols.ent(), 1),

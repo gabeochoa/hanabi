@@ -173,6 +173,8 @@ struct PaletteSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("palette_results"));
+        hanabi::surface::edge_fades(ctx, panel.ent(), 4, list.ent(),
+                                    theme::panel_bg(), 12, "palette_fades");
 
         if (rows.empty()) {
             div(ctx, mk(list.ent(), 2),

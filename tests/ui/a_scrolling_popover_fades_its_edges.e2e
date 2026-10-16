@@ -1,0 +1,13 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=shortcuts
+expect_text "Keyboard shortcuts"
+assert_ui shortcuts_fades hidden=false
+expect_ui_rel shortcuts_fades inside shortcuts_panel
+key ESCAPE
+wait_frames 4
+key CMD+K
+wait_frames 8
+expect_text "Command palette"
+assert_ui palette_fades hidden=false
+expect_ui_rel palette_fades inside palette_panel
+key ESCAPE
