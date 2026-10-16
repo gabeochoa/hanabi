@@ -1,0 +1,15 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark","send_chords":true}
+require_thread t9
+wait_frames 14
+expect_backend_state t9 running
+click_ui composer_reply_input
+type "later please"
+key CMD+ALT+ENTER
+wait_frames 8
+expect_text "1 queued"
+expect_queued t9 later please
+expect_input_text composer_reply_input ""
+type "right now"
+key CMD+ENTER
+wait_frames 30
+expect_backend_message t9 right now

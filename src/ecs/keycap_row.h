@@ -28,11 +28,10 @@ inline float cap_width(const hanabi::keycaps::Cap& cap) {
 
 inline void render(UIContext<InputAction>& ctx, Entity& parent,
                        int firstId, std::string_view display,
-                       const std::string& name, bool muted) {
+                       const std::string& name, bool muted, int layer = -1) {
     const auto caps = hanabi::keycaps::split(display);
     if (caps.empty()) {
-        div(ctx, mk(parent, firstId),
-            ComponentConfig{}
+        ComponentConfig plain = ComponentConfig{}
                 .with_label(std::string(display))
                 .with_size(ComponentSize{children(), pixels(kCapH)})
                 .with_transparent_bg()
@@ -40,7 +39,9 @@ inline void render(UIContext<InputAction>& ctx, Entity& parent,
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_roundness(0.0f)
-                .with_debug_name(name + "_text"));
+                .with_debug_name(name + "_text");
+        if (layer >= 0) plain.with_render_layer(layer);
+        div(ctx, mk(parent, firstId), plain);
         return;
     }
     int id = firstId;
@@ -57,6 +58,7 @@ inline void render(UIContext<InputAction>& ctx, Entity& parent,
             .with_alignment(TextAlignment::Center)
             .with_debug_name(name + (isCap ? "_cap" : "_sep") +
                              std::to_string(id - firstId));
+        if (layer >= 0) cfg.with_render_layer(layer);
         if (isCap) {
             cfg.with_custom_background(theme::panel_bg_2())
                 .with_border(theme::border(), pixels(1.0f))

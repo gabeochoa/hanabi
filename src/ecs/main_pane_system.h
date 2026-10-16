@@ -101,6 +101,7 @@
 #include "../ui/context_menu.h"
 #include "../ui/transcript_copy.h"
 #include "../ui/share.h"
+#include "../ui/send_chords.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
 
@@ -8634,8 +8635,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.composerRestore.offerRetry = false;
                 app.composerRestore.adopted = false;
             } else if (!submittedBrake.refuses_input &&
-                hanabi::enter_sends(Settings::get().get_send_key(),
-                                    submitted.withCmd)) {
+                (submitted.chord != AppComponent::SendChord::None ||
+                 hanabi::enter_sends(Settings::get().get_send_key(),
+                                     submitted.withCmd))) {
                 if ((hanabi::slash::is_command_text(submitted.message.text) &&
                      !hanabi::slash::sends_as_text(submitted.message.text, app.slashMenuOpen)) ||
                     (app.mentionMenuOpen && app.mentionMenuPane == paneIndex &&
@@ -8659,9 +8661,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     else qs.replyDraft = qs.stashedDraft;
                     app.raise_toast("Queued message updated", std::string(),
                                     AppComponent::ToastUndo::None);
+                } else if (submitted.chord == AppComponent::SendChord::QueueThisOne &&
+                           !target.session_id.empty() && (canStream || canSend)) {
+                    remember_composer_snapshot(submitted.message);
+                    consume_composer_snapshot(submitted.message);
+                    api::disk_cache::outbox_add(target.session_id, submitted.message);
+                    app.enqueue_send(target.session_id, std::move(submitted.message));
+                    app.slashNotice =
+                        std::to_string(app.pending_send_count(target.session_id)) + " queued";
+                    app.slashNoticePane = paneIndex;
+                    clearFieldAfterSubmit = target == composerTarget;
                 } else if (canStream || canSend) {
                     remember_composer_snapshot(submitted.message);
                     consume_composer_snapshot(submitted.message);
+                    if (submitted.chord == AppComponent::SendChord::SendNow &&
+                        !target.session_id.empty() && app.should_steer(target))
+                        submitted.message.interrupt = true;
                     if (target.session_id.empty())
                         app.request_kickoff(std::move(submitted.message));
                     else if (canStream)
@@ -10601,6 +10616,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         *appPtr, std::move(text),
                         appPtr->composer_target_for(paneIndex));
                     submitted.withCmd = hanabi::keys::cmd_down();
+                    if (Settings::get().get_send_chords()) {
+                        switch (hanabi::send_chords::classify(
+                            hanabi::keys::cmd_down(), hanabi::keys::option_down(),
+                            Settings::get().get_send_key() == hanabi::kSendKeyCmdReturn)) {
+                            case hanabi::send_chords::Chord::QueueThisOne:
+                                submitted.chord = AppComponent::SendChord::QueueThisOne;
+                                break;
+                            case hanabi::send_chords::Chord::SendNow:
+                                submitted.chord = AppComponent::SendChord::SendNow;
+                                break;
+                            case hanabi::send_chords::Chord::None:
+                                break;
+                        }
+                    }
                     appPtr->composerSubmit = std::move(submitted);
                 });
         }

@@ -1,0 +1,15 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9"],"active_tab":"t9","theme":"dark","send_chords":true}
+# env: HANABI_OPEN=t9 HANABI_TEST_TIP=composer_send HANABI_TIP_FIXED_CLOCK=1
+require_thread t9
+wait_frames 14
+hover_ui composer_send
+wait_frames 45
+assert_ui send_hint_card hidden=false
+expect_text "Steer the running turn"
+expect_text "Queue this one instead"
+expect_text "Send now"
+assert_ui send_hint_1_cap0 text="⌘"
+assert_ui send_hint_1_cap1 text="⌥"
+assert_ui send_hint_1_cap2 text="↩"
+assert_ui send_hint_2_cap0 text="⌘"
+assert_ui send_hint_2_cap1 text="↩"

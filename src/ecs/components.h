@@ -1224,9 +1224,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // it would decide with whatever was true on the frame it was attached.
     // It parks the text here and the composer, which recomputes the mode every
     // frame, routes it exactly as the Send button does.
+    enum class SendChord { None, QueueThisOne, SendNow };
     struct ComposerSubmission {
         api::OutgoingMessage message;
         bool withCmd = false;
+        SendChord chord = SendChord::None;
     };
     std::optional<ComposerSubmission> composerSubmit;
 

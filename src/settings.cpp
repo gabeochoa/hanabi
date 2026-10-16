@@ -84,6 +84,7 @@ bool Settings::load_save_file() {
         confirm_quit_ = j.value("confirm_quit", confirm_quit_);
         escape_stops_ = j.value("escape_stops", escape_stops_);
         inbox_triage_ = j.value("inbox_triage", inbox_triage_);
+        send_chords_ = j.value("send_chords", send_chords_);
         triage_bindings_.clear();
         if (j.contains("triage_bindings") && j["triage_bindings"].is_object())
             for (const auto& [k, v] : j["triage_bindings"].items())
@@ -354,6 +355,7 @@ void Settings::write_save_file() {
     j["confirm_quit"] = confirm_quit_;
     j["escape_stops"] = escape_stops_;
     j["inbox_triage"] = inbox_triage_;
+    j["send_chords"] = send_chords_;
     j["triage_bindings"] = triage_bindings_;
     j["text_scale"] = text_scale_;
     j["user_text_scale"] = user_text_scale_;
@@ -569,6 +571,12 @@ void Settings::set_confirm_quit(bool on) {
     if (auto_save_enabled) write_save_file();
 }
 
+bool Settings::get_send_chords() const { return send_chords_; }
+void Settings::set_send_chords(bool on) {
+    if (on == send_chords_) return;
+    send_chords_ = on;
+    if (auto_save_enabled) write_save_file();
+}
 bool Settings::get_inbox_triage() const { return inbox_triage_; }
 void Settings::set_inbox_triage(bool on) {
     if (on == inbox_triage_) return;

@@ -10,6 +10,9 @@
 #include "../ui/secondary_surface.h"
 #include "../ui/accessibility.h"
 #include "../ui/tooltip.h"
+#include "../ui/send_chords.h"
+#include "../settings.h"
+#include "keycap_row.h"
 #include "components.h"
 #include "pointer_state_system.h"
 #include "ui_imports.h"
@@ -78,6 +81,12 @@ struct TooltipSystem : afterhours::System<UIContext<InputAction>> {
         pending_reveal() = timer_.awaiting_reveal();
         if (!timer_.visible()) return;
 
+        if (Settings::get().get_send_chords() &&
+            (control == "composer_send" || control == "composer_send_2")) {
+            draw_send_hint_card(ctx, anchor, control);
+            return;
+        }
+
         const float w = hanabi::tip::width_for(text);
         const auto at = hanabi::surface::place_tooltip(
             anchor, w, hanabi::tip::kTipHeight, ctx.screen_width,
@@ -111,6 +120,72 @@ struct TooltipSystem : afterhours::System<UIContext<InputAction>> {
     }
 
    private:
+    static constexpr float kHintRowH = 22.0f;
+    static constexpr float kHintW = 300.0f;
+    static constexpr float kHintChordW = 120.0f;
+
+    static void draw_send_hint_card(UIContext<InputAction>& ctx,
+                                    const hanabi::surface::Rect& anchor,
+                                    const std::string& control) {
+        auto* app = find_singleton<AppComponent>();
+        const bool running = app != nullptr && app->should_steer_open();
+        const auto rows = hanabi::send_chords::hint_rows(running, false);
+        const float h = kHintRowH * static_cast<float>(rows.size()) + 8.0f;
+        const auto at = hanabi::surface::place_tooltip(anchor, kHintW, h, ctx.screen_width,
+                                                       ctx.screen_height);
+        Entity& uiRoot = ui_imm::getUIRootEntity();
+        auto panel = hanabi::surface::menu(kHintW, h, kTooltipLayer);
+        panel.with_absolute_position()
+            .with_translate(at.x, at.y)
+            .with_flex_direction(FlexDirection::Column)
+            .with_flex_wrap(FlexWrap::NoWrap)
+            .with_padding(Padding{.top = pixels(4), .right = pixels(8), .bottom = pixels(4),
+                                  .left = pixels(8)})
+            .with_debug_name("send_hint_card");
+        auto card = hanabi::ui::div(ctx, mk(uiRoot, 8600), panel);
+        hanabi::a11y::describe(card.ent(), {.value = "What Return does, and the chords",
+                                            .role = hanabi::a11y::Role::Tooltip,
+                                            .parent = control});
+        int id = 1;
+        for (const auto& r : rows) {
+            auto line = hanabi::ui::div(ctx, mk(card.ent(), id++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{percent(1.0f), pixels(kHintRowH)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_render_layer(kTooltipLayer + 1)
+                    .with_debug_name("send_hint_row"));
+            auto chordCol = hanabi::ui::div(ctx, mk(line.ent(), 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(kHintChordW), pixels(keycap_row::kCapH)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_render_layer(kTooltipLayer + 1)
+                    .with_debug_name("send_hint_chord"));
+            keycap_row::render(ctx, chordCol.ent(), 1, r.chord,
+                               "send_hint_" + std::to_string(id - 2), false,
+                               kTooltipLayer + 1);
+            hanabi::ui::div(ctx, mk(line.ent(), 2),
+                ComponentConfig{}
+                    .with_label(r.meaning)
+                    .with_size(ComponentSize{pixels(kHintW - kHintChordW - 20.0f),
+                                             pixels(kHintRowH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_roundness(0.0f)
+                    .with_render_layer(kTooltipLayer + 1)
+                    .with_debug_name("send_hint_meaning_" + std::to_string(id - 2)));
+        }
+    }
+
     static void resolve_hovered(const UIContext<InputAction>& ctx,
                                 std::string* name, std::string* text,
                                 hanabi::surface::Rect* rect) {

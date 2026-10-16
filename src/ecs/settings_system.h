@@ -1303,6 +1303,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "yap") render_yap_row(ctx, parent, app);
         else if (id == "jump_latest") render_jump_latest_row(ctx, parent, app);
         else if (id == "find_newest") render_find_newest_row(ctx, parent, app);
+        else if (id == "send_chords") render_send_chords_row(ctx, parent, app);
         else if (id == "minimap") render_minimap_row(ctx, parent, app);
         else if (id == "notify_show") render_notify_show_row(ctx, parent, app);
         else if (id == "notify_sound") render_notification_row(ctx, parent, app);
@@ -3425,6 +3426,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     // Find: where a fresh Cmd+F lands. Off (the default) is the oldest match
     // and Cmd+G walks newer; on is the newest match and Cmd+G walks older.
+    void render_send_chords_row(UIContext<InputAction>& ctx, Entity& parent,
+                                AppComponent& app) {
+        (void)app;
+        const bool on = Settings::get().get_send_chords();
+        row_name_with(ctx, parent, 778, "Send chords (experiment)",
+                      on ? std::string("   \xc2\xb7   \xe2\x8c\x98\xe2\x8c\xa5\xe2\x86\xa9 queue this one  \xc2\xb7  \xe2\x8c\x98\xe2\x86\xa9 send now")
+                         : std::string(),
+                      "settings_send_chords_label");
+        real_switch(ctx, parent, 779, on, "settings_send_chords",
+                    [](bool v) { Settings::get().set_send_chords(v); });
+    }
+
     void render_find_newest_row(UIContext<InputAction>& ctx, Entity& parent,
                                 AppComponent& app) {
         (void)app;
