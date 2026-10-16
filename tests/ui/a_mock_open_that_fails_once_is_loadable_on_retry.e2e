@@ -1,0 +1,9 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_MOCK_OPEN_FAIL_ONCE=t2:the backend did not answer the open
+wait_frames 30
+expect_text "Couldn’t load this conversation"
+assert_ui main_error_retry hidden=false
+click_ui main_error_retry
+wait_frames 30
+expect_no_text "Couldn’t load this conversation"
+expect_text "Reconcile this cycle's Stars payouts against the ledger"

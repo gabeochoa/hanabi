@@ -1,6 +1,8 @@
 #pragma once
 #include "element_table.h"
 #include "create_title.h"
+#include "mock_faults.h"
+#include "mock_journal.h"
 
 // Deterministic, offline sample data source. This is the default backend so
 // the app is fully functional with no configuration and no network.
@@ -532,6 +534,8 @@ class MockClient : public Client {
     Result<Session> get_session(const std::string& id) override {
         session_reads().fetch_add(1);
         if (injected_refusal(id)) return refusal_for(id);
+        if (std::string why; mock_faults::consume_open_failure_from_env(id, &why))
+            return Result<Session>::failure(why);
         if (halt_observe_armed().load()) {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             while (!halt_observe_release().load() &&
@@ -772,6 +776,8 @@ class MockClient : public Client {
     }
 
     Result<Session> get_session(const std::string& id, int limit) override {
+        if (const int delay = mock_faults::page_delay_ms(); delay > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay));
         auto r = get_session(id);
         if (!r.ok || limit <= 0) return r;
         auto& msgs = r.value.messages;
@@ -1161,6 +1167,20 @@ class MockClient : public Client {
     // same mutation send_message does), then split that reply into ordered text
     // chunks. Returns the plan so the loader can drain chunks per-frame. On an
     // unknown session returns ok=false with an error (never mutates).
+    struct OutgoingFacts {
+        std::size_t attachments = 0;
+        std::string local_id;
+    };
+    OutgoingFacts pendingFacts_;
+
+    void journal_send(const std::string& session_id, const std::string& text) {
+        const OutgoingFacts facts = pendingFacts_;
+        pendingFacts_ = {};
+        if (!mock_journal::enabled()) return;
+        mock_journal::append(mock_journal::Entry{session_id, "hand", text, facts.attachments,
+                                                 mock_journal::now_unix_ms(), facts.local_id});
+    }
+
     StreamPlan prepare_stream(const std::string& session_id,
                               const std::string& prompt) {
         StreamPlan plan;
@@ -1170,6 +1190,7 @@ class MockClient : public Client {
             plan.error = "no such session: " + session_id;
             return plan;
         }
+        journal_send(session_id, prompt);
         const int64_t now = mock_now();
         const int turn = static_cast<int>(target->messages.size());
 
@@ -1330,6 +1351,7 @@ class MockClient : public Client {
             stream_hold_cv().wait(hl, [] { return stream_released(); });
         }
         if (message.interrupt) {
+            pendingFacts_ = OutgoingFacts{message.attachments.size(), message.local_id};
             auto result = steer(session_id, message);
             if (!result.ok) sink.emit_error(result.error);
             else {
@@ -1350,6 +1372,7 @@ class MockClient : public Client {
                                    : 1);
             sink.emit_done(final);
         };
+        pendingFacts_ = OutgoingFacts{message.attachments.size(), message.local_id};
         send_message_streaming(session_id, message.text, adapted);
     }
 
@@ -1399,6 +1422,7 @@ class MockClient : public Client {
 
     Result<Message> send_message(const std::string& session_id,
                                  const OutgoingMessage& message) override {
+        pendingFacts_ = OutgoingFacts{message.attachments.size(), message.local_id};
         auto result = send_message(session_id, message.text);
         if (!result.ok) return result;
         Session* target = find_mutable(session_id);
@@ -1450,6 +1474,7 @@ class MockClient : public Client {
 
     Result<Message> steer(const std::string& session_id,
                           const OutgoingMessage& message) override {
+        pendingFacts_ = OutgoingFacts{message.attachments.size(), message.local_id};
         auto result = steer(session_id, message.text);
         if (!result.ok) return result;
         Session* target = find_mutable(session_id);
@@ -2836,7 +2861,8 @@ class MockClient : public Client {
         "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_WEB_OVERLAY_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_MOCK_SPACE_ADMIN", "HANABI_MOCK_SPACE_DENY", "HANABI_MOCK_SPACE_SENSITIVE", "HANABI_MOCK_LIVE", "HANABI_MOCK_DISK_CACHE", "HANABI_MOCK_PHOTO_FAIL", "HANABI_TEST_SPACE_SETTINGS", "HANABI_MOCK_STREAM_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
         "HANABI_ELEMENTS_DEMO",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
-        "HANABI_MOCK_ROW_CLOCKS",
+        "HANABI_MOCK_ROW_CLOCKS",    "HANABI_MOCK_JOURNAL",
+        "HANABI_MOCK_PAGE_DELAY_MS", "HANABI_MOCK_OPEN_FAIL_ONCE",
         "HANABI_MOCK_ACCESS",      "HANABI_MOCK_NO_HALT",
         "HANABI_MOCK_HALT_REFUSE", "HANABI_MOCK_HALT_NO_ECHO",
         "HANABI_MOCK_HALT_OBSERVE_LATCH", "HANABI_MOCK_NO_HALT_ADVERT",

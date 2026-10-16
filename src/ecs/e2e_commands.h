@@ -58,6 +58,7 @@
 #include <cstdlib>
 #include <format>
 #include <fstream>
+#include <sstream>
 #include <map>
 #include <memory>
 #include <chrono>
@@ -84,6 +85,7 @@
 #include "ui_clock.h"
 #include "../resize_drive.h"
 #include "../test_hooks.h"
+#include "../api/mock_journal.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
 #include "../ui/font_system.h"
 #include "../ui/link_detect.h"
@@ -2917,6 +2919,47 @@ struct HandleReleaseHaltObserveCommand
 // stays green until some later assertion happens to notice. Registered ahead
 // of the library's handlers (register_hanabi_pre_handlers), so the refusal
 // is at the line that mixed the two paths, not at the assertion after it.
+struct HandleClearMockJournalCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("clear_mock_journal")) return;
+        if (!api::mock_journal::clear())
+            cmd.fail("clear_mock_journal: HANABI_MOCK_JOURNAL is unset or unwritable");
+        cmd.consume();
+    }
+};
+
+struct HandleExpectMockJournalCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_journal")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_mock_journal requires <substring> (or - for empty)");
+            return;
+        }
+        const std::string path = api::mock_journal::path_from_env();
+        if (path.empty()) {
+            cmd.fail("expect_mock_journal: HANABI_MOCK_JOURNAL is unset");
+            return;
+        }
+        std::ifstream in(path);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        const std::string body = ss.str();
+        const std::string want = cmd.arg(0);
+        if (want == "-") {
+            if (!body.empty()) cmd.fail(std::format("expect_mock_journal: expected empty, {} bytes", body.size()));
+        } else if (body.find(want) == std::string::npos) {
+            cmd.fail(std::format("expect_mock_journal: \"{}\" not in {} ({} bytes)", want, path, body.size()));
+        }
+        cmd.consume();
+    }
+};
+
 struct HandleReleaseStreamDemoCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -4911,6 +4954,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectAccessCommand>());
     sm.register_update_system(std::make_unique<HandleReleaseHaltObserveCommand>());
     sm.register_update_system(std::make_unique<HandleReleaseStreamDemoCommand>());
+    sm.register_update_system(std::make_unique<HandleClearMockJournalCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());
     sm.register_update_system(std::make_unique<HandleExpectFontFaceCommand>());
