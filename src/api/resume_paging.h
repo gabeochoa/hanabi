@@ -4,7 +4,6 @@
 
 namespace hanabi::api::resume_paging {
 
-inline constexpr int kProbeFrames = 25;
 inline constexpr int kSafetyPages = 200;
 
 inline int page_limit(int pageIndex, int window, bool resume) {
@@ -14,10 +13,6 @@ inline int page_limit(int pageIndex, int window, bool resume) {
     return window > 500 ? 500 : window;
 }
 
-inline int probe_frames(int window) {
-    if (window <= 0) return kProbeFrames;
-    return window < kProbeFrames ? window : kProbeFrames;
-}
 
 inline int page_bound(bool wantAll, bool resume, int wholeTranscriptPages) {
     if (resume) return kSafetyPages;

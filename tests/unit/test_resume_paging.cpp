@@ -22,8 +22,6 @@ int main() {
     CHECK(rp::page_limit(0, 10, true) == 10);
     CHECK(rp::page_limit(0, 0, true) == 500);
     CHECK(rp::page_limit(1, 900, true) == 500);
-    CHECK(rp::page_limit(0, 40, true) >= rp::probe_frames(40));
-    CHECK(rp::probe_frames(40) == 25 && rp::probe_frames(10) == 10 && rp::probe_frames(0) == 25);
     CHECK(rp::after_page(true, 76, 95) == rp::Next::Reached);
     CHECK(rp::after_page(true, 61, 95) == rp::Next::Reached);
     CHECK(rp::after_page(true, 61, 30) == rp::Next::Continue);
