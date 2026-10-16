@@ -14,12 +14,12 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "afterhours"
 PROBES = ROOT / "tests" / "vendor_probes"
-# The pin is upstream main 65d5292 (2026-10-08), an upstream revision again:
-# the local Metal build fix 60b0b92 (afterhours_gaps.md #607) is dropped
-# because upstream 62bc429 qualifies the same four shader-mode calls with
-# ::afterhours::. The PIN is the gitlink.
-BASE = "65d5292bdf0341c1afe963a57b78e0d706f3a1ae"
-PIN = "65d5292bdf0341c1afe963a57b78e0d706f3a1ae"
+# The pin is upstream main d1d7f0e (2026-10-12), an upstream revision; the
+# local Metal build fix 60b0b92 (afterhours_gaps.md #607) was dropped at the
+# 65d5292 pin because upstream 62bc429 qualifies the same four shader-mode
+# calls with ::afterhours::. The PIN is the gitlink.
+BASE = "d1d7f0ecc96d0fb1264cb4310ccee94d82f02913"
+PIN = "d1d7f0ecc96d0fb1264cb4310ccee94d82f02913"
 CXX = shlex.split(os.environ.get("CXX", "clang++"))
 # 210 and 255 are gone: both landed upstream between 9ff9079 and 1ac6db2
 # (865c4e6 checks the sampler and sizes its pool; 7208d0c exposes
