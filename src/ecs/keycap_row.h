@@ -17,7 +17,7 @@ inline float cap_width(const hanabi::keycaps::Cap& cap) {
     float w = kCapMinW;
     if (auto* fm = afterhours::EntityHelper::get_singleton_cmp<
             afterhours::ui::FontManager>()) {
-        const float tw = afterhours::measure_text(fm->get_active_font(),
+        const float tw = afterhours::measure_text(fm->get_font("mono"),
                                                   cap.text.c_str(),
                                                   theme::type::SM, 1.0f)
                              .x;
@@ -53,7 +53,7 @@ inline void render(UIContext<InputAction>& ctx, Entity& parent,
             .with_margin(Margin{.right = pixels(kCapGap)})
             .with_custom_text_color(muted ? theme::text_secondary()
                                           : theme::text_primary())
-            .with_font_size(theme::type::SM)
+            .with_font("mono", theme::type::SM)
             .with_alignment(TextAlignment::Center)
             .with_debug_name(name + (isCap ? "_cap" : "_sep") +
                              std::to_string(id - firstId));
