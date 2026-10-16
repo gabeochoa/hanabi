@@ -949,13 +949,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static double text_zoom() { return Settings::get().get_text_scale(); }
     static double side_zoom(bool user) { return Settings::get().get_side_text_scale(user); }
     static bool any_side_zoom() { return side_zoom(true) != 1.0 || side_zoom(false) != 1.0; }
+    static double& side_pitch_factor() {
+        static double value = 1.0;
+        return value;
+    }
     struct SideScale {
         float prev;
-        explicit SideScale(bool user) : prev(theme::type::point_scale()) {
+        double prevPitch;
+        explicit SideScale(bool user)
+            : prev(theme::type::point_scale()), prevPitch(side_pitch_factor()) {
             const double z = side_zoom(user);
             if (z != 1.0) theme::type::set_point_scale(prev * static_cast<float>(z));
+            side_pitch_factor() = prevPitch * z;
         }
-        ~SideScale() { theme::type::set_point_scale(prev); }
+        ~SideScale() {
+            theme::type::set_point_scale(prev);
+            side_pitch_factor() = prevPitch;
+        }
         SideScale(const SideScale&) = delete;
         SideScale& operator=(const SideScale&) = delete;
     };
@@ -967,7 +977,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             return std::string();
         return "|z" + std::to_string(theme::type::BODY) + "/" + std::to_string(line_pitch()) + "/" +
                std::to_string(line_gap()) + "/" + std::to_string(code_line_pitch()) + "/" +
-               std::to_string(Settings::get().get_line_spacing());
+               std::to_string(Settings::get().get_line_spacing()) + "/u" +
+               std::to_string(side_zoom(true)) + "/a" + std::to_string(side_zoom(false));
     }
 
     static constexpr size_t kComposerMaxRows = 6;
@@ -11194,7 +11205,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // message (line_gap / prose_h), so a one-line bubble keeps its 100%
     // height and the gaps above and below the text stay what they are at
     // 100% (the reference's D123401189 / D123401190).
-    static float line_pitch() { return std::round(kLinePitchPt * static_cast<float>(text_zoom())); }
+    static float line_pitch() {
+        return std::round(kLinePitchPt * static_cast<float>(text_zoom() * side_pitch_factor()));
+    }
     // The room between two lines of a message at the current Line spacing,
     // sized from the line it opens (MessageLineSpacing.points, D123401188).
     static float line_gap() {
