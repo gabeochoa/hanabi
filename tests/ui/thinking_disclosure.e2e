@@ -13,7 +13,7 @@ require_thread rthink
 
 expect_text "The budget is per-request"
 # The reasoning is not — only the row that offers it.
-expect_text "Thought for a moment"
+expect_text "Thought for 6s"
 expect_no_text "The backoff doubles from 200ms"
 
 click_ui thinking_head

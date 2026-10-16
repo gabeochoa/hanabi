@@ -46,6 +46,7 @@
 #include "../util/textscan.h"
 #include "../ui/harness_names.h"
 #include "../ui/thinking_tags.h"
+#include "../ui/thinking_elapsed.h"
 #include "keyboard_focus.h"
 #include "digest_layout.h"
 #include "home_buckets.h"
@@ -15955,16 +15956,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // minutes of it are different facts about the turn, and a reader deciding
     // whether to open the fold has nothing else to decide on.
     static std::string thinking_summary(const api::Message& m) {
-        size_t words = 0;
-        bool in_word = false;
-        for (char c : m.text) {
-            const bool space = (c == ' ' || c == '\n' || c == '\t');
-            if (!space && !in_word) ++words;
-            in_word = !space;
-        }
-        if (words == 0) return "Thought for a moment";
-        return "Thought for a moment  \xc2\xb7  " + std::to_string(words) +
-               (words == 1 ? " word" : " words");
+        return hanabi::thinking_elapsed::summary(m.text, m.tool_duration_ms);
     }
 
     // ---- The compaction divider ------------------------------------------

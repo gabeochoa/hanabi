@@ -21,7 +21,7 @@ require_thread rthink
 
 expect_text "The budget is per-request"
 # The reasoning is there to be found, and is not found.
-expect_text "Thought for a moment"
+expect_text "Thought for 6s"
 
 # Two matches, and the two bands that were painted for them.
 expect_text "1 of 2"

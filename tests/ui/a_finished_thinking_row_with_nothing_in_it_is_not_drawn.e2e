@@ -3,6 +3,6 @@
 require_thread rthink
 wait_frames 12
 expect_text "The budget is per-request"
-expect_no_text "Thought for a moment"
+expect_no_text "Thought for"
 expect_no_ui thinking_head
 expect_no_ui thinking_row

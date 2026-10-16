@@ -1635,9 +1635,13 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                 // as something the assistant said to you.
                 std::string text = str_or(b, "text", "");
                 if (!text.empty()) {
+                    const int64_t began =
+                        out.empty() ? 0 : out.back().created_at;
                     Message& m = push(Role::Assistant, std::move(text));
                     m.kind = EventKind::Thinking;
                     m.subtitle = "thinking";
+                    if (created > 0 && began > 0 && created >= began)
+                        m.tool_duration_ms = (created - began) * 1000;
                 }
             }
         } else if (type == "tool_intent") {

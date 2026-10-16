@@ -39,4 +39,4 @@ click_ui settings_reasoning_1
 wait_frames 10
 click_text "why the retry budget ran o"
 wait_frames 12
-expect_text "Thought for a moment"
+expect_text "Thought for 6s"
