@@ -1,0 +1,9 @@
+# settings: {"window_width":1100,"window_height":1400,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TOOLS_DEMO=pace HANABI_OPEN=rtools
+require_thread rtools
+wait_frames 12
+expect_text "zig build gate"
+expect_text "cargo test --workspace"
+assert_ui sub_pace_background text="in the background"
+assert_ui sub_pace_slow text="taking a while"
+expect_ui_rel sub_pace_background same_y sub_dur

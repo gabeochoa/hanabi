@@ -343,6 +343,9 @@ struct Message {
     int64_t tool_duration_ms = 0;
     std::string tool_node;
     int64_t thinking_duration_ms = 0;
+    bool tool_background = false;
+    int64_t tool_timeout_ms = 0;
+    int64_t tool_check_ms = 0;
     //   tool_input         — the call's raw JSON arguments, kept ONLY for an
     //                        edit or a write (api/session_changes.h folds them
     //                        into the files-changed panel); empty otherwise, so

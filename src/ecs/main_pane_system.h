@@ -48,6 +48,7 @@
 #include "../ui/thinking_tags.h"
 #include "../ui/thinking_elapsed.h"
 #include "../ui/run_outcome_label.h"
+#include "../ui/tool_pace.h"
 #include "keyboard_focus.h"
 #include "digest_layout.h"
 #include "home_buckets.h"
@@ -15579,6 +15580,27 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_alignment(TextAlignment::Right)
                 .with_margin(Margin{.right = pixels(4)})
                 .with_debug_name("sub_dur"));
+        {
+            const hanabi::tool_pace::Row pace{m.tool_background, m.tool_status == "running",
+                                              m.created_at, m.tool_timeout_ms, m.tool_check_ms};
+            const char* paceMark = hanabi::tool_pace::mark(pace, capture_clock::now());
+            if (*paceMark != '\0') {
+                const float markW = std::ceil(theme::text_px(paceMark, theme::type::MICRO)) + 12.0f;
+                div(ctx, mk(row.ent(), 8),
+                    ComponentConfig{}
+                        .with_label(paceMark)
+                        .with_size(ComponentSize{pixels(markW), pixels(16)})
+                        .with_custom_background(theme::panel_bg_2())
+                        .with_border(theme::border(), pixels(1.0f))
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font_size(theme::type::MICRO)
+                        .with_alignment(TextAlignment::Center)
+                        .with_roundness(0.5f)
+                        .with_margin(Margin{.right = pixels(6)})
+                        .with_debug_name(m.tool_background ? "sub_pace_background"
+                                                           : "sub_pace_slow"));
+            }
+        }
         const bool failed = tool_failed(m);
         div(ctx, mk(row.ent(), 6),
             ComponentConfig{}

@@ -1656,6 +1656,12 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             if (const auto k = tool_kinds::classify(m.subtitle);
                 k == tool_kinds::Kind::Edit || k == tool_kinds::Kind::Write)
                 m.tool_input = str_or(e, "input", "");
+            m.tool_background = bool_or(e, "background", false);
+            if (const json& task = obj_at(e, "task"); task.is_object()) {
+                m.tool_background = str_or(task, "mode", "") == "background";
+                m.tool_timeout_ms = int_or(task, "timeout_ms", 0);
+                m.tool_check_ms = int_or(task, "check_ms", 0);
+            }
             row_for_intent_seq[seq] = out.size() - 1;
             if (const std::string call = str_or(e, "call_id", ""); call.rfind("tool_run:", 0) == 0) {
                 const std::size_t colon = call.find(':', 9);
@@ -1664,6 +1670,9 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
                     if (run > 0) ++dispatched_calls[run];
                 }
             }
+        } else if (type == "task_detached") {
+            auto it = row_for_intent_seq.find(int_or(e, "task", 0));
+            if (it != row_for_intent_seq.end()) out[it->second].tool_background = true;
         } else if (type == "tool_node_selected") {
             // Which host the call actually ran on, and it arrives as its own
             // frame after the intent -- so like tool_result it is folded back

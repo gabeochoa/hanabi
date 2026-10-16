@@ -4199,6 +4199,24 @@ class MockClient : public Client {
                 tool("tkp3", "edit", "worker/breaker.rs", "@@ -1 +1 @@"),
                 {"tkz", Role::Assistant, "Done.", hrs_ago(1), ""},
             };
+            if (std::string(td) == "pace") {
+                Message bg{"tkbg", Role::Tool, "zig build gate", mins_ago(2), "bash"};
+                bg.tool_status = "running";
+                bg.tool_background = true;
+                bg.tool_timeout_ms = 7200000;
+                bg.tool_check_ms = 600000;
+                Message slow{"tkslow", Role::Tool, "cargo test --workspace", mins_ago(1), "bash"};
+                slow.tool_status = "running";
+                slow.tool_timeout_ms = 600000;
+                slow.tool_check_ms = 30000;
+                Message fresh{"tkfresh", Role::Tool, "ls", mock_now(), "bash"};
+                fresh.tool_status = "running";
+                fresh.tool_check_ms = 30000;
+                s.messages.push_back(bg);
+                s.messages.push_back(slow);
+                s.messages.push_back(fresh);
+                s.summary.state = ThreadState::Running;
+            }
             v.push_back(std::move(s));
         }
 
