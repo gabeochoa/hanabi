@@ -247,6 +247,12 @@ bool Settings::load_save_file() {
             for (const auto& [k, v] : j["tool_fold"].items())
                 if (v.is_number_integer()) tool_fold_[k] = v.get<int>();
         }
+        sound_override_.clear();
+        if (j.contains("sound_override") && j["sound_override"].is_object()) {
+            for (const auto& [k, v] : j["sound_override"].items())
+                if (v.is_number_integer() && v.get<int>() != 0)
+                    sound_override_[k] = v.get<int>() > 0 ? 1 : -1;
+        }
         starred_ids_.clear();
         starred_set_.clear();
         if (j.contains("starred") && j["starred"].is_array()) {
@@ -416,6 +422,7 @@ void Settings::write_save_file() {
     j["row_order"] = row_order_;
     j["last_read"] = last_read_;
     j["tool_fold"] = tool_fold_;
+    j["sound_override"] = sound_override_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
 }
@@ -827,6 +834,26 @@ void Settings::prune_last_read() {
 int Settings::get_tool_fold(const std::string& id) const {
     auto it = tool_fold_.find(id);
     return it == tool_fold_.end() ? 0 : it->second;
+}
+int Settings::get_sound_override(const std::string& id) const {
+    auto it = sound_override_.find(id);
+    return it == sound_override_.end() ? 0 : it->second;
+}
+bool Settings::sound_for(const std::string& id) const {
+    const int o = get_sound_override(id);
+    return o == 0 ? notification_sound_ : o > 0;
+}
+void Settings::set_sound_override(const std::string& id, int mode) {
+    if (id.empty()) return;
+    const int next = mode == 0 ? 0 : mode > 0 ? 1 : -1;
+    if (next == 0) {
+        if (sound_override_.erase(id) == 0) return;
+    } else {
+        auto it = sound_override_.find(id);
+        if (it != sound_override_.end() && it->second == next) return;
+        sound_override_[id] = next;
+    }
+    if (auto_save_enabled) write_save_file();
 }
 bool Settings::has_tool_fold(const std::string& id) const {
     return tool_fold_.find(id) != tool_fold_.end();

@@ -514,6 +514,28 @@ static void test_mute_round_trips() {
     CHECK(!s.is_muted("r4"));
 }
 
+static void test_per_thread_sound_round_trips() {
+    std::printf("test_per_thread_sound_round_trips\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    s.set_notification_sound(true);
+    CHECK(s.get_sound_override("r4") == 0);
+    CHECK(s.sound_for("r4"));
+    s.set_sound_override("r4", -1);
+    CHECK(!s.sound_for("r4") && s.sound_for("r5"));
+    s.load_save_file();
+    CHECK(s.get_sound_override("r4") == -1 && !s.sound_for("r4"));
+    s.set_notification_sound(false);
+    CHECK(!s.sound_for("r5"));
+    s.set_sound_override("r5", 1);
+    CHECK(s.sound_for("r5") && !s.sound_for("r4"));
+    s.set_sound_override("r4", 0);
+    s.load_save_file();
+    CHECK(s.get_sound_override("r4") == 0 && !s.sound_for("r4") && s.sound_for("r5"));
+    s.set_sound_override("", 1);
+    CHECK(s.get_sound_override("") == 0);
+}
+
 static void test_finished_subagents_round_trips() {
     std::printf("test_finished_subagents_round_trips\n");
     isolate_settings();
@@ -939,6 +961,7 @@ int main() {
     test_blocked_acknowledgement_round_trips();
     test_archive_overlay_round_trips();
     test_mute_round_trips();
+    test_per_thread_sound_round_trips();
     test_finished_subagents_round_trips();
     test_subagent_sidebar_toggle_round_trips();
     test_font_preferences_round_trip_and_reject_unknown_values();

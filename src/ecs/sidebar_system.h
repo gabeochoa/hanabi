@@ -1281,6 +1281,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             OpenWeb,
             Archive,
             Mute,
+            Sound,
             Snooze,
             ResetOrder,
             Halt,
@@ -1359,6 +1360,24 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             target->starred ? "unpin" : "pin");
         add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute,
             target->muted ? "unmute" : "mute");
+        {
+            const int soundNow = Settings::get().get_sound_override(target->id);
+            hanabi::surface::MenuItem m{"Sound", "row_menu_sound", false, false};
+            const auto leaf = [&](const char* label, const char* dbg, const char* id, int mode) {
+                hanabi::surface::MenuLeaf l;
+                l.label = label;
+                l.debug_name = dbg;
+                l.action_id = id;
+                l.disabled = soundNow == mode;
+                m.children.push_back(std::move(l));
+            };
+            leaf(Settings::get().get_notification_sound() ? "Default (on)" : "Default (off)",
+                 "row_menu_sound_default", "sound:default", 0);
+            leaf("On for this thread", "row_menu_sound_on", "sound:on", 1);
+            leaf("Off for this thread", "row_menu_sound_off", "sound:off", -1);
+            items.push_back(std::move(m));
+            actions.push_back(Action::Sound);
+        }
         if (app.client && app.client->supports_inbox_state()) {
             const auto snoozed = app.snooze_of(target->id);
             const std::int64_t inboxNow = capture_clock::inbox_now();
@@ -1574,6 +1593,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 case Action::Mute:
                     app.requestToggleMute = targetId;
+                    break;
+                case Action::Sound:
+                    Settings::get().set_sound_override(
+                        targetId, pickedAction == "sound:on" ? 1 : pickedAction == "sound:off" ? -1 : 0);
                     break;
                 case Action::Snooze:
                     if (pickedAction == hanabi::snooze_menu::kCustomId) {

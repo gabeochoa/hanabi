@@ -364,6 +364,9 @@ struct Settings {
     // Notification sound on/off. Default true (Ping).
     bool get_notification_sound() const;
     void set_notification_sound(bool on);  // auto-persists + marks dirty
+    int get_sound_override(const std::string& id) const;
+    void set_sound_override(const std::string& id, int mode);
+    bool sound_for(const std::string& id) const;
 
     // ── Local display preferences. Persisted, but NOT part of the web
     // preferences schema and never marked dirty: how this machine draws the
@@ -606,6 +609,7 @@ struct Settings {
     // after a load, so a file written by an older build shrinks on first run.
     void prune_last_read();
     std::map<std::string, int> tool_fold_;
+    std::map<std::string, int> sound_override_;
     // Preference slots (see getters). Defaults mirror the web defaults.
     int yap_level_ = 2;
     int auto_archive_days_ = 5;

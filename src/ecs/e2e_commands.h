@@ -2919,6 +2919,26 @@ struct HandleReleaseHaltObserveCommand
 // stays green until some later assertion happens to notice. Registered ahead
 // of the library's handlers (register_hanabi_pre_handlers), so the refusal
 // is at the line that mixed the two paths, not at the assertion after it.
+struct HandleExpectSoundCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_sound")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("expect_sound requires <session id> <default|on|off>");
+            return;
+        }
+        const int got = Settings::get().get_sound_override(cmd.arg(0));
+        const std::string want = cmd.arg(1);
+        const int wantMode = want == "on" ? 1 : want == "off" ? -1 : 0;
+        if (got != wantMode)
+            cmd.fail(std::format("expect_sound {}: override is {}, wanted {}", cmd.arg(0),
+                                 got, want));
+        cmd.consume();
+    }
+};
+
 struct HandleClearMockJournalCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -4955,6 +4975,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleReleaseHaltObserveCommand>());
     sm.register_update_system(std::make_unique<HandleReleaseStreamDemoCommand>());
     sm.register_update_system(std::make_unique<HandleClearMockJournalCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectSoundCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());

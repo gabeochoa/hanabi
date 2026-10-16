@@ -728,7 +728,7 @@ static void app_frame_body() {
             const std::string title =
                 std::string(product_branding::kAppName) + ": thread needs you";
             native_notify(title.c_str(), "Click to open this thread", nt,
-                          Settings::get().get_notification_sound());
+                          Settings::get().sound_for(nt));
         }
         if (const char* sid = std::getenv("HANABI_SPOTLIGHT_TEST"); sid && *sid) {
             if (std::string(sid) == "clear") {
@@ -1140,7 +1140,7 @@ static void app_frame_body() {
                     native_notify(
                         isBlocked ? "A thread needs you" : "A run finished",
                         event->title.c_str(), event->id.c_str(),
-                        Settings::get().get_notification_sound());
+                        Settings::get().sound_for(event->id));
                     lastNotifyAt = nowSec;
                 }
             }
