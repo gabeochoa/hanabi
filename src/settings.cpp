@@ -85,6 +85,7 @@ bool Settings::load_save_file() {
         escape_stops_ = j.value("escape_stops", escape_stops_);
         inbox_triage_ = j.value("inbox_triage", inbox_triage_);
         send_chords_ = j.value("send_chords", send_chords_);
+        changed_file_rows_ = j.value("changed_file_rows", changed_file_rows_);
         triage_bindings_.clear();
         if (j.contains("triage_bindings") && j["triage_bindings"].is_object())
             for (const auto& [k, v] : j["triage_bindings"].items())
@@ -356,6 +357,7 @@ void Settings::write_save_file() {
     j["escape_stops"] = escape_stops_;
     j["inbox_triage"] = inbox_triage_;
     j["send_chords"] = send_chords_;
+    j["changed_file_rows"] = changed_file_rows_;
     j["triage_bindings"] = triage_bindings_;
     j["text_scale"] = text_scale_;
     j["user_text_scale"] = user_text_scale_;
@@ -571,6 +573,12 @@ void Settings::set_confirm_quit(bool on) {
     if (auto_save_enabled) write_save_file();
 }
 
+bool Settings::get_changed_file_rows() const { return changed_file_rows_; }
+void Settings::set_changed_file_rows(bool on) {
+    if (on == changed_file_rows_) return;
+    changed_file_rows_ = on;
+    if (auto_save_enabled) write_save_file();
+}
 bool Settings::get_send_chords() const { return send_chords_; }
 void Settings::set_send_chords(bool on) {
     if (on == send_chords_) return;

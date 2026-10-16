@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 57> kRows{{
+inline constexpr std::array<Row, 58> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -200,6 +200,9 @@ inline constexpr std::array<Row, 57> kRows{{
      Origin::Device, "Context"},
     {"disclosure_chips", Pane::Appearance, "Tool, thinking and delivery chips",
      "disclosure chips tool rows thinking delivery open folded default expand",
+     Origin::Device, "Composer"},
+    {"changed_file_rows", Pane::Appearance, "Changed-file rows",
+     "files changed panel added modified mark group docs code tests columns counts",
      Origin::Device, "Composer"},
     {"user_font", Pane::Appearance, "Your messages",
      "typeface font family user side messages mine", Origin::Device, "Typeface"},

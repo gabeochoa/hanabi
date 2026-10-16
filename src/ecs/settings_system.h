@@ -1304,6 +1304,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "jump_latest") render_jump_latest_row(ctx, parent, app);
         else if (id == "find_newest") render_find_newest_row(ctx, parent, app);
         else if (id == "send_chords") render_send_chords_row(ctx, parent, app);
+        else if (id == "changed_file_rows") render_changed_file_rows_row(ctx, parent, app);
         else if (id == "minimap") render_minimap_row(ctx, parent, app);
         else if (id == "notify_show") render_notify_show_row(ctx, parent, app);
         else if (id == "notify_sound") render_notification_row(ctx, parent, app);
@@ -3426,6 +3427,15 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     // Find: where a fresh Cmd+F lands. Off (the default) is the oldest match
     // and Cmd+G walks newer; on is the newest match and Cmd+G walks older.
+    void render_changed_file_rows_row(UIContext<InputAction>& ctx, Entity& parent,
+                                      AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 780, "Changed-file rows", "settings_changed_file_rows_label");
+        const bool on = Settings::get().get_changed_file_rows();
+        real_switch(ctx, parent, 781, on, "settings_changed_file_rows",
+                    [](bool v) { Settings::get().set_changed_file_rows(v); });
+    }
+
     void render_send_chords_row(UIContext<InputAction>& ctx, Entity& parent,
                                 AppComponent& app) {
         (void)app;

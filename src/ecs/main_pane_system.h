@@ -102,6 +102,7 @@
 #include "../ui/transcript_copy.h"
 #include "../ui/share.h"
 #include "../ui/send_chords.h"
+#include "../ui/changed_files.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
 
@@ -7897,6 +7898,75 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_roundness(0.0f)
                     .with_debug_name(dbg));
         };
+        if (file == nullptr && Settings::get().get_changed_file_rows()) {
+            text_row(1, api::changes::header_label(sum) + "   " +
+                            api::changes::counts(sum.additions, sum.deletions),
+                     28.0f, theme::text_primary(), "changes_header", theme::type::BODY);
+            const auto rows = hanabi::changed_files::rows(files);
+            std::optional<hanabi::changed_files::Group> lastGroup;
+            int key = 20;
+            for (const auto& r : rows) {
+                const auto& f = files[r.index];
+                if (!lastGroup || *lastGroup != r.group) {
+                    lastGroup = r.group;
+                    text_row(key++, std::string(hanabi::changed_files::group_label(r.group)),
+                             20.0f, theme::text_faint(),
+                             "changes_group_" + hanabi::changed_files::lower(
+                                                    hanabi::changed_files::group_label(r.group)),
+                             theme::type::MICRO);
+                }
+                auto row = button(ctx, mk(pop.ent(), key++),
+                    hanabi::surface::option_row(kPopW - 20.0f, kRowH, false, 8)
+                        .with_label("")
+                        .with_flex_direction(FlexDirection::Row)
+                        .with_flex_wrap(FlexWrap::NoWrap)
+                        .with_align_items(AlignItems::Center)
+                        .with_debug_name("changes_file_" + std::to_string(r.index)));
+                const bool added = r.mark == hanabi::changed_files::Mark::Added;
+                div(ctx, mk(row.ent(), 1),
+                    ComponentConfig{}
+                        .with_label(std::string(1, hanabi::changed_files::letter(r.mark)))
+                        .with_size(ComponentSize{pixels(18), pixels(18)})
+                        .with_margin(Margin{.right = pixels(8), .left = pixels(4)})
+                        .with_custom_background(added ? theme::status_review()
+                                                      : theme::status_active())
+                        .with_custom_text_color(theme::window_bg())
+                        .with_font("mono", theme::type::MICRO)
+                        .with_alignment(TextAlignment::Center)
+                        .with_roundness(0.3f)
+                        .with_render_layer(8)
+                        .with_debug_name(added ? "changes_mark_added" : "changes_mark_modified"));
+                div(ctx, mk(row.ent(), 2),
+                    ComponentConfig{}
+                        .with_label(r.shown + (f.node.empty() ? std::string() : "   \xc2\xb7 " + f.node))
+                        .with_size(ComponentSize{pixels(kPopW - 20.0f - 30.0f - 90.0f), pixels(18)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_primary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Left)
+                        .with_text_overflow(TextOverflow::Ellipsis)
+                        .with_roundness(0.0f)
+                        .with_render_layer(8)
+                        .with_debug_name("changes_path_" + std::to_string(r.index)));
+                div(ctx, mk(row.ent(), 3),
+                    ComponentConfig{}
+                        .with_label(api::changes::counts(f.additions(), f.deletions()))
+                        .with_size(ComponentSize{pixels(80), pixels(18)})
+                        .with_transparent_bg()
+                        .with_custom_text_color(theme::text_secondary())
+                        .with_font("mono", theme::type::MICRO)
+                        .with_alignment(TextAlignment::Right)
+                        .with_roundness(0.0f)
+                        .with_render_layer(8)
+                        .with_debug_name("changes_counts_" + std::to_string(r.index)));
+                hanabi::ui::act_on_press(row, [&app, key = f.key] {
+                    app.changesFileKey = key;
+                    app.changesShowWhole = false;
+                    app.changesStayOpen = true;
+                });
+            }
+            return;
+        }
         if (file == nullptr) {
             text_row(1, api::changes::header_label(sum) + "   " +
                             api::changes::counts(sum.additions, sum.deletions),

@@ -163,6 +163,8 @@ struct Settings {
     void set_confirm_quit(bool on);
     bool get_escape_stops() const;
     void set_escape_stops(bool on);
+    bool get_changed_file_rows() const;
+    void set_changed_file_rows(bool on);
     bool get_send_chords() const;
     void set_send_chords(bool on);
     bool get_inbox_triage() const;
@@ -587,6 +589,7 @@ struct Settings {
     bool escape_stops_ = false;
     bool inbox_triage_ = false;
     bool send_chords_ = false;
+    bool changed_file_rows_ = true;
     std::map<std::string, std::string> triage_bindings_;
     double text_scale_ = 1.0;
     int line_spacing_ = 100;

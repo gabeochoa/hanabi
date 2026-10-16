@@ -1,0 +1,11 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","changed_file_rows":false}
+# env: HANABI_CHANGES_DEMO=1 HANABI_OPEN=t1
+require_thread t1
+wait_frames 10
+click_ui composer_changes
+wait_frames 10
+expect_text "2 files changed"
+expect_no_ui changes_group_docs
+expect_no_ui changes_mark_modified
+expect_text "prorate.ts"
+key ESCAPE
