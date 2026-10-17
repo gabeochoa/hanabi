@@ -813,7 +813,8 @@ static void test_slash_parsing() {
         CHECK(c.runnable == (c.name == "new" || c.name == "model" ||
                              c.name == "effort" || c.name == "btw" ||
                              c.name == "knot" || c.name == "goal" ||
-                             c.name == "plan"));
+                             c.name == "plan" || c.name == "queue" ||
+                             c.name == "title"));
 
     CHECK(sl::btw_title("why?") == "BTW: why?");
     CHECK(sl::btw_title("  why   now?  ") == "BTW: why now?");
