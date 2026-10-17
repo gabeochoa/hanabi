@@ -185,6 +185,10 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
         e->addComponent<Tab>();
         strip.tabOrder.push_back(e->id);
     }
+    if (std::getenv("HANABI_DUMP"))
+        std::fprintf(stderr, "open_session_in_tab: %s keep=%d pinned=%d tabs=%zu (restoreDone=%d)\n",
+                     id.c_str(), keep ? 1 : 0, pinned ? 1 : 0, strip.tabOrder.size(),
+                     app.restoreDone ? 1 : 0);
     auto& tab = e->get<Tab>();
     const std::string nextLabel = tab_label_for(app, id);
     const bool identityChanged = tab.sessionId != id || tab.label != nextLabel;
