@@ -5,8 +5,12 @@ wait_frames 10
 expect_focused settings_search
 
 # Backwards through General: Only ungrouped, Group threads by, Sort threads
-# by, Timestamps, Open diffs in Hanabi, Ask before quitting, Restore tabs,
-# then New line.
+# by, Inbox triage keys, Escape stops the running turn, Timestamps, Open
+# diffs in Hanabi, Ask before quitting, Restore tabs, then New line.
+shift_tab
+wait_frames 6
+shift_tab
+wait_frames 6
 shift_tab
 wait_frames 6
 shift_tab
