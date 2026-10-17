@@ -1491,10 +1491,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         std::string out;
         out.reserve(in.size());
         size_t i = 0;
+        bool inFence = false;
         while (i <= in.size()) {
             size_t nl = in.find('\n', i);
             size_t end = (nl == std::string::npos) ? in.size() : nl;
             std::string line = in.substr(i, end - i);
+            if (is_code_fence(line)) inFence = !inFence;
+            if (inFence || is_code_fence(line)) {
+                out += line;
+                if (nl == std::string::npos) break;
+                out += '\n';
+                i = nl + 1;
+                continue;
+            }
             // leading spaces (preserve indent for nested lists)
             size_t s = 0;
             while (s < line.size() && line[s] == ' ') ++s;
@@ -4937,10 +4946,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (newestSeq > 0 && newestSeq > Settings::get().get_read_seq(openId0)) {
                 Settings::get().set_read_seq(openId0, newestSeq);
                 mark.unreadSeq = newestSeq;
-                if (const api::SessionSummary* sum = app.find_summary(openId0);
-                    sum != nullptr && sum->last_seq > 0 && newestSeq >= sum->last_seq &&
-                    app.client && app.client->supports_inbox_state())
-                    app.requestReadWrite = openId0;
+            }
+        }
+        if (const int64_t readSeq = Settings::get().get_read_seq(openId0); readSeq > 0) {
+            const api::SessionSummary* sum = app.find_summary(openId0);
+            auto mirrored = app.readMirrored.find(openId0);
+            const int64_t last = mirrored == app.readMirrored.end() ? 0 : mirrored->second;
+            if (sum != nullptr && sum->last_seq > 0 && readSeq >= sum->last_seq && last < readSeq &&
+                app.requestReadWrite.empty() && app.client && app.client->supports_inbox_state()) {
+                app.requestReadWrite = openId0;
+                app.readMirrored[openId0] = readSeq;
             }
         }
 
@@ -10727,6 +10742,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                                       hanabi::keys::option_down()) ==
                             hanabi::send_chords::Chord::QueueThisOne)
                         submitted.chord = AppComponent::SendChord::QueueThisOne;
+                    if (std::getenv("HANABI_DUMP"))
+                        std::fprintf(stderr,
+                                "composer submit: chords=%d cmd=%d ctrl=%d opt=%d shift=%d chord=%d\n",
+                                Settings::get().get_send_chords() ? 1 : 0,
+                                hanabi::keys::cmd_down() ? 1 : 0, hanabi::keys::ctrl_down() ? 1 : 0,
+                                hanabi::keys::option_down() ? 1 : 0, hanabi::keys::shift_down() ? 1 : 0,
+                                static_cast<int>(submitted.chord));
                     appPtr->composerSubmit = std::move(submitted);
                 });
         }

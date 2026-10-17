@@ -1658,6 +1658,7 @@ struct AppComponent : public afterhours::BaseComponent {
     std::set<std::string> expandedTables;
     std::vector<std::vector<std::string>> menuTableRows;
     std::string requestReadWrite;
+    std::map<std::string, std::int64_t> readMirrored;
     std::future<api::Result<api::InboxStateWrite>> readWriteFuture;
     [[nodiscard]] bool queue_held(const std::string& id) const {
         for (std::uint64_t q : queuedEditing) {
