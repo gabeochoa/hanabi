@@ -418,8 +418,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     if (app->spaces[i].id == id) return static_cast<int>(i);
                 return static_cast<int>(app->spaces.size());
             };
+            const auto noNode = [](const std::string& key) { return key == "node:"; };
             std::sort(folderNames_.begin(), folderNames_.end(),
                       [&](const std::string& a, const std::string& b) {
+                          if (noNode(a) != noNode(b)) return noNode(b);
                           const int ra = spaceRank(a), rb = spaceRank(b);
                           if ((ra >= 0) != (rb >= 0)) return ra >= 0;
                           if (ra >= 0 && ra != rb) return ra < rb;

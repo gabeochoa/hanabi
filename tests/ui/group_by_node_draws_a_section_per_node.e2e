@@ -7,3 +7,5 @@ expect_text "BOULDER-MAC"
 expect_text "NO NODE"
 expect_no_text "SUBSCRIPTIONS"
 expect_no_text "RECENTS"
+expect_ui_rel folder_head_boulder-mac above folder_head_devvm-aspen
+expect_ui_rel folder_head_devvm-aspen above "folder_head_No node"
