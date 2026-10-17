@@ -88,7 +88,7 @@ its `# env:` line, and the app honours them when launched by hand too.
 | `HANABI_MOCK_NOW` | `src/api/mock_client.h:81` | 6 |  |
 | `HANABI_MOCK_PAGE_DELAY_MS` | `src/api/mock_faults.h:11` | 0 | sleep this long before answering a windowed or resumed transcript read, so a load-earlier state can be photographed |
 | `HANABI_MOCK_ROW_CLOCKS` | `src/api/mock_client.h:368` | 4 |  |
-| `HANABI_MOCK_STREAM_HOLD` | `src/api/mock_client.h:1349` | 3 |  |
+| `HANABI_MOCK_STREAM_HOLD` | `src/api/mock_client.h:1349` | 5 |  |
 
 ## Capability toggles
 
