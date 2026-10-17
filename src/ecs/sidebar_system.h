@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <deque>
@@ -3217,6 +3218,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (k == 0) app.requestNewThread = true;
             else if (k == 1) app.paletteOpen = true;
             else {
+                if (std::getenv("HANABI_DUMP"))
+                    std::fprintf(stderr, "settings reopen: footer gear\n");
                 app.requestOpenTab =
                     model::surface_tab_id(model::Surface::Settings);
                 app.requestOpenTabKeep = true;
@@ -3798,6 +3801,8 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (pointer_click(ctx, row.ent())) {
+            if (std::getenv("HANABI_DUMP"))
+                std::fprintf(stderr, "settings reopen: sidebar row\n");
             app.requestOpenTab =
                 model::surface_tab_id(model::Surface::Settings);
             app.requestOpenTabKeep = true;
@@ -5359,6 +5364,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (rowClicked && !starClicked && !bellClicked && !foldClicked) {
             app.requestOpenTab = s.id;
         }
+        if (std::getenv("HANABI_DUMP") && (rowClicked || ctx.mouse.just_released) &&
+            ctx.mouse_was_in_subtree(row.ent().id))
+            std::fprintf(stderr,
+                         "row click: %s rowClicked=%d star=%d bell=%d fold=%d down=%d hot=%d "
+                         "active=%d focus=%lld\n",
+                         s.id.c_str(), rowClicked ? 1 : 0, starClicked ? 1 : 0, bellClicked ? 1 : 0,
+                         foldClicked ? 1 : 0,
+                         row.ent().get<afterhours::ui::HasClickListener>().down ? 1 : 0,
+                         ctx.is_hot(row.ent().id) ? 1 : 0, ctx.is_active(row.ent().id) ? 1 : 0,
+                         static_cast<long long>(ctx.focus_id));
         return row.ent().id;
     }
 

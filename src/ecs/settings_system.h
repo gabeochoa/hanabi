@@ -884,6 +884,9 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             if (btn) {
                 select_pane(app, info.pane);
                 if (hosted) {
+                    if (std::getenv("HANABI_DUMP"))
+                        std::fprintf(stderr, "settings reopen: nav button %s (focus=%lld)\n",
+                                     info.slug, static_cast<long long>(ctx.focus_id));
                     app.requestOpenTab =
                         model::surface_tab_id(model::Surface::Settings);
                     app.requestOpenTabKeep = true;

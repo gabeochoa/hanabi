@@ -4952,6 +4952,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const api::SessionSummary* sum = app.find_summary(openId0);
             auto mirrored = app.readMirrored.find(openId0);
             const int64_t last = mirrored == app.readMirrored.end() ? 0 : mirrored->second;
+            if (std::getenv("HANABI_DUMP") && atBottom && last < readSeq)
+                std::fprintf(stderr,
+                             "read mirror: %s readSeq=%lld newestSeq=%lld lastSeq=%lld sum=%d inbox=%d "
+                             "pending=%s\n",
+                             openId0.c_str(), static_cast<long long>(readSeq),
+                             static_cast<long long>(hanabi::read_cursor::newest_seq(msgs)),
+                             static_cast<long long>(sum ? sum->last_seq : -1), sum ? 1 : 0,
+                             (app.client && app.client->supports_inbox_state()) ? 1 : 0,
+                             app.requestReadWrite.c_str());
             if (sum != nullptr && sum->last_seq > 0 && readSeq >= sum->last_seq && last < readSeq &&
                 app.requestReadWrite.empty() && app.client && app.client->supports_inbox_state()) {
                 app.requestReadWrite = openId0;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 
 #include "../keys.h"
@@ -62,6 +64,7 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
             // is already open (open_session_in_tab's own rule). Pressing it
             // again does not close it -- a tab closes by its ×, like any
             // other, which is the reference's behaviour too.
+            if (std::getenv("HANABI_DUMP")) std::fprintf(stderr, "settings reopen: command\n");
             app.requestOpenTab = model::surface_tab_id(model::Surface::Settings);
             app.requestOpenTabKeep = true;
             break;
