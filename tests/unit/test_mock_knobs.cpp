@@ -5,6 +5,8 @@
 #include <sstream>
 #include <string>
 
+#include <unistd.h>
+
 #include <nlohmann/json.hpp>
 
 #include "../../src/api/mock_faults.h"
