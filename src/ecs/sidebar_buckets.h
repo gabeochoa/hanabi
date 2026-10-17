@@ -56,6 +56,8 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -196,6 +198,18 @@ class SidebarBuckets {
         }
         hanabi::prof::Scope _pcollect("sidebar.collect");
         hanabi::prof::tick("sidebar.scan_rebuild");
+        if (std::getenv("HANABI_DUMP") && grouping_ == Grouping::Node) {
+            std::size_t withNodes = 0, kept = 0;
+            for (const api::SessionSummary& s : sessions) {
+                if (!s.attached_nodes.empty()) ++withNodes;
+                if (!keep || keep(s)) ++kept;
+            }
+            std::fprintf(stderr,
+                         "buckets rebuild(node): sessions=%zu withNodes=%zu kept=%zu onlyUngrouped=%d "
+                         "hideAutomated=%d showAutomation=%d q='%s' keepKey='%s'\n",
+                         sessions.size(), withNodes, kept, onlyUngrouped_ ? 1 : 0,
+                         hideAutomated ? 1 : 0, showAutomation_ ? 1 : 0, q.c_str(), keepKey.c_str());
+        }
         hanabi::prof::tick("sidebar.scan_visits", sessions.size());
         // Visits made with a LIVE QUERY, which is the only kind that pays the
         // per-title filter. The count above cannot say that: an empty query
