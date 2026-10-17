@@ -19,12 +19,13 @@ struct Cap {
 inline Cap cap_rows(int total, bool expanded, int cap = kRowCap) {
     Cap c;
     if (total <= 0) return c;
-    if (expanded || total <= cap) {
+    const int body = total - 1;
+    if (expanded || body <= cap) {
         c.shown = total;
         return c;
     }
-    c.shown = cap;
-    c.hidden = total - cap;
+    c.shown = 1 + cap;
+    c.hidden = body - cap;
     return c;
 }
 
