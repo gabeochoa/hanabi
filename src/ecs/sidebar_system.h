@@ -2532,9 +2532,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!e.get<afterhours::ui::HasClickListener>().down) return false;
         // "Was the pointer on it" is the only reliable read: the listener can
         // fire a frame after the key that caused it, so testing the Enter key
-        // here misses it. A mouse edge this frame is required as well: a
-        // listener fired by the keyboard on a focused row has no edge.
-        if (!ctx.mouse.just_pressed && !ctx.mouse.just_released) return false;
+        // here misses it. A mouse edge this frame or last is required as
+        // well: the listener fires after this system ran, so a pointer click
+        // is read the frame after its edge, and a listener fired by the
+        // keyboard on a focused row has no edge at all.
+        if (!ctx.mouse.just_pressed && !ctx.mouse.just_released &&
+            !pointer_state().edge_last_frame)
+            return false;
         return ctx.mouse_in_subtree(e.id) || ctx.mouse_was_in_subtree(e.id);
     }
 
