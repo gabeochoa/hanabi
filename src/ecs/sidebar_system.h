@@ -2532,14 +2532,16 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (!e.get<afterhours::ui::HasClickListener>().down) return false;
         // "Was the pointer on it" is the only reliable read: the listener can
         // fire a frame after the key that caused it, so testing the Enter key
-        // here misses it. A mouse edge this frame or last is required as
-        // well: the listener fires after this system ran, so a pointer click
-        // is read the frame after its edge, and a listener fired by the
-        // keyboard on a focused row has no edge at all.
-        if (!ctx.mouse.just_pressed && !ctx.mouse.just_released &&
-            !pointer_state().edge_last_frame)
-            return false;
-        return ctx.mouse_in_subtree(e.id) || ctx.mouse_was_in_subtree(e.id);
+        // here misses it. A mouse edge ON THIS WIDGET is required as well:
+        // this frame's over it, or last frame's while it was hot (the
+        // listener is read the frame after its edge). A keyboard fire has
+        // no edge; a row that re-layout slid under the pointer after another
+        // widget's click was not hot at that edge.
+        if (ctx.mouse.just_pressed || ctx.mouse.just_released)
+            return ctx.mouse_in_subtree(e.id);
+        const PointerState& ps = pointer_state();
+        return ps.edge_last_frame && ps.edge_hot != -1 &&
+               ctx.contains_in_subtree(e.id, ps.edge_hot);
     }
 
     // ---- generic column spacer ----

@@ -16,6 +16,7 @@ struct PointerState {
     std::string hot_name;
     bool ever_moved = false;
     bool edge_last_frame = false;
+    afterhours::EntityID edge_hot = -1;
 };
 
 inline PointerState& pointer_state() {
@@ -78,6 +79,7 @@ struct PointerStateSystem : afterhours::System<UIContext<InputAction>> {
         PointerState& state = pointer_state();
         state.ever_moved = state.ever_moved || ctx.mouse.moved_this_frame;
         state.edge_last_frame = ctx.mouse.just_pressed || ctx.mouse.just_released;
+        state.edge_hot = state.edge_last_frame ? ctx.hot_id : -1;
         state.hot = ctx.hot_id;
         state.hot_name.clear();
         if (ctx.hot_id == ctx.ROOT) return;
