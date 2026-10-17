@@ -4990,8 +4990,11 @@ per batch, restore-rehearsed from an `f8d`-only clone, on two devservers.
 
 ### Owed on a Mac
 
-Build at the tip and run every fixture the Test Plans mark "Not run
-(Mac)". Batch 4 and the review fixes: `send_chords_queue_this_one_when_the_experiment_is_on`,
+Paid at `3c65ba0f` (2026-10-17): the 53 owed fixtures 53/53, the rerun set
+27/31 with the two closed metric deltas and the two capture-hotkey flakes
+the only non-passes, units 164/164; see the section above for what the
+run found. The list that follows is the one that was owed. Build at the
+tip and run every fixture the Test Plans mark "Not run (Mac)". Batch 4 and the review fixes: `send_chords_queue_this_one_when_the_experiment_is_on`,
 `send_chords_do_nothing_when_the_experiment_is_off`,
 `the_send_button_teaches_its_chords_with_keycaps`,
 `changed_file_rows_show_their_mark_and_group`,
@@ -5011,6 +5014,36 @@ the Mac toolchain: `test_data` (turn_key_at), `test_pane_memory` (read
 seq), `test_settings` (starred turns, read_seq round trip). The
 allocation gate (#613) was red on main before this program and is not
 touched by it.
+
+### The Mac owed run, and what the fixtures were actually asserting
+
+The owed set (53 fixtures) went 28/45 on the first Mac run at `056b4024`
+and 53/53 at `3c65ba0f` (2026-10-17), over nineteen addendum banks. The
+reds divided three ways. Source bugs found by the run: a triage gate that
+read a stale arrow intent, a fence-language compare against an upper-cased
+tag, a table cap that counted the header, chords read off Super only
+(unreachable under the harness), a divider recompute that forgot its own
+write, a star glyph with no row to live in, a table grid that was not
+hit-testable, a Settings grouping setter whose whitelist lacked "node",
+list markers bulletised inside fences (pre-existing; the diff card exposed
+it), a read mirror that fired on one frame only, a popover whose height
+missed its group headers so a row click was an outside press, and — last —
+the no-node section sorting before the lowercase node names and pushing
+them below the fold. Fixture bugs: the wrong toast verb, folded piles,
+tables taller than the viewport, demo threads below the window, a demo
+whose "running" was a summary state rather than a held send, a journal
+cleared after the write it was meant to catch, Linux-guessed row ids and
+heights, and the runner's one-command-per-frame dispatch, which does not
+wait for an expect to resolve — a `wait_frames` shorter than the 30-frame
+poll window lets the next click land before the assert has looked. Two
+pointer_click changes (`b3f80db6`, `8242d067`) were made chasing that race
+as a source bug; they stay because they refuse the keyboard-shaped
+listener fire the original comment wanted refused and cost nothing, but
+they did not fix what they were written for. Every "absent widget" and
+"nothing happened" red was decoded from the runner's visible-text registry
+and a HANABI_DUMP line at the exact gate — a shape worth keeping: the
+trace names the inputs of the decision, the registry names what the user
+would have seen.
 
 Mac sweep at the base `a18b43a0` (2026-10-16): two remote-tree fixtures
 read heights off by a few pixels — `a_chart_fence_draws_as_a_chart` (chart
