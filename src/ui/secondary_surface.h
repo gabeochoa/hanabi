@@ -74,7 +74,7 @@ inline ComponentConfig menu(float width, float height, int layer) {
     return out;
 }
 
-inline void edge_fades(UIContextType& ctx,
+inline void edge_fades(ui_imm::UIContextType& ctx,
                        afterhours::Entity& parent, int id,
                        afterhours::Entity& scroll, theme::Color ground,
                        int layer, const std::string& name) {
