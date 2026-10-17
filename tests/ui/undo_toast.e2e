@@ -26,6 +26,8 @@ mouse_move 120 567
 wait_frames 3
 right_click 120 567
 wait_frames 4
+click_ui row_menu_notifications
+wait_frames 6
 click_ui row_menu_mute
 wait_frames 6
 expect_text "Session muted"

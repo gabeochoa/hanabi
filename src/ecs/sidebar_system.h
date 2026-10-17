@@ -1283,7 +1283,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             CopyId,
             OpenWeb,
             Archive,
-            Mute,
             Sound,
             Snooze,
             ResetOrder,
@@ -1362,23 +1361,25 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
         add(target->starred ? "Unpin" : "Pin", "row_menu_pin", Action::Pin,
             target->starred ? "unpin" : "pin");
-        add(target->muted ? "Unmute" : "Mute", "row_menu_mute", Action::Mute,
-            target->muted ? "unmute" : "mute");
         {
             const int soundNow = Settings::get().get_sound_override(target->id);
-            hanabi::surface::MenuItem m{"Sound", "row_menu_sound", false, false};
-            const auto leaf = [&](const char* label, const char* dbg, const char* id, int mode) {
+            hanabi::surface::MenuItem m{"Notifications", "row_menu_notifications", false, false};
+            const auto leaf = [&](const char* label, const char* dbg, const char* id, bool off) {
                 hanabi::surface::MenuLeaf l;
                 l.label = label;
                 l.debug_name = dbg;
                 l.action_id = id;
-                l.disabled = soundNow == mode;
+                l.disabled = off;
                 m.children.push_back(std::move(l));
             };
-            leaf(Settings::get().get_notification_sound() ? "Default (on)" : "Default (off)",
-                 "row_menu_sound_default", "sound:default", 0);
-            leaf("On for this thread", "row_menu_sound_on", "sound:on", 1);
-            leaf("Off for this thread", "row_menu_sound_off", "sound:off", -1);
+            leaf(target->muted ? "Unmute" : "Mute", "row_menu_mute",
+                 target->muted ? "unmute" : "mute", false);
+            m.children.push_back(hanabi::surface::MenuLeaf::divider("row_menu_sound_divider"));
+            leaf(Settings::get().get_notification_sound() ? "Sound: Default (on)"
+                                                          : "Sound: Default (off)",
+                 "row_menu_sound_default", "sound:default", soundNow == 0);
+            leaf("Sound: On for this thread", "row_menu_sound_on", "sound:on", soundNow == 1);
+            leaf("Sound: Off for this thread", "row_menu_sound_off", "sound:off", soundNow == -1);
             items.push_back(std::move(m));
             actions.push_back(Action::Sound);
         }
@@ -1605,12 +1606,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                             targetId))
                         hanabi::clipboard::set_text(*payload);
                     break;
-                case Action::Mute:
-                    app.requestToggleMute = targetId;
-                    break;
                 case Action::Sound:
-                    Settings::get().set_sound_override(
-                        targetId, pickedAction == "sound:on" ? 1 : pickedAction == "sound:off" ? -1 : 0);
+                    if (pickedAction == "mute" || pickedAction == "unmute")
+                        app.requestToggleMute = targetId;
+                    else
+                        Settings::get().set_sound_override(
+                            targetId, pickedAction == "sound:on" ? 1 : pickedAction == "sound:off" ? -1 : 0);
                     break;
                 case Action::Snooze:
                     if (pickedAction == hanabi::snooze_menu::kCustomId) {
