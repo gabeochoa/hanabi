@@ -32,16 +32,20 @@ struct InboxTriageSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
         if (!pendingPrefix_.empty() && ++pendingFrames_ > kPrefixFrames) pendingPrefix_.clear();
-        if (app->arrow != ArrowIntent::List) {
+        const auto* strip = find_singleton<TabStripComponent>();
+        const bool listHasTheKeyboard =
+            !app->rowMenuOpen && !app->messageMenuOpen &&
+            !(strip != nullptr && strip->menuOpen) && !app->paletteOpen &&
+            !app->sessionSearchOpen && !any_text_field_focused() && !app->renameOpen &&
+            !app->showShortcuts && !app->showBugReport && !app->markupOpen &&
+            !app->companion.open && !app->showSettings && !app->showAuth &&
+            app->viewerImagePath.empty() && !app->askFocused &&
+            app->view != SmartView::Chat;
+        if (!listHasTheKeyboard) {
             pendingPrefix_.clear();
             return;
         }
-        if (any_text_field_focused() || hanabi::keys::cmd_or_ctrl_down() ||
-            hanabi::keys::option_down() || app->rowMenuOpen || app->messageMenuOpen ||
-            app->paletteOpen || app->sessionSearchOpen || app->showSettings ||
-            app->showShortcuts || app->renameOpen)
-            return;
-        if (app->view == SmartView::Chat) return;
+        if (hanabi::keys::cmd_or_ctrl_down() || hanabi::keys::option_down()) return;
         const std::string key = key_name_pressed();
         if (key.empty()) return;
         const auto binding_of = [](hanabi::triage::Command c) {
