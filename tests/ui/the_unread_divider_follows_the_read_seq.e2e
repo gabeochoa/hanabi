@@ -1,11 +1,16 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","read_seq":{"rseq":4}}
-# env: HANABI_READ_SEQ_DEMO=1 HANABI_OPEN=rseq HANABI_MOCK_JOURNAL=/tmp/hanabi-e2e-read-seq-journal.jsonl
+# env: HANABI_READ_SEQ_DEMO=1 HANABI_MOCK_JOURNAL=/tmp/hanabi-e2e-read-seq-journal.jsonl
 clear_mock_journal
-require_thread rseq
-wait_frames 12
+wait_frames 20
+expect_text "the read cursor"
+mouse_move 120 300
+wait_frames 4
+click_ui chat_row_id_rseq
+wait_frames 20
+expect_open rseq
 expect_text "2 new messages"
 expect_text "third question"
-key END
+expect_text "third answer"
 wait_frames 20
 expect_mock_journal "\"kind\":\"read\""
 expect_mock_journal "\"session_id\":\"rseq\""

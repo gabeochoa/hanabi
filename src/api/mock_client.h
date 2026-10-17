@@ -4375,7 +4375,7 @@ class MockClient : public Client {
         // address and a repo path (chips). Only under HANABI_MD_IMAGE_DEMO.
         if (const char* rs = std::getenv("HANABI_READ_SEQ_DEMO"); rs && *rs == '1') {
             Session s;
-            s.summary = calm("rseq", "the read cursor", hrs_ago(1), "active",
+            s.summary = calm("rseq", "the read cursor", mins_ago(1), "active",
                              ThreadState::Unknown, "read seq fixture");
             s.summary.last_seq = 6;
             s.messages = {
