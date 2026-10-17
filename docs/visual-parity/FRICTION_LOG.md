@@ -5011,3 +5011,13 @@ the Mac toolchain: `test_data` (turn_key_at), `test_pane_memory` (read
 seq), `test_settings` (starred turns, read_seq round trip). The
 allocation gate (#613) was red on main before this program and is not
 touched by it.
+
+Mac sweep at the base `a18b43a0` (2026-10-16): two remote-tree fixtures
+read heights off by a few pixels — `a_chart_fence_draws_as_a_chart` (chart
+h 323 vs 329) and the collapsed-rail hover card (+2). A control run on the
+same Mac at remote main `f8d43886` with the remote's own pin `65d5292`
+fails both identically, so they are a pre-existing Mac font-metric delta
+in the lead lane's fixtures, not the `d1d7f0e` pin; this program changes
+neither fixture. Two other reds were ours and are fixed: the failed-open
+fixture's unquoted spaced env value (`cdc91847`) and the caret-at-0 after
+a host rebind under the new pin (`e035fcce`, gap #615).
