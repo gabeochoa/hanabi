@@ -9777,10 +9777,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         composerHeldKeyboard_ = composerOwnsInput;
         if (restoreComposerCaret) composerYield_.settled();
         auto composerEp = mk(inputWrap.ent(), 1);
-        if (composerEp.first.get().has<afterhours::text_input::HasTextAreaState>())
-            edit_actions::apply_pending(static_cast<int>(composerEp.first.get().id),
-                                        composerEp.first.get().get<afterhours::text_input::HasTextAreaState>(),
+        if (composerEp.first.get().has<afterhours::text_input::HasTextAreaState>()) {
+            auto& st = composerEp.first.get().get<afterhours::text_input::HasTextAreaState>();
+            edit_actions::apply_pending(static_cast<int>(composerEp.first.get().id), st,
                                         replyDraft, edit_actions::app_clipboard());
+            if (st.text() != replyDraft) st.cursor_position = replyDraft.size();
+        }
         auto inputRes = afterhours::ui::imm::text_area(
             ctx, composerEp, replyDraft,
             ComponentConfig{}

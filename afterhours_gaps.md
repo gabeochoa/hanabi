@@ -14584,3 +14584,17 @@ CLASS: PERF / WRONG
 
 CLASS: UI / MISSING
 
+### #615 — upstream 2f224a87 keeps the caret on an external text replacement, so a host that rebinds a non-empty draft into a field whose caret is at 0 inserts the next keystroke at the START
+
+**Class:** UI / WRONG (behaviour change, upstream `2f224a87` "text_input: external text replacement keeps caret, clears selection and undo", 2026-10-12; inside the `d1d7f0e` pin, not in `65d5292`. `plugins/ui/text_input/utils.h` `replace_text_externally` :163 `s.cursor_position = std::min(s.cursor_position, s.text_size())`; called from `text_area.h` :138 and `component.h` :118 whenever `s.text() != text` in the per-frame init callback. Before it, both sites set `s.cursor_position = text.size()`.)
+
+**What happens.** Hanabi's composer binds `replyDraft` to the text area every frame, and thirteen places write `replyDraft` from the host side — the first-ink seed (a letter typed at the transcript before the field had the caret, `typedSeed`), quote-into-composer, slash and template completion, the draft restored after a submit or a pane switch. On the old pin a host write moved the caret to the end of the new text; on the new one the caret stays where it was, clamped. A field whose state was created empty (caret 0) and then seeded with "mine" from the host keeps its caret at 0, so the next keystrokes go in front: the remote fixture `a_sheet_raised_over_the_composer_takes_the_keyboard` typed " again" and read " againmine" (Mac sweep at a18b43a, three assertions). A state constructed WITH text is not affected (`HasTextInputStateT(initial_text)` puts the caret at the end); only a rebind into an existing state is.
+
+**What was wanted.** The upstream change is right for its own case — per-frame normalisation (uppercase, digits-only) must not yank the caret — and wrong for the other common case, a host that replaces the whole text with something the user did not type and expects to continue at its end. A caret-placement choice on the replacement (`keep` / `end`), or a rule — keep the caret when the new text is a prefix-preserving edit of the old, go to the end otherwise — would serve both.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h` at the composer's `text_area` call: after `edit_actions::apply_pending` (which syncs the bound string to the state's own text), if the state's text still differs from `replyDraft` the host rebound it, and the caret is set to `replyDraft.size()` BEFORE the widget runs, so the library's clamp keeps it at the end — the old behaviour, from the app side. Fixture: `a_sheet_raised_over_the_composer_takes_the_keyboard` (remote), `typing_at_a_transcript_starts_a_message`.
+
+**Cost of the workaround.** One string compare per composer per frame (the library does the same compare a line later); and the rule is "host rebind → end", which is what every Hanabi rebind wants today — a future rebind that wants the caret kept would have to opt out here.
+
+CLASS: UI / WRONG
+
