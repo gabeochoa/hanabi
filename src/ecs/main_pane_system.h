@@ -7854,6 +7854,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         RectangleType anchor = anchorEnt.get<afterhours::ui::UIComponent>().rect();
         anchor.y -= 24.0f;
         if (!app.changesPopoverOpen) {
+            if (std::getenv("HANABI_DUMP")) {
+                const auto name_of = [](afterhours::EntityID id) {
+                    auto opt = afterhours::ui::UICollectionHolder::getEntityForID(id);
+                    return opt.valid() && opt.asE().has<afterhours::ui::UIComponentDebug>()
+                               ? opt.asE().get<afterhours::ui::UIComponentDebug>().name()
+                               : std::string("?");
+                };
+                std::fprintf(stderr,
+                             "changes popover closing: focus=%s hot=%s prev_hot=%s pressed=%d "
+                             "released=%d stay=%d fileKey=%s\n",
+                             name_of(ctx.focus_id).c_str(), name_of(ctx.hot_id).c_str(),
+                             name_of(ctx.prev_hot_id).c_str(), ctx.mouse.just_pressed ? 1 : 0,
+                             ctx.mouse.just_released ? 1 : 0, app.changesStayOpen ? 1 : 0,
+                             app.changesFileKey.c_str());
+            }
             afterhours::ui::imm::popover(ctx, popRoot, anchor, app.changesPopoverOpen,
                                          afterhours::ui::overlay::Placement::Above);
             changesPopoverWasOpen_ = false;
