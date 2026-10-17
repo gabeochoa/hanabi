@@ -19,7 +19,7 @@ its `# env:` line, and the app honours them when launched by hand too.
 | `HANABI_ASK_RAISED_GAP` | `src/api/mock_client.h:600` | 1 |  |
 | `HANABI_ASK_VANISH_AFTER` | `src/api/mock_client.h:589` | 1 |  |
 | `HANABI_BIG_EVENTS` | `src/api/mock_client.h:2868` | 0 |  |
-| `HANABI_BIG_TABLE_DEMO` | `src/api/mock_client.h:2866` | 2 |  |
+| `HANABI_BIG_TABLE_DEMO` | `src/api/mock_client.h:2866` | 1 |  |
 | `HANABI_BIG_TRANSCRIPT` | `src/api/mock_client.h:2867` | 12 |  |
 | `HANABI_BIG_TURNS` | `src/api/mock_client.h:2867` | 0 |  |
 | `HANABI_BRAKES_DEMO` | `src/api/mock_client.h:2870` | 7 |  |
