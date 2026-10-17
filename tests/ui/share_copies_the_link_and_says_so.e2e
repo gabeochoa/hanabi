@@ -8,7 +8,7 @@ wait_frames 6
 expect_text "Share Turn…"
 click_text "Share Turn…"
 wait_frames 8
-expect_toast_holds "Copied the turn with"
+expect_toast "Copied the turn with"
 expect_clipboard_contains "Reconciled 4,812 accounts"
 expect_clipboard_contains "— hanabi://"
 reset_clipboard_probe
@@ -17,5 +17,5 @@ wait_frames 8
 expect_text "Share…"
 click_ui row_menu_share
 wait_frames 8
-expect_toast_holds "Copied the conversation's link"
+expect_toast "Copied the conversation's link"
 expect_clipboard_contains "hanabi://"

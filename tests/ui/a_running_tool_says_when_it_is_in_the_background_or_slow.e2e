@@ -1,4 +1,4 @@
-# settings: {"window_width":1100,"window_height":1400,"open_tabs":[],"active_tab":"","theme":"dark"}
+# settings: {"window_width":1100,"window_height":1400,"open_tabs":[],"active_tab":"","theme":"dark","disclosure_chips_open":true}
 # env: HANABI_TOOLS_DEMO=pace HANABI_OPEN=rtools
 require_thread rtools
 wait_frames 12

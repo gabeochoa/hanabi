@@ -3,6 +3,9 @@ require_thread t1
 wait_frames 10
 click_ui composer_reply_input
 type "/queue"
+wait_frames 4
+key ESCAPE
+wait_frames 4
 key ENTER
 wait_frames 6
 expect_text "Type the message to queue after /queue."

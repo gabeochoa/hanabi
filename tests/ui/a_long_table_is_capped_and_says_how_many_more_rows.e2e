@@ -2,11 +2,20 @@
 # env: HANABI_BIG_TABLE_DEMO=1 HANABI_OPEN=rbigtable
 require_thread rbigtable
 wait_frames 16
+expect_text "show me every shard"
+key HOME
+wait_frames 12
 expect_text "Every shard:"
-assert_ui md_table_more_rows text="11 more rows"
+assert_ui md_table_scroll hidden=false
+expect_text "shard-1"
+key END
+wait_frames 12
+assert_ui md_table_more_rows text="10 more rows"
 expect_text "shard-50"
 expect_no_text "shard-51"
-assert_ui md_table_scroll hidden=false
 click_ui md_table_more_rows
 wait_frames 12
 expect_no_ui md_table_more_rows
+key END
+wait_frames 12
+expect_text "shard-60"

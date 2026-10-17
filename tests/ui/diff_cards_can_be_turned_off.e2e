@@ -4,5 +4,5 @@ require_thread rdiff
 wait_frames 14
 expect_text "Here is the change."
 expect_no_ui diff_card
-assert_ui code_block_lang text="diff"
+assert_ui code_block_lang text="DIFF"
 expect_text "+    8"

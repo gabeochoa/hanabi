@@ -5,6 +5,7 @@ wait_frames 12
 assert_ui row_unread_count text="2 new"
 click_ui chat_row_id_rseq
 wait_frames 12
+expect_text "third answer"
 key END
 wait_frames 20
 expect_no_ui row_unread_count

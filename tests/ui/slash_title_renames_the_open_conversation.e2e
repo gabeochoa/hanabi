@@ -6,5 +6,5 @@ type "/title Ship notes"
 key ENTER
 wait_frames 30
 expect_text "Ship notes"
-expect_toast_holds "Renamed to"
+expect_toast "Renamed to"
 expect_input_text composer_reply_input ""

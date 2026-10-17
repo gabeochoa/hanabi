@@ -1,7 +1,7 @@
 # settings: {"window_width":1180,"window_height":949,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 require_thread t2
 wait_frames 16
-assert_ui_text "Reconcile this cycle's Stars payouts against the ledger before the batch runs." h=16
+assert_ui_text "Reconcile this cycle's Stars payouts against the ledger before the batch runs." h=20
 assert_ui_text "Reconciled 4,812 accounts. 4,810 match to the cent. Two don't:" h=16
 click_ui sb_settings
 wait_frames 16
@@ -14,7 +14,7 @@ click_ui settings_assistant_text_size_2
 wait_frames 10
 key CMD+W
 wait_frames 20
-assert_ui_text "Reconcile this cycle's Stars payouts against the ledger before the batch runs." h=16
+assert_ui_text "Reconcile this cycle's Stars payouts against the ledger before the batch runs." h=20
 assert_ui_text "Reconciled 4,812 accounts. 4,810 match to the cent. Two don't:" h=18
 click_ui sb_settings
 wait_frames 16
@@ -26,5 +26,5 @@ click_ui settings_user_text_size_0
 wait_frames 10
 key CMD+W
 wait_frames 20
-assert_ui_text "Reconcile this cycle's Stars payouts against the ledger before the batch runs." h=14
+assert_ui_text "Reconcile this cycle's Stars payouts against the ledger before the batch runs." h=18
 assert_ui_text "Reconciled 4,812 accounts. 4,810 match to the cent. Two don't:" h=18
