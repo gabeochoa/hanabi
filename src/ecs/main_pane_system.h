@@ -4936,6 +4936,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const int64_t newestSeq = hanabi::read_cursor::newest_seq(msgs);
             if (newestSeq > 0 && newestSeq > Settings::get().get_read_seq(openId0)) {
                 Settings::get().set_read_seq(openId0, newestSeq);
+                mark.unreadSeq = newestSeq;
                 if (const api::SessionSummary* sum = app.find_summary(openId0);
                     sum != nullptr && sum->last_seq > 0 && newestSeq >= sum->last_seq &&
                     app.client && app.client->supports_inbox_state())
@@ -10722,7 +10723,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         appPtr->composer_target_for(paneIndex));
                     submitted.withCmd = hanabi::keys::cmd_down();
                     if (Settings::get().get_send_chords() &&
-                        hanabi::send_chords::classify(hanabi::keys::cmd_down(),
+                        hanabi::send_chords::classify(hanabi::keys::cmd_or_ctrl_down(),
                                                       hanabi::keys::option_down()) ==
                             hanabi::send_chords::Chord::QueueThisOne)
                         submitted.chord = AppComponent::SendChord::QueueThisOne;
@@ -12317,7 +12318,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // + the assistant bubble's own vertical padding, which the draw
         // applies as with_padding on the bubble the body now lives in.
         float h = kTurnGapTop + 8.0f +
-                  (has_author_row(m, isLive, showAuthor)
+                  ((has_author_row(m, isLive, showAuthor) ||
+                    (showAuthor && turn_starred_at(index)))
                        ? (kAuthorH + kAuthorGap)
                        : 0.0f) +
                   kBubblePadTop + bodyH + kBubblePadBot +
@@ -12770,10 +12772,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_border(theme::border(), pixels(1.0f))
                 .with_roundness(0.18f)
                 .with_debug_name("md_table"));
+        grid.ent().addComponentIfMissing<afterhours::ui::HasClickListener>([](Entity&) {});
+        grid.ent().get<afterhours::HasColor>().skip_hover_override = true;
         if (AppComponent* app = app_singleton();
             app != nullptr && ctx.is_right_click(grid.ent().id))
             app->menuTableRows = rows;
-        if (cap.hidden > 0) {
+        const auto more_rows_row = [&]() {
+            if (cap.hidden <= 0) return;
             auto more = button(ctx, mk(grid.ent(), 1 + nRows * 2 + 1),
                 ComponentConfig{}
                     .with_label(hanabi::md_table_ops::more_rows_label(cap.hidden))
@@ -12791,7 +12796,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app->expandedTables.insert(tableKey);
                 model::transcript_ledgers().mark_all_dirty();
             }
-        }
+        };
 
         for (int ri = 0; ri < nRows; ++ri) {
             const bool header = (ri == 0);
@@ -12859,6 +12864,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("md_table_hdr_divider"));
             }
         }
+        more_rows_row();
     }
 
     // A syntax token's colour. The one place the scanner's vocabulary meets
@@ -14969,10 +14975,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // subtitle or is still arriving. When it has nothing to say it is not
         // emitted at all, and has_author_row is what both the measure and this
         // draw ask so the 18px cannot drift.
-        const bool authorRow = has_author_row(m, isLive, showAuthor);
+        const bool starred = turn_starred_at(index);
+        const bool authorRow = has_author_row(m, isLive, showAuthor) || (showAuthor && starred);
         if (authorRow) {
         const std::string ts = turn_meta_text(m, isLive);
-        const bool starred = turn_starred_at(index);
         auto arow = div(ctx, mk(turn.ent(), 1),
             ComponentConfig{}
                 .with_size(ComponentSize{percent(1.0f), pixels(kAuthorH)})
