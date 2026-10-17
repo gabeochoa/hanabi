@@ -4392,10 +4392,17 @@ class MockClient : public Client {
             Session s;
             s.summary = calm("rbigtable", "the shard table", hrs_ago(1), "active",
                              ThreadState::Unknown, "big table fixture");
-            std::string table = "Every shard:\n\n| Shard | Rows | A very long description column that will not fit the lane at all |\n|---|---:|---|\n";
+            std::string table =
+                "Every shard:\n\n| Shard | Rows | Region | Primary | Replica | Last compaction | "
+                "A very long description column that will not fit the lane at all |\n"
+                "|---|---:|---|---|---|---|---|\n";
             for (int i = 1; i <= 60; ++i)
                 table += "| shard-" + std::to_string(i) + " | " + std::to_string(i * 1000) +
-                         " | row " + std::to_string(i) + " of the shard health table, with notes that run on |\n";
+                         " | us-east-" + std::to_string(1 + i % 3) + " | db-primary-" +
+                         std::to_string(i) + ".internal | db-replica-" + std::to_string(i) +
+                         ".internal | 2026-10-1" + std::to_string(i % 7) + " 0" +
+                         std::to_string(i % 10) + ":00 | row " + std::to_string(i) +
+                         " of the shard health table, with notes that run on and on |\n";
             s.messages = {
                 {"bt1", Role::User, "show me every shard", hrs_ago(2), ""},
                 {"bt2", Role::Assistant, table, hrs_ago(1), ""},
