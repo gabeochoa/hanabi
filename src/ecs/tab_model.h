@@ -14,6 +14,8 @@
 //            tabs remain, drop back to the Home digest.
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cctype>
 #include <cmath>
 #include <string>
@@ -410,12 +412,24 @@ inline CloseOutcome request_close(TabStripComponent& strip, AppComponent& app,
             break;
         }
     }
-    if (index == strip.tabOrder.size()) return CloseOutcome::Absent;
+    if (index == strip.tabOrder.size()) {
+        if (std::getenv("HANABI_DUMP"))
+            std::fprintf(stderr, "request_close: %s absent (tabs=%zu)\n", sessionId.c_str(),
+                         strip.tabOrder.size());
+        return CloseOutcome::Absent;
+    }
     const Tab& tab = opt->get<Tab>();
     if (intent == CloseIntent::Aimed &&
         hanabi::tab_keep_flash::store().refuse_close(sessionId, tab.pinned, hanabi::ui_clock::now_seconds(),
-                                                     hanabi::ui_clock::reduce_motion()))
+                                                     hanabi::ui_clock::reduce_motion())) {
+        if (std::getenv("HANABI_DUMP"))
+            std::fprintf(stderr, "request_close: %s refused (pinned=%d)\n", sessionId.c_str(),
+                         tab.pinned ? 1 : 0);
         return CloseOutcome::Refused;
+    }
+    if (std::getenv("HANABI_DUMP"))
+        std::fprintf(stderr, "request_close: %s closing (active=%d tabs=%zu)\n", sessionId.c_str(),
+                     opt->has<ActiveTab>() ? 1 : 0, strip.tabOrder.size());
     const bool wasActive = opt->has<ActiveTab>();
     hanabi::tab_keep_flash::store().forget(sessionId);
     app.findStates.forget(sessionId);
