@@ -48,6 +48,7 @@ int main() {
     const std::string pathOnly = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n";
     CHECK(ud::parse(pathOnly).title() == "x");
     CHECK(ud::is_lang("diff") && ud::is_lang("patch") && !ud::is_lang("rust"));
+    CHECK(ud::is_lang("DIFF") && ud::is_lang("Patch") && !ud::is_lang("RUST"));
     CHECK(ud::strip_path_prefix("b/src/a.rs\t2026-01-01") == "src/a.rs");
     if (failures == 0) {
         std::printf("OK\n");

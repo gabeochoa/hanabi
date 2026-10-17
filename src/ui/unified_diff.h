@@ -48,7 +48,12 @@ inline std::string strip_path_prefix(std::string_view p) {
     return std::string(v);
 }
 
-inline bool is_lang(std::string_view lang) { return lang == "diff" || lang == "patch"; }
+inline bool is_lang(std::string_view lang) {
+    std::string l(lang);
+    for (char& c : l)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return l == "diff" || l == "patch";
+}
 
 inline bool looks_like(std::string_view body) {
     bool sawOld = false, sawNew = false, sawHunk = false;
