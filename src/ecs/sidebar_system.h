@@ -3809,8 +3809,28 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         row.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         if (pointer_click(ctx, row.ent())) {
-            if (std::getenv("HANABI_DUMP"))
-                std::fprintf(stderr, "settings reopen: sidebar row\n");
+            if (std::getenv("HANABI_DUMP")) {
+                const auto nm = [](afterhours::EntityID id) {
+                    auto opt = afterhours::ui::UICollectionHolder::getEntityForID(id);
+                    return opt.valid() && opt.asE().has<afterhours::ui::UIComponentDebug>()
+                               ? opt.asE().get<afterhours::ui::UIComponentDebug>().name()
+                               : std::string("?");
+                };
+                const PointerState& ps = pointer_state();
+                const auto r = row.ent().get<afterhours::ui::UIComponent>().rect();
+                std::fprintf(stderr,
+                             "settings reopen: sidebar row id=%d rect=(%.0f,%.0f %.0fx%.0f) "
+                             "mouse=(%.0f,%.0f) down=%d pressed=%d released=%d left=%d hot=%d(%s) "
+                             "prev_hot=%d(%s) edge_last=%d edge_hot=%d(%s) focus=%lld(%s) "
+                             "active=%d\n",
+                             row.ent().id, r.x, r.y, r.width, r.height, ctx.mouse.pos.x,
+                             ctx.mouse.pos.y, 1, ctx.mouse.just_pressed ? 1 : 0,
+                             ctx.mouse.just_released ? 1 : 0, ctx.mouse.left_down ? 1 : 0,
+                             ctx.hot_id, nm(ctx.hot_id).c_str(), ctx.prev_hot_id,
+                             nm(ctx.prev_hot_id).c_str(), ps.edge_last_frame ? 1 : 0, ps.edge_hot,
+                             nm(ps.edge_hot).c_str(), static_cast<long long>(ctx.focus_id),
+                             nm(ctx.focus_id).c_str(), ctx.active_id);
+            }
             app.requestOpenTab =
                 model::surface_tab_id(model::Surface::Settings);
             app.requestOpenTabKeep = true;
