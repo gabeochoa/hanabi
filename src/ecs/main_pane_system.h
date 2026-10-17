@@ -7918,9 +7918,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int drawnLines = std::min<int>(kMaxLines, static_cast<int>(shown.size()));
         const bool clipped = static_cast<int>(shown.size()) > drawnLines;
         float popH = 16.0f + 28.0f;
-        if (file == nullptr)
+        if (file == nullptr) {
             popH += kRowH * static_cast<float>(files.size());
-        else
+            if (Settings::get().get_changed_file_rows()) {
+                std::optional<hanabi::changed_files::Group> last;
+                for (const auto& r : hanabi::changed_files::rows(files)) {
+                    if (!last || *last != r.group) popH += 20.0f;
+                    last = r.group;
+                }
+            }
+        } else
             popH += 26.0f + kLineH * static_cast<float>(drawnLines) + (clipped ? 18.0f : 0.0f);
 
         const auto previousSurface = ctx.theme.surface;
