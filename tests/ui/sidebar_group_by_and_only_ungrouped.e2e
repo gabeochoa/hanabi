@@ -47,6 +47,7 @@ wait_frames 20
 expect_text "DEVVM-ASPEN"
 expect_text "BOULDER-MAC"
 expect_text "NO NODE"
+wait_frames 8
 click_ui sb_settings
 wait_frames 20
 click_ui settings_group_by_5
@@ -56,6 +57,7 @@ click_ui tab_close
 wait_frames 20
 expect_no_text "RECENTS"
 expect_text "THREADS"
+wait_frames 8
 click_ui sb_settings
 wait_frames 20
 
