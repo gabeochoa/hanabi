@@ -42,6 +42,7 @@
 
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <iterator>
 #include <string>
 #include <vector>
