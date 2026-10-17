@@ -536,6 +536,24 @@ static void test_per_thread_sound_round_trips() {
     CHECK(s.get_sound_override("") == 0);
 }
 
+static void test_group_by_node_survives_the_setter_and_the_file() {
+    std::printf("test_group_by_node_survives_the_setter_and_the_file\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    s.set_session_grouping("node");
+    CHECK(s.get_session_grouping() == "node");
+    s.load_save_file();
+    CHECK(s.get_session_grouping() == "node");
+    s.set_session_grouping("nonsense");
+    CHECK(s.get_session_grouping() == "space");
+    s.set_read_seq("t2", 4);
+    CHECK(s.get_read_seq("t2") == 4);
+    s.set_read_seq("t2", 3);
+    CHECK(s.get_read_seq("t2") == 4);
+    s.load_save_file();
+    CHECK(s.get_read_seq("t2") == 4 && s.get_read_seq("t3") == 0);
+}
+
 static void test_starred_turns_round_trip() {
     std::printf("test_starred_turns_round_trip\n");
     isolate_settings();
@@ -984,6 +1002,7 @@ int main() {
     test_mute_round_trips();
     test_per_thread_sound_round_trips();
     test_starred_turns_round_trip();
+    test_group_by_node_survives_the_setter_and_the_file();
     test_finished_subagents_round_trips();
     test_subagent_sidebar_toggle_round_trips();
     test_font_preferences_round_trip_and_reject_unknown_values();
