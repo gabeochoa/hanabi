@@ -7,10 +7,10 @@ key J
 wait_frames 6
 key S
 wait_frames 10
-expect_starred t7 yes
+expect_starred t2 yes
 key S
 wait_frames 10
-expect_starred t7 no
+expect_starred t2 no
 key G
 wait_frames 4
 key S
@@ -24,4 +24,4 @@ key J
 wait_frames 6
 key E
 wait_frames 12
-expect_overlay_write archive t7 true
+expect_overlay_write archive t1 true

@@ -1,10 +1,10 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","read_seq":{"rseq":4}}
-# env: HANABI_READ_SEQ_DEMO=1 HANABI_BIG_TABLE_DEMO=1 HANABI_OPEN=rbigtable
-require_thread rbigtable
-wait_frames 12
+# env: HANABI_READ_SEQ_DEMO=1
+wait_frames 20
+expect_text "the read cursor"
 assert_ui row_unread_count text="2 new"
-click_ui chat_row_id_rseq
-wait_frames 12
+click_text "the read cursor"
+wait_frames 16
 expect_text "third answer"
 key END
 wait_frames 20

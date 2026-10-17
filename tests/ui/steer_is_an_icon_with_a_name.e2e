@@ -52,8 +52,11 @@ wait_frames 8
 # An icon: the same 19px circle Send uses, not a 78px word.
 assert_ui composer_send x=1034 w=28 h=28
 
-# And the 59px the pill was taking go back to the input.
-assert_ui composer_input_wrap w=707
+# And the 59px the pill was taking go back to the input, less the 37px the
+# stop control beside Send takes while a turn runs with a draft typed
+# (a_stop_control_stays_beside_send_while_a_draft_is_typed).
+assert_ui composer_input_wrap w=670
+assert_ui composer_stop hidden=false
 
 # The name the glyph cannot carry, in the strip six pixels above it.
 expect_text "Enter to steer"

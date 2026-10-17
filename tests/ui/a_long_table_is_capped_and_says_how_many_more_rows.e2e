@@ -1,4 +1,4 @@
-# settings: {"window_width":1100,"window_height":1400,"open_tabs":["rbigtable"],"active_tab":"rbigtable","theme":"dark"}
+# settings: {"window_width":1100,"window_height":1400,"open_tabs":["rbigtable"],"active_tab":"rbigtable","theme":"dark","fold_long_messages":false}
 # env: HANABI_BIG_TABLE_DEMO=1 HANABI_OPEN=rbigtable
 require_thread rbigtable
 wait_frames 16

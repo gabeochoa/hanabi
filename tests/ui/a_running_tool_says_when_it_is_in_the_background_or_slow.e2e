@@ -6,4 +6,4 @@ expect_text "zig build gate"
 expect_text "cargo test --workspace"
 assert_ui sub_pace_background text="in the background"
 assert_ui sub_pace_slow text="taking a while"
-expect_ui_rel sub_pace_background same_y sub_dur
+expect_ui_rel sub_pace_background above sub_pace_slow
