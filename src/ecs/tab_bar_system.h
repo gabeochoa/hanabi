@@ -928,8 +928,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         const auto outcome =
                             model::request_close(strip, app, tab.sessionId, model::CloseIntent::Aimed);
                         if (std::getenv("HANABI_DUMP"))
-                            std::fprintf(stderr, "tab_close pressed: %s outcome=%d tabs_after=%zu view=%d\n",
-                                         tab.sessionId.c_str(), static_cast<int>(outcome),
+                            std::fprintf(stderr, "[f%lu] tab_close pressed: %s outcome=%d tabs_after=%zu view=%d\n",
+                                         pointer_state().frame, tab.sessionId.c_str(), static_cast<int>(outcome),
                                          strip.tabOrder.size(), static_cast<int>(app.view));
                         return;
                     }
@@ -1422,8 +1422,9 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
         if (app.requestOpenTab.empty()) return;
         std::string id = app.requestOpenTab;
         if (std::getenv("HANABI_DUMP"))
-            std::fprintf(stderr, "requestOpenTab consumed: %s keep=%d pane=%d\n", id.c_str(),
-                         app.requestOpenTabKeep ? 1 : 0, app.requestOpenTabPane);
+            std::fprintf(stderr, "[f%lu] requestOpenTab consumed: %s keep=%d pane=%d\n",
+                         pointer_state().frame, id.c_str(), app.requestOpenTabKeep ? 1 : 0,
+                         app.requestOpenTabPane);
         const bool pin = app.requestOpenTabPin;
         const bool keep = app.requestOpenTabKeep || pin;
         int targetPane = app.requestOpenTabPane;

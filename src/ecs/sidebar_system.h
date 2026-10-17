@@ -3819,11 +3819,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 const PointerState& ps = pointer_state();
                 const auto r = row.ent().get<afterhours::ui::UIComponent>().rect();
                 std::fprintf(stderr,
-                             "settings reopen: sidebar row id=%d rect=(%.0f,%.0f %.0fx%.0f) "
+                             "[f%lu] settings reopen: sidebar row id=%d rect=(%.0f,%.0f %.0fx%.0f) "
                              "mouse=(%.0f,%.0f) down=%d pressed=%d released=%d left=%d hot=%d(%s) "
                              "prev_hot=%d(%s) edge_last=%d edge_hot=%d(%s) focus=%lld(%s) "
                              "active=%d\n",
-                             row.ent().id, r.x, r.y, r.width, r.height, ctx.mouse.pos.x,
+                             ps.frame, row.ent().id, r.x, r.y, r.width, r.height, ctx.mouse.pos.x,
                              ctx.mouse.pos.y, 1, ctx.mouse.just_pressed ? 1 : 0,
                              ctx.mouse.just_released ? 1 : 0, ctx.mouse.left_down ? 1 : 0,
                              ctx.hot_id, nm(ctx.hot_id).c_str(), ctx.prev_hot_id,

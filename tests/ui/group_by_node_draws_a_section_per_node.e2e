@@ -1,0 +1,9 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","session_grouping":"node"}
+# env: HANABI_FOLDER_DEMO=1
+wait_frames 20
+expect_text "Home"
+expect_text "DEVVM-ASPEN"
+expect_text "BOULDER-MAC"
+expect_text "NO NODE"
+expect_no_text "SUBSCRIPTIONS"
+expect_no_text "RECENTS"

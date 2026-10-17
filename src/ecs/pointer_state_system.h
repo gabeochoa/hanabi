@@ -17,6 +17,7 @@ struct PointerState {
     bool ever_moved = false;
     bool edge_last_frame = false;
     afterhours::EntityID edge_hot = -1;
+    unsigned long frame = 0;
 };
 
 inline PointerState& pointer_state() {
@@ -77,6 +78,7 @@ struct PointerStateSystem : afterhours::System<UIContext<InputAction>> {
    private:
     static void record_hot(const UIContext<InputAction>& ctx) {
         PointerState& state = pointer_state();
+        ++state.frame;
         state.ever_moved = state.ever_moved || ctx.mouse.moved_this_frame;
         state.edge_last_frame = ctx.mouse.just_pressed || ctx.mouse.just_released;
         state.edge_hot = state.edge_last_frame ? ctx.hot_id : -1;
