@@ -4362,9 +4362,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                   members.end(), newestFirst);
             else
                 std::sort(members.begin(), members.end(), newestFirst);
-            // Hysteresis holds a row against ACTIVITY overtaking it; creation
+            // Hysteresis holds a row against ACTIVITY overtaking it; a creation
             // order has no overtaking, so it has nothing to hold.
-            if (!oldest) {
+            if (!Settings::get().sort_uses_created_at()) {
                 std::vector<const api::SessionSummary*> head(
                     members.begin(), members.begin() + std::min(limit, total));
                 hanabi::sidebar_hysteresis::apply(
