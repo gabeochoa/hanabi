@@ -2494,6 +2494,22 @@ class MockClient : public Client {
         return flag;
     }
 
+    struct SeedFootprint {
+        mock_scale::Totals totals;
+        long rss_delta_kb = -1;
+        int scale = 1;
+        double build_ms = 0.0;
+    };
+    static SeedFootprint& seed_footprint() {
+        static SeedFootprint fp;
+        return fp;
+    }
+    using RssReader = long (*)();
+    static RssReader& seed_rss_reader() {
+        static RssReader r = nullptr;
+        return r;
+    }
+
   private:
     static std::vector<Attachment> accepted_attachments(
         const OutgoingMessage& message) {
@@ -3304,21 +3320,6 @@ class MockClient : public Client {
         return s_cache;
     }
 
-    struct SeedFootprint {
-        mock_scale::Totals totals;
-        long rss_delta_kb = -1;
-        int scale = 1;
-        double build_ms = 0.0;
-    };
-    static SeedFootprint& seed_footprint() {
-        static SeedFootprint fp;
-        return fp;
-    }
-    using RssReader = long (*)();
-    static RssReader& seed_rss_reader() {
-        static RssReader r = nullptr;
-        return r;
-    }
 
     static std::vector<Session> build_seed() {
         std::vector<Session> v;
