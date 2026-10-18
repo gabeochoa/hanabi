@@ -165,6 +165,39 @@ struct HandleRequireThreadCommand
     }
 };
 
+struct HandleOpenThreadCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("open_thread")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("open_thread requires a thread id");
+            return;
+        }
+        auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<AppComponent>().gen();
+        if (q.empty()) {
+            cmd.fail("open_thread: no app");
+            return;
+        }
+        AppComponent& app = q[0].get().get<AppComponent>();
+        const std::string& want = cmd.arg(0);
+        bool known = false;
+        for (const auto& s : app.sessions)
+            if (s.id == want) known = true;
+        if (!known) {
+            if (cmd.frames_alive < kGiveUpFrame) {
+                cmd.retry();
+                return;
+            }
+            cmd.fail(std::format("open_thread: no session '{}' in the list", want));
+            return;
+        }
+        app.requestOpenTab = want;
+        cmd.consume();
+    }
+};
+
 struct HandleClickLinkCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -4976,6 +5009,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleReleaseStreamDemoCommand>());
     sm.register_update_system(std::make_unique<HandleClearMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSoundCommand>());
+    sm.register_update_system(std::make_unique<HandleOpenThreadCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());
