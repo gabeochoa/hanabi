@@ -94,10 +94,10 @@ struct Sequence {
 
 inline Sequence notes(Tone t) {
     switch (t) {
-        case Tone::TwoTone: return {{Note{880.0, 0.12}, Note{1174.66, 0.18}}, 2};
-        case Tone::Low: return {{Note{329.63, 0.14}, Note{440.0, 0.20}}, 2};
-        case Tone::Bright: return {{Note{1318.51, 0.10}, Note{1760.0, 0.16}}, 2};
-        case Tone::Triple: return {{Note{659.25, 0.10}, Note{880.0, 0.10}, Note{1174.66, 0.16}}, 3};
+        case Tone::TwoTone: return {{Note{880.0, 0.11}, Note{1174.66, 0.16}}, 2};
+        case Tone::Low: return {{Note{329.63, 0.13}, Note{440.0, 0.18}}, 2};
+        case Tone::Bright: return {{Note{1318.51, 0.10}, Note{1760.0, 0.15}}, 2};
+        case Tone::Triple: return {{Note{659.25, 0.09}, Note{880.0, 0.09}, Note{1174.66, 0.16}}, 3};
         case Tone::Inherit:
         case Tone::Silent: break;
     }

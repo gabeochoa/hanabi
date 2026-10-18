@@ -763,7 +763,7 @@ void native_play_tone(const char* name, const double* hz, const double* seconds,
 
 void native_play_chime(void) {
     const double hz[2] = {880.0, 1174.66};
-    const double secs[2] = {0.12, 0.18};
+    const double secs[2] = {0.11, 0.16};
     native_play_tone("two-tone", hz, secs, 2);
 }
 

@@ -30,12 +30,16 @@ int main() {
 
     const auto two = ss::notes(ss::Tone::TwoTone);
     CHECK(two.count == 2 && two.notes[0].hz == 880.0 && two.notes[1].hz == 1174.66);
+    CHECK(two.notes[0].seconds == 0.11 && two.notes[1].seconds == 0.16);
     const auto low = ss::notes(ss::Tone::Low);
     CHECK(low.count == 2 && low.notes[0].hz == 329.63 && low.notes[1].hz == 440.0);
+    CHECK(low.notes[0].seconds == 0.13 && low.notes[1].seconds == 0.18);
     const auto bright = ss::notes(ss::Tone::Bright);
     CHECK(bright.count == 2 && bright.notes[0].hz == 1318.51 && bright.notes[1].hz == 1760.0);
+    CHECK(bright.notes[0].seconds == 0.10 && bright.notes[1].seconds == 0.15);
     const auto triple = ss::notes(ss::Tone::Triple);
     CHECK(triple.count == 3 && triple.notes[0].hz == 659.25 && triple.notes[1].hz == 880.0 && triple.notes[2].hz == 1174.66);
+    CHECK(triple.notes[0].seconds == 0.09 && triple.notes[1].seconds == 0.09 && triple.notes[2].seconds == 0.16);
     CHECK(ss::notes(ss::Tone::Silent).count == 0 && ss::notes(ss::Tone::Inherit).count == 0);
     for (ss::Tone t : ss::kAudible) {
         const auto seq = ss::notes(t);
