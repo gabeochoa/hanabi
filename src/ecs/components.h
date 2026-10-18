@@ -653,6 +653,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // Request to silence (or un-silence) a thread on this machine. Same
     // one-writer arrangement as the star: the sidebar owns the sessions vector.
     std::string requestToggleMute;
+    int requestTonePreview = 0;
 
     hanabi::inbox_sync::Driver inbox;
     std::string requestSnoozeCustom;

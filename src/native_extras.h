@@ -129,6 +129,7 @@ void native_notifications_start(void);
 // HANABI_CHIME_LOG names a file the cue appends to instead of playing, which
 // is how a headless test proves the cue/no-cue decision without a speaker.
 void native_play_chime(void);
+void native_play_tone(const char* name, const double* hz, const double* seconds, int count);
 
 void native_notify(const char* title, const char* body, const char* thread_id,
                    bool sound);

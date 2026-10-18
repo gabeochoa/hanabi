@@ -279,9 +279,15 @@ bool Settings::load_save_file() {
         }
         sound_override_.clear();
         if (j.contains("sound_override") && j["sound_override"].is_object()) {
-            for (const auto& [k, v] : j["sound_override"].items())
+            for (const auto& [k, v] : j["sound_override"].items()) {
                 if (v.is_number_integer() && v.get<int>() != 0)
-                    sound_override_[k] = v.get<int>() > 0 ? 1 : -1;
+                    sound_override_[k] = hanabi::session_sound::to_int(
+                        hanabi::session_sound::from_int(v.get<int>()));
+                else if (v.is_string())
+                    if (const auto t = hanabi::session_sound::parse(v.get<std::string>());
+                        t && *t != hanabi::session_sound::Tone::Inherit)
+                        sound_override_[k] = hanabi::session_sound::to_int(*t);
+            }
         }
         starred_ids_.clear();
         starred_set_.clear();
@@ -971,12 +977,18 @@ int Settings::get_sound_override(const std::string& id) const {
     return it == sound_override_.end() ? 0 : it->second;
 }
 bool Settings::sound_for(const std::string& id) const {
-    const int o = get_sound_override(id);
-    return o == 0 ? notification_sound_ : o > 0;
+    return hanabi::session_sound::resolve(hanabi::session_sound::from_int(get_sound_override(id)),
+                                          run_chime_, notification_sound_)
+        .banner_sound;
+}
+std::optional<hanabi::session_sound::Tone> Settings::chime_for(const std::string& id) const {
+    return hanabi::session_sound::resolve(hanabi::session_sound::from_int(get_sound_override(id)),
+                                          run_chime_, notification_sound_)
+        .chime;
 }
 void Settings::set_sound_override(const std::string& id, int mode) {
     if (id.empty()) return;
-    const int next = mode == 0 ? 0 : mode > 0 ? 1 : -1;
+    const int next = hanabi::session_sound::to_int(hanabi::session_sound::from_int(mode));
     if (next == 0) {
         if (sound_override_.erase(id) == 0) return;
     } else {

@@ -4,6 +4,7 @@
 
 #include "shortcuts.h"
 #include "global_hotkeys.h"
+#include "ui/session_sound.h"
 
 #include <array>
 #include <cstddef>
@@ -384,6 +385,7 @@ struct Settings {
     int get_sound_override(const std::string& id) const;
     void set_sound_override(const std::string& id, int mode);
     bool sound_for(const std::string& id) const;
+    std::optional<hanabi::session_sound::Tone> chime_for(const std::string& id) const;
 
     // ── Local display preferences. Persisted, but NOT part of the web
     // preferences schema and never marked dirty: how this machine draws the

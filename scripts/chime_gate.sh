@@ -59,6 +59,10 @@ check "chime off"               '{"notifications_enabled":true,"run_chime":false
 check "notifications off"       '{"notifications_enabled":false,"run_chime":true}'  finished silent 0
 check "both off"                '{"notifications_enabled":false,"run_chime":false}' finished silent 0
 check "both on, thread blocked" '{"notifications_enabled":true,"run_chime":true}'   blocked  silent 0
+echo "=== the thread's own tone (one store for chime and banner) ==="
+check "chime off, thread picked bright" '{"notifications_enabled":true,"run_chime":false,"sound_override":{"probe":3}}' finished chime  1
+check "chime on, thread silent"         '{"notifications_enabled":true,"run_chime":true,"sound_override":{"probe":-1}}' finished silent 0
+check "notifications off beats a tone"  '{"notifications_enabled":false,"run_chime":false,"sound_override":{"probe":4}}' finished silent 0
 
 # The sub-agent filter, through the same product path: a child's transition is
 # silent until the reader asks for it, and a top-level thread is never filtered.

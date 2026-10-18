@@ -21,6 +21,7 @@
 #import <UserNotifications/UserNotifications.h>
 #include <branding.h>
 #include <algorithm>
+#include <cmath>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -714,17 +715,56 @@ void native_notifications_start(void) {
     }];
 }
 
-void native_play_chime(void) {
+static AVAudioEngine* g_tone_engine = nil;
+static AVAudioPlayerNode* g_tone_node = nil;
+
+void native_play_tone(const char* name, const double* hz, const double* seconds, int count) {
     if (const char* log = std::getenv("HANABI_CHIME_LOG");
         log != nullptr && *log != 0) {
         if (FILE* f = std::fopen(log, "a")) {
-            std::fputs("chime\n", f);
+            std::fprintf(f, "chime %s\n", name != nullptr ? name : "");
             std::fclose(f);
         }
         return;
     }
-    NSSound* sound = [NSSound soundNamed:@"Glass"];
-    if (sound != nil) [sound play];
+    if (hz == nullptr || seconds == nullptr || count <= 0) return;
+    const double rate = 44100.0;
+    double total = 0.0;
+    for (int i = 0; i < count; ++i) total += seconds[i] > 0.0 ? seconds[i] : 0.0;
+    const AVAudioFrameCount frames = static_cast<AVAudioFrameCount>(total * rate) + 1;
+    AVAudioFormat* format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:rate channels:1];
+    AVAudioPCMBuffer* buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:frames];
+    if (buffer == nil) return;
+    buffer.frameLength = frames;
+    float* out = buffer.floatChannelData[0];
+    AVAudioFrameCount at = 0;
+    for (int i = 0; i < count; ++i) {
+        const AVAudioFrameCount n = static_cast<AVAudioFrameCount>(seconds[i] * rate);
+        const AVAudioFrameCount ramp = std::min<AVAudioFrameCount>(n / 8, 441);
+        for (AVAudioFrameCount k = 0; k < n && at < frames; ++k, ++at) {
+            double env = 1.0;
+            if (k < ramp) env = static_cast<double>(k) / static_cast<double>(ramp);
+            else if (n - k < ramp) env = static_cast<double>(n - k) / static_cast<double>(ramp);
+            out[at] = static_cast<float>(0.28 * env * std::sin(2.0 * M_PI * hz[i] * (static_cast<double>(k) / rate)));
+        }
+    }
+    while (at < frames) out[at++] = 0.0f;
+    if (g_tone_engine == nil) {
+        g_tone_engine = [[AVAudioEngine alloc] init];
+        g_tone_node = [[AVAudioPlayerNode alloc] init];
+        [g_tone_engine attachNode:g_tone_node];
+        [g_tone_engine connect:g_tone_node to:g_tone_engine.mainMixerNode format:format];
+    }
+    NSError* err = nil;
+    if (!g_tone_engine.isRunning && ![g_tone_engine startAndReturnError:&err]) return;
+    [g_tone_node scheduleBuffer:buffer completionHandler:nil];
+    if (!g_tone_node.isPlaying) [g_tone_node play];
+}
+
+void native_play_chime(void) {
+    const double hz[2] = {880.0, 1174.66};
+    const double secs[2] = {0.12, 0.18};
+    native_play_tone("two-tone", hz, secs, 2);
 }
 
 void native_notify(const char* title, const char* body, const char* thread_id,

@@ -532,6 +532,19 @@ static void test_per_thread_sound_round_trips() {
     s.set_sound_override("r4", 0);
     s.load_save_file();
     CHECK(s.get_sound_override("r4") == 0 && !s.sound_for("r4") && s.sound_for("r5"));
+    s.set_run_chime(false);
+    CHECK(!s.chime_for("r4").has_value());
+    CHECK(s.chime_for("r5") == hanabi::session_sound::Tone::TwoTone);
+    s.set_sound_override("r6", 3);
+    s.load_save_file();
+    CHECK(s.get_sound_override("r6") == 3 && s.chime_for("r6") == hanabi::session_sound::Tone::Bright &&
+          s.sound_for("r6"));
+    s.set_sound_override("r6", 9);
+    CHECK(s.get_sound_override("r6") == 1);
+    s.set_run_chime(true);
+    CHECK(s.chime_for("r4") == hanabi::session_sound::Tone::TwoTone);
+    s.set_sound_override("r4", -1);
+    CHECK(!s.chime_for("r4").has_value() && !s.sound_for("r4"));
     s.set_sound_override("", 1);
     CHECK(s.get_sound_override("") == 0);
 }

@@ -52,6 +52,7 @@
 #include "util/stress.h"
 #include "util/switch_probe.h"
 #include "util/notify_events.h"
+#include "ui/session_sound.h"
 #include "util/quiet_hours.h"
 #include "util/spotlight_catalog.h"
 #include "version.h"
@@ -153,6 +154,18 @@ static int64_t now_epoch_seconds() {
     return std::chrono::duration_cast<std::chrono::seconds>(
                std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+static void play_tone(hanabi::session_sound::Tone tone) {
+    const hanabi::session_sound::Sequence seq = hanabi::session_sound::notes(tone);
+    if (seq.count == 0) return;
+    double hz[3] = {}, secs[3] = {};
+    for (std::size_t i = 0; i < seq.count; ++i) {
+        hz[i] = seq.notes[i].hz;
+        secs[i] = seq.notes[i].seconds;
+    }
+    native_play_tone(std::string(hanabi::session_sound::wire(tone)).c_str(), hz, secs,
+                     static_cast<int>(seq.count));
 }
 
 // Is the wall clock inside the user's quiet window right now? The window
@@ -1094,6 +1107,11 @@ static void app_frame_body() {
             static double lastNotifyAt = -1.0;
             constexpr double kNotifyMinGapSecs = 30.0;
 
+            if (const int pick = app.requestTonePreview; pick != 0) {
+                app.requestTonePreview = 0;
+                play_tone(hanabi::session_sound::from_int(pick));
+            }
+
             std::vector<std::pair<std::string, hanabi::notify::Activity>> now;
             std::map<std::string, std::string> titles;
             // Muted threads are still gathered and still snapshotted below —
@@ -1124,11 +1142,12 @@ static void app_frame_body() {
             const auto event = hanabi::notify::native_event(
                 lastSeen, now, titles, muted, children, wants, automations);
             const bool quiet = in_quiet_hours_now();
+            const std::optional<hanabi::session_sound::Tone> tone =
+                event.has_value() ? Settings::get().chime_for(event->id) : std::nullopt;
             const auto cue = hanabi::notify::cue_for(
                 quiet ? std::nullopt : event,
-                Settings::get().get_notifications_enabled(),
-                Settings::get().get_run_chime());
-            if (cue.chime) native_play_chime();
+                Settings::get().get_notifications_enabled(), tone.has_value());
+            if (cue.chime && tone) play_tone(*tone);
             if (event.has_value() && !quiet &&
                 Settings::get().get_notifications_enabled()) {
                 const double nowSec =
@@ -3211,10 +3230,11 @@ int main(int argc, char* argv[]) {
                                       ? hanabi::notify::Event::Kind::Finished
                                       : hanabi::notify::Event::Kind::Blocked,
                                   "probe", "probe"};
+        const std::optional<hanabi::session_sound::Tone> tone =
+            Settings::get().chime_for(event->id);
         const auto cue = hanabi::notify::cue_for(
-            event, Settings::get().get_notifications_enabled(),
-            Settings::get().get_run_chime());
-        if (cue.chime) native_play_chime();
+            event, Settings::get().get_notifications_enabled(), tone.has_value());
+        if (cue.chime && tone) play_tone(*tone);
         printf("%s notifications=%d chime=%d from=%s\n",
                cue.chime ? "chime" : "silent",
                Settings::get().get_notifications_enabled() ? 1 : 0,

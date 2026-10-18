@@ -2926,12 +2926,17 @@ struct HandleExpectSoundCommand
                        float) override {
         if (cmd.is_consumed() || !cmd.is("expect_sound")) return;
         if (!cmd.has_args(2)) {
-            cmd.fail("expect_sound requires <session id> <default|on|off>");
+            cmd.fail("expect_sound requires <session id> <default|silent|two-tone|low|bright|triple>");
             return;
         }
         const int got = Settings::get().get_sound_override(cmd.arg(0));
         const std::string want = cmd.arg(1);
-        const int wantMode = want == "on" ? 1 : want == "off" ? -1 : 0;
+        const auto wantTone = hanabi::session_sound::parse(want);
+        if (!wantTone) {
+            cmd.fail(std::format("expect_sound: unknown tone '{}'", want));
+            return;
+        }
+        const int wantMode = hanabi::session_sound::to_int(*wantTone);
         if (got != wantMode)
             cmd.fail(std::format("expect_sound {}: override is {}, wanted {}", cmd.arg(0),
                                  got, want));

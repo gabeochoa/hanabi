@@ -1378,11 +1378,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             leaf(target->muted ? "Unmute" : "Mute", "row_menu_mute",
                  target->muted ? "unmute" : "mute", false);
             m.children.push_back(hanabi::surface::MenuLeaf::divider("row_menu_sound_divider"));
-            leaf(Settings::get().get_notification_sound() ? "Sound: Default (on)"
-                                                          : "Sound: Default (off)",
-                 "row_menu_sound_default", "sound:default", soundNow == 0);
-            leaf("Sound: On for this thread", "row_menu_sound_on", "sound:on", soundNow == 1);
-            leaf("Sound: Off for this thread", "row_menu_sound_off", "sound:off", soundNow == -1);
+            for (const hanabi::session_sound::Tone t : hanabi::session_sound::kMenuOrder) {
+                hanabi::surface::MenuLeaf l;
+                l.label = hanabi::session_sound::menu_label(t, Settings::get().get_notification_sound());
+                l.debug_name = hanabi::session_sound::debug_name(t);
+                l.action_id = hanabi::session_sound::action_id(t);
+                l.disabled = hanabi::session_sound::to_int(t) == soundNow;
+                m.children.push_back(std::move(l));
+            }
             items.push_back(std::move(m));
             actions.push_back(Action::Sound);
         }
@@ -1610,11 +1613,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                         hanabi::clipboard::set_text(*payload);
                     break;
                 case Action::Sound:
-                    if (pickedAction == "mute" || pickedAction == "unmute")
+                    if (pickedAction == "mute" || pickedAction == "unmute") {
                         app.requestToggleMute = targetId;
-                    else
-                        Settings::get().set_sound_override(
-                            targetId, pickedAction == "sound:on" ? 1 : pickedAction == "sound:off" ? -1 : 0);
+                    } else if (pickedAction.rfind("sound:", 0) == 0) {
+                        if (const auto t = hanabi::session_sound::parse(pickedAction.substr(6))) {
+                            Settings::get().set_sound_override(targetId, hanabi::session_sound::to_int(*t));
+                            app.requestTonePreview = hanabi::session_sound::to_int(*t);
+                        }
+                    }
                     break;
                 case Action::Snooze:
                     if (pickedAction == hanabi::snooze_menu::kCustomId) {
