@@ -2984,6 +2984,22 @@ struct HandleClearMockJournalCommand
     }
 };
 
+struct HandleDropMemoryCacheCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("drop_memory_cache")) return;
+        ecs::AppComponent* app = app_component();
+        if (app == nullptr) {
+            cmd.fail("drop_memory_cache: no app");
+            return;
+        }
+        app->transcriptCache.clear();
+        cmd.consume();
+    }
+};
+
 struct HandleExpectMockJournalCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -5008,6 +5024,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleReleaseHaltObserveCommand>());
     sm.register_update_system(std::make_unique<HandleReleaseStreamDemoCommand>());
     sm.register_update_system(std::make_unique<HandleClearMockJournalCommand>());
+    sm.register_update_system(std::make_unique<HandleDropMemoryCacheCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSoundCommand>());
     sm.register_update_system(std::make_unique<HandleOpenThreadCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockJournalCommand>());

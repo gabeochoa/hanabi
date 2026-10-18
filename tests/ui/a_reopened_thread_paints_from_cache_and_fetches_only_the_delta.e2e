@@ -16,6 +16,7 @@ wait_frames 20
 open_thread t5
 wait_frames 20
 expect_open t5
+drop_memory_cache
 clear_mock_journal
 open_thread t2x1
 wait_frames 40
