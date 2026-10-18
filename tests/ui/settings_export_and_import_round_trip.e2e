@@ -1,7 +1,7 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","settings_pane":"general"}
 # env: HANABI_TEST_OVERLAY=settings HANABI_PICK_DIR_TEST=/tmp HANABI_PICK_FILE_TEST=/tmp/hanabi-settings.json
 wait_frames 20
-expect_text "Send with"
+expect_text "Send message with"
 wait_frames 4
 hover_ui settings_pane_scroll
 wait_frames 2
@@ -10,6 +10,7 @@ wait_frames 8
 expect_text "Export settings to another Mac"
 expect_text "Import settings from another Mac"
 expect_theme dark
+wait_frames 6
 click_ui settings_export_prefs_btn
 wait_frames 10
 expect_text "Exported to /tmp/hanabi-settings.json"
@@ -22,18 +23,20 @@ wait_frames 2
 scroll_wheel 0 -600
 wait_frames 8
 expect_text "Palette   ·   Dark"
+wait_frames 6
 click_ui settings_theme_light
 wait_frames 10
 expect_theme light
 click_ui sb_settings_nav_general
 wait_frames 10
-expect_text "Send with"
+expect_text "Send message with"
 wait_frames 4
 hover_ui settings_pane_scroll
 wait_frames 2
 scroll_wheel 0 -600
 wait_frames 8
 expect_text "Import settings from another Mac"
+wait_frames 6
 click_ui settings_import_prefs_btn
 wait_frames 10
 expect_text "settings from /tmp/hanabi-settings.json: "
