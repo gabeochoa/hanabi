@@ -175,12 +175,12 @@ struct HandleOpenThreadCommand
             cmd.fail("open_thread requires a thread id");
             return;
         }
-        auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<AppComponent>().gen();
+        auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<ecs::AppComponent>().gen();
         if (q.empty()) {
             cmd.fail("open_thread: no app");
             return;
         }
-        AppComponent& app = q[0].get().get<AppComponent>();
+        ecs::AppComponent& app = q[0].get().get<ecs::AppComponent>();
         const std::string& want = cmd.arg(0);
         bool known = false;
         for (const auto& s : app.sessions)
