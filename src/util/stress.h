@@ -378,12 +378,15 @@ struct Driver {
             }
 
             case Scenario::Threads: {
-                // One open every 30 frames -- half a second, which is longer
-                // than a transcript fetch from the mock and shorter than a
-                // person's dwell. Opening every frame would measure the
-                // fetches landing on top of each other rather than the steady
-                // state of opening a thread.
-                if (frame % 30 != 0) break;
+                // One open every 30 frames -- half a second at 60 Hz, which is
+                // longer than a transcript fetch from the mock and shorter than
+                // a person's dwell; HANABI_STRESS_EVERY stretches it when the
+                // fetch is priced (a headless frame is a millisecond, and an
+                // open superseded before its fetch lands records no landing).
+                // Opening every frame would measure the fetches landing on top
+                // of each other rather than the steady state of opening a
+                // thread.
+                if (frame % every(30) != 0) break;
                 if (app.sessions.empty()) break;
                 const size_t i =
                     static_cast<size_t>(threadCursor) % app.sessions.size();

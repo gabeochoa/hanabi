@@ -137,17 +137,26 @@ if [ "${HANABI_PROBE_RELAUNCH:-0}" = "1" ]; then
     RSCALE="${HANABI_PROBE_RELAUNCH_SCALE:-10}"
     ODELAY="${HANABI_PROBE_OPEN_DELAY_MS:-250}"
     OROW="${HANABI_PROBE_OPEN_ROW_US:-1000}"
+    # A headless frame is about a millisecond, so an open every 30 frames
+    # would supersede a 250 ms attach before it lands (and a superseded
+    # fetch records no landing). The measured run opens every RDWELL frames
+    # and runs RFRAMES of them: 600 frames of dwell is ~0.6-1 s of wall,
+    # comfortably past 250 ms + 1 ms/row; 6000 frames is ten opens.
+    RDWELL="${HANABI_PROBE_RELAUNCH_DWELL:-600}"
+    RFRAMES="${HANABI_PROBE_RELAUNCH_FRAMES:-6000}"
     emit ""
-    emit "### relaunch at ${RSCALE}x — attach costs ${ODELAY} ms + ${OROW} us/row"
+    emit "### relaunch at ${RSCALE}x — attach costs ${ODELAY} ms + ${OROW} us/row; one open every ${RDWELL} frames, ${RFRAMES} frames"
     emit ""
     emit "| arm | opens | first paint p50 ms | fresh p50 / p95 ms | rows fetched | full / since |"
     emit "|---|---:|---:|---|---:|---|"
     for ARM in 0 1; do
         CACHE="$TMP/cache-$ARM"
         rm -rf "$CACHE"; mkdir -p "$CACHE"
-        COMMON="HANABI_MOCK_SCALE=$RSCALE HANABI_MOCK_DISK_CACHE=1 HANABI_CACHE_DIR=$CACHE HANABI_INSTANT_THREADS=$ARM HANABI_STRESS=threads HANABI_SOAK=$FRAMES HANABI_SOAK_EVERY=$FRAMES HANABI_STRESS_SETTLE=120"
-        env $COMMON timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$TMP/shot.png" >"$TMP/warm-$ARM.log" 2>&1
-        env $COMMON HANABI_MOCK_OPEN_DELAY_MS="$ODELAY" HANABI_MOCK_OPEN_ROW_US="$OROW" HANABI_SWITCH_PROBE=1 \
+        COMMON="HANABI_MOCK_SCALE=$RSCALE HANABI_MOCK_DISK_CACHE=1 HANABI_CACHE_DIR=$CACHE HANABI_INSTANT_THREADS=$ARM HANABI_STRESS=threads HANABI_STRESS_SETTLE=120"
+        env $COMMON HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY="$FRAMES" \
+            timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$TMP/shot.png" >"$TMP/warm-$ARM.log" 2>&1
+        env $COMMON HANABI_SOAK="$RFRAMES" HANABI_SOAK_EVERY="$RFRAMES" HANABI_STRESS_EVERY="$RDWELL" \
+            HANABI_MOCK_OPEN_DELAY_MS="$ODELAY" HANABI_MOCK_OPEN_ROW_US="$OROW" HANABI_SWITCH_PROBE=1 \
             timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$TMP/shot.png" >"$TMP/relaunch-$ARM.log" 2>&1
         LOG="$TMP/relaunch-$ARM.log"
         grep -E '^\[switch\] open ' "$LOG" | awk '{print $4}' >"$TMP/rp.txt"

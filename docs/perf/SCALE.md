@@ -221,5 +221,27 @@ disk copy; the columns that differ are the probe's `fresh` lines: when the
 network's answer landed, how many rows it carried, and whether the mock
 saw a full read or a since-delta.
 
-_The block lands here from the Mac lane's run at the commit that added
-it._
+**First attempt (a1530d70, Boulder, load 12): hollow.** Both arms came
+back `fresh landed=0 … full=0 since=0` — no network answer ever landed in
+the sweep. The reason is the sweep's cadence, not the cache: the `threads`
+scenario opens a new thread every 30 frames, which is half a second at
+60 Hz but ~50 ms of wall in the headless loop (a frame is about a
+millisecond), so every priced 250 ms attach was superseded by the next
+open before it landed, and a superseded fetch records nothing. The two
+numbers that did land are worth keeping: first paint from the DISK copy
+was 9.56 ms p50 in the old arm and 6.39 ms in the new (7–15 headless
+frames, against ~1.6 ms / 1 frame for a first open answered by the mock's
+in-memory network) — the disk read is a JSON parse on a worker plus a
+per-frame poll, and it is slower than a mock round trip, which only
+matters against a mock.
+
+The block now opens one thread every 600 frames for 6,000 frames
+(`HANABI_STRESS_EVERY` / `HANABI_PROBE_RELAUNCH_DWELL`, `_FRAMES`): ten
+opens per arm, each with ~0.6–1 s of wall to land a 250 ms + 1 ms/row
+attach. Expected shape at 10×: first paint equal in both arms (disk copy),
+fresh p50 lower in the after arm by about the rows' share (30 rows ×
+1 ms), rows fetched ≈ 30/open before and ≈ 1/open after, full / since
+10 / 0 before and 0 / 10 after.
+
+_The populated block lands here from the Mac lane's run at the commit
+that fixed the cadence._
