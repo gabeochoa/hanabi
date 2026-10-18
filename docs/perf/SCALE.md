@@ -92,7 +92,27 @@ What the numbers say, read honestly:
 
 ## AFTER — instant threads
 
-_Same script, same scales, same host, after Part 3._
+Same script, same scales, same host, at `6135be9e` (instant threads in),
+the Mac lane's block verbatim; load 7.4–8.0 for the window, as before.
+
+```
+## perf_scale_probe — 2026-10-18T18:40Z
+
+host: boulder arm64 27.0.1 · build: 6135be9e1e16 · launches: 5 · soak frames: 900
+
+| scale | load | cold start ms (min / med / max) | switch ms (p50 / p95 / max, n) | scroll fps (p50 / p95) | RSS KB (max) |
+|---:|---:|---|---|---|---:|
+| 1 | 7.97 | 64.0 / 69.0 / 131.0 | 0.92 / 1.64 / 1.69 (n=34) | 1669.45 / 1604.19 | 40048 |
+| 10 | 7.74 | 57.0 / 65.0 / 77.0 | 0.95 / 1.65 / 1.67 (n=34) | 1094.09 / 1032.60 | 46432 |
+| 100 | 7.44 | 179.0 / 198.0 / 267.0 | 1.07 / 1.86 / 1.91 (n=34) | 911.58 / 851.63 | 589120 |
+```
+
+Every column is within noise of BEFORE, which is the expected result and
+not a disappointing one: the four probes measure the client's own cost
+against a mock that answers an attach in microseconds, and the sweep's
+opens are first opens (one memory-cache hit per run, the first thread,
+0 frames in both blocks). Instant threads changes what a RE-open after a
+relaunch asks the network for; the block below is built to see that.
 
 ## AFTER-2 — the relaunch, with a network that costs something
 
