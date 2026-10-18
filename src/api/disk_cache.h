@@ -241,6 +241,7 @@ std::vector<std::string> outbox_sessions();
 // which is a reasonable recency proxy; opening a thread just won't refresh its
 // recency. See REPORT.
 void touch_transcript(const std::string& id);
+bool has_transcript(const std::string& id);
 
 // trim_to_cap(cap_bytes, keep_tail): if the ACTIVE namespace's total_bytes()
 // exceeds cap_bytes, evict oldest transcript data until back under the cap.

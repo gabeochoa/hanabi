@@ -733,6 +733,7 @@ class MockClient : public Client {
         s.messages.insert(s.messages.end(), it->second.begin(), it->second.end());
     }
     Result<Session> get_session_since(const std::string& id, std::uint64_t since_seq, int window) override {
+        if (since_seq > 0) journal_attach(id, since_seq);
         auto r = get_session(id);
         if (!r.ok) return r;
         auto& msgs = r.value.messages;
@@ -776,9 +777,17 @@ class MockClient : public Client {
         return n;
     }
 
+    static void journal_attach(const std::string& id, std::uint64_t since) {
+        if (!mock_journal::enabled()) return;
+        mock_journal::append(mock_journal::Entry{
+            id, "attach", since == 0 ? std::string("full") : "since " + std::to_string(since), 0,
+            mock_journal::now_unix_ms(), ""});
+    }
+
     Result<Session> get_session(const std::string& id, int limit) override {
         if (const int delay = mock_faults::page_delay_ms(); delay > 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+        journal_attach(id, 0);
         auto r = get_session(id);
         if (!r.ok || limit <= 0) return r;
         auto& msgs = r.value.messages;

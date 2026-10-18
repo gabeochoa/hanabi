@@ -1,0 +1,25 @@
+# settings: {"window_width":1100,"window_height":1400,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SCALE=2 HANABI_MOCK_DISK_CACHE=1 HANABI_MOCK_JOURNAL=/tmp/hanabi-e2e-delta-journal.jsonl
+wait_frames 20
+expect_text "Home"
+mouse_move 120 300
+wait_frames 4
+click_text "needs a decision before it can go on ×1"
+wait_frames 40
+expect_open t2x1
+click_text "kicker-tick"
+wait_frames 20
+click_text "coordinating 3 shard workers"
+wait_frames 20
+click_text "triaging row 212"
+wait_frames 20
+click_text "finished, and wants you to read it"
+wait_frames 20
+click_text "watchdog clean for 6h"
+wait_frames 20
+clear_mock_journal
+click_text "needs a decision before it can go on ×1"
+wait_frames 40
+expect_open t2x1
+expect_text "needs a decision before it can go on ×1"
+expect_mock_journal "\"kind\":\"attach\",\"session_id\":\"t2x1\",\"text\":\"since 6\""

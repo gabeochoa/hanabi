@@ -810,6 +810,19 @@ void transcript_writer_pause(bool paused) {
     w.work.notify_all();
 }
 
+bool has_transcript(const std::string& id) {
+    {
+        TranscriptWriter& w = writer();
+        std::lock_guard<std::mutex> lk(w.mu);
+        if (w.pending.find(id) != w.pending.end()) return true;
+        if (w.inflight && w.inflightId == id) return true;
+    }
+    const std::string path = transcript_file(id);
+    if (path.empty()) return false;
+    std::error_code ec;
+    return fs::is_regular_file(path, ec);
+}
+
 std::optional<Session> load_transcript(const std::string& id) {
     // A snapshot handed to the writer is newer than any file.
     {

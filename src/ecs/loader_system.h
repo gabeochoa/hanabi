@@ -18,6 +18,7 @@
 #include "../api/compaction.h"
 #include "../api/create_outcome.h"
 #include "../api/disk_cache.h"
+#include "../ui/open_fetch.h"
 #include "load_older_model.h"
 #include "created_at_walk.h"
 #include "../test_hooks.h"
@@ -175,6 +176,19 @@ struct LoaderSystem : afterhours::System<AppComponent> {
     // the tail is appended, changed rows are refreshed in place, and the
     // reader's anchor holds. Only a history with no row in common resets.
     // Returns false when the pane is not showing this thread.
+    static void start_transcript_fetch(AppComponent& app, Pane& pane, const std::string& id,
+                                       std::uint64_t since) {
+        pane.transcriptPending = true;
+        pane.transcriptPendingId = id;
+        pane.transcriptPendingSince = since;
+        pane.askLoadStamp = app.next_ask_load_stamp();
+        std::shared_ptr<api::Client> c = app.client;
+        pane.transcriptFuture = std::async(std::launch::async, [c, id, since] {
+            return since == 0 ? c->get_session(id, kMessagesWindow)
+                              : c->get_session_since(id, since, kMessagesWindow);
+        });
+    }
+
     static bool land_refetch(Pane& pane, api::Session fresh) {
         if (!pane.openSession || pane.openSession->summary.id != fresh.summary.id) {
             if (AppComponent::halt_log_on())
@@ -654,7 +668,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptLoadingId = id;
 
                 // (a) Disk-cache read on a worker (stale-while-revalidate).
-                if (disk_cache_enabled(app)) {
+                const bool diskOn = disk_cache_enabled(app);
+                if (diskOn) {
                     pane.diskReadPending = true;
                     pane.diskReadId = id;
                     pane.diskReadEpoch = api::disk_cache::epoch();
@@ -662,14 +677,13 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         return api::disk_cache::load_transcript(id);
                     });
                 }
-                // (b) Network revalidate / first-ever load, newest-N only.
-                pane.transcriptPending = true;
-                pane.transcriptPendingId = id;
-                pane.askLoadStamp = app.next_ask_load_stamp();
-                std::shared_ptr<api::Client> c = app.client;
-                pane.transcriptFuture = std::async(std::launch::async, [c, id] {
-                    return c->get_session(id, kMessagesWindow);
-                });
+                // (b) Network: a first-ever load fetches the newest-N now; a
+                //     thread the disk holds waits for that read and fetches
+                //     only what is newer than the cached seq.
+                const hanabi::model::OpenFetch plan = hanabi::model::open_fetch_plan(
+                    diskOn, diskOn && api::disk_cache::has_transcript(id));
+                pane.transcriptFetchWaitsForDisk = plan == hanabi::model::OpenFetch::WaitForDisk;
+                if (plan == hanabi::model::OpenFetch::Full) start_transcript_fetch(app, pane, id, 0);
                 // Live subscriptions are managed by sync_subscriptions()
                 // each frame (one per open tab), so no per-open binding here.
             }
@@ -686,12 +700,19 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             pane.diskReadId.clear();
             const std::uint64_t completedEpoch = pane.diskReadEpoch;
             pane.diskReadEpoch = 0;
-            if (disk && pane.accepts_disk_read(
-                            completedId, completedEpoch,
-                            api::disk_cache::epoch()) &&
-                disk->summary.id == completedId &&
-                // Don't clobber a fresh network result that already landed.
-                pane.transcriptState != LoadState::Loaded) {
+            const bool accepted = disk && pane.accepts_disk_read(
+                                              completedId, completedEpoch,
+                                              api::disk_cache::epoch()) &&
+                                  disk->summary.id == completedId &&
+                                  // Don't clobber a fresh network result that already landed.
+                                  pane.transcriptState != LoadState::Loaded;
+            if (pane.transcriptFetchWaitsForDisk && pane.selectedId == completedId) {
+                pane.transcriptFetchWaitsForDisk = false;
+                const hanabi::model::DeltaPlan delta = hanabi::model::after_disk_read(
+                    accepted, accepted ? model::newest_seq(disk->messages) : 0);
+                start_transcript_fetch(app, pane, completedId, delta.delta ? delta.since : 0);
+            }
+            if (accepted) {
                 app.transcriptCache.put(*disk);
                 apply_local_overlay(disk->summary);
                 adopt_attach_brakes(app, *disk, /*authoritative=*/false);
@@ -715,6 +736,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 auto r = pane.transcriptFuture.get();
                 pane.transcriptPending = false;
                 pane.transcriptPendingId.clear();
+                const std::uint64_t since = pane.transcriptPendingSince;
+                pane.transcriptPendingSince = 0;
                 if (r.ok) {
                     reconcile_optimistic(pane, r.value);
                     // A fresh attach IS the reconciliation an unconfirmed
@@ -723,9 +746,30 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     if (app.tuningOutcomeSessionId == completedId) app.clear_tuning_outcome();
                     // Insert into the cache (capped to the last 20 msgs) and
                     // mark most-recently-used, then render. Also persist to
-                    // disk for the next session's instant (stale) paint.
-                    app.transcriptCache.put(r.value);
-                    save_and_trim(app, r.value);
+                    // disk for the next session's instant (stale) paint. A
+                    // delta answer is folded into the held copy first.
+                    const bool landsHere = pane.selectedId == completedId &&
+                                           r.value.summary.id == completedId;
+                    if (since == 0) {
+                        app.transcriptCache.put(r.value);
+                        save_and_trim(app, r.value);
+                    } else if (!landsHere) {
+                        if (const api::Session* held = app.transcriptCache.peek(completedId)) {
+                            api::Session merged = *held;
+                            api::Session fresh = r.value;
+                            model::reconcile_transcript(merged.messages, std::move(fresh.messages));
+                            merged.summary = fresh.summary;
+                            merged.pending_asks = fresh.pending_asks;
+                            merged.plan = fresh.plan;
+                            merged.goal = fresh.goal;
+                            merged.sub_agents = fresh.sub_agents;
+                            merged.halted = fresh.halted;
+                            merged.halted_by = fresh.halted_by;
+                            merged.halted_reason = fresh.halted_reason;
+                            app.transcriptCache.put(merged);
+                            save_and_trim(app, merged);
+                        }
+                    }
                     app.clear_attach_refusal(completedId);
                     // Only swap into the view if this is still the open thread
                     // (the user may have switched tabs during a slow fetch).
@@ -736,6 +780,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                         adopt_attach_asks(app, r.value, /*authoritative=*/true,
                                           pane.askLoadStamp);
                         land_refetch(pane, std::move(r.value));
+                        if (since != 0 && pane.openSession) {
+                            app.transcriptCache.put(*pane.openSession);
+                            save_and_trim(app, *pane.openSession);
+                        }
                         pane.transcriptState = LoadState::Loaded;
                         pane.transcriptFromCache = false;
                         pane.transcriptError.clear();

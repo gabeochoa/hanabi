@@ -239,6 +239,8 @@ struct Pane {
     std::future<api::Result<api::Session>> transcriptFuture;
     bool transcriptPending = false;
     std::string transcriptPendingId;
+    std::uint64_t transcriptPendingSince = 0;
+    bool transcriptFetchWaitsForDisk = false;
     std::vector<std::future<api::Result<api::Session>>>
         supersededTranscriptFutures;
 
@@ -295,6 +297,8 @@ struct Pane {
             supersededLoadOlderFutures.push_back(std::move(loadOlderFuture));
         transcriptPending = false;
         transcriptPendingId.clear();
+        transcriptPendingSince = 0;
+        transcriptFetchWaitsForDisk = false;
         requestLoadOlder = false;
         loadingOlder = false;
         loadOlderPendingId.clear();
