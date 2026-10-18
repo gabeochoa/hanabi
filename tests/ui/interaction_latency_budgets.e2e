@@ -46,3 +46,31 @@ watch_ink click_feedback text "412"
 click_text "two workers still out"
 wait_frames 20
 expect_latency click_feedback 8
+
+# The surfaces the owner feels most: the row menu, the command palette, a
+# tooltip's dismissal. Open and close are each one frame of ink in the
+# measurements so far; the budgets here are the same 3 the other popups
+# carry until a Mac run says 1 holds.
+watch_ink row_menu_open ui row_menu
+right_click_text "two workers still out"
+wait_frames 10
+expect_latency row_menu_open 3
+watch_ink row_menu_close ui_gone row_menu
+key ESCAPE
+wait_frames 8
+expect_latency row_menu_close 3
+watch_ink palette_open ui palette_panel
+key CMD+K
+wait_frames 10
+expect_latency palette_open 3
+watch_ink palette_close ui_gone palette_panel
+key ESCAPE
+wait_frames 8
+expect_latency palette_close 3
+hover_ui composer_attach
+wait_frames 50
+expect_text "Attach a file"
+watch_ink tooltip_close ui_gone tooltip
+key ESCAPE
+wait_frames 8
+expect_latency tooltip_close 3

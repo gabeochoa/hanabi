@@ -24,6 +24,17 @@ Each row reports:
 
 Only `frames` is budgeted. The microsecond reading is report-only because this shared machine's load moves wall time by multiples; the audit requires deterministic frame/count gates rather than absolute-millisecond gates.
 
+## Added 2026-10-18: the surfaces the owner feels first
+
+Five more arms in `tests/ui/interaction_latency_budgets.e2e`: `row_menu_open`
+(right-click a list row → `row_menu` present), `row_menu_close` (Esc →
+gone), `palette_open` (⌘K → `palette_panel`), `palette_close` (Esc), and
+`tooltip_close` (Esc on a shown tooltip → gone). A tooltip's OPEN is its
+hover delay by design (`a_tooltip_waits_for_the_pointer.e2e`), so it is not
+a latency arm. Budgets start at 3 frames like the other popups; the first
+Mac run records the measured frames here and the budget tightens to 1 where
+the measurement already is.
+
 ## Measurements
 
 Boulder `KF74T3NW36`, 1100x760, mock backend, pinned clock and UTC fixtures:
