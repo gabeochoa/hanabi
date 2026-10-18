@@ -2985,8 +2985,8 @@ struct HandleSettingsFileCommand
             cmd.fail(std::format("import_settings: {}", why));
             return;
         }
-        auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<AppComponent>().gen();
-        if (!q.empty()) q[0].get().get<AppComponent>().requestSettingsReapply = true;
+        auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<ecs::AppComponent>().gen();
+        if (!q.empty()) q[0].get().get<ecs::AppComponent>().requestSettingsReapply = true;
         cmd.consume();
     }
 };
