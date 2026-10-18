@@ -85,6 +85,12 @@ probe_notify "sub-agents off, child blocks"  '{"notify_subagents":false}' child 
 probe_notify "sub-agents on, child blocks"   '{"notify_subagents":true}'  child child
 probe_notify "sub-agents off, parent blocks" '{"notify_subagents":false}' top   parent
 probe_notify "sub-agents on, parent blocks"  '{"notify_subagents":true}'  top   parent
+echo "=== by kind ==="
+probe_notify "blocked switch off, parent blocks"   '{"notify_blocked":false}'  top          none
+probe_notify "finished switch off, parent finishes" '{"notify_finished":false}' top-finished none
+probe_notify "finished switch on, parent finishes"  '{"notify_finished":true}'  top-finished parent
+probe_notify "waiting switch off, parent waits"     '{"notify_waiting":false}'  top-waiting  none
+probe_notify "waiting switch on, parent waits"      '{"notify_waiting":true}'   top-waiting  parent
 
 if [ "$rc" = 0 ]; then echo "notification-gate: PASS"; else echo "notification-gate: FAIL" >&2; fi
 exit $rc

@@ -4142,6 +4142,39 @@ struct HandleExpectFontFaceCommand
 // (home, blocked, ...); a saved view by its own id, which a script knows
 // only through `sb_view_<id>` markers -- so for one made in the script, the
 // name alone may be given as `*=Name`.
+struct HandleExpectNotifyKindCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity& e,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_notify_kind")) return;
+        if (!cmd.has_args(2) || (cmd.arg(1) != "on" && cmd.arg(1) != "off")) {
+            cmd.fail("expect_notify_kind requires <finished|blocked|waiting> <on|off>");
+            return;
+        }
+        const std::string& kind = cmd.arg(0);
+        const Settings& s = Settings::get();
+        const bool on = kind == "finished" ? s.get_notify_finished()
+                        : kind == "blocked" ? s.get_notify_blocked()
+                        : kind == "waiting" ? s.get_notify_waiting()
+                                            : false;
+        if (kind != "finished" && kind != "blocked" && kind != "waiting") {
+            cmd.fail(std::format("expect_notify_kind: unknown kind '{}'", kind));
+            return;
+        }
+        if (on == (cmd.arg(1) == "on")) {
+            cmd.consume();
+            return;
+        }
+        if (within::budget_open(e.id, cmd)) {
+            cmd.retry();
+            return;
+        }
+        within::fail_terminal(cmd, std::format("expect_notify_kind: {} is {}, expected {}", kind,
+                                               on ? "on" : "off", cmd.arg(1)));
+    }
+};
+
 struct HandleExpectConfirmQuitCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity& e,
@@ -5020,6 +5053,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleClearMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSoundCommand>());
     sm.register_update_system(std::make_unique<HandleSettingsFileCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectNotifyKindCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());

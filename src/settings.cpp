@@ -109,6 +109,9 @@ bool Settings::load_save_file() {
             j.value("notifications_enabled", notifications_enabled_);
         run_chime_ = j.value("run_chime", run_chime_);
         notify_subagents_ = j.value("notify_subagents", notify_subagents_);
+        notify_finished_ = j.value("notify_finished", notify_finished_);
+        notify_blocked_ = j.value("notify_blocked", notify_blocked_);
+        notify_waiting_ = j.value("notify_waiting", notify_waiting_);
         send_usage_data_ = j.value("send_usage_data", send_usage_data_);
         export_dir_ = j.value("export_dir", export_dir_);
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
@@ -388,6 +391,9 @@ void Settings::write_save_file() {
     j["notifications_enabled"] = notifications_enabled_;
     j["run_chime"] = run_chime_;
     j["notify_subagents"] = notify_subagents_;
+    j["notify_finished"] = notify_finished_;
+    j["notify_blocked"] = notify_blocked_;
+    j["notify_waiting"] = notify_waiting_;
     j["send_usage_data"] = send_usage_data_;
     j["export_dir"] = export_dir_;
     j["sidebar_collapsed"] = sidebar_collapsed_;
@@ -722,6 +728,24 @@ void Settings::set_run_chime(bool on) {
     if (auto_save_enabled) write_save_file();
 }
 
+bool Settings::get_notify_finished() const { return notify_finished_; }
+void Settings::set_notify_finished(bool on) {
+    if (on == notify_finished_) return;
+    notify_finished_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_notify_blocked() const { return notify_blocked_; }
+void Settings::set_notify_blocked(bool on) {
+    if (on == notify_blocked_) return;
+    notify_blocked_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_notify_waiting() const { return notify_waiting_; }
+void Settings::set_notify_waiting(bool on) {
+    if (on == notify_waiting_) return;
+    notify_waiting_ = on;
+    if (auto_save_enabled) write_save_file();
+}
 bool Settings::get_notify_subagents() const { return notify_subagents_; }
 void Settings::set_notify_subagents(bool on) {
     if (on == notify_subagents_) return;

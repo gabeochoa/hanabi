@@ -1124,9 +1124,10 @@ static void app_frame_body() {
             for (const auto& s : app.sessions) {
                 if (s.id.empty()) continue;
                 auto activity = hanabi::notify::Activity::Other;
-                if (s.tag == api::ThreadTag::Blocked ||
-                    s.tag == api::ThreadTag::Waiting)
+                if (s.tag == api::ThreadTag::Blocked)
                     activity = hanabi::notify::Activity::Blocked;
+                else if (s.tag == api::ThreadTag::Waiting)
+                    activity = hanabi::notify::Activity::Waiting;
                 else if (s.tag == api::ThreadTag::Done)
                     activity = hanabi::notify::Activity::Finished;
                 now.emplace_back(s.id, activity);
@@ -1139,6 +1140,9 @@ static void app_frame_body() {
 
             hanabi::notify::Wants wants;
             wants.subagents = Settings::get().get_notify_subagents();
+            wants.finished = Settings::get().get_notify_finished();
+            wants.blocked = Settings::get().get_notify_blocked();
+            wants.waiting = Settings::get().get_notify_waiting();
             const auto event = hanabi::notify::native_event(
                 lastSeen, now, titles, muted, children, wants, automations);
             const bool quiet = in_quiet_hours_now();
@@ -1154,13 +1158,15 @@ static void app_frame_body() {
                     static_cast<double>(now_epoch_seconds());
                 if (lastNotifyAt < 0.0 ||
                     nowSec - lastNotifyAt >= kNotifyMinGapSecs) {
-                    const bool isBlocked =
-                        event->kind == hanabi::notify::Event::Kind::Blocked;
+                    const char* title =
+                        event->kind == hanabi::notify::Event::Kind::Blocked    ? "A thread needs you"
+                        : event->kind == hanabi::notify::Event::Kind::Waiting ? "A thread is waiting on you"
+                                                                               : "A run finished";
                     // Carry the thread's id so CLICKING the notification opens
                     // it (native_extras routes it through the same open-thread
                     // slot the deep-link uses).
                     native_notify(
-                        isBlocked ? "A thread needs you" : "A run finished",
+                        title,
                         event->title.c_str(), event->id.c_str(),
                         Settings::get().sound_for(event->id));
                     lastNotifyAt = nowSec;
@@ -3204,17 +3210,22 @@ int main(int argc, char* argv[]) {
         Settings::get().auto_save_enabled = false;
         Settings::get().load_save_file();
         const bool childMoved = spec.find("child") != std::string::npos;
+        const hanabi::notify::Activity moved =
+            spec.find("finished") != std::string::npos ? hanabi::notify::Activity::Finished
+            : spec.find("waiting") != std::string::npos ? hanabi::notify::Activity::Waiting
+                                                         : hanabi::notify::Activity::Blocked;
         hanabi::notify::Snapshot prev{
             {"parent", hanabi::notify::Activity::Other},
             {"child", hanabi::notify::Activity::Other}};
         std::vector<std::pair<std::string, hanabi::notify::Activity>> now{
-            {"parent", childMoved ? hanabi::notify::Activity::Other
-                                  : hanabi::notify::Activity::Blocked},
-            {"child", childMoved ? hanabi::notify::Activity::Blocked
-                                 : hanabi::notify::Activity::Other}};
+            {"parent", childMoved ? hanabi::notify::Activity::Other : moved},
+            {"child", childMoved ? moved : hanabi::notify::Activity::Other}};
         hanabi::notify::Children children{"child"};
         hanabi::notify::Wants wants;
         wants.subagents = Settings::get().get_notify_subagents();
+        wants.finished = Settings::get().get_notify_finished();
+        wants.blocked = Settings::get().get_notify_blocked();
+        wants.waiting = Settings::get().get_notify_waiting();
         const auto event = hanabi::notify::native_event(
             prev, now, {{"parent", "parent"}, {"child", "child"}}, {},
             children, wants);

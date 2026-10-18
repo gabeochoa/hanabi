@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 60> kRows{{
+inline constexpr std::array<Row, 63> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -264,6 +264,12 @@ inline constexpr std::array<Row, 60> kRows{{
 
     {"notify_show", Pane::Notifications, "Show notifications",
      "notification notify alert banner interrupt post", Origin::Device},
+    {"notify_finished", Pane::Notifications, "A run finished",
+     "finished done complete kind banner notify", Origin::Device},
+    {"notify_blocked", Pane::Notifications, "A run is blocked",
+     "blocked needs you decision kind banner notify", Origin::Device},
+    {"notify_waiting", Pane::Notifications, "A run is waiting on you",
+     "waiting question ask answer kind banner notify", Origin::Device},
     {"notify_sound", Pane::Notifications, "Play a sound",
      "sound audio ping chime noise alert", Origin::Account},
     {"quiet_hours", Pane::Notifications, "Quiet hours",

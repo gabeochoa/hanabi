@@ -238,7 +238,48 @@ static void test_an_automation_finishing_is_quiet_but_blocking_is_not() {
     CHECK(ev.size() == 1 && ev[0].id == "person");
 }
 
+static void test_each_kind_has_its_own_switch() {
+    const Snapshot before{{"a", Activity::Other}, {"b", Activity::Other}, {"c", Activity::Other}};
+    const std::vector<std::pair<std::string, Activity>> now{
+        {"a", Activity::Finished}, {"b", Activity::Blocked}, {"c", Activity::Waiting}};
+    auto ev = transitions(before, now, kTitles);
+    CHECK(ev.size() == 3);
+    Wants w;
+    w.finished = false;
+    ev = transitions(before, now, kTitles, {}, {}, w);
+    CHECK(ev.size() == 2);
+    for (const auto& e : ev) CHECK(e.kind != Event::Kind::Finished);
+    w = Wants{};
+    w.blocked = false;
+    ev = transitions(before, now, kTitles, {}, {}, w);
+    CHECK(ev.size() == 2);
+    for (const auto& e : ev) CHECK(e.kind != Event::Kind::Blocked);
+    w = Wants{};
+    w.waiting = false;
+    ev = transitions(before, now, kTitles, {}, {}, w);
+    CHECK(ev.size() == 2);
+    for (const auto& e : ev) CHECK(e.kind != Event::Kind::Waiting);
+    w.finished = false;
+    w.blocked = false;
+    CHECK(transitions(before, now, kTitles, {}, {}, w).empty());
+
+    const auto pick = native_event(before, now, kTitles);
+    CHECK(pick && pick->kind == Event::Kind::Blocked && pick->id == "b");
+    Wants noBlocked;
+    noBlocked.blocked = false;
+    const auto next = native_event(before, now, kTitles, {}, {}, noBlocked);
+    CHECK(next && next->kind == Event::Kind::Waiting && next->id == "c");
+    Wants onlyFinished;
+    onlyFinished.blocked = false;
+    onlyFinished.waiting = false;
+    const auto last = native_event(before, now, kTitles, {}, {}, onlyFinished);
+    CHECK(last && last->kind == Event::Kind::Finished && last->id == "a");
+    CHECK(cue_for(last, true, true).chime);
+    CHECK(!cue_for(next, true, true).chime);
+}
+
 int main() {
+    test_each_kind_has_its_own_switch();
     test_an_automation_finishing_is_quiet_but_blocking_is_not();
     std::printf("=== test_notify_events ===\n");
     test_first_sight_is_never_news();

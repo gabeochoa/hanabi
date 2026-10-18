@@ -1319,6 +1319,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "run_chime") render_run_chime_row(ctx, parent, app);
         else if (id == "notify_subagents")
             render_notify_subagents_row(ctx, parent, app);
+        else if (id == "notify_finished")
+            render_notify_kind_row(ctx, parent, 1, "A run finished", "settings_notify_finished",
+                                   Settings::get().get_notify_finished(),
+                                   [](bool v) { Settings::get().set_notify_finished(v); });
+        else if (id == "notify_blocked")
+            render_notify_kind_row(ctx, parent, 2, "A run is blocked", "settings_notify_blocked",
+                                   Settings::get().get_notify_blocked(),
+                                   [](bool v) { Settings::get().set_notify_blocked(v); });
+        else if (id == "notify_waiting")
+            render_notify_kind_row(ctx, parent, 3, "A run is waiting on you", "settings_notify_waiting",
+                                   Settings::get().get_notify_waiting(),
+                                   [](bool v) { Settings::get().set_notify_waiting(v); });
         else if (id == "usage_data") render_usage_data_row(ctx, parent, app);
         else if (id == "disk_usage") render_cache_row(ctx, parent, app);
         else if (id == "disk_cap") render_cache_limit_row(ctx, parent, app);
@@ -4231,6 +4243,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const bool on = Settings::get().get_notify_subagents();
         real_switch(ctx, parent, 177, on, "settings_notify_subagents",
                     [](bool v) { Settings::get().set_notify_subagents(v); });
+    }
+
+    void render_notify_kind_row(UIContext<InputAction>& ctx, Entity& parent, int slot,
+                                const char* title, const char* dbg, bool on,
+                                void (*set)(bool)) {
+        row_name(ctx, parent, 260 + slot * 2, title, dbg);
+        real_switch(ctx, parent, 261 + slot * 2, on, dbg, set);
     }
 
     void render_usage_data_row(UIContext<InputAction>& ctx, Entity& parent,

@@ -195,6 +195,12 @@ struct Settings {
     void set_run_chime(bool on);  // auto-persists
     bool get_notify_subagents() const;
     void set_notify_subagents(bool on);  // auto-persists
+    bool get_notify_finished() const;
+    void set_notify_finished(bool on);
+    bool get_notify_blocked() const;
+    void set_notify_blocked(bool on);
+    bool get_notify_waiting() const;
+    void set_notify_waiting(bool on);
     bool get_send_usage_data() const;
     void set_send_usage_data(bool on);  // auto-persists
     // ── Export destination (Settings -> Data -> Export) ─────────────────
@@ -608,6 +614,9 @@ struct Settings {
     bool notifications_enabled_ = true;
     bool run_chime_ = false;
     bool notify_subagents_ = false;
+    bool notify_finished_ = true;
+    bool notify_blocked_ = true;
+    bool notify_waiting_ = true;
     bool send_usage_data_ = true;
     std::string export_dir_;  // empty = the built-in default
     bool sidebar_collapsed_ = false;
