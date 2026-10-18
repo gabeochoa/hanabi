@@ -175,6 +175,7 @@ static void setup_app_state() {
 
     Settings::get().auto_save_enabled = false;
     Settings::get().load_save_file();
+    api::MockClient::seed_rss_reader() = hanabi::soak::rss_kb;
 
     // Apply persisted theme. "system" resolves against the live OS appearance
     // (gap #16 fixed via macos_is_dark_mode); "light"/"dark" are explicit;
@@ -2634,6 +2635,13 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                     driver.work_done().c_str());
         if (hanabi::switch_probe::enabled())
             hanabi::switch_probe::print_summary(hanabi::switch_probe::probe().summary());
+        {
+            const auto& fp = api::MockClient::seed_footprint();
+            if (fp.totals.sessions > 0)
+                std::printf("[mock] seed scale=%d sessions=%zu messages=%zu text_kb=%zu rss_delta_kb=%ld\n",
+                            fp.scale, fp.totals.sessions, fp.totals.messages, fp.totals.text_bytes / 1024,
+                            fp.rss_delta_kb);
+        }
         const std::string idle = driver.did_nothing_reason();
         if (!idle.empty())
             std::printf("[soak] SCENARIO DROVE NOTHING: %s. Whatever this run "

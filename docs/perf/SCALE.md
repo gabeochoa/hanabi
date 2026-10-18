@@ -114,6 +114,38 @@ opens are first opens (one memory-cache hit per run, the first thread,
 0 frames in both blocks). Instant threads changes what a RE-open after a
 relaunch asks the network for; the block below is built to see that.
 
+## Memory at 100×: the mock's share, measured
+
+The 589 MB at 100× is the mock, not the client. A std-only probe on Linux
+(gcc 11, glibc) builds the mock's seed at each scale and reads
+`/proc/self/status` around it:
+
+| scale | sessions | messages | text bytes | RSS growth for the seed |
+|---:|---:|---:|---:|---:|
+| 1 | 20 | 61 | 7 KB | 0.7 MB |
+| 10 | 200 | 5,551 | 0.6 MB | 6.9 MB |
+| 100 | 2,000 | 603,961 | 67 MB | **649 MB** |
+
+`sizeof(api::Message)` is 960 bytes — fifteen strings and two inline
+fact structs (`ArtifactRef`, `ElementFacts`) — so 604k of them is 580 MB
+before a byte of text; the clones at 100× carry their base thread a
+hundred times over and the mock keeps every one resident. The client
+holds the catalog (2,000 × 520-byte `SessionSummary`, about 1 MB), five
+cached transcripts, and the render caches; its share at 100× is the RSS
+minus the seed, which on Boulder is within the probe's noise of zero.
+
+The probe now reports this itself: the app logs `[mock] seed scale= …
+rss_delta_kb=` (resident growth measured around the seed build, through
+the soak's RSS reader) and the script adds `mock seed KB` and `client KB
+= RSS max − mock seed` columns, so the next run separates the two.
+
+What a 960-byte message means for the client is a separate, real item:
+a 300-row thread is 288 KB of struct before text, and the five-thread
+cache at 100× holds 1.4 MB of it. Boxing the two fact structs behind
+`std::unique_ptr` (both are empty on an ordinary message) would take
+`Message` to roughly 500 bytes; the change touches every reader of those
+facts and is left for its own commit after the current round.
+
 ## AFTER-2 — the relaunch, with a network that costs something
 
 The BEFORE block shows why the four probes cannot see instant threads on

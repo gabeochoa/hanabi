@@ -60,8 +60,8 @@ emit "## perf_scale_probe — $(date -u +%Y-%m-%dT%H:%MZ)"
 emit ""
 emit "host: $(host) · build: $(build) · exe: $EXE · launches: $LAUNCHES · soak frames: $FRAMES"
 emit ""
-emit "| scale | load | cold start ms (min / med / max) | switch ms (p50 / p95 / max, n) | scroll fps (p50 / p95) | RSS KB (max) |"
-emit "|---:|---:|---|---|---|---:|"
+emit "| scale | load | cold start ms (min / med / max) | switch ms (p50 / p95 / max, n) | scroll fps (p50 / p95) | RSS KB (max) | mock seed KB | client KB |"
+emit "|---:|---:|---|---|---|---:|---:|---:|"
 
 for SCALE in $SCALES; do
     export HANABI_MOCK_SCALE="$SCALE"
@@ -100,12 +100,19 @@ for SCALE in $SCALES; do
     FPS_P05="$(pct 0.05 <"$TMP/fps.txt")"
     RSS_MAX="$(grep -E '^\[soak\] frame ' "$LOG" | sed -E 's/.*RSS +([0-9]+) KB.*/\1/' | sort -n | tail -1)"
     [ -n "$RSS_MAX" ] || RSS_MAX="n/a"
+    MOCK_KB="$(grep -E '^\[mock\] seed ' "$LOG" | tail -1 | sed -E 's/.*rss_delta_kb=(-?[0-9]+).*/\1/')"
+    CLIENT_KB="n/a"
+    if [ -n "$MOCK_KB" ] && [ "$MOCK_KB" -ge 0 ] 2>/dev/null && [ "$RSS_MAX" != "n/a" ]; then
+        CLIENT_KB=$((RSS_MAX - MOCK_KB))
+    else
+        MOCK_KB="n/a"
+    fi
 
-    emit "| $SCALE | $LOAD | $FF_MIN / $FF_MED / $FF_MAX | $SW_P50 / $SW_P95 / $SW_MAX (n=$SW_N) | $FPS_P50 / $FPS_P05 | $RSS_MAX |"
+    emit "| $SCALE | $LOAD | $FF_MIN / $FF_MED / $FF_MAX | $SW_P50 / $SW_P95 / $SW_MAX (n=$SW_N) | $FPS_P50 / $FPS_P05 | $RSS_MAX | $MOCK_KB | $CLIENT_KB |"
     cp "$TMP/switch-$SCALE.log" "$TMP/scroll-$SCALE.log" "${HANABI_PROBE_KEEP:-/tmp}/" 2>/dev/null || true
 done
 emit ""
-emit "scroll fps p95 column is the 5th percentile of fps (the slow tail); switch n is the number of opens the probe saw land."
+emit "scroll fps p95 column is the 5th percentile of fps (the slow tail); switch n is the number of opens the probe saw land; mock seed KB is the resident growth while the mock built its catalog, client KB = RSS max minus that."
 
 # ---- relaunch: first open after a relaunch, full fetch vs since-delta --------
 # HANABI_PROBE_RELAUNCH=1 adds one block at HANABI_PROBE_RELAUNCH_SCALE (10):

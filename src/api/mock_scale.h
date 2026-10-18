@@ -74,6 +74,7 @@ struct Totals {
     std::size_t messages = 0;
     std::size_t tool_rows = 0;
     std::size_t attachments = 0;
+    std::size_t text_bytes = 0;
 };
 
 template <typename Sessions>
@@ -85,6 +86,7 @@ Totals totals(const Sessions& v) {
         for (const auto& m : s.messages) {
             if (m.role == Role::Tool) ++t.tool_rows;
             t.attachments += m.attachments.size();
+            t.text_bytes += m.text.size() + m.tool_result.size() + m.subtitle.size();
         }
     }
     return t;
