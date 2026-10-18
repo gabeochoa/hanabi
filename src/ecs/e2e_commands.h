@@ -2944,6 +2944,44 @@ struct HandleExpectSoundCommand
     }
 };
 
+struct HandleSettingsFileCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        const bool exp = cmd.is("export_settings");
+        const bool theme = cmd.is("expect_theme");
+        if (!exp && !theme && !cmd.is("import_settings")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail(std::string(exp ? "export_settings" : theme ? "expect_theme" : "import_settings") +
+                     " requires one argument");
+            return;
+        }
+        if (theme) {
+            if (Settings::get().get_theme() != cmd.arg(0))
+                cmd.fail(std::format("expect_theme: theme is '{}', wanted '{}'",
+                                     Settings::get().get_theme(), cmd.arg(0)));
+            cmd.consume();
+            return;
+        }
+        if (exp) {
+            if (!Settings::get().export_to(cmd.arg(0)))
+                cmd.fail(std::format("export_settings: could not write {}", cmd.arg(0)));
+            cmd.consume();
+            return;
+        }
+        const std::string why = Settings::get().import_from(cmd.arg(0));
+        if (!why.empty()) {
+            cmd.fail(std::format("import_settings: {}", why));
+            return;
+        }
+        auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<AppComponent>().gen();
+        if (!q.empty()) q[0].get().get<AppComponent>().requestSettingsReapply = true;
+        cmd.consume();
+    }
+};
+
 struct HandleClearMockJournalCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -4981,6 +5019,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleReleaseStreamDemoCommand>());
     sm.register_update_system(std::make_unique<HandleClearMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSoundCommand>());
+    sm.register_update_system(std::make_unique<HandleSettingsFileCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());

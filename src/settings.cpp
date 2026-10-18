@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "ui/inbox_triage.h"
+#include "ui/settings_transfer.h"
 #include "text_zoom.h"
 #include "line_spacing.h"
 #include "util/acknowledged.h"
@@ -11,6 +12,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -470,6 +472,38 @@ void Settings::write_save_file() {
     j["starred_turns"] = starred_turns_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
+}
+
+bool Settings::export_to(const std::string& path) {
+    write_save_file();
+    std::ifstream in(get_settings_path(), std::ios::binary);
+    if (!in.good()) return false;
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out.good()) return false;
+    out << bytes;
+    return out.good();
+}
+
+std::string Settings::import_from(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in.good()) return "cannot read " + path;
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto verdict = hanabi::settings_transfer::inspect(bytes);
+    if (verdict != hanabi::settings_transfer::Verdict::Ok)
+        return std::string(hanabi::settings_transfer::reason(verdict));
+    try {
+        (void)json::parse(bytes);
+    } catch (const std::exception& e) {
+        return std::string("not valid JSON: ") + e.what();
+    }
+    std::ofstream out(get_settings_path(), std::ios::binary | std::ios::trunc);
+    if (!out.good()) return "cannot write the settings file";
+    out << bytes;
+    out.close();
+    if (!load_save_file()) return "the settings file would not load";
+    mark_settings_dirty();
+    return "";
 }
 
 // The ratio is clamped on READ as well as on write. A settings.json that was

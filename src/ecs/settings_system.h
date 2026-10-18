@@ -72,6 +72,7 @@
 #include "../ui/inbox_triage.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/settings_catalog.h"
+#include "../ui/settings_transfer.h"
 #include "../line_spacing.h"
 #include "../ui/minimap_marks.h"
 #include "../ui/model_menu.h"
@@ -118,6 +119,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto* app = find_singleton<AppComponent>();
         if (!app) return;
 
+        drain_reapply(*app);
         // Apply a PENDING font swap at the top of the frame, BEFORE any text is
         // rendered this frame — mutating the FontManager's DEFAULT_FONT handle
         // mid-render (from a click handler) can leave the in-flight render using
@@ -1321,6 +1323,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "disk_usage") render_cache_row(ctx, parent, app);
         else if (id == "disk_cap") render_cache_limit_row(ctx, parent, app);
         else if (id == "export") render_export_row(ctx, parent, app);
+        else if (id == "settings_file") render_settings_file_row(ctx, parent, app);
         else if (id == "endpoint") render_endpoint_row(ctx, parent, app);
         else if (id == "identity") render_account_row(ctx, parent, app);
         else if (id == "memory_backend") render_memory_backend_row(ctx, parent, app);
@@ -2555,6 +2558,116 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     // Where the export writes: the folder the user chose, or the built-in
     // default when they never chose one.
+    void render_settings_file_row(UIContext<InputAction>& ctx, Entity& parent,
+                                  AppComponent& app) {
+        row_name(ctx, parent, 62, "Settings file", "settings_file_label");
+        auto row = div(ctx, mk(parent, 63),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(content_w()), pixels(kExportRowH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_file_row"));
+        anchor_control(row.ent());
+
+        static std::string s_note;
+        const std::string left = s_note.empty()
+            ? "Every setting in this window, as one JSON file you keep or bring to another Mac"
+            : s_note;
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(left)
+                .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name("settings_file_usage"));
+
+        auto buttons = div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_margin(Margin{.top = pixels(6)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::FlexEnd)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("settings_file_buttons"));
+
+        const auto styled = [&](ComponentConfig c, const char* label, float w, const char* dbg) {
+            return c.with_label(label)
+                .with_size(ComponentSize{pixels(w), pixels(28)})
+                .with_custom_background(theme::button_secondary())
+                .with_custom_hover_bg(theme::hover_over(theme::button_secondary()))
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name(dbg);
+        };
+        auto imp = button(ctx, mk(buttons.ent(), 1),
+            styled(ComponentConfig{}.with_margin(Margin{.right = pixels(8)}), "Importâ¦", 92,
+                   "settings_file_import"));
+        if (imp) {
+            std::string picked;
+            if (ask_for_file(&picked)) s_note = import_settings_file(app, picked);
+        }
+        auto exp = button(ctx, mk(buttons.ent(), 2),
+            styled(ComponentConfig{}, "Exportâ¦", 92, "settings_file_export"));
+        if (exp || rowActivate_) {
+            std::string picked;
+            if (ask_for_directory(&picked)) s_note = export_settings_file(picked);
+        }
+    }
+
+    static std::string export_settings_file(const std::string& dir) {
+        const std::string path = hanabi::settings_transfer::export_path(dir);
+        return Settings::get().export_to(path) ? "Exported to " + tilde(path)
+                                               : "Could not write " + tilde(path);
+    }
+
+    static std::string import_settings_file(AppComponent& app, const std::string& path) {
+        const std::string why = Settings::get().import_from(path);
+        if (!why.empty()) return "Not imported: " + why;
+        reapply_imported(app);
+        return "Imported from " + tilde(path);
+    }
+
+    static void drain_reapply(AppComponent& app) {
+        if (!app.requestSettingsReapply) return;
+        app.requestSettingsReapply = false;
+        reapply_imported(app);
+    }
+
+    static void reapply_imported(AppComponent& app) {
+        auto& s = Settings::get();
+        apply_accent(s.get_accent_choice());
+        apply_highlight(s.get_highlight_choice());
+        apply_theme(app, s.get_theme());
+        queue_font_apply();
+    }
+
+    static bool ask_for_file(std::string* out) {
+        if (const char* forced = std::getenv("HANABI_PICK_FILE_TEST");
+            forced != nullptr && *forced != 0) {
+            *out = forced;
+            return true;
+        }
+        char buf[1024];
+        if (!native_pick_file("Import", buf, sizeof(buf))) return false;
+        *out = buf;
+        return true;
+    }
+
     static std::string export_destination() {
         const std::string& chosen = Settings::get().get_export_dir();
         return chosen.empty() ? api::disk_cache::export_dir() : chosen;

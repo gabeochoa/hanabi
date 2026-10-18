@@ -1,0 +1,23 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+wait_frames 20
+expect_text "Home"
+click_ui sb_settings
+wait_frames 20
+click_ui settings_nav_storage
+wait_frames 10
+expect_text "Settings file"
+expect_text "Export…"
+expect_text "Import…"
+expect_theme dark
+export_settings /tmp/hanabi-e2e-settings-export.json
+click_ui settings_nav_appearance
+wait_frames 10
+click_ui settings_theme_light
+wait_frames 10
+expect_theme light
+import_settings /tmp/hanabi-e2e-settings-export.json
+wait_frames 10
+expect_theme dark
+click_ui settings_nav_storage
+wait_frames 10
+expect_text "Settings file"

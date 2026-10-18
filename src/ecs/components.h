@@ -654,6 +654,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // one-writer arrangement as the star: the sidebar owns the sessions vector.
     std::string requestToggleMute;
     int requestTonePreview = 0;
+    bool requestSettingsReapply = false;
 
     hanabi::inbox_sync::Driver inbox;
     std::string requestSnoozeCustom;

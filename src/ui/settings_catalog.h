@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 59> kRows{{
+inline constexpr std::array<Row, 60> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -279,6 +279,8 @@ inline constexpr std::array<Row, 59> kRows{{
      "cap limit maximum quota size disk cache bytes", Origin::Device},
     {"export", Pane::Storage, "Export conversations",
      "export markdown copy save backup folder own", Origin::Device},
+    {"settings_file", Pane::Storage, "Settings file",
+     "settings export import backup restore json transfer file", Origin::Device},
 
     {"usage_data", Pane::Connection, "Send settings to your account",
      "usage telemetry privacy sync push account share data", Origin::Device},

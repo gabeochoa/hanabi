@@ -89,6 +89,8 @@ struct Settings {
 
     bool load_save_file();
     void write_save_file();
+    bool export_to(const std::string& path);
+    std::string import_from(const std::string& path);
 
     int get_window_width() const;
     int get_window_height() const;
