@@ -3,6 +3,7 @@
 #include "create_title.h"
 #include "mock_faults.h"
 #include "mock_journal.h"
+#include "mock_scale.h"
 
 // Deterministic, offline sample data source. This is the default backend so
 // the app is fully functional with no configuration and no network.
@@ -2866,7 +2867,7 @@ class MockClient : public Client {
         "HANABI_DIFF_DEMO",         "HANABI_BIG_TABLE_DEMO", "HANABI_READ_SEQ_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
-        "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED",
+        "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED", "HANABI_MOCK_SCALE",
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
@@ -5095,6 +5096,7 @@ class MockClient : public Client {
                 if (s.model.requested.empty()) s.model.requested = s.model.harness_default;
             }
         }
+        mock_scale::apply(v, mock_scale::from_env(), mock_now());
         return v;
     }
 };

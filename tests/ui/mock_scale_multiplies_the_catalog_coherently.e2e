@@ -1,0 +1,12 @@
+# settings: {"window_width":1100,"window_height":1400,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SCALE=3
+wait_frames 20
+expect_text "Home"
+expect_text "needs a decision before it can go on ×1"
+expect_text "needs a decision before it can go on ×2"
+mouse_move 120 300
+wait_frames 4
+click_text "needs a decision before it can go on ×2"
+wait_frames 30
+expect_open t2x2
+expect_text "needs a decision before it can go on ×2"
