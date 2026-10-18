@@ -48,10 +48,47 @@ load-invariant companion to the switch milliseconds (`p50 frames` in the
 
 ## BEFORE — instant threads not yet built
 
-_Numbers land here from the Mac lane's run of `scripts/perf_scale_probe.sh`
-at the commit that introduced it; host and build are in the block the script
-emits. Linux cannot build the binary (no zig, no Metal), so the source lane
-records the method and the Mac lane records the numbers._
+Run by the Mac lane at `1cdec3b5` on Boulder (arm64, macOS 27.0.1), the
+probe's own block, verbatim; the box's 1-minute load was gated below 8 for
+the window and climbed back past 20 minutes after.
+
+```
+## perf_scale_probe — 2026-10-18T17:56Z
+
+host: boulder arm64 27.0.1 · build: 1cdec3b595c9 · launches: 5 · soak frames: 900
+
+| scale | load | cold start ms (min / med / max) | switch ms (p50 / p95 / max, n) | scroll fps (p50 / p95) | RSS KB (max) |
+|---:|---:|---|---|---|---:|
+| 1 | 7.64 | 61.0 / 80.0 / 234.0 | 0.95 / 1.83 / 2.21 (n=34) | 1689.19 / 1609.29 | 40304 |
+| 10 | 7.64 | 58.0 / 68.0 / 76.0 | 0.88 / 1.54 / 1.66 (n=34) | 1097.69 / 1041.13 | 46496 |
+| 100 | 7.90 | 169.0 / 202.0 / 225.0 | 1.04 / 1.84 / 2.13 (n=34) | 896.86 / 738.00 | 588752 |
+```
+
+What the numbers say, read honestly:
+
+- **Switch-to-thread is already under the 50 ms target at every scale**:
+  p95 1.5–1.8 ms, one frame. The `threads` scenario opens each thread once
+  in a sweep, so 33 of the 34 opens per run are FIRST opens against the
+  mock — a mock answers in microseconds, so this measures the client's own
+  cost (request → ledger filled → rows drawn), not a network. The one
+  `(cache)` open per log is the sweep's first thread, served by the memory
+  cache in 0 frames (0.73 ms) against 1 frame for a first open.
+  Instant-threads cannot move this number on the mock; what it removes is
+  the full newest-N fetch a relaunch paid per thread against a real
+  orchestrator, which the probe can only show as `(cache)` on a re-open
+  and as the mock's attach journal ("since N" instead of "full").
+- **Cold start is flat from 1× to 10× (61–80 ms) and 2.5–3× at 100×**
+  (169–225 ms): two thousand sessions through the catalog's seed, sort and
+  first layout. The 234 ms at 1× is one outlier launch of five.
+- **Scroll through the longest thread**: 1689 → 1098 → 897 fps p50 (t2 at
+  3 rows; t2x1 at 30 rows at 10×, 300 rows at 100×), the slow tail
+  1609 → 1041 → 738. Nothing near a frame budget; the fall is the ledger's
+  per-row cost with ten times the rows per thread.
+- **Resident memory**: 40 MB → 46 MB → 589 MB. 1× to 10× costs 6 MB; 100×
+  costs 540 MB — 2,000 sessions whose clones carry a hundred copies of their
+  base thread each, all held by the mock in memory, plus the catalog. The
+  10× figure is the one that resembles a real account; the 100× one is the
+  mock's own footprint as much as the app's and is kept for the trend.
 
 ## AFTER — instant threads
 
