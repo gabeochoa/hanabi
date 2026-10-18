@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 64> kRows{{
+inline constexpr std::array<Row, 65> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -188,6 +188,10 @@ inline constexpr std::array<Row, 64> kRows{{
     {"only_ungrouped", Pane::General, "Only threads in no group",
      "ungrouped personal filter sidebar space folder none",
      Origin::Device},
+    {"export_prefs", Pane::General, "Export settings to another Mac",
+     "export settings backup transfer json file another mac", Origin::Device},
+    {"import_prefs", Pane::General, "Import settings from another Mac",
+     "import settings restore transfer json file another mac merge", Origin::Device},
 
     // Appearance, in the reference's order of sections: Reading width,
     // Typeface, Theme, then hanabi's own rows under the sections they fit.
@@ -288,8 +292,6 @@ inline constexpr std::array<Row, 64> kRows{{
      "cap limit maximum quota size disk cache bytes", Origin::Device},
     {"export", Pane::Storage, "Export conversations",
      "export markdown copy save backup folder own", Origin::Device},
-    {"settings_file", Pane::Storage, "Settings file",
-     "settings export import backup restore json transfer file", Origin::Device},
 
     {"usage_data", Pane::Connection, "Send settings to your account",
      "usage telemetry privacy sync push account share data", Origin::Device},

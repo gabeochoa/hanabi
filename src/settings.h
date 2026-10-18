@@ -90,6 +90,11 @@ struct Settings {
     bool load_save_file();
     void write_save_file();
     bool export_to(const std::string& path);
+    struct ImportPreview {
+        std::string error;
+        std::vector<std::string> keys;
+    };
+    ImportPreview import_preview(const std::string& path) const;
     std::string import_from(const std::string& path);
 
     int get_window_width() const;

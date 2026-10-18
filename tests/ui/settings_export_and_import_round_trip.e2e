@@ -1,23 +1,32 @@
 # settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_PICK_DIR_TEST=/tmp HANABI_PICK_FILE_TEST=/tmp/hanabi-settings.json
 wait_frames 20
 expect_text "Home"
 click_ui sb_settings
 wait_frames 20
-click_ui settings_nav_storage
+click_ui settings_nav_general
 wait_frames 10
-expect_text "Settings file"
-expect_text "Export…"
-expect_text "Import…"
+expect_text "Export settings to another Mac"
+expect_text "Import settings from another Mac"
 expect_theme dark
-export_settings /tmp/hanabi-e2e-settings-export.json
+click_ui settings_export_prefs_btn
+wait_frames 10
+expect_text "Exported to /tmp/hanabi-settings.json"
 click_ui settings_nav_appearance
 wait_frames 10
 click_ui settings_theme_light
 wait_frames 10
 expect_theme light
-import_settings /tmp/hanabi-e2e-settings-export.json
+click_ui settings_nav_general
+wait_frames 10
+click_ui settings_import_prefs_btn
+wait_frames 10
+expect_text "settings from /tmp/hanabi-settings.json: "
+expect_text "Apply replaces those; everything else stays."
+expect_text "Apply"
+expect_text "Cancel"
+expect_theme light
+click_ui settings_import_prefs_apply
 wait_frames 10
 expect_theme dark
-click_ui settings_nav_storage
-wait_frames 10
-expect_text "Settings file"
+expect_text "Imported from /tmp/hanabi-settings.json"

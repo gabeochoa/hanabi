@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -492,28 +493,54 @@ bool Settings::export_to(const std::string& path) {
     write_save_file();
     std::ifstream in(get_settings_path(), std::ios::binary);
     if (!in.good()) return false;
-    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const json current = json::parse(in, nullptr, false);
+    if (current.is_discarded()) return false;
+    const std::time_t now = std::time(nullptr);
+    char stamp[32] = {};
+    std::strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now));
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out.good()) return false;
-    out << bytes;
+    out << hanabi::settings_transfer::envelope(current, stamp).dump(2);
     return out.good();
+}
+
+Settings::ImportPreview Settings::import_preview(const std::string& path) const {
+    ImportPreview p;
+    std::ifstream in(path, std::ios::binary);
+    if (!in.good()) {
+        p.error = "cannot read " + path;
+        return p;
+    }
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto got = hanabi::settings_transfer::extract(bytes);
+    if (got.verdict != hanabi::settings_transfer::Verdict::Ok) {
+        p.error = std::string(hanabi::settings_transfer::reason(got.verdict));
+        return p;
+    }
+    p.keys = got.keys;
+    return p;
 }
 
 std::string Settings::import_from(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in.good()) return "cannot read " + path;
     std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    const auto verdict = hanabi::settings_transfer::inspect(bytes);
-    if (verdict != hanabi::settings_transfer::Verdict::Ok)
-        return std::string(hanabi::settings_transfer::reason(verdict));
-    try {
-        (void)json::parse(bytes);
-    } catch (const std::exception& e) {
-        return std::string("not valid JSON: ") + e.what();
+    const auto got = hanabi::settings_transfer::extract(bytes);
+    if (got.verdict != hanabi::settings_transfer::Verdict::Ok)
+        return std::string(hanabi::settings_transfer::reason(got.verdict));
+    write_save_file();
+    json current = json::object();
+    {
+        std::ifstream cur(get_settings_path(), std::ios::binary);
+        if (cur.good()) {
+            current = json::parse(cur, nullptr, false);
+            if (current.is_discarded()) current = json::object();
+        }
     }
+    const json merged = hanabi::settings_transfer::merge(current, got.settings);
     std::ofstream out(get_settings_path(), std::ios::binary | std::ios::trunc);
     if (!out.good()) return "cannot write the settings file";
-    out << bytes;
+    out << merged.dump(2);
     out.close();
     if (!load_save_file()) return "the settings file would not load";
     mark_settings_dirty();
