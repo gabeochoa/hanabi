@@ -1,4 +1,4 @@
-# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
 # env: HANABI_DRAFTS_DEMO=1
 require_thread t2
 wait_frames 10
