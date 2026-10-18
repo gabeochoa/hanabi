@@ -39,6 +39,12 @@ wait_frames 16
 expect_focused settings_search
 shift_tab
 wait_frames 6
+expect_focused settings_import_prefs_row
+shift_tab
+wait_frames 6
+expect_focused settings_export_prefs_row
+shift_tab
+wait_frames 6
 expect_focused settings_only_ungrouped_track
 shift_tab
 wait_frames 6
