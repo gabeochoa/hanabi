@@ -629,6 +629,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             // Phase X fast path: cache HIT -> render synchronously, no async
             // round-trip, no Loading flash. Marks the thread most-recently-used
             // so "last 5 interacted with" stays accurate on every open/switch.
+            if (std::getenv("HANABI_DUMP"))
+                fprintf(stderr, "[HANABI_DUMP] open %s: memory %s, disk %s, instant %d\n", id.c_str(),
+                        app.transcriptCache.peek(id) ? "hit" : "miss",
+                        disk_cache_enabled(app) ? (api::disk_cache::has_transcript(id) ? "held" : "absent") : "off",
+                        hanabi::model::instant_threads_on() ? 1 : 0);
             if (auto hit = app.transcriptCache.get(id)) {
                 apply_local_overlay(hit->summary);
                 adopt_attach_brakes(app, *hit, /*authoritative=*/false);
@@ -712,6 +717,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptFetchWaitsForDisk = false;
                 const hanabi::model::DeltaPlan delta = hanabi::model::after_disk_read(
                     accepted, accepted ? model::newest_seq(disk->messages) : 0);
+                if (std::getenv("HANABI_DUMP"))
+                    fprintf(stderr, "[HANABI_DUMP] disk landed %s: accepted %d, fetch %s %llu\n",
+                            completedId.c_str(), accepted ? 1 : 0, delta.delta ? "since" : "full",
+                            static_cast<unsigned long long>(delta.delta ? delta.since : 0));
                 start_transcript_fetch(app, pane, completedId, delta.delta ? delta.since : 0);
             }
             if (accepted) {
@@ -740,6 +749,10 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptPendingId.clear();
                 const std::uint64_t since = pane.transcriptPendingSince;
                 pane.transcriptPendingSince = 0;
+                if (std::getenv("HANABI_DUMP"))
+                    fprintf(stderr, "[HANABI_DUMP] fetch landed %s: ok %d, rows %zu, since %llu\n",
+                            completedId.c_str(), r.ok ? 1 : 0, r.ok ? r.value.messages.size() : 0,
+                            static_cast<unsigned long long>(since));
                 if (r.ok && hanabi::switch_probe::enabled()) {
                     const auto nowUs = static_cast<std::int64_t>(
                         std::chrono::duration_cast<std::chrono::microseconds>(

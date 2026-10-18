@@ -624,8 +624,8 @@ class MockClient : public Client {
         return s;
     }
     static std::mutex& live_mu() {
-        static std::mutex m;
-        return m;
+        static auto* m = new std::mutex;
+        return *m;
     }
     static std::map<std::string, std::vector<Message>>& live_tail() {
         static std::map<std::string, std::vector<Message>> t;
@@ -3292,7 +3292,8 @@ class MockClient : public Client {
     // atomic increment and allocates nothing, so scripts/alloc_gate.sh does
     // not move.
     static SeedPtr seed_ptr() {
-        static std::mutex mu;
+        static auto* muPtr = new std::mutex;
+        std::mutex& mu = *muPtr;
         static std::string s_key;
         static SeedPtr s_cache;
         std::string key;

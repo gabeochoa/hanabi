@@ -43,8 +43,8 @@ inline nlohmann::json to_json(const Entry& e) {
 inline std::string line_for(const Entry& e) { return to_json(e).dump() + "\n"; }
 
 inline std::mutex& mu() {
-    static std::mutex m;
-    return m;
+    static auto* m = new std::mutex;
+    return *m;
 }
 
 inline bool append(const Entry& e, const std::string& path) {
