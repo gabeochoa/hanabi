@@ -93,3 +93,26 @@ What the numbers say, read honestly:
 ## AFTER — instant threads
 
 _Same script, same scales, same host, after Part 3._
+
+## AFTER-2 — the relaunch, with a network that costs something
+
+The BEFORE block shows why the four probes cannot see instant threads on
+the mock: the mock answers an attach in microseconds, so a full newest-N
+fetch and a one-row delta cost the same nothing. The relaunch block gives
+the attach a price — `HANABI_MOCK_OPEN_DELAY_MS` (250, a round trip) plus
+`HANABI_MOCK_OPEN_ROW_US` (1000, per message returned) — and measures the
+thing instant threads changes: **the first open of a thread after a
+relaunch**, when the disk holds it and the memory cache does not.
+
+`HANABI_PROBE_RELAUNCH=1 scripts/perf_scale_probe.sh` runs, at 10×, a warm
+launch that opens the threads once (filling a private `HANABI_CACHE_DIR`)
+and then a measured launch that opens them again, twice over:
+`HANABI_INSTANT_THREADS=0` — the open path as it was, a full newest-N fetch
+started beside the disk read — and `=1` — wait for the disk read, fetch
+only rows after the cached seq. Both arms paint their first frame from the
+disk copy; the columns that differ are the probe's `fresh` lines: when the
+network's answer landed, how many rows it carried, and whether the mock
+saw a full read or a since-delta.
+
+_The block lands here from the Mac lane's run at the commit that added
+it._

@@ -765,6 +765,7 @@ class MockClient : public Client {
             std::lock_guard<std::mutex> lk(live_mu());
             ++live_fetches_by_id()[id];
         }
+        if (since_seq > 0) open_cost_sleep(msgs.size());
         return r;
     }
 
@@ -775,6 +776,11 @@ class MockClient : public Client {
     static std::atomic<int>& outbound_calls() {
         static std::atomic<int> n{0};
         return n;
+    }
+
+    static void open_cost_sleep(std::size_t rows) {
+        if (const long us = mock_faults::open_cost_us(rows); us > 0)
+            std::this_thread::sleep_for(std::chrono::microseconds(us));
     }
 
     static void journal_attach(const std::string& id, std::uint64_t since) {
@@ -789,7 +795,15 @@ class MockClient : public Client {
             std::this_thread::sleep_for(std::chrono::milliseconds(delay));
         journal_attach(id, 0);
         auto r = get_session(id);
-        if (!r.ok || limit <= 0) return r;
+        if (!r.ok || limit <= 0) {
+            if (r.ok) {
+                live_stats().full.fetch_add(1);
+                live_stats().rows.fetch_add(static_cast<long>(r.value.messages.size()));
+                open_cost_sleep(r.value.messages.size());
+            }
+            return r;
+        }
+        live_stats().full.fetch_add(1);
         auto& msgs = r.value.messages;
         if (static_cast<int>(msgs.size()) > limit) {
             // Keep the LAST `limit` (newest), preserving order; flag older
@@ -800,6 +814,8 @@ class MockClient : public Client {
         }
         // else: has_more_older stays at its Session default (false) — a fresh
         // get_session(id) never sets it true on stored/seed sessions.
+        live_stats().rows.fetch_add(static_cast<long>(msgs.size()));
+        open_cost_sleep(msgs.size());
         return r;
     }
 

@@ -106,3 +106,48 @@ for SCALE in $SCALES; do
 done
 emit ""
 emit "scroll fps p95 column is the 5th percentile of fps (the slow tail); switch n is the number of opens the probe saw land."
+
+# ---- relaunch: first open after a relaunch, full fetch vs since-delta --------
+# HANABI_PROBE_RELAUNCH=1 adds one block at HANABI_PROBE_RELAUNCH_SCALE (10):
+# the mock's attach costs HANABI_PROBE_OPEN_DELAY_MS (250) plus
+# HANABI_PROBE_OPEN_ROW_US (1000) per row returned, the disk cache lives in a
+# private HANABI_CACHE_DIR, a warm run opens the threads once, and the
+# measured run reopens them -- twice: HANABI_INSTANT_THREADS=0 (the open path
+# before instant threads: full newest-N fetch in parallel with the disk read)
+# and =1 (wait for the disk read, fetch since the cached seq). The columns are
+# the probe's `fresh` lines: ms from the open to the network landing, rows
+# the network carried, how many opens were full vs since.
+if [ "${HANABI_PROBE_RELAUNCH:-0}" = "1" ]; then
+    RSCALE="${HANABI_PROBE_RELAUNCH_SCALE:-10}"
+    ODELAY="${HANABI_PROBE_OPEN_DELAY_MS:-250}"
+    OROW="${HANABI_PROBE_OPEN_ROW_US:-1000}"
+    emit ""
+    emit "### relaunch at ${RSCALE}x — attach costs ${ODELAY} ms + ${OROW} us/row"
+    emit ""
+    emit "| arm | opens | first paint p50 ms | fresh p50 / p95 ms | rows fetched | full / since |"
+    emit "|---|---:|---:|---|---:|---|"
+    for ARM in 0 1; do
+        CACHE="$TMP/cache-$ARM"
+        rm -rf "$CACHE"; mkdir -p "$CACHE"
+        COMMON="HANABI_MOCK_SCALE=$RSCALE HANABI_MOCK_DISK_CACHE=1 HANABI_CACHE_DIR=$CACHE HANABI_INSTANT_THREADS=$ARM HANABI_STRESS=threads HANABI_SOAK=$FRAMES HANABI_SOAK_EVERY=$FRAMES HANABI_STRESS_SETTLE=120"
+        env $COMMON timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$TMP/shot.png" >"$TMP/warm-$ARM.log" 2>&1
+        env $COMMON HANABI_MOCK_OPEN_DELAY_MS="$ODELAY" HANABI_MOCK_OPEN_ROW_US="$OROW" HANABI_SWITCH_PROBE=1 \
+            timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$TMP/shot.png" >"$TMP/relaunch-$ARM.log" 2>&1
+        LOG="$TMP/relaunch-$ARM.log"
+        grep -E '^\[switch\] open ' "$LOG" | awk '{print $4}' >"$TMP/rp.txt"
+        PAINT="$(pct 0.5 <"$TMP/rp.txt")"
+        N_OPEN="$(wc -l <"$TMP/rp.txt" | tr -d ' ')"
+        SUMM="$(grep -E '^\[switch\] fresh landed=' "$LOG" | tail -1)"
+        F_P50="$(echo "$SUMM" | sed -E 's/.*p50=([0-9.]+).*/\1/')"
+        F_P95="$(echo "$SUMM" | sed -E 's/.*p95=([0-9.]+).*/\1/')"
+        ROWS="$(echo "$SUMM" | sed -E 's/.*rows_fetched=([0-9]+).*/\1/')"
+        FULL="$(echo "$SUMM" | sed -E 's/.*full=([0-9]+).*/\1/')"
+        SINCE="$(echo "$SUMM" | sed -E 's/.*since=([0-9]+).*/\1/')"
+        [ -n "$SUMM" ] || { F_P50=n/a; F_P95=n/a; ROWS=n/a; FULL=n/a; SINCE=n/a; }
+        ARMNAME="before (full fetch)"; [ "$ARM" = "1" ] && ARMNAME="after (since-delta)"
+        emit "| $ARMNAME | $N_OPEN | $PAINT | $F_P50 / $F_P95 | $ROWS | $FULL / $SINCE |"
+        cp "$LOG" "${HANABI_PROBE_KEEP:-/tmp}/relaunch-$ARM.log" 2>/dev/null || true
+    done
+    emit ""
+    emit "first paint is the open's first drawn frame (from the disk cache in both arms); fresh is when the network's answer landed."
+fi

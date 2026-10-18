@@ -42,6 +42,19 @@ int main() {
     CHECK(sp::percentile({3.0, 1.0, 2.0}, 0.5) == 2.0);
     CHECK(sp::percentile({1.0, 2.0}, 0.5) == 1.5);
     CHECK(sp::summarize({}).count == 0);
+
+    sp::Probe q;
+    q.begin("a", 0, 0);
+    CHECK(q.end("a", 2000, 1, 5, true));
+    CHECK(q.fresh("a", 260000, 0, true) != nullptr);
+    CHECK(q.fresh("a", 300000, 0, true) == nullptr);
+    q.begin("b", 1000000, 10);
+    CHECK(q.fresh("b", 1251000, 50, false) != nullptr);
+    CHECK(q.opens().size() == 2 && q.opens()[1].frames == -1 && q.opens()[1].fresh_ms == 251.0);
+    const auto f = q.summary();
+    CHECK(f.count == 2 && f.fresh_count == 2 && f.since == 1 && f.full == 1 && f.fetched_rows == 50);
+    CHECK(f.fresh_p50_ms == 255.5);
+    CHECK(q.opens()[0].fresh_ms == 260.0);
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

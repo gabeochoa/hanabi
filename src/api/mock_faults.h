@@ -18,6 +18,28 @@ inline int page_delay_ms() {
     return n < 0 ? 0 : n;
 }
 
+inline constexpr const char* kOpenDelayEnv = "HANABI_MOCK_OPEN_DELAY_MS";
+inline constexpr const char* kOpenRowEnv = "HANABI_MOCK_OPEN_ROW_US";
+
+inline int open_delay_ms() {
+    const char* v = std::getenv(kOpenDelayEnv);
+    if (v == nullptr || *v == '\0') return 0;
+    const int n = std::atoi(v);
+    return n < 0 ? 0 : n;
+}
+
+inline int open_row_us() {
+    const char* v = std::getenv(kOpenRowEnv);
+    if (v == nullptr || *v == '\0') return 0;
+    const int n = std::atoi(v);
+    return n < 0 ? 0 : n;
+}
+
+inline long open_cost_us(std::size_t rows_returned) {
+    return static_cast<long>(open_delay_ms()) * 1000L +
+           static_cast<long>(open_row_us()) * static_cast<long>(rows_returned);
+}
+
 inline std::string open_fail_once_session(std::string_view spec) {
     const std::size_t colon = spec.find(':');
     return std::string(colon == std::string_view::npos ? spec : spec.substr(0, colon));

@@ -19,6 +19,7 @@
 #include "../api/create_outcome.h"
 #include "../api/disk_cache.h"
 #include "../ui/open_fetch.h"
+#include "../util/switch_probe.h"
 #include "load_older_model.h"
 #include "created_at_walk.h"
 #include "../test_hooks.h"
@@ -681,7 +682,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 //     thread the disk holds waits for that read and fetches
                 //     only what is newer than the cached seq.
                 const hanabi::model::OpenFetch plan = hanabi::model::open_fetch_plan(
-                    diskOn, diskOn && api::disk_cache::has_transcript(id));
+                    diskOn, diskOn && api::disk_cache::has_transcript(id),
+                    hanabi::model::instant_threads_on());
                 pane.transcriptFetchWaitsForDisk = plan == hanabi::model::OpenFetch::WaitForDisk;
                 if (plan == hanabi::model::OpenFetch::Full) start_transcript_fetch(app, pane, id, 0);
                 // Live subscriptions are managed by sync_subscriptions()
@@ -738,6 +740,15 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.transcriptPendingId.clear();
                 const std::uint64_t since = pane.transcriptPendingSince;
                 pane.transcriptPendingSince = 0;
+                if (r.ok && hanabi::switch_probe::enabled()) {
+                    const auto nowUs = static_cast<std::int64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch())
+                            .count());
+                    if (const auto* o = hanabi::switch_probe::probe().fresh(
+                            completedId, nowUs, static_cast<int>(r.value.messages.size()), since != 0))
+                        hanabi::switch_probe::print_fresh(*o);
+                }
                 if (r.ok) {
                     reconcile_optimistic(pane, r.value);
                     // A fresh attach IS the reconciliation an unconfirmed
