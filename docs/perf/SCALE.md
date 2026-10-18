@@ -243,5 +243,33 @@ fresh p50 lower in the after arm by about the rows' share (30 rows ×
 1 ms), rows fetched ≈ 30/open before and ≈ 1/open after, full / since
 10 / 0 before and 0 / 10 after.
 
-_The populated block lands here from the Mac lane's run at the commit
-that fixed the cadence._
+**Populated (1bb2f5c3, Boulder, load 10.5), the Mac lane's block verbatim:**
+
+```
+### relaunch at 10x — attach costs 250 ms + 1000 us/row; one open every 600 frames, 6000 frames
+
+| arm | opens | first paint p50 ms | fresh p50 / p95 ms | rows fetched | full / since |
+|---|---:|---:|---|---:|---|
+| before (full fetch) | 11 | 17.06 | 349.50 / 413.43 | 200 | 8 / 0 |
+| after (since-delta) | 11 | 7.02 | 343.12 / 425.67 | 9 | 1 / 7 |
+```
+
+Per-open lines: before `fresh r5x1 333 ms rows 30 full`, `fresh r5x2 376 ms
+rows 30 full`, `fresh r6x1 289 ms rows 20 full`; after `fresh r5x1 338 ms
+rows 1 since`, `fresh r5x2 407 ms rows 1 since`, and one `fresh t9 265 ms
+rows 2 full` — a thread the disk did not hold, which takes the full path
+by design.
+
+Reading. This is the number that proves instant threads: the same eleven
+reopens after a relaunch asked the network for **200 rows before and 9
+after**, eight full attaches against one, seven of them deltas. The
+fresh time barely moves (350 → 343 ms p50) because the priced attach is
+250 ms either way and the rows' share (30 × 1 ms) sits inside the
+load-10 noise; on a real server where a transcript's cost is its rows,
+the delta is the saving. First paint — from the disk copy in both arms —
+went 17 → 7 ms p50; the old arm's full fetch parsed and merged 30 rows on
+a worker while the disk read was landing, the new arm's delta did not.
+The sweep's 900-frame columns at 10× are unchanged within noise (switch
+p95 1.96 ms, 986 fps, RSS 46.7 MB of which the mock's seed is 8.2 MB and
+the client 38.5 MB; frame CPU p99 1.29 ms, worst 1.45 ms, none over
+16 ms).
