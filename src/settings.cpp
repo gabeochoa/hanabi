@@ -113,6 +113,7 @@ bool Settings::load_save_file() {
         notify_finished_ = j.value("notify_finished", notify_finished_);
         notify_blocked_ = j.value("notify_blocked", notify_blocked_);
         notify_waiting_ = j.value("notify_waiting", notify_waiting_);
+        notify_updates_ = j.value("notify_updates", notify_updates_);
         send_usage_data_ = j.value("send_usage_data", send_usage_data_);
         export_dir_ = j.value("export_dir", export_dir_);
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
@@ -401,6 +402,7 @@ void Settings::write_save_file() {
     j["notify_finished"] = notify_finished_;
     j["notify_blocked"] = notify_blocked_;
     j["notify_waiting"] = notify_waiting_;
+    j["notify_updates"] = notify_updates_;
     j["send_usage_data"] = send_usage_data_;
     j["export_dir"] = export_dir_;
     j["sidebar_collapsed"] = sidebar_collapsed_;
@@ -779,6 +781,12 @@ bool Settings::get_notify_waiting() const { return notify_waiting_; }
 void Settings::set_notify_waiting(bool on) {
     if (on == notify_waiting_) return;
     notify_waiting_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_notify_updates() const { return notify_updates_; }
+void Settings::set_notify_updates(bool on) {
+    if (on == notify_updates_) return;
+    notify_updates_ = on;
     if (auto_save_enabled) write_save_file();
 }
 bool Settings::get_notify_subagents() const { return notify_subagents_; }

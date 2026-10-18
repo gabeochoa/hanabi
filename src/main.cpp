@@ -1111,6 +1111,13 @@ static void app_frame_body() {
                 app.requestTonePreview = 0;
                 play_tone(hanabi::session_sound::from_int(pick));
             }
+            if (app.requestUpdateBanner) {
+                app.requestUpdateBanner = false;
+                if (Settings::get().get_notifications_enabled() && Settings::get().get_notify_updates() &&
+                    !in_quiet_hours_now())
+                    native_notify("An update is ready", "Restart to use the new build", "",
+                                  Settings::get().get_notification_sound());
+            }
 
             std::vector<std::pair<std::string, hanabi::notify::Activity>> now;
             std::map<std::string, std::string> titles;

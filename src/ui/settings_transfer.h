@@ -13,7 +13,7 @@ inline constexpr const char* kFileName = "hanabi-settings.json";
 inline constexpr int kFormat = 1;
 inline constexpr const char* kApp = "hanabi";
 
-inline constexpr std::array<std::string_view, 60> kAllowed{
+inline constexpr std::array<std::string_view, 61> kAllowed{
     "theme", "font", "font_weight", "theme_accent", "theme_highlight", "theme_rotate_secs", "icon_set",
     "text_scale", "user_text_scale", "assistant_text_scale", "user_font", "assistant_font", "line_spacing",
     "transcript_width_choice", "show_timestamps", "show_date_dividers", "show_reasoning", "show_minimap",
@@ -22,7 +22,7 @@ inline constexpr std::array<std::string_view, 60> kAllowed{
     "send_chords", "send_key", "native_diff_companion", "yap_level", "restore_tabs", "confirm_quit",
     "escape_stops", "inbox_triage", "triage_bindings", "session_grouping", "session_sort_order",
     "only_ungrouped", "notifications_enabled", "notify_finished", "notify_blocked", "notify_waiting",
-    "notify_subagents", "run_chime", "quiet_start_minutes", "quiet_end_minutes", "global_shortcuts",
+    "notify_subagents", "notify_updates", "run_chime", "quiet_start_minutes", "quiet_end_minutes", "global_shortcuts",
     "global_shortcuts_off", "shortcuts", "shortcuts_off", "capture_hotkey", "composer_templates",
     "default_model", "default_effort", "cache_cap_bytes", "thread_colours", "session_theme",
     "sound_override", "send_usage_data"};

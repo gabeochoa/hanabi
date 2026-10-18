@@ -7,6 +7,7 @@ wait_frames 8
 expect_text "A run finished"
 expect_text "A run is blocked"
 expect_text "A run is waiting on you"
+expect_text "An update is ready"
 expect_notify_kind finished on
 expect_notify_kind blocked on
 expect_notify_kind waiting on

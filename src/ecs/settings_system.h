@@ -1335,6 +1335,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_notify_kind_row(ctx, parent, 3, "A run is waiting on you", "settings_notify_waiting",
                                    Settings::get().get_notify_waiting(),
                                    [](bool v) { Settings::get().set_notify_waiting(v); });
+        else if (id == "notify_updates")
+            render_notify_kind_row(ctx, parent, 5, "An update is ready", "settings_notify_updates",
+                                   Settings::get().get_notify_updates(),
+                                   [](bool v) { Settings::get().set_notify_updates(v); });
         else if (id == "usage_data") render_usage_data_row(ctx, parent, app);
         else if (id == "disk_usage") render_cache_row(ctx, parent, app);
         else if (id == "disk_cap") render_cache_limit_row(ctx, parent, app);

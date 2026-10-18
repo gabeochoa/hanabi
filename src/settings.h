@@ -206,6 +206,8 @@ struct Settings {
     void set_notify_blocked(bool on);
     bool get_notify_waiting() const;
     void set_notify_waiting(bool on);
+    bool get_notify_updates() const;
+    void set_notify_updates(bool on);
     bool get_send_usage_data() const;
     void set_send_usage_data(bool on);  // auto-persists
     // ── Export destination (Settings -> Data -> Export) ─────────────────
@@ -626,6 +628,7 @@ struct Settings {
     bool notify_finished_ = true;
     bool notify_blocked_ = true;
     bool notify_waiting_ = true;
+    bool notify_updates_ = true;
     bool send_usage_data_ = true;
     std::string export_dir_;  // empty = the built-in default
     bool sidebar_collapsed_ = false;

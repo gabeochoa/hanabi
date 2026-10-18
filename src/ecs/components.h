@@ -917,6 +917,7 @@ struct AppComponent : public afterhours::BaseComponent {
     hanabi::update_ready::Watch updateWatch;
     double updateCheckedAt = -1.0;
     bool updatePending = false;
+    bool requestUpdateBanner = false;
     bool updateRestartRequested = false;  // scripted builds record it, never act
     // A thread being moved between Spaces (row menu > Move to Space, the
     // reference's refile): the request, and the move in flight. On success
