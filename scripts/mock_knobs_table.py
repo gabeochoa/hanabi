@@ -9,7 +9,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCES = ["src/api/mock_client.h", "src/api/mock_faults.h", "src/api/mock_journal.h", "src/api/mock_scale.h"]
 NAMED = {
-    "HANABI_MOCK_JOURNAL": ("src/api/mock_journal.h", "path of a JSONL file; every send the mock accepts appends one line {session_id, kind, text, attachments, at_unix_ms, local_id?}; the e2e verb clear_mock_journal truncates it"),
+    "HANABI_MOCK_JOURNAL": ("src/api/mock_journal.h", "path of a JSONL file; every send the mock accepts appends one line {session_id, kind, text, attachments, at_unix_ms, local_id?}; every transcript read appends kind 'attach' with text 'full' or 'since N'; the e2e verb clear_mock_journal truncates it"),
     "HANABI_MOCK_PAGE_DELAY_MS": ("src/api/mock_faults.h", "sleep this long before answering a windowed or resumed transcript read, so a load-earlier state can be photographed"),
     "HANABI_MOCK_SCALE": ("src/api/mock_scale.h", "<n> (1..1000, default 1): every seeded session gains n-1 clones (<id>x<copy>), each carrying the base transcript n times over with numeric seq ids 1..N, last_seq=N, stepped timestamps; sessions, messages per thread, tool rows and attachments all scale by n, deterministically; the base rows are untouched, so every fixture that names them still holds"),
     "HANABI_MOCK_OPEN_FAIL_ONCE": ("src/api/mock_faults.h", "<session id>[:<reason>]: the first open of that session fails (a transport failure, not a refusal) with the reason; the next open succeeds"),
