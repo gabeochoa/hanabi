@@ -1716,7 +1716,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     bool modelPopoverWasOpen_ = false;
     bool contextPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
-    bool draftsPopoverWasOpen_ = false;
     bool changesPopoverWasOpen_ = false;
     // The @ picker's rows for the last draft that asked (render_composer).
     struct MentionMemo {
@@ -8183,53 +8182,36 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      18.0f, theme::text_secondary(), "changes_more");
     }
 
-    void render_drafts_popover(UIContext<InputAction>& ctx, Entity& parent,
-                               AppComponent& app, Entity& anchorEnt, int paneIndex) {
+    void render_drafts_menu(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app,
+                            float absX, float absY, float inputW, float gutter) {
         auto& sd = app.serverDrafts;
-        if (!sd.open && !draftsPopoverWasOpen_) return;
-        auto popRoot = mk(parent, 3450);
-        RectangleType anchor = anchorEnt.get<afterhours::ui::UIComponent>().rect();
-        anchor.y -= 24.0f;
-        if (!sd.open) {
-            afterhours::ui::imm::popover(ctx, popRoot, anchor, sd.open,
-                                         afterhours::ui::overlay::Placement::Above);
-            draftsPopoverWasOpen_ = false;
-            return;
-        }
-        draftsPopoverWasOpen_ = true;
-
-        constexpr float kPopW = 372.0f;
-        constexpr float kRowH = 30.0f;
+        if (!sd.open) return;
+        constexpr float kRowH = hanabi::surface::kMenuRowH;
         const std::size_t shown = std::min<std::size_t>(sd.rows.size(), 8);
-        float popH = 42.0f + 8.0f;
-        popH += sd.rows.empty() ? 24.0f : kRowH * static_cast<float>(shown);
-        if (sd.rows.size() > shown) popH += 20.0f;
-
-        const auto previousSurface = ctx.theme.surface;
-        ctx.theme.surface = theme::panel_bg_2();
-        auto pop = afterhours::ui::imm::popover(
-            ctx, popRoot, anchor, sd.open, afterhours::ui::overlay::Placement::Above,
-            hanabi::surface::menu(kPopW, popH, 7)
-                .with_padding(Padding{.top = pixels(8), .right = pixels(10), .bottom = pixels(8), .left = pixels(10)})
-                .with_debug_name("drafts_popover"));
-        ctx.theme.surface = previousSurface;
-        if (!pop) return;
-        publish_popover_occluder(pop.ent());
-
-        div(ctx, mk(pop.ent(), 1),
+        const float bodyH = sd.rows.empty() ? kRowH : kRowH * static_cast<float>(shown);
+        const float moreH = sd.rows.size() > shown ? 20.0f : 0.0f;
+        const float menuH = 26.0f + bodyH + moreH + 8.0f;
+        auto menuConfig = hanabi::surface::menu(inputW, menuH, 7);
+        menuConfig.with_absolute_position()
+            .with_translate(absX + gutter, absY - menuH - 6.0f)
+            .with_debug_name("drafts_popover");
+        auto menu = div(ctx, mk(parent, 3150), menuConfig);
+        div(ctx, mk(menu.ent(), 1),
             ComponentConfig{}
                 .with_label("SAVED DRAFTS")
                 .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                .with_margin(Margin{.left = pixels(hanabi::slash_row::kPad)})
                 .with_transparent_bg()
                 .with_custom_text_color(theme::text_secondary())
                 .with_font_size(theme::type::SM)
                 .with_alignment(TextAlignment::Left)
                 .with_debug_name("drafts_popover_title"));
         if (sd.rows.empty()) {
-            div(ctx, mk(pop.ent(), 2),
+            div(ctx, mk(menu.ent(), 2),
                 ComponentConfig{}
                     .with_label(sd.pending ? "Loading your saved drafts\xe2\x80\xa6" : sd.note)
-                    .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                    .with_margin(Margin{.left = pixels(hanabi::slash_row::kPad)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_secondary())
                     .with_font_size(theme::type::SM)
@@ -8240,8 +8222,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
         for (std::size_t i = 0; i < shown; ++i) {
             const api::drafts::ServerDraft& d = sd.rows[i];
-            auto row = button(ctx, mk(pop.ent(), 10 + static_cast<int>(i)),
-                hanabi::surface::option_row(kPopW - 20.0f, kRowH, false, 8)
+            auto row = button(ctx, mk(menu.ent(), 10 + static_cast<int>(i)),
+                hanabi::surface::option_row(inputW - 8.0f, kRowH, false, 8)
                     .with_label(api::drafts::first_line(d.body))
                     .with_font_size(theme::type::SM)
                     .with_alignment(TextAlignment::Left)
@@ -8254,10 +8236,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
         if (sd.rows.size() > shown)
-            div(ctx, mk(pop.ent(), 3),
+            div(ctx, mk(menu.ent(), 3),
                 ComponentConfig{}
                     .with_label(std::to_string(sd.rows.size() - shown) + " more on the web")
                     .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                    .with_margin(Margin{.left = pixels(hanabi::slash_row::kPad)})
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_faint())
                     .with_font_size(theme::type::MICRO)
@@ -9762,9 +9745,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.planPopoverOpen = !app.planPopoverOpen;
                 app.composerPopoverPane = paneIndex;
             }
-            if (app.escape == EscapeIntent::CloseDraftsPicker) app.serverDrafts.open = false;
-            if (ownsPopovers && app.serverDrafts.pane == paneIndex)
-                render_drafts_popover(ctx, parent, app, modelChip.ent(), paneIndex);
             if (app.escape == EscapeIntent::ClosePlanPicker)
                 app.planPopoverOpen = false;
             if (ownsPopovers)
@@ -11145,6 +11125,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the bottom of the window, so a dropdown "below the input" would be
         // off-screen. A sibling of the composer bar under the same uiRoot
         // parent, in the same screen coordinates, on a layer over it.
+        if (app.escape == EscapeIntent::CloseDraftsPicker) app.serverDrafts.open = false;
+        if (app.serverDrafts.open && app.serverDrafts.pane == paneIndex && absX >= 0.0f && absY >= 0.0f)
+            render_drafts_menu(ctx, parent, app, absX, absY, inputW, composerGutter);
         if (slashOpen && absX >= 0.0f && absY >= 0.0f) {
             constexpr float kRowH = hanabi::surface::kMenuRowH;
             const float menuH = kRowH * static_cast<float>(slashCount) + 8.0f;
