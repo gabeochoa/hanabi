@@ -220,6 +220,7 @@ struct Pane {
                                  count);
     }
     LoadState transcriptState = LoadState::Idle;
+    bool transcriptFromCache = false;
     std::string transcriptError;
 
     // Set by the tab system (or a split-open request) when a transcript

@@ -106,6 +106,7 @@
 #include "../ui/unified_diff.h"
 #include "../ui/md_table_ops.h"
 #include "../ui/read_cursor.h"
+#include "../util/switch_probe.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
 
@@ -4860,6 +4861,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         sub_agent_panel(ctx, col, app, pane, colW);
         {
         hanabi::prof::Scope _p2("transcript.pass2_build");
+        if (n > 0 && hanabi::switch_probe::enabled() && hanabi::switch_probe::probe().armed() &&
+            win.filled) {
+            const bool landed = hanabi::switch_probe::probe().end(
+                openId0,
+                static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                              std::chrono::steady_clock::now().time_since_epoch())
+                                              .count()),
+                pointer_state().frame, n, pane.transcriptFromCache);
+            if (landed) hanabi::switch_probe::print_open(hanabi::switch_probe::probe().opens().back());
+        }
         if (n > 0) {
             spacer(1, led.top_of(win.first));
             float y = subH + led.top_of(win.first);

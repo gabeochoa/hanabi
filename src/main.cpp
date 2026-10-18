@@ -50,6 +50,7 @@
 #include "util/bounds_audit.h"
 #include "util/soak.h"
 #include "util/stress.h"
+#include "util/switch_probe.h"
 #include "util/notify_events.h"
 #include "util/quiet_hours.h"
 #include "util/spotlight_catalog.h"
@@ -2631,6 +2632,8 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         std::printf("[soak] scenario %s did: %s\n",
                     hanabi::stress::name(driver.mode),
                     driver.work_done().c_str());
+        if (hanabi::switch_probe::enabled())
+            hanabi::switch_probe::print_summary(hanabi::switch_probe::probe().summary());
         const std::string idle = driver.did_nothing_reason();
         if (!idle.empty())
             std::printf("[soak] SCENARIO DROVE NOTHING: %s. Whatever this run "

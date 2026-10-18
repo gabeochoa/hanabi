@@ -182,6 +182,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                              fresh.summary.id.c_str(), fresh.halted ? 1 : 0, fresh.halted_by.c_str());
             pane.openSession = std::move(fresh);
             pane.note_transcript_reset();
+            pane.transcriptFromCache = false;
             pane.hasMoreOlder = pane.openSession->has_more_older;
             return false;
         }
@@ -623,6 +624,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.openSession = std::move(*hit);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;
+                pane.transcriptFromCache = true;
                 pane.transcriptError.clear();
                 pane.transcriptLoadingId.clear();  // nothing loading now
                 pane.hasMoreOlder = pane.openSession->has_more_older;
@@ -697,6 +699,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 pane.openSession = std::move(*disk);
                 pane.note_transcript_reset();
                 pane.transcriptState = LoadState::Loaded;  // show stale now
+                pane.transcriptFromCache = true;
                 pane.transcriptError.clear();
                 pane.hasMoreOlder = pane.openSession->has_more_older;
                 // A stale paint clears the spinner for THIS thread; the network
@@ -734,6 +737,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                                           pane.askLoadStamp);
                         land_refetch(pane, std::move(r.value));
                         pane.transcriptState = LoadState::Loaded;
+                        pane.transcriptFromCache = false;
                         pane.transcriptError.clear();
                         // Fresh data landed — clear the "loading this thread"
                         // spinner flag for this id.

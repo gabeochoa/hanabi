@@ -9,6 +9,7 @@
 // Mirrors floatinghotel/src/ecs/tab_bar_system.h.
 
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <bitset>
 #include <cmath>
@@ -39,6 +40,7 @@
 #include "../ui/context_menu.h"
 #include "../ui/control_state.h"
 #include "pointer_state_system.h"
+#include "../util/switch_probe.h"
 #include "../ui/icons.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/status_mark.h"
@@ -1421,6 +1423,13 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
 
         if (app.requestOpenTab.empty()) return;
         std::string id = app.requestOpenTab;
+        if (hanabi::switch_probe::enabled())
+            hanabi::switch_probe::probe().begin(
+                id,
+                static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                              std::chrono::steady_clock::now().time_since_epoch())
+                                              .count()),
+                pointer_state().frame);
         if (std::getenv("HANABI_DUMP"))
             std::fprintf(stderr, "[f%lu] requestOpenTab consumed: %s keep=%d pane=%d\n",
                          pointer_state().frame, id.c_str(), app.requestOpenTabKeep ? 1 : 0,
