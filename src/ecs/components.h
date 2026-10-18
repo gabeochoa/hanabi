@@ -221,6 +221,7 @@ struct Pane {
     }
     LoadState transcriptState = LoadState::Idle;
     bool transcriptFromCache = false;
+    int nextAutocompactPct = 0;
     std::string transcriptError;
 
     // Set by the tab system (or a split-open request) when a transcript

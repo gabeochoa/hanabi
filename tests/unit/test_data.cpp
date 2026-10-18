@@ -788,7 +788,8 @@ static void test_slash_parsing() {
     // Case does not decide whether a verb is recognized.
     CHECK(sl::parse("/COMPACT").known);
     // A verb this client does not have is parsed but not known.
-    CHECK(!sl::parse("/autocompact").known);
+    CHECK(!sl::parse("/rename").known);
+    CHECK(sl::parse("/autocompact").known && sl::parse("/draft").known);
 
     // The menu offers everything for a bare slash, narrows on the prefix, and
     // has nothing to say once the argument has started.
@@ -814,6 +815,7 @@ static void test_slash_parsing() {
                              c.name == "effort" || c.name == "btw" ||
                              c.name == "knot" || c.name == "goal" ||
                              c.name == "plan" || c.name == "queue" ||
+                             c.name == "draft" || c.name == "autocompact" ||
                              c.name == "title"));
 
     CHECK(sl::btw_title("why?") == "BTW: why?");

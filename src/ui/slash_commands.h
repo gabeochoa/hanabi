@@ -72,6 +72,9 @@ inline const std::vector<Command>& all() {
         {"knot", "<task>", "file a knot linked to this thread", true, ""},
         {"queue", "<message>", "send this after the running turn finishes", true, ""},
         {"title", "<name>", "rename this conversation", true, ""},
+        {"draft", "<name> <text>", "save a draft to bring back as /name; bare /draft lists them", true,
+         ""},
+        {"autocompact", "<25-90 | off>", "the compaction boundary for the next new thread", true, ""},
         {"compact", "", "compact the context now", false,
          std::string(product_branding::kAppName) + " has no compact call yet"},
     };

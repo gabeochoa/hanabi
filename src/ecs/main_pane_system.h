@@ -106,6 +106,7 @@
 #include "../ui/unified_diff.h"
 #include "../ui/md_table_ops.h"
 #include "../ui/read_cursor.h"
+#include "../ui/slash_extras.h"
 #include "../util/switch_probe.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
@@ -8838,9 +8839,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 } else if (canStream || canSend) {
                     remember_composer_snapshot(submitted.message);
                     consume_composer_snapshot(submitted.message);
-                    if (target.session_id.empty())
+                    if (target.session_id.empty()) {
+                        Pane& launching = app.panes[static_cast<std::size_t>(paneIndex)];
+                        if (launching.nextAutocompactPct > 0 && submitted.message.launch.autocompactPct == 0)
+                            submitted.message.launch.autocompactPct = launching.nextAutocompactPct;
+                        launching.nextAutocompactPct = 0;
                         app.request_kickoff(std::move(submitted.message));
-                    else if (canStream)
+                    } else if (canStream)
                         app.requestStream = std::move(submitted.message);
                     else
                         app.requestSend = std::move(submitted.message);
@@ -10494,6 +10499,57 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.requestRenamePane = target.pane_index;
                 app.renamePending = true;
                 app.slashNotice = "Renaming\xe2\x80\xa6";
+                app.slashNoticePane = target.pane_index;
+                set_target_field(target, "");
+                return;
+            }
+            if (cmd->name == "draft") {
+                if (p.args.empty()) {
+                    app.slashNotice = hanabi::slash_extras::drafts_notice(Settings::get().get_templates());
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, "");
+                    return;
+                }
+                const hanabi::slash_extras::DraftArgs d = hanabi::slash_extras::split_draft(p.args);
+                if (d.text.empty()) {
+                    app.slashNotice = "Type the draft's text after its name: /draft " + d.name + " <text>.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                std::vector<std::string_view> builtins;
+                for (const auto& c : hanabi::slash::all()) builtins.push_back(c.name);
+                const std::string why = Settings::get().add_template(d.name, d.text, builtins);
+                if (!why.empty()) {
+                    app.slashNotice = why;
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                app.slashNotice = "Saved /" + hanabi::slash::lowered(d.name) + " â type it to bring the draft back.";
+                app.slashNoticePane = target.pane_index;
+                set_target_field(target, "");
+                return;
+            }
+            if (cmd->name == "autocompact") {
+                Pane& owner = app.panes[static_cast<std::size_t>(target.pane_index)];
+                if (p.args.empty()) {
+                    app.slashNotice = hanabi::slash_extras::autocompact_notice(
+                        owner.nextAutocompactPct, Settings::get().get_account_autocompact());
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, "");
+                    return;
+                }
+                const hanabi::slash_extras::AutocompactArg a = hanabi::slash_extras::parse_autocompact(p.args);
+                if (!a.ok) {
+                    app.slashNotice = a.why;
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                owner.nextAutocompactPct = a.pct;
+                app.slashNotice = a.pct == 0 ? std::string("The next new thread compacts on Auto.")
+                                             : hanabi::slash_extras::autocompact_notice(a.pct, 0);
                 app.slashNoticePane = target.pane_index;
                 set_target_field(target, "");
                 return;

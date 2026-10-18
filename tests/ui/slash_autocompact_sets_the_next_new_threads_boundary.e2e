@@ -1,0 +1,27 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat
+wait_frames 90
+click_ui composer_reply_input
+type "/autocompact"
+wait_frames 4
+key ESCAPE
+wait_frames 4
+key ENTER
+wait_frames 10
+expect_text "New threads compact on Auto"
+expect_input_text composer_reply_input ""
+type "/autocompact 60"
+key ENTER
+wait_frames 10
+expect_text "The next new thread compacts at 60%."
+expect_input_text composer_reply_input ""
+type "start with the ledger"
+key ENTER
+wait_frames 40
+expect_mock_create_autocompact 60
+click_ui composer_reply_input
+type "/autocompact 95"
+key ENTER
+wait_frames 10
+expect_text "The boundary is between 25% and 90%."
+expect_input_text composer_reply_input "/autocompact 95"
