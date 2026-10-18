@@ -35,6 +35,7 @@
 #include "../ui/sidebar_query.h"
 #include "../test_hooks.h"
 #include "../settings.h"
+#include "../ui/session_theme.h"
 #include "../util/clipboard.h"
 #include "../ui/link_detect.h"
 #include "../util/prof.h"
@@ -1287,6 +1288,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             OpenWeb,
             Archive,
             Sound,
+            Theme,
             Snooze,
             ResetOrder,
             Halt,
@@ -1388,6 +1390,29 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             }
             items.push_back(std::move(m));
             actions.push_back(Action::Sound);
+        }
+        {
+            const hanabi::session_theme::Choice now =
+                hanabi::session_theme::parse(Settings::get().get_session_theme(target->id));
+            hanabi::surface::MenuItem m{"Theme", "row_menu_theme", false, false};
+            const auto leaf = [&](const std::string& label, const std::string& dbg, const std::string& key,
+                                  bool off) {
+                hanabi::surface::MenuLeaf l;
+                l.label = label;
+                l.debug_name = dbg;
+                l.action_id = hanabi::session_theme::action_id(key);
+                l.disabled = off;
+                m.children.push_back(std::move(l));
+            };
+            leaf("Default", "row_menu_theme_inherit", "inherit", now.inherits());
+            leaf("Light", "row_menu_theme_light", "light", now.mode == "light");
+            leaf("Dark", "row_menu_theme_dark", "dark", now.mode == "dark");
+            m.children.push_back(hanabi::surface::MenuLeaf::divider("row_menu_theme_divider"));
+            leaf("App accent", "row_menu_theme_accent_inherit", "accent-inherit", now.accent.empty());
+            for (const theme::Swatch& s : theme::kAccentSwatches)
+                leaf(s.label, std::string("row_menu_theme_") + s.key, s.key, now.accent == s.key);
+            items.push_back(std::move(m));
+            actions.push_back(Action::Theme);
         }
         if (app.client && app.client->supports_inbox_state()) {
             const auto snoozed = app.snooze_of(target->id);
@@ -1611,6 +1636,13 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                                                        : std::string_view{},
                             targetId))
                         hanabi::clipboard::set_text(*payload);
+                    break;
+                case Action::Theme:
+                    if (const auto key = hanabi::session_theme::picked_key(pickedAction)) {
+                        const hanabi::session_theme::Choice next = hanabi::session_theme::apply_pick(
+                            hanabi::session_theme::parse(Settings::get().get_session_theme(targetId)), *key);
+                        Settings::get().set_session_theme(targetId, hanabi::session_theme::serialize(next));
+                    }
                     break;
                 case Action::Sound:
                     if (pickedAction == "mute" || pickedAction == "unmute") {
@@ -5012,6 +5044,21 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_size(ComponentSize{pixels(0), pixels(0)})
                 .with_transparent_bg()
                 .with_debug_name("chat_row_id_" + s.id));
+        if (Settings::get().get_thread_colours()) {
+            const hanabi::session_theme::Choice tc =
+                hanabi::session_theme::parse(Settings::get().get_session_theme(s.id));
+            if (!tc.accent.empty()) {
+                const theme::Color bar = theme::accent_color(tc.accent, theme::mode());
+                div(ctx, mk(row.ent(), 98),
+                    ComponentConfig{}
+                        .with_absolute_position()
+                        .with_translate(0.0f, 6.0f)
+                        .with_size(ComponentSize{pixels(3.0f), pixels(kRowHeight - 12.0f)})
+                        .with_custom_background(bar)
+                        .with_roundness(0.5f)
+                        .with_debug_name("thread_colour_" + s.id));
+            }
+        }
 
         bool rowHot = false;
         // Bake the hover wash into the row's BASE fill whenever the pointer is

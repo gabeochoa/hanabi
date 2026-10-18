@@ -1302,6 +1302,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_minimap_marks_row(ctx, parent, app);
         else if (id == "accent") render_accent_row(ctx, parent, app);
         else if (id == "highlight") render_highlight_row(ctx, parent, app);
+        else if (id == "thread_colours")
+            render_notify_kind_row(ctx, parent, 4, "Thread colours in the sidebar",
+                                   "settings_thread_colours", Settings::get().get_thread_colours(),
+                                   [](bool v) { Settings::get().set_thread_colours(v); });
         else if (id == "reasoning") render_reasoning_row(ctx, parent, app);
         else if (id == "fold_long") render_foldlong_row(ctx, parent, app);
         else if (id == "date_dividers") render_date_dividers_row(ctx, parent, app);

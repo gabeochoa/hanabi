@@ -107,6 +107,7 @@
 #include "../ui/md_table_ops.h"
 #include "../ui/read_cursor.h"
 #include "../ui/slash_extras.h"
+#include "../ui/session_theme.h"
 #include "../util/switch_probe.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
@@ -4128,9 +4129,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("find_audit"));
     }
 
+    static theme::PaneScope pane_theme_scope(const std::string& sessionId) {
+        const hanabi::session_theme::Resolved r = hanabi::session_theme::resolve(
+            hanabi::session_theme::parse(Settings::get().get_session_theme(sessionId)),
+            theme::mode() == theme::Mode::Light, theme::accent_choice());
+        return theme::PaneScope(r.light ? theme::Mode::Light : theme::Mode::Dark, r.accent);
+    }
+
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app, Pane& pane, float paneW,
                            float paneH) {
+        const theme::PaneScope paneTheme = pane_theme_scope(pane.selectedId);
         const PaneBuildScope building(pane);
         const hanabi::text_zoom::PointScaleScope zoomScope(
             theme::type::point_scale(), text_zoom(), theme::type::set_point_scale);
@@ -8571,6 +8580,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          float composerH, bool kickoff = false,
                          float absX = -1.0f, float absY = -1.0f) {
         (void)kickoff;
+        const theme::PaneScope paneTheme =
+            pane_theme_scope(app.panes[static_cast<std::size_t>(std::clamp(paneIndex, 0, 1))].selectedId);
         // THIS pane's composer. In a split there are two, one under each
         // pane, each with its own draft, attachments and target; the one in
         // the focused pane is "active" and keeps the unsuffixed debug names

@@ -2959,6 +2959,15 @@ struct HandleSettingsFileCommand
             return;
         }
         if (theme) {
+            if (cmd.has_args(2)) {
+                const std::string& have = Settings::get().get_session_theme(cmd.arg(0));
+                const std::string want = cmd.arg(1) == "-" ? std::string() : cmd.arg(1);
+                if (have != want)
+                    cmd.fail(std::format("expect_theme {}: session theme is '{}', wanted '{}'", cmd.arg(0),
+                                         have, want));
+                cmd.consume();
+                return;
+            }
             if (Settings::get().get_theme() != cmd.arg(0))
                 cmd.fail(std::format("expect_theme: theme is '{}', wanted '{}'",
                                      Settings::get().get_theme(), cmd.arg(0)));

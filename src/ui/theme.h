@@ -435,6 +435,45 @@ inline void set_highlight_choice(const std::string& key) {
     apply_custom();
 }
 inline const std::string& accent_choice() { return g_accent_choice; }
+
+class PaneScope {
+   public:
+    PaneScope(Mode m, const std::string& accent)
+        : savedMode_(g_mode), savedAccent_(g_accent_choice), savedTokens_(t),
+          active_(m != g_mode || accent != g_accent_choice) {
+        if (!active_) return;
+        g_mode = m;
+        g_accent_choice = accent;
+        t = (m == Mode::Light) ? kLight : kDark;
+        apply_custom();
+    }
+    ~PaneScope() {
+        if (!active_) return;
+        g_mode = savedMode_;
+        g_accent_choice = savedAccent_;
+        t = savedTokens_;
+    }
+    PaneScope(const PaneScope&) = delete;
+    PaneScope& operator=(const PaneScope&) = delete;
+    [[nodiscard]] bool active() const { return active_; }
+
+   private:
+    Mode savedMode_;
+    std::string savedAccent_;
+    Tokens savedTokens_;
+    bool active_;
+};
+
+inline const char* accent_label(const std::string& key) {
+    for (const Swatch& s : kAccentSwatches)
+        if (key == s.key) return s.label;
+    return "";
+}
+inline Color accent_color(const std::string& key, Mode m) {
+    for (const Swatch& s : kAccentSwatches)
+        if (key == s.key) return m == Mode::Light ? s.light : s.dark;
+    return t.accent;
+}
 inline const std::string& highlight_choice() { return g_highlight_choice; }
 
 inline Mode mode() { return g_mode; }

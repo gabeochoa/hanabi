@@ -1,0 +1,35 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+wait_frames 20
+right_click_text "SKU backfill"
+wait_frames 8
+expect_text "Theme"
+click_ui row_menu_theme
+wait_frames 6
+expect_text "Default"
+expect_text "Light"
+expect_text "Dark"
+expect_text "App accent"
+expect_text "Violet"
+expect_text "Green"
+expect_text "Amber"
+click_ui row_menu_theme_light
+wait_frames 8
+expect_theme t6 light
+expect_no_ui thread_colour_t6
+right_click_text "SKU backfill"
+wait_frames 8
+click_ui row_menu_theme
+wait_frames 6
+click_ui row_menu_theme_amber
+wait_frames 8
+expect_theme t6 light+amber
+assert_ui thread_colour_t6 hidden=false
+expect_theme dark
+right_click_text "SKU backfill"
+wait_frames 8
+click_ui row_menu_theme
+wait_frames 6
+click_ui row_menu_theme_inherit
+wait_frames 8
+expect_theme t6 -
+expect_no_ui thread_colour_t6

@@ -390,6 +390,10 @@ struct Settings {
     bool is_turn_starred(const std::string& session_id, const std::string& message_id) const;
     void set_turn_starred(const std::string& session_id, const std::string& message_id, bool on);
     const std::vector<std::string>& starred_turns(const std::string& session_id) const;
+    const std::string& get_session_theme(const std::string& id) const;
+    void set_session_theme(const std::string& id, const std::string& choice);
+    bool get_thread_colours() const;
+    void set_thread_colours(bool on);
     int get_sound_override(const std::string& id) const;
     void set_sound_override(const std::string& id, int mode);
     bool sound_for(const std::string& id) const;
@@ -648,6 +652,8 @@ struct Settings {
     void prune_last_read();
     std::map<std::string, int> tool_fold_;
     std::map<std::string, int> sound_override_;
+    std::map<std::string, std::string> session_theme_;
+    bool thread_colours_ = true;
     std::map<std::string, std::vector<std::string>> starred_turns_;
     // Preference slots (see getters). Defaults mirror the web defaults.
     int yap_level_ = 2;

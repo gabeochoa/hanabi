@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 63> kRows{{
+inline constexpr std::array<Row, 64> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -234,6 +234,9 @@ inline constexpr std::array<Row, 63> kRows{{
      "accent colour color highlight tint blue swatch", Origin::Device, "Theme"},
     {"highlight", Pane::Appearance, "Find highlight",
      "find search highlight match colour color yellow swatch",
+     Origin::Device, "Theme"},
+    {"thread_colours", Pane::Appearance, "Thread colours in the sidebar",
+     "thread colour color sidebar mark accent per-thread theme row",
      Origin::Device, "Theme"},
     {"icon_set", Pane::Appearance, "Icons",
      "icons status marks faces mm3 character set normal glyphs",

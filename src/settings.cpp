@@ -282,6 +282,12 @@ bool Settings::load_save_file() {
                 if (!ids.empty()) starred_turns_[k] = std::move(ids);
             }
         }
+        session_theme_.clear();
+        if (j.contains("session_theme") && j["session_theme"].is_object()) {
+            for (const auto& [k, v] : j["session_theme"].items())
+                if (v.is_string() && !v.get<std::string>().empty()) session_theme_[k] = v.get<std::string>();
+        }
+        thread_colours_ = j.value("thread_colours", thread_colours_);
         sound_override_.clear();
         if (j.contains("sound_override") && j["sound_override"].is_object()) {
             for (const auto& [k, v] : j["sound_override"].items()) {
@@ -475,6 +481,8 @@ void Settings::write_save_file() {
     j["read_seq"] = read_seq_;
     j["tool_fold"] = tool_fold_;
     j["sound_override"] = sound_override_;
+    j["session_theme"] = session_theme_;
+    j["thread_colours"] = thread_colours_;
     j["starred_turns"] = starred_turns_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
@@ -1028,6 +1036,28 @@ void Settings::set_turn_starred(const std::string& session_id, const std::string
     if (on) ids.push_back(message_id);
     else ids.erase(found);
     if (ids.empty()) starred_turns_.erase(session_id);
+    if (auto_save_enabled) write_save_file();
+}
+const std::string& Settings::get_session_theme(const std::string& id) const {
+    static const std::string kNone;
+    auto it = session_theme_.find(id);
+    return it == session_theme_.end() ? kNone : it->second;
+}
+void Settings::set_session_theme(const std::string& id, const std::string& choice) {
+    if (id.empty()) return;
+    if (choice.empty()) {
+        if (session_theme_.erase(id) == 0) return;
+    } else {
+        auto it = session_theme_.find(id);
+        if (it != session_theme_.end() && it->second == choice) return;
+        session_theme_[id] = choice;
+    }
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_thread_colours() const { return thread_colours_; }
+void Settings::set_thread_colours(bool on) {
+    if (on == thread_colours_) return;
+    thread_colours_ = on;
     if (auto_save_enabled) write_save_file();
 }
 int Settings::get_sound_override(const std::string& id) const {
