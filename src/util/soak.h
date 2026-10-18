@@ -73,6 +73,36 @@ inline int bucket() {
 
 // Resident size in KB. mach_task_basic_info rather than /usr/bin/time, because
 // the whole point is to sample it repeatedly from inside the run.
+struct FrameTail {
+    std::vector<double> ms;
+    void add(double v) { ms.push_back(v); }
+    [[nodiscard]] double pct(double p) const {
+        if (ms.empty()) return 0.0;
+        std::vector<double> v = ms;
+        std::sort(v.begin(), v.end());
+        const double pos = p * static_cast<double>(v.size() - 1);
+        const std::size_t lo = static_cast<std::size_t>(pos);
+        const std::size_t hi = lo + 1 < v.size() ? lo + 1 : lo;
+        return v[lo] + (v[hi] - v[lo]) * (pos - static_cast<double>(lo));
+    }
+    [[nodiscard]] double worst() const {
+        double w = 0.0;
+        for (double v : ms) w = v > w ? v : w;
+        return w;
+    }
+    [[nodiscard]] std::size_t over(double budgetMs) const {
+        std::size_t n = 0;
+        for (double v : ms)
+            if (v > budgetMs) ++n;
+        return n;
+    }
+    void print(const char* label) const {
+        std::printf("[soak] %s frames=%zu p50=%.3f p95=%.3f p99=%.3f worst=%.3f ms cpu  over16=%zu over8=%zu\n",
+                    label, ms.size(), pct(0.5), pct(0.95), pct(0.99), worst(), over(16.0), over(8.0));
+        std::fflush(stdout);
+    }
+};
+
 inline long rss_kb() {
     mach_task_basic_info info{};
     mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;

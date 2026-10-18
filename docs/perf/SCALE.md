@@ -175,8 +175,13 @@ the 250 ms gate at 100×.
    differs by ~100 ms.
 2. **Scroll smoothness**: 897 fps p50 / 738 slow tail through a 300-row
    thread at 100× (BEFORE), 912 / 852 (AFTER). Nothing near a frame
-   budget; the fall from 1× is the ledger's per-row cost. Open: a p99 /
-   worst-frame column rather than p50, since jank is the tail.
+   budget; the fall from 1× is the ledger's per-row cost. Jank is the
+   tail, not the median, so the soak now keeps every frame's CPU time and
+   prints `[soak] tail frames= p50= p95= p99= worst= over16= over8=` at
+   exit; the probe shows p99 / worst / frames-over-16ms for the scroll
+   run. Open: the first Mac numbers in that column, then whichever row
+   kind the worst frames fall on (a table, a diff card, a long code
+   block) via the existing per-row prof zones.
 3. **Menus, tooltips, popovers**: input to first painted frame ≤ 16 ms.
    `LATENCY.md` and `tests/ui/interaction_latency_budgets.e2e` already
    measure event-to-GPU-ink for popup open / close, focus gain / loss,

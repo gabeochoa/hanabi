@@ -2516,6 +2516,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         // a baseline taken while the scenario is driving would rise with
         // whatever the scenario costs, and the condition would never trip.
         std::vector<double> settleCpuMs;
+        hanabi::soak::FrameTail frameTail;
         settleCpuMs.reserve(
             static_cast<size_t>(hanabi::stress::settle_frames()));
         for (int i = 0; i < hanabi::stress::settle_frames(); ++i) {
@@ -2567,6 +2568,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
             if (hanabi::prof::enabled())
                 hanabi::prof::frame_cpu(frameCpu);
             hanabi::prof::frame();
+            frameTail.add(static_cast<double>(frameCpu) / 1.0e6);
             framesRun = i;
 
             // The failure conditions, checked EVERY FRAME rather than every
@@ -2626,6 +2628,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                                      EntityHelper::get_entities().size());
             }
         }
+        frameTail.print("tail");
         hanabi::soak::census();
         // What the scenario actually did, before the verdict rather than
         // after it: a reader who sees "kept_tabs=0" should not have to get

@@ -60,8 +60,8 @@ emit "## perf_scale_probe — $(date -u +%Y-%m-%dT%H:%MZ)"
 emit ""
 emit "host: $(host) · build: $(build) · exe: $EXE · launches: $LAUNCHES · soak frames: $FRAMES"
 emit ""
-emit "| scale | load | cold start ms (min / med / max) | mock seed ms (med) | client cold ms | switch ms (p50 / p95 / max, n) | scroll fps (p50 / p95) | RSS KB (max) | mock seed KB | client KB |"
-emit "|---:|---:|---|---:|---:|---|---|---:|---:|---:|"
+emit "| scale | load | cold start ms (min / med / max) | mock seed ms (med) | client cold ms | switch ms (p50 / p95 / max, n) | scroll fps (p50 / p95) | frame cpu ms p99 / worst / >16 | RSS KB (max) | mock seed KB | client KB |"
+emit "|---:|---:|---|---:|---:|---|---|---|---:|---:|---:|"
 
 for SCALE in $SCALES; do
     export HANABI_MOCK_SCALE="$SCALE"
@@ -102,6 +102,11 @@ for SCALE in $SCALES; do
     awk '{ if ($1 > 0) printf "%.2f\n", 1000.0/$1 }' "$TMP/msf.txt" >"$TMP/fps.txt"
     FPS_P50="$(pct 0.5 <"$TMP/fps.txt")"
     FPS_P05="$(pct 0.05 <"$TMP/fps.txt")"
+    TAIL="$(grep -E '^\[soak\] tail frames=' "$LOG" | tail -1)"
+    TAIL_P99="$(echo "$TAIL" | sed -E 's/.*p99=([0-9.]+).*/\1/')"
+    TAIL_WORST="$(echo "$TAIL" | sed -E 's/.*worst=([0-9.]+).*/\1/')"
+    TAIL_OVER="$(echo "$TAIL" | sed -E 's/.*over16=([0-9]+).*/\1/')"
+    [ -n "$TAIL" ] || { TAIL_P99=n/a; TAIL_WORST=n/a; TAIL_OVER=n/a; }
     RSS_MAX="$(grep -E '^\[soak\] frame ' "$LOG" | sed -E 's/.*RSS +([0-9]+) KB.*/\1/' | sort -n | tail -1)"
     [ -n "$RSS_MAX" ] || RSS_MAX="n/a"
     MOCK_KB="$(grep -E '^\[mock\] seed ' "$LOG" | tail -1 | sed -E 's/.*rss_delta_kb=(-?[0-9]+).*/\1/')"
@@ -112,11 +117,11 @@ for SCALE in $SCALES; do
         MOCK_KB="n/a"
     fi
 
-    emit "| $SCALE | $LOAD | $FF_MIN / $FF_MED / $FF_MAX | $SEED_MED | $CLIENT_COLD | $SW_P50 / $SW_P95 / $SW_MAX (n=$SW_N) | $FPS_P50 / $FPS_P05 | $RSS_MAX | $MOCK_KB | $CLIENT_KB |"
+    emit "| $SCALE | $LOAD | $FF_MIN / $FF_MED / $FF_MAX | $SEED_MED | $CLIENT_COLD | $SW_P50 / $SW_P95 / $SW_MAX (n=$SW_N) | $FPS_P50 / $FPS_P05 | $TAIL_P99 / $TAIL_WORST / $TAIL_OVER | $RSS_MAX | $MOCK_KB | $CLIENT_KB |"
     cp "$TMP/switch-$SCALE.log" "$TMP/scroll-$SCALE.log" "${HANABI_PROBE_KEEP:-/tmp}/" 2>/dev/null || true
 done
 emit ""
-emit "scroll fps p95 column is the 5th percentile of fps (the slow tail); switch n is the number of opens the probe saw land; mock seed KB / ms are the mock building its catalog (resident growth; wall time inside the launch), client cold ms = cold start median minus that, client KB = RSS max minus that."
+emit "scroll fps p95 column is the 5th percentile of fps (the slow tail); switch n is the number of opens the probe saw land; mock seed KB / ms are the mock building its catalog (resident growth; wall time inside the launch), client cold ms = cold start median minus that, client KB = RSS max minus that; frame cpu tail is per-frame CPU over the scroll run (p99, worst, frames over 16 ms)."
 
 # ---- relaunch: first open after a relaunch, full fetch vs since-delta --------
 # HANABI_PROBE_RELAUNCH=1 adds one block at HANABI_PROBE_RELAUNCH_SCALE (10):
