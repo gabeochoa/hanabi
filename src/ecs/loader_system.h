@@ -19,6 +19,7 @@
 #include "../api/create_outcome.h"
 #include "../api/disk_cache.h"
 #include "../ui/open_fetch.h"
+#include "../ui/slash_extras.h"
 #include "load_older_model.h"
 #include "created_at_walk.h"
 #include "../test_hooks.h"
@@ -1630,13 +1631,19 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             const std::string id = app.tuningInFlight ? app.tuningInFlight->sessionId
                                                       : std::string();
             app.tuningInFlight.reset();
+            const bool boundaryNotice = app.slashNotice.rfind("Compaction boundary: ", 0) == 0;
             if (r.ok) {
                 app.apply_session_tuning(id, r.value);
+                if (boundaryNotice)
+                    app.slashNotice = hanabi::slash_extras::session_autocompact_notice(
+                        r.value.autocompact_pct, Settings::get().get_account_autocompact());
             } else if (r.refused) {
                 app.note_tuning_outcome(AppComponent::TuningOutcome::Refused, r.error, id);
+                if (boundaryNotice) app.slashNotice = "Compaction boundary refused: " + r.error;
             } else {
                 // Sent, not confirmed: unknown. Not a refusal, not a retry.
                 app.note_tuning_outcome(AppComponent::TuningOutcome::Unconfirmed, r.error, id);
+                if (boundaryNotice) app.slashNotice = "Compaction boundary not confirmed: " + r.error;
             }
         }
 

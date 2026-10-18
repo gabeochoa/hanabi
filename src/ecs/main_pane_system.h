@@ -10544,9 +10544,15 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
             if (cmd->name == "autocompact") {
                 Pane& owner = app.panes[static_cast<std::size_t>(target.pane_index)];
+                const bool onSession = !target.session_id.empty() && owner.openSession &&
+                                       owner.openSession->summary.id == target.session_id;
                 if (p.args.empty()) {
-                    app.slashNotice = hanabi::slash_extras::autocompact_notice(
-                        owner.nextAutocompactPct, Settings::get().get_account_autocompact());
+                    app.slashNotice =
+                        onSession ? hanabi::slash_extras::session_autocompact_notice(
+                                        owner.openSession->model.autocompact_pct,
+                                        Settings::get().get_account_autocompact())
+                                  : hanabi::slash_extras::autocompact_notice(
+                                        owner.nextAutocompactPct, Settings::get().get_account_autocompact());
                     app.slashNoticePane = target.pane_index;
                     set_target_field(target, "");
                     return;
@@ -10556,6 +10562,23 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     app.slashNotice = a.why;
                     app.slashNoticePane = target.pane_index;
                     set_target_field(target, typed);
+                    return;
+                }
+                if (onSession) {
+                    if (app.requestSessionOptions || app.tuningFuture.valid()) {
+                        app.slashNotice = "Waiting for the server to confirm the last change.";
+                        app.slashNoticePane = target.pane_index;
+                        set_target_field(target, typed);
+                        return;
+                    }
+                    app.requestSessionOptions = AppComponent::SessionOptionsAsk{
+                        target.session_id, target.pane_index,
+                        a.pct == 0 ? api::SessionOptionsPatch::unset_autocompact()
+                                   : api::SessionOptionsPatch::set_autocompact(a.pct)};
+                    app.slashNotice = a.pct == 0 ? std::string("Compaction boundary: back to the default\xe2\x80\xa6")
+                                                 : "Compaction boundary: " + std::to_string(a.pct) + "%\xe2\x80\xa6";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, "");
                     return;
                 }
                 owner.nextAutocompactPct = a.pct;

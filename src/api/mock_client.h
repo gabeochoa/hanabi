@@ -1671,9 +1671,16 @@ class MockClient : public Client {
         }
         if (patch.effort.has_value())
             m.requested_effort = patch.effort->has_value() ? **patch.effort : std::string();
+        if (patch.autocompact_pct.has_value()) {
+            if (patch.autocompact_pct->has_value() && !pins::admits_autocompact(**patch.autocompact_pct))
+                return Result<SessionOptionsEcho>::refusal(
+                    "autocompact_pct " + std::to_string(**patch.autocompact_pct) + " is outside 25..90");
+            m.autocompact_pct = patch.autocompact_pct->has_value() ? **patch.autocompact_pct : 0;
+        }
         SessionOptionsEcho echo;
         echo.model = m.model_pinned ? m.requested : std::string();
         echo.effort = m.requested_effort;
+        echo.autocompact_pct = m.autocompact_pct;
         return Result<SessionOptionsEcho>::success(echo);
     }
 

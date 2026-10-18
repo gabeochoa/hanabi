@@ -74,7 +74,8 @@ inline const std::vector<Command>& all() {
         {"title", "<name>", "rename this conversation", true, ""},
         {"draft", "<name> <text>", "save a draft to bring back as /name; bare /draft lists them", true,
          ""},
-        {"autocompact", "<25-90 | off>", "the compaction boundary for the next new thread", true, ""},
+        {"autocompact", "<25-90 | default>", "this thread's compaction boundary; with no thread, the next one's",
+         true, ""},
         {"compact", "", "compact the context now", false,
          std::string(product_branding::kAppName) + " has no compact call yet"},
     };

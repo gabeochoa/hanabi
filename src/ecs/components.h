@@ -2314,6 +2314,7 @@ struct AppComponent : public afterhours::BaseComponent {
             m.model_pinned = !echo.model.empty();
             m.requested = m.model_pinned ? echo.model : m.harness_default;
             m.requested_effort = echo.effort;
+            m.autocompact_pct = echo.autocompact_pct;
             m.serving = m.requested;
             m.fallback = false;
             ++applied;

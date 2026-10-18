@@ -1279,6 +1279,12 @@ std::string llm_model_of(const json& options) {
 std::string llm_effort_of(const json& options) {
     return str_or(obj_at(options, "llm"), "effort", "");
 }
+int llm_autocompact_of(const json& options) {
+    const json& llm = obj_at(options, "llm");
+    if (!llm.contains("autocompact_pct") || !llm["autocompact_pct"].is_number_integer()) return 0;
+    const int v = llm["autocompact_pct"].get<int>();
+    return pins::admits_autocompact(v) ? v : 0;
+}
 
 void apply_serving_model_from_state(const json& state, Session& out) {
     Session::ServingModel m;
@@ -1286,6 +1292,7 @@ void apply_serving_model_from_state(const json& state, Session& out) {
     m.requested = llm_model_of(obj_at(state, "options"));
     m.model_pinned = !m.requested.empty();
     m.requested_effort = llm_effort_of(obj_at(state, "options"));
+    m.autocompact_pct = llm_autocompact_of(obj_at(state, "options"));
     m.harness = str_or(state, "harness", "");
     if (m.requested.empty()) m.requested = m.harness_default;
     const json& fb = obj_at(state, "model_fallback");
@@ -3305,6 +3312,9 @@ json session_options_patch_json(const SessionOptionsPatch& patch) {
         llm["model"] = patch.model->has_value() ? json(**patch.model) : json(nullptr);
     if (patch.effort.has_value())
         llm["effort"] = patch.effort->has_value() ? json(**patch.effort) : json(nullptr);
+    if (patch.autocompact_pct.has_value())
+        llm["autocompact_pct"] =
+            patch.autocompact_pct->has_value() ? json(**patch.autocompact_pct) : json(nullptr);
     return json{{"llm", llm}};
 }
 
@@ -3319,6 +3329,7 @@ bool fold_options_changed(const std::string& msg_json, SessionOptionsEcho& out) 
     const json& options = obj_at(e, "options");
     out.model = llm_model_of(options);
     out.effort = llm_effort_of(options);
+    out.autocompact_pct = llm_autocompact_of(options);
     return true;
 }
 

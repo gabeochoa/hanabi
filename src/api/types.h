@@ -869,8 +869,19 @@ struct CompactionRequest {
 struct SessionOptionsPatch {
     std::optional<std::optional<std::string>> model;
     std::optional<std::optional<std::string>> effort;
+    std::optional<std::optional<int>> autocompact_pct;
     [[nodiscard]] bool empty() const {
-        return !model.has_value() && !effort.has_value();
+        return !model.has_value() && !effort.has_value() && !autocompact_pct.has_value();
+    }
+    static SessionOptionsPatch set_autocompact(int pct) {
+        SessionOptionsPatch p;
+        p.autocompact_pct = std::optional<int>{pct};
+        return p;
+    }
+    static SessionOptionsPatch unset_autocompact() {
+        SessionOptionsPatch p;
+        p.autocompact_pct = std::optional<int>{};
+        return p;
     }
     static SessionOptionsPatch set_model(std::string id) {
         SessionOptionsPatch p;
@@ -900,6 +911,7 @@ struct SessionOptionsPatch {
 struct SessionOptionsEcho {
     std::string model;   // "" = no model pin
     std::string effort;  // "" = no effort pin
+    int autocompact_pct = 0;  // 0 = no boundary pinned on the session
 };
 
 struct Session {
@@ -957,6 +969,7 @@ struct Session {
         // token: native / claude_code / codex / muse_code); "" when the
         // attach did not say. Read-only for the session's whole life.
         std::string harness;
+        int autocompact_pct = 0;
     };
     ServingModel model;
 
