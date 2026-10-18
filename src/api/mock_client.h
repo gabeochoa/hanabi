@@ -3288,13 +3288,16 @@ class MockClient : public Client {
         std::lock_guard<std::mutex> lk(mu);
         if (!s_cache || key != s_key) {
             const long before = seed_rss_reader() ? seed_rss_reader()() : -1;
+            const auto t0 = std::chrono::steady_clock::now();
             auto fresh = std::make_shared<std::vector<Session>>(build_seed());
             for (auto& s : *fresh) fill_sub_agent_counts(s);
+            const auto t1 = std::chrono::steady_clock::now();
             const long after = seed_rss_reader() ? seed_rss_reader()() : -1;
             SeedFootprint& fp = seed_footprint();
             fp.totals = mock_scale::totals(*fresh);
             fp.rss_delta_kb = (before >= 0 && after >= 0) ? after - before : -1;
             fp.scale = mock_scale::from_env();
+            fp.build_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
             s_cache = std::move(fresh);
             s_key = key;
         }
@@ -3305,6 +3308,7 @@ class MockClient : public Client {
         mock_scale::Totals totals;
         long rss_delta_kb = -1;
         int scale = 1;
+        double build_ms = 0.0;
     };
     static SeedFootprint& seed_footprint() {
         static SeedFootprint fp;

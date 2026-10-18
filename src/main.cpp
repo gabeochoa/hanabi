@@ -2638,9 +2638,10 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         {
             const auto& fp = api::MockClient::seed_footprint();
             if (fp.totals.sessions > 0)
-                std::printf("[mock] seed scale=%d sessions=%zu messages=%zu text_kb=%zu rss_delta_kb=%ld\n",
+                std::printf("[mock] seed scale=%d sessions=%zu messages=%zu text_kb=%zu rss_delta_kb=%ld "
+                            "build_ms=%.1f\n",
                             fp.scale, fp.totals.sessions, fp.totals.messages, fp.totals.text_bytes / 1024,
-                            fp.rss_delta_kb);
+                            fp.rss_delta_kb, fp.build_ms);
         }
         const std::string idle = driver.did_nothing_reason();
         if (!idle.empty())
@@ -2735,6 +2736,9 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                     firstFrame - app_state::startTime)
                     .count();
             log_info("FirstFrame: {} ms", firstFrameMs);
+            if (const auto& fp = api::MockClient::seed_footprint(); fp.totals.sessions > 0)
+                log_info("FirstFrame mock seed: {:.1f} ms ({} sessions, {} messages)", fp.build_ms,
+                         fp.totals.sessions, fp.totals.messages);
             fflush(stdout);
         }
     }

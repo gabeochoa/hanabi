@@ -146,6 +146,48 @@ cache at 100× holds 1.4 MB of it. Boxing the two fact structs behind
 `Message` to roughly 500 bytes; the change touches every reader of those
 facts and is left for its own commit after the current round.
 
+## Cold start at 100×: also the mock
+
+The same Linux probe times the launch-path pieces at 100× (2,000 rows):
+building the mock's seed **304 ms**; a second `list_sessions` (the
+catalog copy) 1.6 ms; `keep_one_row_per_id` 1.0 ms; writing the catalog
+to the disk cache 17.6 ms; reading it back 13.8 ms. At 10× the seed is
+3.2 ms and the rest under 2 ms each. The headless `FirstFrame` pumps
+frames until the session list resolves — it IS cold-to-interactive for
+the list — and at 100× most of what it waits for is the mock constructing
+604k messages. The app now logs `FirstFrame mock seed: N ms` beside
+`FirstFrame`, and the probe prints `mock seed ms` and `client cold ms =
+cold start − seed` so the client's own launch cost is a column.
+
+Of the client's pieces the only one that grows past a millisecond is the
+catalog's disk write (18 ms for 2,000 summaries as JSON, off the frame
+thread) and its read on the next launch (14 ms, on the launch path when
+the cache is warm). Both scale with rows, not messages; neither is near
+the 250 ms gate at 100×.
+
+## The queue, in the order the owner feels it
+
+1. **First open**: cold start to the first INTERACTIVE frame, and the
+   first open of a thread. The headless `FirstFrame` is the former for the
+   list (above); instant threads is the latter, with AFTER-2 below as its
+   measurement. Open: a windowed cold-to-interactive number (the headless
+   one omits Cocoa and Metal's window), which `STARTUP.md` already notes
+   differs by ~100 ms.
+2. **Scroll smoothness**: 897 fps p50 / 738 slow tail through a 300-row
+   thread at 100× (BEFORE), 912 / 852 (AFTER). Nothing near a frame
+   budget; the fall from 1× is the ledger's per-row cost. Open: a p99 /
+   worst-frame column rather than p50, since jank is the tail.
+3. **Menus, tooltips, popovers**: input to first painted frame ≤ 16 ms.
+   `LATENCY.md` and `tests/ui/interaction_latency_budgets.e2e` already
+   measure event-to-GPU-ink for popup open / close, focus gain / loss,
+   click feedback, typing and submit, with FRAME budgets (3–4 frames,
+   measured 1–2) — the deterministic unit on a shared box. Open: the row
+   menu, the command palette and a tooltip are not in that fixture; add
+   them, and tighten the budget for open / close to 1 frame where the
+   measurement already shows 1.
+4. **Memory**: the mock's share is now a column; the client's real item
+   is the 960-byte `Message` (above).
+
 ## AFTER-2 — the relaunch, with a network that costs something
 
 The BEFORE block shows why the four probes cannot see instant threads on
