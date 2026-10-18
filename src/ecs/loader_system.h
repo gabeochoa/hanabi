@@ -1606,6 +1606,24 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         // nothing. A late echo for a session no pane shows any more is
         // harmless: it updates the cached Session if it is still held and is
         // otherwise dropped -- it never touches another pane's session.
+        if (app.serverDrafts.pending && app.serverDrafts.future.valid() &&
+            app.serverDrafts.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            auto r = app.serverDrafts.future.get();
+            auto& sd = app.serverDrafts;
+            sd.pending = false;
+            sd.rows.clear();
+            if (!r.ok) {
+                sd.note = "Could not reach your saved drafts: " + r.error;
+            } else if (r.value.status != 200) {
+                sd.note = "Could not read your saved drafts: " + api::drafts::status_note(r.value.status);
+            } else if (const auto page = api::drafts::parse(r.value.body)) {
+                sd.rows = page->drafts;
+                if (sd.rows.empty()) sd.note = "No saved drafts on your account.";
+            } else {
+                sd.note = "Could not read your saved drafts: the answer was not the drafts list.";
+            }
+        }
+
         if (app.requestSessionOptions && !app.tuningFuture.valid()) {
             app.tuningInFlight = std::move(*app.requestSessionOptions);
             app.requestSessionOptions.reset();

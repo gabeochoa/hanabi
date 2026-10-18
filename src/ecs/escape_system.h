@@ -82,6 +82,8 @@ struct EscapeSystem : afterhours::System<UIContext<InputAction>> {
             app->escape = EscapeIntent::CloseFoldPicker;
         else if (app->nodePopoverOpen)
             app->escape = EscapeIntent::CloseNodePicker;
+        else if (app->serverDrafts.open)
+            app->escape = EscapeIntent::CloseDraftsPicker;
         else if (Settings::get().get_escape_stops() && app->client &&
                  app->client->supports_interrupt() && !app->interruptPending &&
                  app->should_steer_open())

@@ -46,35 +46,4 @@ inline std::string session_autocompact_notice(int sessionPct, int account) {
     return "This thread compacts on Auto. /autocompact 60 sets its own.";
 }
 
-struct DraftArgs {
-    std::string name;
-    std::string text;
-};
-
-inline DraftArgs split_draft(std::string_view args) {
-    std::size_t b = 0;
-    while (b < args.size() && args[b] == ' ') ++b;
-    std::size_t e = b;
-    while (e < args.size() && args[e] != ' ') ++e;
-    DraftArgs out;
-    out.name = std::string(args.substr(b, e - b));
-    while (e < args.size() && args[e] == ' ') ++e;
-    out.text = std::string(args.substr(e));
-    while (!out.text.empty() && out.text.back() == ' ') out.text.pop_back();
-    return out;
-}
-
-template <typename Templates>
-std::string drafts_notice(const Templates& templates) {
-    if (templates.empty()) return "No saved drafts yet. /draft <name> <text> saves one; /<name> brings it back.";
-    std::string out = "Saved drafts:";
-    std::size_t n = 0;
-    for (const auto& t : templates) {
-        out += n++ == 0 ? " /" : ", /";
-        out += t.name;
-    }
-    out += " \xe2\x80\x94 type one to bring it back.";
-    return out;
-}
-
 }

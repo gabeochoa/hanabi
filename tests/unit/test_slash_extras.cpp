@@ -15,11 +15,6 @@ static int failures = 0;
         }                                                              \
     } while (0)
 
-struct T {
-    std::string name;
-    std::string text;
-};
-
 int main() {
     std::printf("=== test_slash_extras ===\n");
     CHECK(sx::parse_autocompact("60").ok && sx::parse_autocompact("60").pct == 60);
@@ -38,14 +33,6 @@ int main() {
     CHECK(sx::session_autocompact_notice(0, 75) == "This thread compacts at your account's 75%. /autocompact 60 sets its own.");
     CHECK(sx::session_autocompact_notice(0, 0) == "This thread compacts on Auto. /autocompact 60 sets its own.");
 
-    const auto d = sx::split_draft("standup what moved, and what is stuck ");
-    CHECK(d.name == "standup" && d.text == "what moved, and what is stuck");
-    CHECK(sx::split_draft("  only").name == "only" && sx::split_draft("  only").text.empty());
-    CHECK(sx::split_draft("").name.empty());
-    std::vector<T> none;
-    CHECK(sx::drafts_notice(none).rfind("No saved drafts yet", 0) == 0);
-    std::vector<T> two{{"a", "x"}, {"b", "y"}};
-    CHECK(sx::drafts_notice(two) == "Saved drafts: /a, /b \xe2\x80\x94 type one to bring it back.");
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

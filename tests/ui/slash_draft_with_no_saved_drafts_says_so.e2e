@@ -1,0 +1,15 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat
+wait_frames 90
+click_ui composer_reply_input
+type "/draft"
+wait_frames 4
+key ESCAPE
+wait_frames 4
+key ENTER
+wait_frames 20
+expect_text "SAVED DRAFTS"
+expect_text "No saved drafts on your account."
+key ESCAPE
+wait_frames 8
+expect_no_ui drafts_popover

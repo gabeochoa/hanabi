@@ -1716,6 +1716,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     bool modelPopoverWasOpen_ = false;
     bool contextPopoverWasOpen_ = false;
     bool planPopoverWasOpen_ = false;
+    bool draftsPopoverWasOpen_ = false;
     bool changesPopoverWasOpen_ = false;
     // The @ picker's rows for the last draft that asked (render_composer).
     struct MentionMemo {
@@ -8182,6 +8183,88 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      18.0f, theme::text_secondary(), "changes_more");
     }
 
+    void render_drafts_popover(UIContext<InputAction>& ctx, Entity& parent,
+                               AppComponent& app, Entity& anchorEnt, int paneIndex) {
+        auto& sd = app.serverDrafts;
+        if (!sd.open && !draftsPopoverWasOpen_) return;
+        auto popRoot = mk(parent, 3450);
+        RectangleType anchor = anchorEnt.get<afterhours::ui::UIComponent>().rect();
+        anchor.y -= 24.0f;
+        if (!sd.open) {
+            afterhours::ui::imm::popover(ctx, popRoot, anchor, sd.open,
+                                         afterhours::ui::overlay::Placement::Above);
+            draftsPopoverWasOpen_ = false;
+            return;
+        }
+        draftsPopoverWasOpen_ = true;
+
+        constexpr float kPopW = 372.0f;
+        constexpr float kRowH = 30.0f;
+        const std::size_t shown = std::min<std::size_t>(sd.rows.size(), 8);
+        float popH = 42.0f + 8.0f;
+        popH += sd.rows.empty() ? 24.0f : kRowH * static_cast<float>(shown);
+        if (sd.rows.size() > shown) popH += 20.0f;
+
+        const auto previousSurface = ctx.theme.surface;
+        ctx.theme.surface = theme::panel_bg_2();
+        auto pop = afterhours::ui::imm::popover(
+            ctx, popRoot, anchor, sd.open, afterhours::ui::overlay::Placement::Above,
+            hanabi::surface::menu(kPopW, popH, 7)
+                .with_padding(Padding{.top = pixels(8), .right = pixels(10), .bottom = pixels(8), .left = pixels(10)})
+                .with_debug_name("drafts_popover"));
+        ctx.theme.surface = previousSurface;
+        if (!pop) return;
+        publish_popover_occluder(pop.ent());
+
+        div(ctx, mk(pop.ent(), 1),
+            ComponentConfig{}
+                .with_label("SAVED DRAFTS")
+                .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("drafts_popover_title"));
+        if (sd.rows.empty()) {
+            div(ctx, mk(pop.ent(), 2),
+                ComponentConfig{}
+                    .with_label(sd.pending ? "Loading your saved drafts\xe2\x80\xa6" : sd.note)
+                    .with_size(ComponentSize{percent(1.0f), pixels(24)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("drafts_popover_note"));
+            return;
+        }
+        for (std::size_t i = 0; i < shown; ++i) {
+            const api::drafts::ServerDraft& d = sd.rows[i];
+            auto row = button(ctx, mk(pop.ent(), 10 + static_cast<int>(i)),
+                hanabi::surface::option_row(kPopW - 20.0f, kRowH, false, 8)
+                    .with_label(api::drafts::first_line(d.body))
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("draft_row_" + std::to_string(i)));
+            if (row) {
+                sd.picked = d.body;
+                sd.open = false;
+                app.request_composer_focus();
+            }
+        }
+        if (sd.rows.size() > shown)
+            div(ctx, mk(pop.ent(), 3),
+                ComponentConfig{}
+                    .with_label(std::to_string(sd.rows.size() - shown) + " more on the web")
+                    .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("drafts_popover_more"));
+    }
+
     void render_plan_popover(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, Entity& anchorEnt,
                              const api::Session& session) {
@@ -9679,6 +9762,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.planPopoverOpen = !app.planPopoverOpen;
                 app.composerPopoverPane = paneIndex;
             }
+            if (app.escape == EscapeIntent::CloseDraftsPicker) app.serverDrafts.open = false;
+            if (ownsPopovers && app.serverDrafts.pane == paneIndex)
+                render_drafts_popover(ctx, parent, app, modelChip.ent(), paneIndex);
             if (app.escape == EscapeIntent::ClosePlanPicker)
                 app.planPopoverOpen = false;
             if (ownsPopovers)
@@ -10370,6 +10456,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 api::disk_cache::Draft{text, targetState.attachments});
             if (target == composerTarget) set_field(text);
         };
+        if (app.serverDrafts.picked && app.serverDrafts.pane == paneIndex) {
+            set_target_field(composerTarget, *app.serverDrafts.picked);
+            app.serverDrafts.picked.reset();
+        }
 
         const auto run_slash = [&](const hanabi::slash::Parsed& p,
                                    const std::string& typed,
@@ -10515,30 +10605,24 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 return;
             }
             if (cmd->name == "draft") {
-                if (p.args.empty()) {
-                    app.slashNotice = hanabi::slash_extras::drafts_notice(Settings::get().get_templates());
-                    app.slashNoticePane = target.pane_index;
-                    set_target_field(target, "");
-                    return;
-                }
-                const hanabi::slash_extras::DraftArgs d = hanabi::slash_extras::split_draft(p.args);
-                if (d.text.empty()) {
-                    app.slashNotice = "Type the draft's text after its name: /draft " + d.name + " <text>.";
+                if (!app.client || !app.client->supports_web_routes()) {
+                    app.slashNotice = "This backend keeps no saved drafts.";
                     app.slashNoticePane = target.pane_index;
                     set_target_field(target, typed);
                     return;
                 }
-                std::vector<std::string_view> builtins;
-                for (const auto& c : hanabi::slash::all()) builtins.push_back(c.name);
-                const std::string why = Settings::get().add_template(d.name, d.text, builtins);
-                if (!why.empty()) {
-                    app.slashNotice = why;
-                    app.slashNoticePane = target.pane_index;
-                    set_target_field(target, typed);
-                    return;
+                auto& sd = app.serverDrafts;
+                sd.open = true;
+                sd.pane = target.pane_index;
+                sd.rows.clear();
+                sd.note.clear();
+                if (!sd.future.valid()) {
+                    sd.pending = true;
+                    std::shared_ptr<api::Client> c = app.client;
+                    sd.future = std::async(std::launch::async,
+                                           [c] { return c->web_call("GET", api::drafts::kPath, ""); });
                 }
-                app.slashNotice = "Saved /" + hanabi::slash::lowered(d.name) + " â type it to bring the draft back.";
-                app.slashNoticePane = target.pane_index;
+                app.slashNotice.clear();
                 set_target_field(target, "");
                 return;
             }
