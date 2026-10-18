@@ -2959,15 +2959,67 @@ struct HandleExpectSoundCommand
                        float) override {
         if (cmd.is_consumed() || !cmd.is("expect_sound")) return;
         if (!cmd.has_args(2)) {
-            cmd.fail("expect_sound requires <session id> <default|on|off>");
+            cmd.fail("expect_sound requires <session id> <default|silent|two-tone|low|bright|triple>");
             return;
         }
         const int got = Settings::get().get_sound_override(cmd.arg(0));
         const std::string want = cmd.arg(1);
-        const int wantMode = want == "on" ? 1 : want == "off" ? -1 : 0;
+        const auto wantTone = hanabi::session_sound::parse(want);
+        if (!wantTone) {
+            cmd.fail(std::format("expect_sound: unknown tone '{}'", want));
+            return;
+        }
+        const int wantMode = hanabi::session_sound::to_int(*wantTone);
         if (got != wantMode)
             cmd.fail(std::format("expect_sound {}: override is {}, wanted {}", cmd.arg(0),
                                  got, want));
+        cmd.consume();
+    }
+};
+
+struct HandleSettingsFileCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed()) return;
+        const bool exp = cmd.is("export_settings");
+        const bool theme = cmd.is("expect_theme");
+        if (!exp && !theme && !cmd.is("import_settings")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail(std::string(exp ? "export_settings" : theme ? "expect_theme" : "import_settings") +
+                     " requires one argument");
+            return;
+        }
+        if (theme) {
+            if (cmd.has_args(2)) {
+                const std::string& have = Settings::get().get_session_theme(cmd.arg(0));
+                const std::string want = cmd.arg(1) == "-" ? std::string() : cmd.arg(1);
+                if (have != want)
+                    cmd.fail(std::format("expect_theme {}: session theme is '{}', wanted '{}'", cmd.arg(0),
+                                         have, want));
+                cmd.consume();
+                return;
+            }
+            if (Settings::get().get_theme() != cmd.arg(0))
+                cmd.fail(std::format("expect_theme: theme is '{}', wanted '{}'",
+                                     Settings::get().get_theme(), cmd.arg(0)));
+            cmd.consume();
+            return;
+        }
+        if (exp) {
+            if (!Settings::get().export_to(cmd.arg(0)))
+                cmd.fail(std::format("export_settings: could not write {}", cmd.arg(0)));
+            cmd.consume();
+            return;
+        }
+        const std::string why = Settings::get().import_from(cmd.arg(0));
+        if (!why.empty()) {
+            cmd.fail(std::format("import_settings: {}", why));
+            return;
+        }
+        auto q = afterhours::EntityQuery({.force_merge = true}).whereHasComponent<ecs::AppComponent>().gen();
+        if (!q.empty()) q[0].get().get<ecs::AppComponent>().requestSettingsReapply = true;
         cmd.consume();
     }
 };
@@ -4148,6 +4200,39 @@ struct HandleExpectFontFaceCommand
 // (home, blocked, ...); a saved view by its own id, which a script knows
 // only through `sb_view_<id>` markers -- so for one made in the script, the
 // name alone may be given as `*=Name`.
+struct HandleExpectNotifyKindCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity& e,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_notify_kind")) return;
+        if (!cmd.has_args(2) || (cmd.arg(1) != "on" && cmd.arg(1) != "off")) {
+            cmd.fail("expect_notify_kind requires <finished|blocked|waiting> <on|off>");
+            return;
+        }
+        const std::string& kind = cmd.arg(0);
+        const Settings& s = Settings::get();
+        const bool on = kind == "finished" ? s.get_notify_finished()
+                        : kind == "blocked" ? s.get_notify_blocked()
+                        : kind == "waiting" ? s.get_notify_waiting()
+                                            : false;
+        if (kind != "finished" && kind != "blocked" && kind != "waiting") {
+            cmd.fail(std::format("expect_notify_kind: unknown kind '{}'", kind));
+            return;
+        }
+        if (on == (cmd.arg(1) == "on")) {
+            cmd.consume();
+            return;
+        }
+        if (within::budget_open(e.id, cmd)) {
+            cmd.retry();
+            return;
+        }
+        within::fail_terminal(cmd, std::format("expect_notify_kind: {} is {}, expected {}", kind,
+                                               on ? "on" : "off", cmd.arg(1)));
+    }
+};
+
 struct HandleExpectConfirmQuitCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity& e,
@@ -5027,6 +5112,8 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleDropMemoryCacheCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSoundCommand>());
     sm.register_update_system(std::make_unique<HandleOpenThreadCommand>());
+    sm.register_update_system(std::make_unique<HandleSettingsFileCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectNotifyKindCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());
     sm.register_update_system(std::make_unique<HandleExpectConfirmQuitCommand>());

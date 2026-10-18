@@ -4,6 +4,7 @@
 
 #include "shortcuts.h"
 #include "global_hotkeys.h"
+#include "ui/session_sound.h"
 
 #include <array>
 #include <cstddef>
@@ -88,6 +89,13 @@ struct Settings {
 
     bool load_save_file();
     void write_save_file();
+    bool export_to(const std::string& path);
+    struct ImportPreview {
+        std::string error;
+        std::vector<std::string> keys;
+    };
+    ImportPreview import_preview(const std::string& path) const;
+    std::string import_from(const std::string& path);
 
     int get_window_width() const;
     int get_window_height() const;
@@ -192,6 +200,14 @@ struct Settings {
     void set_run_chime(bool on);  // auto-persists
     bool get_notify_subagents() const;
     void set_notify_subagents(bool on);  // auto-persists
+    bool get_notify_finished() const;
+    void set_notify_finished(bool on);
+    bool get_notify_blocked() const;
+    void set_notify_blocked(bool on);
+    bool get_notify_waiting() const;
+    void set_notify_waiting(bool on);
+    bool get_notify_updates() const;
+    void set_notify_updates(bool on);
     bool get_send_usage_data() const;
     void set_send_usage_data(bool on);  // auto-persists
     // ── Export destination (Settings -> Data -> Export) ─────────────────
@@ -381,9 +397,14 @@ struct Settings {
     bool is_turn_starred(const std::string& session_id, const std::string& message_id) const;
     void set_turn_starred(const std::string& session_id, const std::string& message_id, bool on);
     const std::vector<std::string>& starred_turns(const std::string& session_id) const;
+    const std::string& get_session_theme(const std::string& id) const;
+    void set_session_theme(const std::string& id, const std::string& choice);
+    bool get_thread_colours() const;
+    void set_thread_colours(bool on);
     int get_sound_override(const std::string& id) const;
     void set_sound_override(const std::string& id, int mode);
     bool sound_for(const std::string& id) const;
+    std::optional<hanabi::session_sound::Tone> chime_for(const std::string& id) const;
 
     // ── Local display preferences. Persisted, but NOT part of the web
     // preferences schema and never marked dirty: how this machine draws the
@@ -604,6 +625,10 @@ struct Settings {
     bool notifications_enabled_ = true;
     bool run_chime_ = false;
     bool notify_subagents_ = false;
+    bool notify_finished_ = true;
+    bool notify_blocked_ = true;
+    bool notify_waiting_ = true;
+    bool notify_updates_ = true;
     bool send_usage_data_ = true;
     std::string export_dir_;  // empty = the built-in default
     bool sidebar_collapsed_ = false;
@@ -635,6 +660,8 @@ struct Settings {
     void prune_last_read();
     std::map<std::string, int> tool_fold_;
     std::map<std::string, int> sound_override_;
+    std::map<std::string, std::string> session_theme_;
+    bool thread_colours_ = true;
     std::map<std::string, std::vector<std::string>> starred_turns_;
     // Preference slots (see getters). Defaults mirror the web defaults.
     int yap_level_ = 2;

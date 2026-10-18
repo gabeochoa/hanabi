@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "ui/inbox_triage.h"
+#include "ui/settings_transfer.h"
 #include "text_zoom.h"
 #include "line_spacing.h"
 #include "util/acknowledged.h"
@@ -9,8 +10,10 @@
 
 #include <algorithm>
 #include <array>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -107,6 +110,10 @@ bool Settings::load_save_file() {
             j.value("notifications_enabled", notifications_enabled_);
         run_chime_ = j.value("run_chime", run_chime_);
         notify_subagents_ = j.value("notify_subagents", notify_subagents_);
+        notify_finished_ = j.value("notify_finished", notify_finished_);
+        notify_blocked_ = j.value("notify_blocked", notify_blocked_);
+        notify_waiting_ = j.value("notify_waiting", notify_waiting_);
+        notify_updates_ = j.value("notify_updates", notify_updates_);
         send_usage_data_ = j.value("send_usage_data", send_usage_data_);
         export_dir_ = j.value("export_dir", export_dir_);
         sidebar_collapsed_ = j.value("sidebar_collapsed", sidebar_collapsed_);
@@ -277,11 +284,23 @@ bool Settings::load_save_file() {
                 if (!ids.empty()) starred_turns_[k] = std::move(ids);
             }
         }
+        session_theme_.clear();
+        if (j.contains("session_theme") && j["session_theme"].is_object()) {
+            for (const auto& [k, v] : j["session_theme"].items())
+                if (v.is_string() && !v.get<std::string>().empty()) session_theme_[k] = v.get<std::string>();
+        }
+        thread_colours_ = j.value("thread_colours", thread_colours_);
         sound_override_.clear();
         if (j.contains("sound_override") && j["sound_override"].is_object()) {
-            for (const auto& [k, v] : j["sound_override"].items())
+            for (const auto& [k, v] : j["sound_override"].items()) {
                 if (v.is_number_integer() && v.get<int>() != 0)
-                    sound_override_[k] = v.get<int>() > 0 ? 1 : -1;
+                    sound_override_[k] = hanabi::session_sound::to_int(
+                        hanabi::session_sound::from_int(v.get<int>()));
+                else if (v.is_string())
+                    if (const auto t = hanabi::session_sound::parse(v.get<std::string>());
+                        t && *t != hanabi::session_sound::Tone::Inherit)
+                        sound_override_[k] = hanabi::session_sound::to_int(*t);
+            }
         }
         starred_ids_.clear();
         starred_set_.clear();
@@ -380,6 +399,10 @@ void Settings::write_save_file() {
     j["notifications_enabled"] = notifications_enabled_;
     j["run_chime"] = run_chime_;
     j["notify_subagents"] = notify_subagents_;
+    j["notify_finished"] = notify_finished_;
+    j["notify_blocked"] = notify_blocked_;
+    j["notify_waiting"] = notify_waiting_;
+    j["notify_updates"] = notify_updates_;
     j["send_usage_data"] = send_usage_data_;
     j["export_dir"] = export_dir_;
     j["sidebar_collapsed"] = sidebar_collapsed_;
@@ -461,9 +484,69 @@ void Settings::write_save_file() {
     j["read_seq"] = read_seq_;
     j["tool_fold"] = tool_fold_;
     j["sound_override"] = sound_override_;
+    j["session_theme"] = session_theme_;
+    j["thread_colours"] = thread_colours_;
     j["starred_turns"] = starred_turns_;
     std::ofstream out(get_settings_path());
     if (out.good()) out << j.dump(2);
+}
+
+bool Settings::export_to(const std::string& path) {
+    write_save_file();
+    std::ifstream in(get_settings_path(), std::ios::binary);
+    if (!in.good()) return false;
+    const json current = json::parse(in, nullptr, false);
+    if (current.is_discarded()) return false;
+    const std::time_t now = std::time(nullptr);
+    char stamp[32] = {};
+    std::strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now));
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out.good()) return false;
+    out << hanabi::settings_transfer::envelope(current, stamp).dump(2);
+    return out.good();
+}
+
+Settings::ImportPreview Settings::import_preview(const std::string& path) const {
+    ImportPreview p;
+    std::ifstream in(path, std::ios::binary);
+    if (!in.good()) {
+        p.error = "cannot read " + path;
+        return p;
+    }
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto got = hanabi::settings_transfer::extract(bytes);
+    if (got.verdict != hanabi::settings_transfer::Verdict::Ok) {
+        p.error = std::string(hanabi::settings_transfer::reason(got.verdict));
+        return p;
+    }
+    p.keys = got.keys;
+    return p;
+}
+
+std::string Settings::import_from(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in.good()) return "cannot read " + path;
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto got = hanabi::settings_transfer::extract(bytes);
+    if (got.verdict != hanabi::settings_transfer::Verdict::Ok)
+        return std::string(hanabi::settings_transfer::reason(got.verdict));
+    write_save_file();
+    json current = json::object();
+    {
+        std::ifstream cur(get_settings_path(), std::ios::binary);
+        if (cur.good()) {
+            current = json::parse(cur, nullptr, false);
+            if (current.is_discarded()) current = json::object();
+        }
+    }
+    const json merged = hanabi::settings_transfer::merge(current, got.settings);
+    std::ofstream out(get_settings_path(), std::ios::binary | std::ios::trunc);
+    if (!out.good()) return "cannot write the settings file";
+    out << merged.dump(2);
+    out.close();
+    if (!load_save_file()) return "the settings file would not load";
+    mark_settings_dirty();
+    return "";
 }
 
 // The ratio is clamped on READ as well as on write. A settings.json that was
@@ -682,6 +765,30 @@ void Settings::set_run_chime(bool on) {
     if (auto_save_enabled) write_save_file();
 }
 
+bool Settings::get_notify_finished() const { return notify_finished_; }
+void Settings::set_notify_finished(bool on) {
+    if (on == notify_finished_) return;
+    notify_finished_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_notify_blocked() const { return notify_blocked_; }
+void Settings::set_notify_blocked(bool on) {
+    if (on == notify_blocked_) return;
+    notify_blocked_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_notify_waiting() const { return notify_waiting_; }
+void Settings::set_notify_waiting(bool on) {
+    if (on == notify_waiting_) return;
+    notify_waiting_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_notify_updates() const { return notify_updates_; }
+void Settings::set_notify_updates(bool on) {
+    if (on == notify_updates_) return;
+    notify_updates_ = on;
+    if (auto_save_enabled) write_save_file();
+}
 bool Settings::get_notify_subagents() const { return notify_subagents_; }
 void Settings::set_notify_subagents(bool on) {
     if (on == notify_subagents_) return;
@@ -966,17 +1073,45 @@ void Settings::set_turn_starred(const std::string& session_id, const std::string
     if (ids.empty()) starred_turns_.erase(session_id);
     if (auto_save_enabled) write_save_file();
 }
+const std::string& Settings::get_session_theme(const std::string& id) const {
+    static const std::string kNone;
+    auto it = session_theme_.find(id);
+    return it == session_theme_.end() ? kNone : it->second;
+}
+void Settings::set_session_theme(const std::string& id, const std::string& choice) {
+    if (id.empty()) return;
+    if (choice.empty()) {
+        if (session_theme_.erase(id) == 0) return;
+    } else {
+        auto it = session_theme_.find(id);
+        if (it != session_theme_.end() && it->second == choice) return;
+        session_theme_[id] = choice;
+    }
+    if (auto_save_enabled) write_save_file();
+}
+bool Settings::get_thread_colours() const { return thread_colours_; }
+void Settings::set_thread_colours(bool on) {
+    if (on == thread_colours_) return;
+    thread_colours_ = on;
+    if (auto_save_enabled) write_save_file();
+}
 int Settings::get_sound_override(const std::string& id) const {
     auto it = sound_override_.find(id);
     return it == sound_override_.end() ? 0 : it->second;
 }
 bool Settings::sound_for(const std::string& id) const {
-    const int o = get_sound_override(id);
-    return o == 0 ? notification_sound_ : o > 0;
+    return hanabi::session_sound::resolve(hanabi::session_sound::from_int(get_sound_override(id)),
+                                          run_chime_, notification_sound_)
+        .banner_sound;
+}
+std::optional<hanabi::session_sound::Tone> Settings::chime_for(const std::string& id) const {
+    return hanabi::session_sound::resolve(hanabi::session_sound::from_int(get_sound_override(id)),
+                                          run_chime_, notification_sound_)
+        .chime;
 }
 void Settings::set_sound_override(const std::string& id, int mode) {
     if (id.empty()) return;
-    const int next = mode == 0 ? 0 : mode > 0 ? 1 : -1;
+    const int next = hanabi::session_sound::to_int(hanabi::session_sound::from_int(mode));
     if (next == 0) {
         if (sound_override_.erase(id) == 0) return;
     } else {

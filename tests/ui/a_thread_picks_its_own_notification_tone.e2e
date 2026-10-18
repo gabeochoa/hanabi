@@ -7,12 +7,22 @@ click_ui row_menu_notifications
 wait_frames 6
 expect_text "Mute"
 expect_text "Sound: Default (on)"
-expect_text "Sound: On for this thread"
-expect_text "Sound: Off for this thread"
+expect_text "Sound: Two-tone"
+expect_text "Sound: Low"
+expect_text "Sound: Bright"
+expect_text "Sound: Triple"
+expect_text "Sound: Silent"
 click_ui row_menu_sound_off
 wait_frames 8
-expect_no_text "Sound: Off for this thread"
-expect_sound t6 off
+expect_no_text "Sound: Silent"
+expect_sound t6 silent
+right_click_text "SKU backfill"
+wait_frames 8
+click_ui row_menu_notifications
+wait_frames 6
+click_ui row_menu_sound_bright
+wait_frames 8
+expect_sound t6 bright
 right_click_text "SKU backfill"
 wait_frames 8
 click_ui row_menu_notifications

@@ -34,10 +34,11 @@ enum class Activity {
     Other,     // running, idle, archived — nothing to say
     Blocked,   // waiting on the user
     Finished,  // reached a done/ready state
+    Waiting,   // asked something and is waiting on the answer
 };
 
 struct Event {
-    enum class Kind { Blocked, Finished };
+    enum class Kind { Blocked, Finished, Waiting };
     Kind kind;
     std::string id;
     std::string title;
@@ -62,6 +63,9 @@ using Children = std::set<std::string>;
 // shipped before there were switches, so an absent preference changes nothing.
 struct Wants {
     bool subagents = false;  // sub-agent transitions raise a banner
+    bool finished = true;
+    bool blocked = true;
+    bool waiting = true;
 };
 
 inline std::vector<Event> transitions(
@@ -83,13 +87,15 @@ inline std::vector<Event> transitions(
         auto title = titles.find(id);
         const std::string label = title == titles.end() ? std::string{}
                                                         : title->second;
-        if (now == Activity::Blocked)
+        if (now == Activity::Blocked && wants.blocked)
             out.push_back({Event::Kind::Blocked, id, label});
+        else if (now == Activity::Waiting && wants.waiting)
+            out.push_back({Event::Kind::Waiting, id, label});
         // An automation's run finishing is not news (the reference's 0.8.6):
         // it raises no banner unless the reader pinned the thread, which the
         // caller has already folded into `automations`. One that BLOCKS on
         // the reader still does.
-        else if (now == Activity::Finished && automations.count(id) == 0)
+        else if (now == Activity::Finished && automations.count(id) == 0 && wants.finished)
             out.push_back({Event::Kind::Finished, id, label});
     }
     return out;
@@ -108,6 +114,8 @@ inline std::optional<Event> native_event(
     if (events.empty()) return std::nullopt;
     for (const auto& event : events)
         if (event.kind == Event::Kind::Blocked) return event;
+    for (const auto& event : events)
+        if (event.kind == Event::Kind::Waiting) return event;
     return events.front();
 }
 

@@ -11,8 +11,9 @@ wait_frames 10
 expect_text "CONVERSATION"
 
 # Open, Open & Pin, Open in Split, then past the disabled Rename and Fork
-# to Copy Title, then past the disabled Copy Weblink (no web base is
-# configured here) to Copy Deeplink: five presses.
+# to Copy (four presses), Right into its submenu on Copy Title, then one
+# Down past the disabled Copy Weblink (no web base is configured here) to
+# Copy Deeplink.
 arrow down
 wait_frames 6
 arrow down
@@ -21,6 +22,10 @@ arrow down
 wait_frames 6
 arrow down
 wait_frames 6
+expect_text "Copy"
+arrow right
+wait_frames 8
+expect_text "Copy Title"
 arrow down
 wait_frames 6
 expect_text "Copy Deeplink"

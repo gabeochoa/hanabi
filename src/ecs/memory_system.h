@@ -410,7 +410,9 @@ struct MemorySystem : afterhours::System<AppComponent> {
                     cur = w.at_launch;
                     cur.mtime_ns += 1;
                 }
+                const bool wasPending = app.updatePending;
                 app.updatePending = w.pending(cur);
+                if (app.updatePending && !wasPending) app.requestUpdateBanner = true;
                 if (app.updatePending) w.pending_id = cur;
             }
         }

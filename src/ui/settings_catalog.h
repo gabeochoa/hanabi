@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 59> kRows{{
+inline constexpr std::array<Row, 66> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -188,6 +188,10 @@ inline constexpr std::array<Row, 59> kRows{{
     {"only_ungrouped", Pane::General, "Only threads in no group",
      "ungrouped personal filter sidebar space folder none",
      Origin::Device},
+    {"export_prefs", Pane::General, "Export settings to another Mac",
+     "export settings backup transfer json file another mac", Origin::Device},
+    {"import_prefs", Pane::General, "Import settings from another Mac",
+     "import settings restore transfer json file another mac merge", Origin::Device},
 
     // Appearance, in the reference's order of sections: Reading width,
     // Typeface, Theme, then hanabi's own rows under the sections they fit.
@@ -235,6 +239,9 @@ inline constexpr std::array<Row, 59> kRows{{
     {"highlight", Pane::Appearance, "Find highlight",
      "find search highlight match colour color yellow swatch",
      Origin::Device, "Theme"},
+    {"thread_colours", Pane::Appearance, "Thread colours in the sidebar",
+     "thread colour color sidebar mark accent per-thread theme row",
+     Origin::Device, "Theme"},
     {"icon_set", Pane::Appearance, "Icons",
      "icons status marks faces mm3 character set normal glyphs",
      Origin::Device, "Theme"},
@@ -264,6 +271,14 @@ inline constexpr std::array<Row, 59> kRows{{
 
     {"notify_show", Pane::Notifications, "Show notifications",
      "notification notify alert banner interrupt post", Origin::Device},
+    {"notify_finished", Pane::Notifications, "A run finished",
+     "finished done complete kind banner notify", Origin::Device},
+    {"notify_blocked", Pane::Notifications, "A run is blocked",
+     "blocked needs you decision kind banner notify", Origin::Device},
+    {"notify_waiting", Pane::Notifications, "A run is waiting on you",
+     "waiting question ask answer kind banner notify", Origin::Device},
+    {"notify_updates", Pane::Notifications, "An update is ready",
+     "update ready restart new build banner notify", Origin::Device},
     {"notify_sound", Pane::Notifications, "Play a sound",
      "sound audio ping chime noise alert", Origin::Account},
     {"quiet_hours", Pane::Notifications, "Quiet hours",

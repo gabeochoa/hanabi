@@ -52,6 +52,7 @@
 #include "util/stress.h"
 #include "util/switch_probe.h"
 #include "util/notify_events.h"
+#include "ui/session_sound.h"
 #include "util/quiet_hours.h"
 #include "util/spotlight_catalog.h"
 #include "version.h"
@@ -153,6 +154,18 @@ static int64_t now_epoch_seconds() {
     return std::chrono::duration_cast<std::chrono::seconds>(
                std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+static void play_tone(hanabi::session_sound::Tone tone) {
+    const hanabi::session_sound::Sequence seq = hanabi::session_sound::notes(tone);
+    if (seq.count == 0) return;
+    double hz[3] = {}, secs[3] = {};
+    for (std::size_t i = 0; i < seq.count; ++i) {
+        hz[i] = seq.notes[i].hz;
+        secs[i] = seq.notes[i].seconds;
+    }
+    native_play_tone(std::string(hanabi::session_sound::wire(tone)).c_str(), hz, secs,
+                     static_cast<int>(seq.count));
 }
 
 // Is the wall clock inside the user's quiet window right now? The window
@@ -1095,6 +1108,18 @@ static void app_frame_body() {
             static double lastNotifyAt = -1.0;
             constexpr double kNotifyMinGapSecs = 30.0;
 
+            if (const int pick = app.requestTonePreview; pick != 0) {
+                app.requestTonePreview = 0;
+                play_tone(hanabi::session_sound::from_int(pick));
+            }
+            if (app.requestUpdateBanner) {
+                app.requestUpdateBanner = false;
+                if (Settings::get().get_notifications_enabled() && Settings::get().get_notify_updates() &&
+                    !in_quiet_hours_now())
+                    native_notify("An update is ready", "Restart to use the new build", "",
+                                  Settings::get().get_notification_sound());
+            }
+
             std::vector<std::pair<std::string, hanabi::notify::Activity>> now;
             std::map<std::string, std::string> titles;
             // Muted threads are still gathered and still snapshotted below —
@@ -1107,9 +1132,10 @@ static void app_frame_body() {
             for (const auto& s : app.sessions) {
                 if (s.id.empty()) continue;
                 auto activity = hanabi::notify::Activity::Other;
-                if (s.tag == api::ThreadTag::Blocked ||
-                    s.tag == api::ThreadTag::Waiting)
+                if (s.tag == api::ThreadTag::Blocked)
                     activity = hanabi::notify::Activity::Blocked;
+                else if (s.tag == api::ThreadTag::Waiting)
+                    activity = hanabi::notify::Activity::Waiting;
                 else if (s.tag == api::ThreadTag::Done)
                     activity = hanabi::notify::Activity::Finished;
                 now.emplace_back(s.id, activity);
@@ -1122,27 +1148,33 @@ static void app_frame_body() {
 
             hanabi::notify::Wants wants;
             wants.subagents = Settings::get().get_notify_subagents();
+            wants.finished = Settings::get().get_notify_finished();
+            wants.blocked = Settings::get().get_notify_blocked();
+            wants.waiting = Settings::get().get_notify_waiting();
             const auto event = hanabi::notify::native_event(
                 lastSeen, now, titles, muted, children, wants, automations);
             const bool quiet = in_quiet_hours_now();
+            const std::optional<hanabi::session_sound::Tone> tone =
+                event.has_value() ? Settings::get().chime_for(event->id) : std::nullopt;
             const auto cue = hanabi::notify::cue_for(
                 quiet ? std::nullopt : event,
-                Settings::get().get_notifications_enabled(),
-                Settings::get().get_run_chime());
-            if (cue.chime) native_play_chime();
+                Settings::get().get_notifications_enabled(), tone.has_value());
+            if (cue.chime && tone) play_tone(*tone);
             if (event.has_value() && !quiet &&
                 Settings::get().get_notifications_enabled()) {
                 const double nowSec =
                     static_cast<double>(now_epoch_seconds());
                 if (lastNotifyAt < 0.0 ||
                     nowSec - lastNotifyAt >= kNotifyMinGapSecs) {
-                    const bool isBlocked =
-                        event->kind == hanabi::notify::Event::Kind::Blocked;
+                    const char* title =
+                        event->kind == hanabi::notify::Event::Kind::Blocked    ? "A thread needs you"
+                        : event->kind == hanabi::notify::Event::Kind::Waiting ? "A thread is waiting on you"
+                                                                               : "A run finished";
                     // Carry the thread's id so CLICKING the notification opens
                     // it (native_extras routes it through the same open-thread
                     // slot the deep-link uses).
                     native_notify(
-                        isBlocked ? "A thread needs you" : "A run finished",
+                        title,
                         event->title.c_str(), event->id.c_str(),
                         Settings::get().sound_for(event->id));
                     lastNotifyAt = nowSec;
@@ -3200,17 +3232,22 @@ int main(int argc, char* argv[]) {
         Settings::get().auto_save_enabled = false;
         Settings::get().load_save_file();
         const bool childMoved = spec.find("child") != std::string::npos;
+        const hanabi::notify::Activity moved =
+            spec.find("finished") != std::string::npos ? hanabi::notify::Activity::Finished
+            : spec.find("waiting") != std::string::npos ? hanabi::notify::Activity::Waiting
+                                                         : hanabi::notify::Activity::Blocked;
         hanabi::notify::Snapshot prev{
             {"parent", hanabi::notify::Activity::Other},
             {"child", hanabi::notify::Activity::Other}};
         std::vector<std::pair<std::string, hanabi::notify::Activity>> now{
-            {"parent", childMoved ? hanabi::notify::Activity::Other
-                                  : hanabi::notify::Activity::Blocked},
-            {"child", childMoved ? hanabi::notify::Activity::Blocked
-                                 : hanabi::notify::Activity::Other}};
+            {"parent", childMoved ? hanabi::notify::Activity::Other : moved},
+            {"child", childMoved ? moved : hanabi::notify::Activity::Other}};
         hanabi::notify::Children children{"child"};
         hanabi::notify::Wants wants;
         wants.subagents = Settings::get().get_notify_subagents();
+        wants.finished = Settings::get().get_notify_finished();
+        wants.blocked = Settings::get().get_notify_blocked();
+        wants.waiting = Settings::get().get_notify_waiting();
         const auto event = hanabi::notify::native_event(
             prev, now, {{"parent", "parent"}, {"child", "child"}}, {},
             children, wants);
@@ -3226,10 +3263,11 @@ int main(int argc, char* argv[]) {
                                       ? hanabi::notify::Event::Kind::Finished
                                       : hanabi::notify::Event::Kind::Blocked,
                                   "probe", "probe"};
+        const std::optional<hanabi::session_sound::Tone> tone =
+            Settings::get().chime_for(event->id);
         const auto cue = hanabi::notify::cue_for(
-            event, Settings::get().get_notifications_enabled(),
-            Settings::get().get_run_chime());
-        if (cue.chime) native_play_chime();
+            event, Settings::get().get_notifications_enabled(), tone.has_value());
+        if (cue.chime && tone) play_tone(*tone);
         printf("%s notifications=%d chime=%d from=%s\n",
                cue.chime ? "chime" : "silent",
                Settings::get().get_notifications_enabled() ? 1 : 0,

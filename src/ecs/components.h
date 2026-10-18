@@ -27,6 +27,7 @@
 #include "../ui/image_markup.h"
 #include "tab_find_state.h"
 #include "../api/auth.h"
+#include "../api/drafts_wire.h"
 #include "../api/session_catalog.h"
 #include "../api/client.h"
 #include "memory_page.h"
@@ -98,6 +99,7 @@ enum class EscapeIntent {
     CloseContextPopover,
     CloseFoldPicker,
     CloseNodePicker,
+    CloseDraftsPicker,
     DeclineAsk,
     StopTurn,
     ClearTranscript,
@@ -221,6 +223,7 @@ struct Pane {
     }
     LoadState transcriptState = LoadState::Idle;
     bool transcriptFromCache = false;
+    int nextAutocompactPct = 0;
     std::string transcriptError;
 
     // Set by the tab system (or a split-open request) when a transcript
@@ -653,6 +656,8 @@ struct AppComponent : public afterhours::BaseComponent {
     // Request to silence (or un-silence) a thread on this machine. Same
     // one-writer arrangement as the star: the sidebar owns the sessions vector.
     std::string requestToggleMute;
+    int requestTonePreview = 0;
+    bool requestSettingsReapply = false;
 
     hanabi::inbox_sync::Driver inbox;
     std::string requestSnoozeCustom;
@@ -912,6 +917,7 @@ struct AppComponent : public afterhours::BaseComponent {
     hanabi::update_ready::Watch updateWatch;
     double updateCheckedAt = -1.0;
     bool updatePending = false;
+    bool requestUpdateBanner = false;
     bool updateRestartRequested = false;  // scripted builds record it, never act
     // A thread being moved between Spaces (row menu > Move to Space, the
     // reference's refile): the request, and the move in flight. On success
@@ -1321,6 +1327,16 @@ struct AppComponent : public afterhours::BaseComponent {
     // The composer strip's node picker: the roster it lists, the node a NEW
     // thread will be born with, and the attach in flight on an open thread.
     bool nodePopoverOpen = false;
+    struct ServerDraftsPick {
+        bool open = false;
+        bool pending = false;
+        int pane = 0;
+        std::vector<api::drafts::ServerDraft> rows;
+        std::string note;
+        std::optional<std::string> picked;
+        std::future<api::Result<api::Client::WebReply>> future;
+    };
+    ServerDraftsPick serverDrafts;
     std::string pendingNodeId;
     std::vector<api::NodeInfo> nodeRoster;
     bool nodeRosterLoaded = false;
@@ -2311,6 +2327,7 @@ struct AppComponent : public afterhours::BaseComponent {
             m.model_pinned = !echo.model.empty();
             m.requested = m.model_pinned ? echo.model : m.harness_default;
             m.requested_effort = echo.effort;
+            m.autocompact_pct = echo.autocompact_pct;
             m.serving = m.requested;
             m.fallback = false;
             ++applied;
@@ -2750,7 +2767,7 @@ inline bool overlay_up(const AppComponent& app) {
 inline bool composer_strip_surface_up(const AppComponent& app) {
     return app.slashMenuOpen || app.modelPopoverOpen || app.contextPopoverOpen ||
            app.planPopoverOpen || app.foldPopoverOpen || app.nodePopoverOpen ||
-           app.changesPopoverOpen;
+           app.changesPopoverOpen || app.serverDrafts.open;
 }
 
 inline hanabi::ask::KeyOwnership key_ownership(const AppComponent& app,

@@ -106,6 +106,8 @@
 #include "../ui/unified_diff.h"
 #include "../ui/md_table_ops.h"
 #include "../ui/read_cursor.h"
+#include "../ui/slash_extras.h"
+#include "../ui/session_theme.h"
 #include "../util/switch_probe.h"
 #include "../util/clipboard.h"
 #include "pointer_state_system.h"
@@ -4127,9 +4129,17 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("find_audit"));
     }
 
+    static theme::PaneScope pane_theme_scope(const std::string& sessionId) {
+        const hanabi::session_theme::Resolved r = hanabi::session_theme::resolve(
+            hanabi::session_theme::parse(Settings::get().get_session_theme(sessionId)),
+            theme::mode() == theme::Mode::Light, theme::accent_choice());
+        return theme::PaneScope(r.light ? theme::Mode::Light : theme::Mode::Dark, r.accent);
+    }
+
     void render_transcript(UIContext<InputAction>& ctx, Entity& parent,
                            AppComponent& app, Pane& pane, float paneW,
                            float paneH) {
+        const theme::PaneScope paneTheme = pane_theme_scope(pane.selectedId);
         const PaneBuildScope building(pane);
         const hanabi::text_zoom::PointScaleScope zoomScope(
             theme::type::point_scale(), text_zoom(), theme::type::set_point_scale);
@@ -8172,6 +8182,72 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                      18.0f, theme::text_secondary(), "changes_more");
     }
 
+    void render_drafts_menu(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app,
+                            float absX, float absY, float inputW, float gutter) {
+        auto& sd = app.serverDrafts;
+        if (!sd.open) return;
+        constexpr float kRowH = hanabi::surface::kMenuRowH;
+        const std::size_t shown = std::min<std::size_t>(sd.rows.size(), 8);
+        const float bodyH = sd.rows.empty() ? kRowH : kRowH * static_cast<float>(shown);
+        const float moreH = sd.rows.size() > shown ? 20.0f : 0.0f;
+        const float menuH = 26.0f + bodyH + moreH + 8.0f;
+        auto menuConfig = hanabi::surface::menu(inputW, menuH, 7);
+        menuConfig.with_absolute_position()
+            .with_translate(absX + gutter, absY - menuH - 6.0f)
+            .with_debug_name("drafts_popover");
+        auto menu = div(ctx, mk(parent, 3150), menuConfig);
+        div(ctx, mk(menu.ent(), 1),
+            ComponentConfig{}
+                .with_label("SAVED DRAFTS")
+                .with_size(ComponentSize{percent(1.0f), pixels(26)})
+                .with_margin(Margin{.left = pixels(hanabi::slash_row::kPad)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_debug_name("drafts_popover_title"));
+        if (sd.rows.empty()) {
+            div(ctx, mk(menu.ent(), 2),
+                ComponentConfig{}
+                    .with_label(sd.pending ? "Loading your saved drafts\xe2\x80\xa6" : sd.note)
+                    .with_size(ComponentSize{percent(1.0f), pixels(kRowH)})
+                    .with_margin(Margin{.left = pixels(hanabi::slash_row::kPad)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("drafts_popover_note"));
+            return;
+        }
+        for (std::size_t i = 0; i < shown; ++i) {
+            const api::drafts::ServerDraft& d = sd.rows[i];
+            auto row = button(ctx, mk(menu.ent(), 10 + static_cast<int>(i)),
+                hanabi::surface::option_row(inputW - 8.0f, kRowH, false, 8)
+                    .with_label(api::drafts::first_line(d.body))
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_debug_name("draft_row_" + std::to_string(i)));
+            if (row) {
+                sd.picked = d.body;
+                sd.open = false;
+                app.request_composer_focus();
+            }
+        }
+        if (sd.rows.size() > shown)
+            div(ctx, mk(menu.ent(), 3),
+                ComponentConfig{}
+                    .with_label(std::to_string(sd.rows.size() - shown) + " more on the web")
+                    .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                    .with_margin(Margin{.left = pixels(hanabi::slash_row::kPad)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_faint())
+                    .with_font_size(theme::type::MICRO)
+                    .with_alignment(TextAlignment::Left)
+                    .with_debug_name("drafts_popover_more"));
+    }
+
     void render_plan_popover(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, Entity& anchorEnt,
                              const api::Session& session) {
@@ -8570,6 +8646,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          float composerH, bool kickoff = false,
                          float absX = -1.0f, float absY = -1.0f) {
         (void)kickoff;
+        const theme::PaneScope paneTheme =
+            pane_theme_scope(app.panes[static_cast<std::size_t>(std::clamp(paneIndex, 0, 1))].selectedId);
         // THIS pane's composer. In a split there are two, one under each
         // pane, each with its own draft, attachments and target; the one in
         // the focused pane is "active" and keeps the unsuffixed debug names
@@ -8838,9 +8916,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 } else if (canStream || canSend) {
                     remember_composer_snapshot(submitted.message);
                     consume_composer_snapshot(submitted.message);
-                    if (target.session_id.empty())
+                    if (target.session_id.empty()) {
+                        Pane& launching = app.panes[static_cast<std::size_t>(paneIndex)];
+                        if (launching.nextAutocompactPct > 0 && submitted.message.launch.autocompactPct == 0)
+                            submitted.message.launch.autocompactPct = launching.nextAutocompactPct;
+                        launching.nextAutocompactPct = 0;
                         app.request_kickoff(std::move(submitted.message));
-                    else if (canStream)
+                    } else if (canStream)
                         app.requestStream = std::move(submitted.message);
                     else
                         app.requestSend = std::move(submitted.message);
@@ -10354,6 +10436,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 api::disk_cache::Draft{text, targetState.attachments});
             if (target == composerTarget) set_field(text);
         };
+        if (app.serverDrafts.picked && app.serverDrafts.pane == paneIndex) {
+            set_target_field(composerTarget, *app.serverDrafts.picked);
+            app.serverDrafts.picked.reset();
+        }
 
         const auto run_slash = [&](const hanabi::slash::Parsed& p,
                                    const std::string& typed,
@@ -10494,6 +10580,74 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 app.requestRenamePane = target.pane_index;
                 app.renamePending = true;
                 app.slashNotice = "Renaming\xe2\x80\xa6";
+                app.slashNoticePane = target.pane_index;
+                set_target_field(target, "");
+                return;
+            }
+            if (cmd->name == "draft") {
+                if (!app.client || !app.client->supports_web_routes()) {
+                    app.slashNotice = "This backend keeps no saved drafts.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                auto& sd = app.serverDrafts;
+                sd.open = true;
+                sd.pane = target.pane_index;
+                sd.rows.clear();
+                sd.note.clear();
+                if (!sd.future.valid()) {
+                    sd.pending = true;
+                    std::shared_ptr<api::Client> c = app.client;
+                    sd.future = std::async(std::launch::async,
+                                           [c] { return c->web_call("GET", api::drafts::kPath, ""); });
+                }
+                app.slashNotice.clear();
+                set_target_field(target, "");
+                return;
+            }
+            if (cmd->name == "autocompact") {
+                Pane& owner = app.panes[static_cast<std::size_t>(target.pane_index)];
+                const bool onSession = !target.session_id.empty() && owner.openSession &&
+                                       owner.openSession->summary.id == target.session_id;
+                if (p.args.empty()) {
+                    app.slashNotice =
+                        onSession ? hanabi::slash_extras::session_autocompact_notice(
+                                        owner.openSession->model.autocompact_pct,
+                                        Settings::get().get_account_autocompact())
+                                  : hanabi::slash_extras::autocompact_notice(
+                                        owner.nextAutocompactPct, Settings::get().get_account_autocompact());
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, "");
+                    return;
+                }
+                const hanabi::slash_extras::AutocompactArg a = hanabi::slash_extras::parse_autocompact(p.args);
+                if (!a.ok) {
+                    app.slashNotice = a.why;
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (onSession) {
+                    if (app.requestSessionOptions || app.tuningFuture.valid()) {
+                        app.slashNotice = "Waiting for the server to confirm the last change.";
+                        app.slashNoticePane = target.pane_index;
+                        set_target_field(target, typed);
+                        return;
+                    }
+                    app.requestSessionOptions = AppComponent::SessionOptionsAsk{
+                        target.session_id, target.pane_index,
+                        a.pct == 0 ? api::SessionOptionsPatch::unset_autocompact()
+                                   : api::SessionOptionsPatch::set_autocompact(a.pct)};
+                    app.slashNotice = a.pct == 0 ? std::string("Compaction boundary: back to the default\xe2\x80\xa6")
+                                                 : "Compaction boundary: " + std::to_string(a.pct) + "%\xe2\x80\xa6";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, "");
+                    return;
+                }
+                owner.nextAutocompactPct = a.pct;
+                app.slashNotice = a.pct == 0 ? std::string("The next new thread compacts on Auto.")
+                                             : hanabi::slash_extras::autocompact_notice(a.pct, 0);
                 app.slashNoticePane = target.pane_index;
                 set_target_field(target, "");
                 return;
@@ -10971,6 +11125,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the bottom of the window, so a dropdown "below the input" would be
         // off-screen. A sibling of the composer bar under the same uiRoot
         // parent, in the same screen coordinates, on a layer over it.
+        if (app.escape == EscapeIntent::CloseDraftsPicker) app.serverDrafts.open = false;
+        if (app.serverDrafts.open && app.serverDrafts.pane == paneIndex && absX >= 0.0f && absY >= 0.0f)
+            render_drafts_menu(ctx, parent, app, absX, absY, inputW, composerGutter);
         if (slashOpen && absX >= 0.0f && absY >= 0.0f) {
             constexpr float kRowH = hanabi::surface::kMenuRowH;
             const float menuH = kRowH * static_cast<float>(slashCount) + 8.0f;

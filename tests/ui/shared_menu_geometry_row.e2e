@@ -12,19 +12,16 @@ expect_text "CONVERSATION"
 # y=400 in a 760 window, so the menu is clamped upward and every row's y
 # moves with it; the rows are pinned by x/w/h and order, their y's by the
 # runtime dump once the primary reads them.
-assert_ui row_menu x=120 w=184 h=738
+assert_ui row_menu x=120 w=184 h=666
 assert_ui row_menu_eater w=1100 h=760
 assert_ui row_menu_title h=28
 assert_ui row_menu_open x=124 w=176 h=36
 assert_ui row_menu_open_pin w=176 h=36
 assert_ui row_menu_open_split w=176 h=36
 assert_ui row_menu_rename w=176 h=36
-assert_ui row_menu_copy_title w=176 h=36
 assert_ui row_menu_fork w=176 h=36
-assert_ui row_menu_copy_weblink w=176 h=36
-assert_ui row_menu_copy_deeplink w=176 h=36
+assert_ui row_menu_copy w=176 h=36
 assert_ui row_menu_share w=176 h=36
-assert_ui row_menu_copy_id w=176 h=36
 assert_ui row_menu_open_web w=176 h=36
 assert_ui row_menu_export_clipboard w=176 h=36
 assert_ui row_menu_divider_export w=176 h=9

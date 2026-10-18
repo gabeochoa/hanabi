@@ -2606,6 +2606,14 @@ static void test_session_options_patch_wire_shape() {
     }
     CHECK(SessionOptionsPatch{}.empty());
     CHECK(!SessionOptionsPatch::unset_model().empty());
+    {
+        const auto j = session_options_patch_json(SessionOptionsPatch::set_autocompact(60));
+        CHECK(j["llm"]["autocompact_pct"] == 60);
+        CHECK(!j["llm"].contains("model") && !j["llm"].contains("effort"));
+        const auto u = session_options_patch_json(SessionOptionsPatch::unset_autocompact());
+        CHECK(u["llm"]["autocompact_pct"].is_null());
+        CHECK(!SessionOptionsPatch::unset_autocompact().empty());
+    }
 }
 
 static void test_options_changed_echo_is_the_merged_layer() {
@@ -2619,6 +2627,15 @@ static void test_options_changed_echo_is_the_merged_layer() {
         echo));
     CHECK(echo.model == "claude-sonnet-5");
     CHECK(echo.effort == "xhigh");
+    CHECK(echo.autocompact_pct == 0);
+    CHECK(fold_options_changed(
+        R"({"type":"frame","seq":43,"event":{"type":"options_changed","options":{"llm":{"effort":"low","autocompact_pct":60}}}})",
+        echo));
+    CHECK(echo.autocompact_pct == 60);
+    CHECK(fold_options_changed(
+        R"({"type":"frame","seq":44,"event":{"type":"options_changed","options":{"llm":{"autocompact_pct":7}}}})",
+        echo));
+    CHECK(echo.autocompact_pct == 0);
     // Unset knobs are absent (or null) in the merged layer: "" here.
     CHECK(fold_options_changed(
         R"({"type":"frame","seq":42,"event":{"type":"options_changed","options":{"llm":{"effort":"low"}}}})",

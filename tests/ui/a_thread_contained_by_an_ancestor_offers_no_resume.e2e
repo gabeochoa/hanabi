@@ -11,7 +11,7 @@ expect_text "Halted by an ancestor thread — the parent halted the whole subtre
 expect_halt bz5 contained attempts=0
 right_click_ui chat_row_id_bz5
 wait_frames 8
-expect_text "Copy Title"
+expect_text "Copy"
 expect_no_ui row_menu_resume
 expect_no_ui row_menu_halt
 expect_no_ui row_menu_halt_subtree

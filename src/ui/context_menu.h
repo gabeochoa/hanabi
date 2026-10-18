@@ -130,6 +130,14 @@ inline void apply_menu_keys(menu::Cursor& cursor, const MenuKeys& keys,
     if (step.effect == menu::Effect::Activate && out != nullptr) {
         out->activated = cursor.row;
         out->activated_child = cursor.in_submenu() ? cursor.child : kNoMenuRow;
+        if (cursor.row < items.size()) {
+            const MenuItem& item = items[cursor.row];
+            out->activated_action =
+                cursor.in_submenu() && cursor.child < item.children.size() &&
+                        !item.children[cursor.child].action_id.empty()
+                    ? item.children[cursor.child].action_id
+                    : item.action_id;
+        }
     }
     if (step.effect == menu::Effect::Close && out != nullptr)
         out->cancelled = true;

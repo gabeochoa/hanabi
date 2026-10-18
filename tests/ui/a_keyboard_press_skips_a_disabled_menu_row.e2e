@@ -10,9 +10,9 @@ wait_frames 10
 expect_text "CONVERSATION"
 
 # Open -> Open & Pin -> Open in Split -> (Rename is disabled on t7: skipped)
-# -> Fork Session -> Copy Title -> (Copy Weblink is disabled with no web
-# base: skipped) -> Copy Deeplink: five presses, the disabled rows costing
-# none.
+# -> (Fork is disabled too: skipped) -> Copy: four presses, the disabled
+# rows costing none; Right opens the Copy submenu on Copy Title, one Down
+# skips the disabled Copy Weblink (no web base) and lands on Copy Deeplink.
 arrow down
 wait_frames 6
 arrow down
@@ -21,6 +21,10 @@ arrow down
 wait_frames 6
 arrow down
 wait_frames 6
+expect_text "Copy"
+arrow right
+wait_frames 8
+expect_text "Copy Title"
 arrow down
 wait_frames 6
 expect_text "Copy Deeplink"

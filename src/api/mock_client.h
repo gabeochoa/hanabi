@@ -4,6 +4,7 @@
 #include "mock_faults.h"
 #include "mock_journal.h"
 #include "mock_scale.h"
+#include "drafts_wire.h"
 
 // Deterministic, offline sample data source. This is the default backend so
 // the app is fully functional with no configuration and no network.
@@ -283,6 +284,24 @@ class MockClient : public Client {
                                 {"folderId", f == m.filed.end() ? json() : json(f->second)}});
             }
             return Result<WebReply>::success({200, json{{"overlays", rows}}.dump()});
+        }
+        if (method == "GET" && path == drafts::kPath) {
+            if (const char* f = std::getenv("HANABI_MOCK_DRAFTS_FAIL"); f != nullptr && *f != '\0')
+                return Result<WebReply>::success({std::atoi(f), R"({"error":"drafts unavailable"})"});
+            json rows = json::array();
+            if (const char* demo = std::getenv("HANABI_DRAFTS_DEMO"); demo != nullptr && *demo != '\0') {
+                rows.push_back({{"id", "d1"},
+                                {"body", "Summarise what moved overnight and what is still stuck."},
+                                {"sessionId", nullptr},
+                                {"createdAt", "2026-10-17T20:00:00Z"},
+                                {"updatedAt", "2026-10-17T20:05:00Z"}});
+                rows.push_back({{"id", "d2"},
+                                {"body", "Draft the launch post for the pricing rollout\n\nKeep it to three paragraphs."},
+                                {"sessionId", "t2"},
+                                {"createdAt", "2026-10-16T09:00:00Z"},
+                                {"updatedAt", "2026-10-16T09:30:00Z"}});
+            }
+            return Result<WebReply>::success({200, json{{"drafts", rows}, {"limit", 50}}.dump()});
         }
         if (method == "GET" && path == pins::kPreferencesPath) {
             if (std::getenv("HANABI_MOCK_WEB_PREFS_FAIL") != nullptr)
@@ -1687,9 +1706,16 @@ class MockClient : public Client {
         }
         if (patch.effort.has_value())
             m.requested_effort = patch.effort->has_value() ? **patch.effort : std::string();
+        if (patch.autocompact_pct.has_value()) {
+            if (patch.autocompact_pct->has_value() && !pins::admits_autocompact(**patch.autocompact_pct))
+                return Result<SessionOptionsEcho>::refusal(
+                    "autocompact_pct " + std::to_string(**patch.autocompact_pct) + " is outside 25..90");
+            m.autocompact_pct = patch.autocompact_pct->has_value() ? **patch.autocompact_pct : 0;
+        }
         SessionOptionsEcho echo;
         echo.model = m.model_pinned ? m.requested : std::string();
         echo.effort = m.requested_effort;
+        echo.autocompact_pct = m.autocompact_pct;
         return Result<SessionOptionsEcho>::success(echo);
     }
 
@@ -2908,7 +2934,7 @@ class MockClient : public Client {
         "HANABI_DIFF_DEMO",         "HANABI_BIG_TABLE_DEMO", "HANABI_READ_SEQ_DEMO",
         "HANABI_LONGMSG_DEMO",    "HANABI_LONGMSG_LINES",  "HANABI_BIG_TRANSCRIPT", "HANABI_BIG_TURNS",
         "HANABI_BIG_EVENTS",       "HANABI_FOLDER_DEMO",
-        "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED", "HANABI_MOCK_SCALE",
+        "HANABI_STRESS_PINNED",   "HANABI_STRESS_ARCHIVED", "HANABI_MOCK_SCALE", "HANABI_DRAFTS_DEMO",
         "HANABI_BRAKES_DEMO",      "HANABI_PLAN_DEMO",
         "HANABI_ASK_DEMO",         "HANABI_TOOLS_DEMO", "HANABI_ASK_FILE_LIMITS",
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",

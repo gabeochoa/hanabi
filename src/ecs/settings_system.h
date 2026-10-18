@@ -72,6 +72,7 @@
 #include "../ui/inbox_triage.h"
 #include "../ui/secondary_surface.h"
 #include "../ui/settings_catalog.h"
+#include "../ui/settings_transfer.h"
 #include "../line_spacing.h"
 #include "../ui/minimap_marks.h"
 #include "../ui/model_menu.h"
@@ -118,6 +119,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         auto* app = find_singleton<AppComponent>();
         if (!app) return;
 
+        drain_reapply(*app);
         // Apply a PENDING font swap at the top of the frame, BEFORE any text is
         // rendered this frame — mutating the FontManager's DEFAULT_FONT handle
         // mid-render (from a click handler) can leave the in-flight render using
@@ -1300,6 +1302,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_minimap_marks_row(ctx, parent, app);
         else if (id == "accent") render_accent_row(ctx, parent, app);
         else if (id == "highlight") render_highlight_row(ctx, parent, app);
+        else if (id == "thread_colours")
+            render_notify_kind_row(ctx, parent, 4, "Thread colours in the sidebar",
+                                   "settings_thread_colours", Settings::get().get_thread_colours(),
+                                   [](bool v) { Settings::get().set_thread_colours(v); });
         else if (id == "reasoning") render_reasoning_row(ctx, parent, app);
         else if (id == "fold_long") render_foldlong_row(ctx, parent, app);
         else if (id == "date_dividers") render_date_dividers_row(ctx, parent, app);
@@ -1317,10 +1323,28 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "run_chime") render_run_chime_row(ctx, parent, app);
         else if (id == "notify_subagents")
             render_notify_subagents_row(ctx, parent, app);
+        else if (id == "notify_finished")
+            render_notify_kind_row(ctx, parent, 1, "A run finished", "settings_notify_finished",
+                                   Settings::get().get_notify_finished(),
+                                   [](bool v) { Settings::get().set_notify_finished(v); });
+        else if (id == "notify_blocked")
+            render_notify_kind_row(ctx, parent, 2, "A run is blocked", "settings_notify_blocked",
+                                   Settings::get().get_notify_blocked(),
+                                   [](bool v) { Settings::get().set_notify_blocked(v); });
+        else if (id == "notify_waiting")
+            render_notify_kind_row(ctx, parent, 3, "A run is waiting on you", "settings_notify_waiting",
+                                   Settings::get().get_notify_waiting(),
+                                   [](bool v) { Settings::get().set_notify_waiting(v); });
+        else if (id == "notify_updates")
+            render_notify_kind_row(ctx, parent, 5, "An update is ready", "settings_notify_updates",
+                                   Settings::get().get_notify_updates(),
+                                   [](bool v) { Settings::get().set_notify_updates(v); });
         else if (id == "usage_data") render_usage_data_row(ctx, parent, app);
         else if (id == "disk_usage") render_cache_row(ctx, parent, app);
         else if (id == "disk_cap") render_cache_limit_row(ctx, parent, app);
         else if (id == "export") render_export_row(ctx, parent, app);
+        else if (id == "export_prefs") render_export_prefs_row(ctx, parent, app);
+        else if (id == "import_prefs") render_import_prefs_row(ctx, parent, app);
         else if (id == "endpoint") render_endpoint_row(ctx, parent, app);
         else if (id == "identity") render_account_row(ctx, parent, app);
         else if (id == "memory_backend") render_memory_backend_row(ctx, parent, app);
@@ -2555,6 +2579,172 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
 
     // Where the export writes: the folder the user chose, or the built-in
     // default when they never chose one.
+    static std::string& transfer_note() {
+        static std::string s;
+        return s;
+    }
+    static std::string& pending_import_path() {
+        static std::string s;
+        return s;
+    }
+
+    static void transfer_button(UIContext<InputAction>& ctx, Entity& row, int id, const char* label,
+                                float w, const char* dbg, Margin margin, bool& out) {
+        auto btn = button(ctx, mk(row, id),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(w), pixels(28)})
+                .with_margin(margin)
+                .with_custom_background(theme::button_secondary())
+                .with_custom_hover_bg(theme::hover_over(theme::button_secondary()))
+                .with_custom_text_color(theme::text_primary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Center)
+                .with_justify_content(JustifyContent::Center)
+                .with_align_items(AlignItems::Center)
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_roundness(0.35f)
+                .with_debug_name(dbg));
+        out = static_cast<bool>(btn);
+    }
+
+    Entity& transfer_row(UIContext<InputAction>& ctx, Entity& parent, int id, const char* title,
+                         const char* titleDbg, const std::string& line, const char* lineDbg,
+                         const char* rowDbg) {
+        row_name(ctx, parent, id, title, titleDbg);
+        auto row = div(ctx, mk(parent, id + 1),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(content_w()), pixels(kExportRowH)})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(rowDbg));
+        anchor_control(row.ent());
+        div(ctx, mk(row.ent(), 1),
+            ComponentConfig{}
+                .with_label(line)
+                .with_size(ComponentSize{percent(1.0f), pixels(18)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_secondary())
+                .with_font_size(theme::type::SM)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_roundness(0.0f)
+                .with_debug_name(lineDbg));
+        auto buttons = div(ctx, mk(row.ent(), 2),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(28)})
+                .with_margin(Margin{.top = pixels(6)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_justify_content(JustifyContent::FlexEnd)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name(std::string(rowDbg) + "_buttons"));
+        return buttons.ent();
+    }
+
+    void render_export_prefs_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
+        (void)app;
+        static std::string s_note;
+        const std::string line = s_note.empty()
+            ? "Your preferences as one file: theme, fonts, notifications, shortcuts, per-thread colours "
+              "and sounds. Not your tabs, read marks or window."
+            : s_note;
+        Entity& buttons = transfer_row(ctx, parent, 62, "Export settings to another Mac",
+                                       "settings_export_prefs", line, "settings_export_prefs_line",
+                                       "settings_export_prefs_row");
+        bool exp = false;
+        transfer_button(ctx, buttons, 1, "Export\xe2\x80\xa6", 92, "settings_export_prefs_btn", Margin{}, exp);
+        if (exp || rowActivate_) {
+            std::string picked;
+            if (ask_for_directory(&picked)) s_note = export_settings_file(picked);
+        }
+    }
+
+    void render_import_prefs_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
+        std::string& note = transfer_note();
+        std::string& pending = pending_import_path();
+        const std::string line = note.empty()
+            ? "Choose a file this app exported; you see what it carries before anything changes."
+            : note;
+        Entity& buttons = transfer_row(ctx, parent, 64, "Import settings from another Mac",
+                                       "settings_import_prefs", line, "settings_import_prefs_line",
+                                       "settings_import_prefs_row");
+        if (!pending.empty()) {
+            bool cancel = false, apply = false;
+            transfer_button(ctx, buttons, 1, "Cancel", 84, "settings_import_prefs_cancel",
+                            Margin{.right = pixels(8)}, cancel);
+            transfer_button(ctx, buttons, 2, "Apply", 84, "settings_import_prefs_apply", Margin{}, apply);
+            if (cancel) {
+                pending.clear();
+                note.clear();
+            }
+            if (apply) {
+                note = import_settings_file(app, pending);
+                pending.clear();
+            }
+            return;
+        }
+        bool choose = false;
+        transfer_button(ctx, buttons, 1, "Import\xe2\x80\xa6", 92, "settings_import_prefs_btn", Margin{},
+                        choose);
+        if (choose || rowActivate_) {
+            std::string picked;
+            if (ask_for_file(&picked)) {
+                const Settings::ImportPreview p = Settings::get().import_preview(picked);
+                if (!p.error.empty()) {
+                    note = "Not imported: " + p.error;
+                } else {
+                    pending = picked;
+                    note = hanabi::settings_transfer::preview_line(p.keys, tilde(picked));
+                }
+            }
+        }
+    }
+
+    static std::string export_settings_file(const std::string& dir) {
+        const std::string path = hanabi::settings_transfer::export_path(dir);
+        return Settings::get().export_to(path) ? "Exported to " + tilde(path)
+                                               : "Could not write " + tilde(path);
+    }
+
+    static std::string import_settings_file(AppComponent& app, const std::string& path) {
+        const std::string why = Settings::get().import_from(path);
+        if (!why.empty()) return "Not imported: " + why;
+        reapply_imported(app);
+        return "Imported from " + tilde(path);
+    }
+
+    static void drain_reapply(AppComponent& app) {
+        if (!app.requestSettingsReapply) return;
+        app.requestSettingsReapply = false;
+        reapply_imported(app);
+    }
+
+    static void reapply_imported(AppComponent& app) {
+        auto& s = Settings::get();
+        apply_accent(s.get_accent_choice());
+        apply_highlight(s.get_highlight_choice());
+        apply_theme(app, s.get_theme());
+        queue_font_apply();
+    }
+
+    static bool ask_for_file(std::string* out) {
+        if (const char* forced = std::getenv("HANABI_PICK_FILE_TEST");
+            forced != nullptr && *forced != 0) {
+            *out = forced;
+            return true;
+        }
+        char buf[1024];
+        if (!native_pick_file("Import", buf, sizeof(buf))) return false;
+        *out = buf;
+        return true;
+    }
+
     static std::string export_destination() {
         const std::string& chosen = Settings::get().get_export_dir();
         return chosen.empty() ? api::disk_cache::export_dir() : chosen;
@@ -4118,6 +4308,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const bool on = Settings::get().get_notify_subagents();
         real_switch(ctx, parent, 177, on, "settings_notify_subagents",
                     [](bool v) { Settings::get().set_notify_subagents(v); });
+    }
+
+    void render_notify_kind_row(UIContext<InputAction>& ctx, Entity& parent, int slot,
+                                const char* title, const char* dbg, bool on,
+                                void (*set)(bool)) {
+        row_name(ctx, parent, 260 + slot * 2, title, dbg);
+        real_switch(ctx, parent, 261 + slot * 2, on, dbg, set);
     }
 
     void render_usage_data_row(UIContext<InputAction>& ctx, Entity& parent,

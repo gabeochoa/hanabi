@@ -1,0 +1,19 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_DRAFTS_DEMO=1
+require_thread t2
+wait_frames 10
+click_ui composer_reply_input
+type "/draft"
+wait_frames 4
+key ESCAPE
+wait_frames 4
+key ENTER
+wait_frames 20
+expect_text "SAVED DRAFTS"
+expect_text "Summarise what moved overnight and what is still stuck."
+expect_text "Draft the launch post for the pricing rollout"
+expect_input_text composer_reply_input ""
+click_ui draft_row_0
+wait_frames 10
+expect_no_ui drafts_popover
+expect_input_text composer_reply_input "Summarise what moved overnight and what is still stuck."

@@ -1,0 +1,27 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TEST_OVERLAY=settings
+wait_frames 20
+expect_text "Notifications"
+click_ui sb_settings_nav_notifications
+wait_frames 8
+expect_text "A run finished"
+expect_text "A run is blocked"
+expect_text "A run is waiting on you"
+expect_text "An update is ready"
+expect_notify_kind finished on
+expect_notify_kind blocked on
+expect_notify_kind waiting on
+click_ui settings_notify_finished
+wait_frames 8
+expect_notify_kind finished off
+expect_notify_kind blocked on
+reload_settings
+wait_frames 8
+expect_notify_kind finished off
+click_ui settings_notify_waiting
+wait_frames 8
+expect_notify_kind waiting off
+click_ui settings_notify_finished
+wait_frames 8
+expect_notify_kind finished on
+expect_notify_kind waiting off
