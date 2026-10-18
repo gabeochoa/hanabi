@@ -1277,14 +1277,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             OpenPinned,
             OpenSplit,
             Rename,
-            CopyTitle,
             Fork,
-            CopyWeblink,
+            Copy,
             Share,
-            CopyDeeplink,
             Pin,
             ExportClipboard,
-            CopyId,
             OpenWeb,
             Archive,
             Sound,
@@ -1333,14 +1330,25 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         add("Fork Session", "row_menu_fork", Action::Fork, "fork",
             !(app.client && app.client->supports_fork()));
         divider("row_menu_divider_rename");
-        add("Copy Title", "row_menu_copy_title", Action::CopyTitle, "copy_title",
-            target->title.empty());
         const bool webBase = model::has_web_base(app.webBaseUrl);
-        add("Copy Weblink", "row_menu_copy_weblink", Action::CopyWeblink, "copy_weblink",
-            !webBase);
-        add("Copy Deeplink", "row_menu_copy_deeplink", Action::CopyDeeplink, "copy_deeplink");
+        {
+            hanabi::surface::MenuItem m{"Copy", "row_menu_copy", false, false};
+            const auto leaf = [&](const char* label, const char* dbg, const char* id, bool off) {
+                hanabi::surface::MenuLeaf l;
+                l.label = label;
+                l.debug_name = dbg;
+                l.action_id = id;
+                l.disabled = off;
+                m.children.push_back(std::move(l));
+            };
+            leaf("Copy Title", "row_menu_copy_title", "copy_title", target->title.empty());
+            leaf("Copy Weblink", "row_menu_copy_weblink", "copy_weblink", !webBase);
+            leaf("Copy Deeplink", "row_menu_copy_deeplink", "copy_deeplink", false);
+            leaf("Copy Session ID", "row_menu_copy_id", "copy_id", false);
+            items.push_back(std::move(m));
+            actions.push_back(Action::Copy);
+        }
         add("Share\xe2\x80\xa6", "row_menu_share", Action::Share, "share");
-        add("Copy Session ID", "row_menu_copy_id", Action::CopyId, "copy_id");
         add("Open in Web", "row_menu_open_web", Action::OpenWeb, "open_web", !webBase);
         divider("row_menu_divider_copy");
         add("Export to Clipboard", "row_menu_export_clipboard", Action::ExportClipboard,
@@ -1594,13 +1602,18 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                         app.requestForkPane = app.focusedPane;
                     }
                     break;
-                case Action::CopyWeblink:
-                    if (const std::string url = model::web_url_for(app.webBaseUrl, targetId);
-                        !url.empty())
-                        hanabi::clipboard::set_text(url);
-                    break;
-                case Action::CopyDeeplink:
-                    hanabi::clipboard::set_text(model::deep_link_for(targetId));
+                case Action::Copy:
+                    if (pickedAction == "copy_title") {
+                        hanabi::clipboard::set_text(target->title);
+                    } else if (pickedAction == "copy_weblink") {
+                        if (const std::string url = model::web_url_for(app.webBaseUrl, targetId);
+                            !url.empty())
+                            hanabi::clipboard::set_text(url);
+                    } else if (pickedAction == "copy_deeplink") {
+                        hanabi::clipboard::set_text(model::deep_link_for(targetId));
+                    } else if (pickedAction == "copy_id") {
+                        hanabi::clipboard::set_text(targetId);
+                    }
                     break;
                 case Action::Share: {
                     const api::SessionSummary* s = app.find_summary(targetId);
@@ -1612,12 +1625,6 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     app.raise_toast(payload.notice, std::string(), AppComponent::ToastUndo::None);
                     break;
                 }
-                case Action::CopyId:
-                    hanabi::clipboard::set_text(targetId);
-                    break;
-                case Action::CopyTitle:
-                    hanabi::clipboard::set_text(target->title);
-                    break;
                 case Action::OpenWeb:
                     if (const std::string url = model::web_url_for(app.webBaseUrl, targetId);
                         !url.empty())

@@ -11,7 +11,7 @@ expect_access t2 write halt=no
 expect_halt t2 clear attempts=0
 right_click_ui chat_row_id_t2
 wait_frames 8
-expect_text "Copy Title"
+expect_text "Copy"
 expect_no_ui row_menu_halt
 expect_no_ui row_menu_halt_subtree
 expect_no_ui row_menu_resume

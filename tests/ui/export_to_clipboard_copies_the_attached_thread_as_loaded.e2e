@@ -102,6 +102,8 @@ click_ui row_menu_export_clipboard
 wait_frames 8
 expect_clipboard ""
 expect_text "CONVERSATION"
+click_ui row_menu_copy
+wait_frames 6
 click_ui row_menu_copy_deeplink
 wait_frames 8
 expect_clipboard "hanabi://thread/t6"
