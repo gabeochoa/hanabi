@@ -141,10 +141,18 @@ the soak's RSS reader) and the script adds `mock seed KB` and `client KB
 
 What a 960-byte message means for the client is a separate, real item:
 a 300-row thread is 288 KB of struct before text, and the five-thread
-cache at 100× holds 1.4 MB of it. Boxing the two fact structs behind
-`std::unique_ptr` (both are empty on an ordinary message) would take
-`Message` to roughly 500 bytes; the change touches every reader of those
-facts and is left for its own commit after the current round.
+cache at 100× holds 1.4 MB of it — and every copy of a `Session` (the
+memory cache copies out, reconcile copies in, the disk writer snapshots)
+moves all of it. Scoped for its own commit: `ArtifactRef` is 232 bytes
+and `ElementFacts` 280, both inline and both empty on an ordinary
+message; behind a small owning indirection (null when empty, deep copy,
+`->` access with an empty static on null) `Message` drops to about 450
+bytes. The change touches 69 reads in 7 files (17 in
+`main_pane_system.h`, 16 in `disk_cache.cpp`, 12 in `mock_client.h`, 11
+in `element_rows.h`, 9 in `transcript_reconcile.h`) and 10 writes, and
+`ElementFacts` has its own string member named `element`, so the rewrite
+is by hand per site, not a substitution — it needs the Mac compile loop
+and goes after the gate clears.
 
 ## Cold start at 100×: also the mock
 
