@@ -5072,6 +5072,9 @@ struct HandleExpectOutboxRetryCountCommand
 
 struct HandleExpectInkTextCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    std::uint64_t ticket_ = 0;
+    int ticketLine_ = -1;
+
     void for_each_with(afterhours::Entity& e,
                        afterhours::testing::PendingE2ECommand& cmd,
                        float) override {
@@ -5104,8 +5107,19 @@ struct HandleExpectInkTextCommand
             cmd.retry();
             return;
         }
-        if (hanabi::latency::capture_hook() == nullptr) {
-            within::fail_terminal(cmd, "expect_ink_text: no frame capture in this run");
+        if (ticketLine_ != cmd.line_number) {
+            ticketLine_ = cmd.line_number;
+            ticket_ = hanabi::latency::request_frame();
+            cmd.retry();
+            return;
+        }
+        const hanabi::latency::Frame* frame = hanabi::latency::frame_for(ticket_);
+        if (frame == nullptr) {
+            if (within::budget_open(e.id, cmd)) {
+                cmd.retry();
+                return;
+            }
+            within::fail_terminal(cmd, "expect_ink_text: no frame came back from the renderer");
             return;
         }
         std::optional<RectangleType> box;
@@ -5127,29 +5141,30 @@ struct HandleExpectInkTextCommand
         }
         int ink = -1;
         if (box) {
-            if (const auto frame = hanabi::latency::capture_hook()()) {
-                const int scale = std::max(1, afterhours::graphics::render_scale());
-                RectangleType read = *box;
-                if (part == "bottom") {
-                    read.y += read.height * 0.5f;
-                    read.height *= 0.5f;
-                } else if (part == "top") {
-                    read.height *= 0.5f;
-                }
-                const auto crop = frame->crop(static_cast<int>(read.x) * scale, static_cast<int>(read.y) * scale,
-                                              static_cast<int>(read.width) * scale,
-                                              static_cast<int>(read.height) * scale);
-                ink = crop.ink();
-                if (ink >= minInk) {
-                    cmd.consume();
-                    return;
-                }
+            const int scale = std::max(1, afterhours::graphics::render_scale());
+            RectangleType read = *box;
+            if (part == "bottom") {
+                read.y += read.height * 0.5f;
+                read.height *= 0.5f;
+            } else if (part == "top") {
+                read.height *= 0.5f;
+            }
+            const auto crop = frame->crop(static_cast<int>(read.x) * scale, static_cast<int>(read.y) * scale,
+                                          static_cast<int>(read.width) * scale,
+                                          static_cast<int>(read.height) * scale);
+            ink = crop.ink();
+            if (ink >= minInk) {
+                ticketLine_ = -1;
+                cmd.consume();
+                return;
             }
         }
         if (within::budget_open(e.id, cmd)) {
+            ticket_ = hanabi::latency::request_frame();
             cmd.retry();
             return;
         }
+        ticketLine_ = -1;
         within::fail_terminal(
             cmd, box ? std::format("expect_ink_text '{}': {} ink pixels in its {}x{} box, wanted >= {}", want,
                                    ink, static_cast<int>(box->width), static_cast<int>(box->height), minInk)

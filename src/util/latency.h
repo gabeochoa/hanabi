@@ -111,10 +111,32 @@ struct Frame {
     }
 };
 
-using CaptureFn = std::optional<Frame> (*)();
-inline CaptureFn& capture_hook() {
-    static CaptureFn fn = nullptr;
-    return fn;
+struct FrameRequest {
+    std::uint64_t asked = 0;      // tickets handed out
+    std::uint64_t served = 0;     // the ticket the held frame answers
+    std::optional<Frame> frame;
+    bool armed = false;           // a capture is owed after the next present
+};
+inline FrameRequest& frame_request() {
+    static FrameRequest r;
+    return r;
+}
+inline std::uint64_t request_frame() {
+    FrameRequest& r = frame_request();
+    r.armed = true;
+    return ++r.asked;
+}
+inline bool frame_wanted() { return frame_request().armed; }
+inline void frame_captured(std::optional<Frame> frame) {
+    FrameRequest& r = frame_request();
+    r.frame = std::move(frame);
+    r.served = r.asked;
+    r.armed = false;
+}
+inline const Frame* frame_for(std::uint64_t ticket) {
+    const FrameRequest& r = frame_request();
+    if (r.served < ticket || !r.frame || !r.frame->valid()) return nullptr;
+    return &*r.frame;
 }
 
 struct Difference {

@@ -2935,6 +2935,10 @@ static std::optional<hanabi::latency::Frame> capture_latency_frame(
 static void observe_latency_frame() {
     std::optional<hanabi::latency::Frame> frame;
     std::uint64_t probe_us = 0;
+    if (hanabi::latency::frame_wanted()) {
+        std::uint64_t ink_us = 0;
+        hanabi::latency::frame_captured(capture_latency_frame(ink_us));
+    }
     if (hanabi::latency::needs_probe()) frame = capture_latency_frame(probe_us);
     const std::uint64_t confirmed_at_us = hanabi::latency::now_us();
     hanabi::latency::presented(
@@ -2956,10 +2960,6 @@ static int run_e2e(const std::string& path, int w, int h) {
     namespace t = afterhours::testing;
 
     hanabi::latency::reset();
-    hanabi::latency::capture_hook() = [] {
-        std::uint64_t probe_us = 0;
-        return capture_latency_frame(probe_us);
-    };
     hanabi::e2e::delayed_latency_inputs().clear();
 
     // Same reason as the capture path: a scripted click on a tracker id must
