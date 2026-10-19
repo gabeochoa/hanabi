@@ -916,8 +916,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const auto colRect = colEnt.get<afterhours::ui::UIComponent>().rect();
         const auto rowRect = row->get<afterhours::ui::UIComponent>().rect();
         auto& sv = colEnt.get<afterhours::ui::HasScrollView>();
-        // rect() is where the row is drawn, already scrolled.
-        const float top = rowRect.y - colRect.y;
+        // rect() is the row's layout position; the scroll is applied at draw.
+        const float top = rowRect.y - colRect.y - sv.scroll_offset.y;
         const float bottom = top + rowRect.height;
         float target = sv.scroll_offset.y;
         if (bottom > viewH) target += bottom - viewH + 4.0f;
@@ -1185,8 +1185,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const float viewY =
             scrollEnt.get<afterhours::ui::UIComponent>().rect().y;
         const float rowH = opt->get<afterhours::ui::UIComponent>().rect().height;
-        const float want = cat::reveal_offset(rowY, viewY, rowH, viewH,
-                                              sv.scroll_offset.y);
+        const float want = cat::reveal_offset(rowY, viewY, rowH, viewH, 0.0f);
         sv.scroll_offset.y = want;
         hanabi::set_scroll_target_y(sv, want);
         sv.clamp_scroll();
