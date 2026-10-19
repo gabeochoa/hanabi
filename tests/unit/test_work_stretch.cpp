@@ -22,7 +22,6 @@ static ws::Block block(const std::vector<K>& v, std::size_t lo) {
 
 int main() {
     std::printf("=== test_work_stretch ===\n");
-    // Two runs with nothing between them fold; a lone run does not.
     {
         const std::vector<K> v{K::Step, K::Step, K::Step, K::Step, K::Boundary};
         const ws::Block b = block(v, 0);
@@ -36,22 +35,18 @@ int main() {
         CHECK(ws::folds(b, v.size(), false));
         CHECK(block(v, 5).runs == 1 && !ws::folds(block(v, 5), v.size(), false));
     }
-    // A wake and a run are two items; a wake alone, or thinking alone, is not a stretch.
     {
         const std::vector<K> v{K::Wake, K::Step, K::Boundary};
         CHECK(ws::folds(block(v, 0), v.size(), false));
         const std::vector<K> w{K::Wake, K::Thinking, K::Boundary};
         CHECK(!ws::folds(block(w, 0), w.size(), false));
     }
-    // A boundary row starts no block; the walk stops at one.
     {
         const std::vector<K> v{K::Boundary, K::Step, K::Wake, K::Step};
         CHECK(block(v, 0).empty());
         const ws::Block b = block(v, 1);
         CHECK(b.lo == 1 && b.hi == 4 && b.runs == 2 && b.items == 3);
     }
-    // The run the server is working on stays out: a block that reaches the
-    // end of a live thread does not fold; the same block folds once it ends.
     {
         const std::vector<K> v{K::Boundary, K::Wake, K::Step, K::Step, K::Done, K::Step};
         const ws::Block b = block(v, 1);
@@ -61,7 +56,6 @@ int main() {
         const std::vector<K> w{K::Boundary, K::Wake, K::Step, K::Done, K::Step, K::Boundary};
         CHECK(ws::folds(block(w, 1), w.size(), true));
     }
-    // Durations and the line.
     CHECK(ws::duration_label(0) == "0s");
     CHECK(ws::duration_label(42'000) == "42s");
     CHECK(ws::duration_label(252'000) == "4m 12s");

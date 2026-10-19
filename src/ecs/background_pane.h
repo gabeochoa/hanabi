@@ -1,9 +1,4 @@
 #pragma once
-// The window background behind the transcript, drawn through the pane's own
-// background hook from the scene ui/background.h computes each frame. Holds
-// the little state a uniform block needs across frames (frame count, the
-// clocks a focus or status change starts, a smoothed pointer) and knows the
-// renderer; the preset maths stays in ui/background.h.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -51,7 +46,6 @@ inline theme::Color color(bg::Rgba c) {
 
 inline bg::Preset preset() { return bg::preset_from_key(Settings::get().get_background()); }
 
-// The uniform block for one frame of one pane.
 inline bg::Uniforms uniforms(const LayoutComponent::Rect& r, float mouseX, float mouseY, bool appActive,
                              bool reduceMotion, int status, bool toolActive, float streamRate,
                              float scroll, const std::string& threadId, float glowPulse) {
@@ -68,8 +62,6 @@ inline bg::Uniforms uniforms(const LayoutComponent::Rect& r, float mouseX, float
         s.lastStatus = status;
         s.statusChangedAt = now;
     }
-    // The pointer eases toward where it is, so the glow glides rather than
-    // snapping when it re-enters the pane.
     const float px = mouseX - r.x, py = mouseY - r.y;
     const bool inside = px >= 0.0f && py >= 0.0f && px <= r.width && py <= r.height;
     if (inside) {
@@ -114,7 +106,6 @@ inline bg::Uniforms uniforms(const LayoutComponent::Rect& r, float mouseX, float
     return u;
 }
 
-// Paints base colour, scene, then the legibility scrim, clipped to the pane.
 inline void draw(const RectangleType& rect, const bg::Scene& scene, theme::Color base,
                  float scrimAlpha) {
     ++state().paints;

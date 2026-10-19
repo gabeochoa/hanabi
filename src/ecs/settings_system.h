@@ -4391,9 +4391,6 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             apply_theme(app, kPalettes[static_cast<size_t>(stepped)].key);
     }
 
-    // Appearance -> Background: Off and the presets, three to a row, the
-    // way the palette row lays its choices out; a note under them says why
-    // "My shaders" is not here yet.
     void render_background_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
         (void)app;
         namespace bg = hanabi::background;

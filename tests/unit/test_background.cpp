@@ -58,7 +58,6 @@ static bool same(const bg::Scene& a, const bg::Scene& b) {
 
 int main() {
     std::printf("=== test_background ===\n");
-    // Keys and labels round-trip; an unknown key is Off.
     CHECK(bg::kPresetCount == 6);
     for (const auto& e : bg::kPresets) {
         CHECK(bg::preset_from_key(e.key) == e.preset);
@@ -73,11 +72,9 @@ int main() {
     CHECK(bg::scrim_alpha(bg::Dim::Balanced) > bg::scrim_alpha(bg::Dim::Vivid));
     CHECK(bg::scrim_alpha(bg::Dim::Vivid) > 0.25f);
 
-    // The hash is stable and separates ids.
     CHECK(bg::hash_id("t2x1") == bg::hash_id("t2x1"));
     CHECK(bg::hash_id("t2x1") != bg::hash_id("t2x2"));
 
-    // Off is empty; every other preset paints something sane, at two times.
     CHECK(bg::scene_for(bg::Preset::Off, sample(3.0f)).empty());
     for (const auto& e : bg::kPresets) {
         if (e.preset == bg::Preset::Off) continue;
@@ -89,7 +86,6 @@ int main() {
         }
     }
 
-    // Time moves the scene; Reduce Motion and an unfocused window freeze it.
     for (auto p : {bg::Preset::Gradient, bg::Preset::Aurora, bg::Preset::Lava, bg::Preset::Embers}) {
         CHECK(!same(bg::scene_for(p, sample(0.0f)), bg::scene_for(p, sample(5.0f))));
         bg::Uniforms a = sample(0.0f), b = sample(5.0f);
@@ -101,14 +97,12 @@ int main() {
         CHECK(same(bg::scene_for(p, c), bg::scene_for(p, d)));
     }
 
-    // Two threads get two scenes from the same clock.
     {
         bg::Uniforms a = sample(1.0f), b = sample(1.0f);
         b.thread_hash = bg::hash_id("t9");
         CHECK(!same(bg::scene_for(bg::Preset::Lava, a), bg::scene_for(bg::Preset::Lava, b)));
     }
 
-    // The glow follows the pointer, and sits at the pane's centre without one.
     {
         bg::Uniforms u = sample(1.0f);
         const bg::Scene at = bg::scene_for(bg::Preset::Glow, u);
@@ -120,7 +114,6 @@ int main() {
         CHECK(bg::scene_for(bg::Preset::Glow, u).blobs[0].r > centre.blobs[0].r);
     }
 
-    // Embers rise faster while rows land; a light palette paints with alpha, not additively.
     {
         bg::Uniforms slow = sample(4.0f), fast = sample(4.0f);
         fast.stream_rate = 5.0f;
@@ -131,7 +124,6 @@ int main() {
         CHECK(!bg::scene_for(bg::Preset::Embers, light).additive);
     }
 
-    // A pane with no size paints nothing.
     {
         bg::Uniforms u = sample(1.0f);
         u.resolution[0] = 0.0f;

@@ -1,17 +1,4 @@
 #pragma once
-// ---------------------------------------------------------------------------
-// Stretches of unattended work: a maximal run of ROUTINE rows -- tool steps,
-// the wakes that started them, thinking, compactions, a run's quiet
-// "completed" outcome -- holding at least one run of tool steps and at least
-// two items, folded behind one line so a long transcript stays readable.
-// Anything said to the reader or owed by them (a message either way, a
-// question, an approval, a halt, a failed run, an artifact, a card) ends the
-// stretch and stays in the stream; so does the run the server is working on.
-//
-// Pure: a row is one of a few kinds, the fold is a walk over kinds, and the
-// line is built from counts. The transcript maps messages to kinds and draws
-// the line; a test drives this with arrays.
-// ---------------------------------------------------------------------------
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -30,7 +17,6 @@ enum class Kind : std::uint8_t {
 
 inline bool routine(Kind k) { return k != Kind::Boundary; }
 
-// Fewest items (a run of Steps is one item) that fold; a lone run stays a run.
 inline constexpr int kFloor = 2;
 
 struct Block {
@@ -40,9 +26,6 @@ struct Block {
     [[nodiscard]] bool empty() const { return hi <= lo; }
 };
 
-// The maximal routine block starting at `lo`; `folds` says whether it folds: at least
-// kFloor items with a run among them, and not the block the live run is in
-// (`live_tail`: the thread is working and this block reaches the end).
 template <class KindAt>
 Block block_at(std::size_t lo, std::size_t n, KindAt&& kind_at) {
     Block b;
@@ -105,9 +88,6 @@ inline std::string count(int n, const char* one, const char* many) {
     return std::to_string(n) + " " + (n == 1 ? one : many);
 }
 
-// "Worked for 4m 12s across 12h 15m — 14 wakes · 15 runs · 61 steps": the first
-// figure is work, the second the clock, said as two words so a reader is never
-// told an agent that waited twelve hours for them worked for twelve hours.
 inline std::string summary(const Facts& f) {
     std::string text = "Worked";
     const bool haveActive = f.active_ms > 0;
@@ -120,7 +100,6 @@ inline std::string summary(const Facts& f) {
     return text + " \xe2\x80\x94 " + counts;
 }
 
-// A stretch that is nothing but wakes says so instead.
 inline std::string wake_header(const Facts& f) {
     if (f.steps > 0 || f.wakes == 0) return {};
     std::string text = "Woke up " + count(f.wakes, "time", "times");

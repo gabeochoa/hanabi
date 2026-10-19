@@ -162,9 +162,6 @@ struct Settings {
     // theme and font; the web preferences schema has no colour field.
     const std::string& get_accent_choice() const;
     void set_accent_choice(const std::string& key);  // auto-persists
-    // Window background behind the transcript: a preset key from
-    // ui/background.h ("off" default) and how much of the pane's colour sits
-    // over it ("subtle" / "balanced" / "vivid"). Auto-persist.
     const std::string& get_background() const;
     void set_background(const std::string& key);
     const std::string& get_background_dim() const;
@@ -534,8 +531,6 @@ struct Settings {
     // it is the reader's call whether the transcript may hide text from them.
     bool get_fold_long_messages() const;
     void set_fold_long_messages(bool on);  // auto-persists
-    // Fold a stretch of unattended work (two or more runs of tool steps with
-    // nothing said between them) behind one line. Auto-persists.
     bool get_compress_runs() const;
     void set_compress_runs(bool on);
 

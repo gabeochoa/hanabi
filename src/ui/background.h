@@ -1,17 +1,4 @@
 #pragma once
-// ---------------------------------------------------------------------------
-// Window backgrounds: a preset painted behind the transcript from a per-frame
-// uniform block (time, mouse, scroll, run status, palette, thread hash, glow),
-// in the shape of the reference's window shaders.
-//
-// The library's shader path on this build accepts two fixed fragment programs
-// and no user text (afterhours gap #616), so a preset is not a fragment body
-// yet: it is a pure function from the uniform block to a small SCENE -- a few
-// gradient quads and radial blobs -- that the pane draws with the renderer's
-// own primitives. The uniform block is the reference's; when the library
-// grows a user-shader path the same block feeds it and the scenes become the
-// fallback. Pure: no afterhours, no app types, so a test drives it.
-// ---------------------------------------------------------------------------
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -56,8 +43,6 @@ inline const char* label_of(Preset p) {
     return "Off";
 }
 
-// How much of the pane's own colour sits over the scene so text stays
-// readable: the stand-in for the reference's luma ceiling pass.
 enum class Dim : int { Subtle = 0, Balanced, Vivid };
 inline constexpr const char* kDimKeys[] = {"subtle", "balanced", "vivid"};
 inline constexpr const char* kDimLabels[] = {"Subtle", "Balanced", "Vivid"};
@@ -138,8 +123,6 @@ inline Rgba mix(Rgba a, Rgba b, float t) {
             a.a + (b.a - a.a) * t};
 }
 inline Rgba with_alpha(Rgba c, float a) { return {c.r, c.g, c.b, clamp01(a)}; }
-// A unit value in [0,1) from the thread hash and a lane, so two threads do
-// not share a phase and one thread keeps its own across frames.
 inline float lane(std::uint32_t hash, int k) {
     std::uint32_t v = hash ^ (static_cast<std::uint32_t>(k) * 0x9E3779B9u);
     v ^= v >> 15;
@@ -147,15 +130,11 @@ inline float lane(std::uint32_t hash, int k) {
     v ^= v >> 12;
     return static_cast<float>(v & 0xFFFFu) / 65536.0f;
 }
-// The clock a preset reads: still under Reduce Motion and while the window
-// is unfocused, so an idle window does not animate in the corner of an eye.
 inline float clock(const Uniforms& u) {
     if (u.reduced_motion) return 0.0f;
     if (!u.focus) return u.time_focus;
     return u.time;
 }
-// A warm partner for the accent: toward amber on dark, toward the accent's
-// own deep end on light.
 inline Rgba warm(const Uniforms& u) {
     const Rgba amber{1.0f, 0.62f, 0.25f, 1.0f};
     return mix(u.accent, amber, u.light ? 0.25f : 0.45f);
@@ -166,8 +145,6 @@ inline Rgba cool(const Uniforms& u) {
 }
 }  // namespace detail
 
-// "Moving Gradient": three vertical bands whose colours breathe between the
-// accent's cool and warm partners, the loop sliding across the width.
 inline void gradient(const Uniforms& u, Scene& out) {
     using namespace detail;
     const float t = clock(u) * 0.06f + lane(u.thread_hash, 1);
@@ -189,8 +166,6 @@ inline void gradient(const Uniforms& u, Scene& out) {
                                  top(i + 1), bottom(i + 1)});
 }
 
-// "Mouse Glow": one soft disc that follows the pointer (the pane's centre
-// when the pointer is elsewhere) and breathes while the thread runs.
 inline void glow(const Uniforms& u, Scene& out) {
     using namespace detail;
     const float w = u.resolution[0], h = u.resolution[1];
@@ -206,8 +181,6 @@ inline void glow(const Uniforms& u, Scene& out) {
     out.additive = !u.light;
 }
 
-// "Aurora Veil": five wide curtains drifting slowly across the upper pane,
-// each on its own phase from the thread hash.
 inline void aurora(const Uniforms& u, Scene& out) {
     using namespace detail;
     const float w = u.resolution[0], h = u.resolution[1];
@@ -225,7 +198,6 @@ inline void aurora(const Uniforms& u, Scene& out) {
     out.additive = !u.light;
 }
 
-// "Lava Lamp": six slow blobs on hash-seeded Lissajous paths.
 inline void lava(const Uniforms& u, Scene& out) {
     using namespace detail;
     const float w = u.resolution[0], h = u.resolution[1];
@@ -243,8 +215,6 @@ inline void lava(const Uniforms& u, Scene& out) {
     out.additive = !u.light;
 }
 
-// "Ember Motes": two dozen small lights rising from the foot of the pane,
-// faster while rows are landing, brighter while a tool runs.
 inline void embers(const Uniforms& u, Scene& out) {
     using namespace detail;
     const float w = u.resolution[0], h = u.resolution[1];
@@ -280,7 +250,6 @@ inline Scene scene_for(Preset p, const Uniforms& u) {
     return out;
 }
 
-// The scene's cost in primitives, for the probe and the tests.
 inline std::size_t primitive_count(const Scene& s) { return s.quads.size() + s.blobs.size(); }
 
 }  // namespace hanabi::background

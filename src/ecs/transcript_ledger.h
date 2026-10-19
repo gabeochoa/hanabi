@@ -194,7 +194,6 @@ struct RowGeom {
         Stretch,
         KindCount
     };
-    // A lead of these kinds spans the hidden rows after it; its height is theirs.
     static bool spans(Kind k) { return k == ToolPile || k == Stretch; }
     float before = 0.0f;  // date / new divider above the row
     float h = 0.0f;       // the row's own body

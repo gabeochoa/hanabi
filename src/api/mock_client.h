@@ -2642,7 +2642,6 @@ class MockClient : public Client {
         return flag;
     }
 
-
     // The Compacted payload's shape, shared with the real adapter:
     // {"id":"<row id>","summary":"..."} with the strings JSON-escaped.
     static std::string json_string(const std::string& in) {
@@ -3346,7 +3345,6 @@ class MockClient : public Client {
         }
         return s_cache;
     }
-
 
     static std::vector<Session> build_seed() {
         std::vector<Session> v;
@@ -4289,9 +4287,6 @@ class MockClient : public Client {
                 {"tkz", Role::Assistant, "Done.", hrs_ago(1), ""},
             };
             if (std::string(td) == "stretch") {
-                // Unattended work between two things said: two wakes, three
-                // runs, a quiet outcome and a thought, then a report; a lone
-                // run after the reader's reply stays a run.
                 auto done = [&](const char* id, int64_t at) {
                     Message m = event_row(EventKind::RunOutcome, "", "", at);
                     m.id = id;

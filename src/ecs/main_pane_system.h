@@ -2339,7 +2339,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-
     // Map a sub-agent state to its status glyph (used by the rollup chips).
     static SubGlyph sub_glyph_for(api::SubAgentState st) {
         switch (st) {
@@ -2567,7 +2566,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---------------- Chat transcript --------------------------------------
-
 
     // ---- Minimap rail -----------------------------------------------------
     static model::FollowMemory& seeded_latch(model::PaneState& state) {
@@ -4496,11 +4494,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hi = e + 1;
             return hi - lo >= 2;
         };
-        // A stretch of unattended work (ui/work_stretch.h): the kind each
-        // message is to the fold, and the bounds of the stretch containing k,
-        // found the way run_bounds finds a pile's -- the row before k was
-        // classified already, so a follower is one read and only a stretch's
-        // first row walks forward.
         const bool threadLive = streamingHere || pane.openSession->summary.state ==
                                                      api::ThreadState::Running;
         const auto stretch_kind = [&](int k) -> hanabi::stretch::Kind {
@@ -8500,7 +8493,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
-
     // The tool-fold picker: three modes, per session, written straight to
     // settings. Picking one clears the per-row overrides, because a reader who
     // asks for "Expand all" means all of them and not "all except the four I
@@ -8573,7 +8565,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             });
         }
     }
-
 
     void render_node_popover(UIContext<InputAction>& ctx, Entity& parent,
                              AppComponent& app, Entity& anchorEnt,
@@ -9722,7 +9713,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app.chatSelectionGrace = 4;
         }
 
-
         const auto& attachmentState = staged_state(composerTarget);
         if (attachmentState.attachments.empty() ||
             composerH + 0.5f >=
@@ -9758,7 +9748,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // is last frame's, from the field's own layout cache, for the reason
         // composerRows_ carries.
         const float kInputH = composer_box_h(composerRows_[paneIndex]);
-
 
         // The strip's tail, after the context reading: skills loaded, then the
         // plan -- the reference's order. Created here, after the caption, so they
@@ -11038,7 +11027,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     appPtr->composerSubmit = std::move(submitted);
                 });
         }
-
 
         // Send affordance. Enabled (clickable) when the backend supports
         // replies and the draft has text; otherwise disabled-styled.
@@ -13016,7 +13004,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         box.bubbleW = box.textW + 2.0f * kBubbleCfgPadX;
         return box;
     }
-
 
     // Render an assistant body as one wrapped text box PER newline-delimited
     // segment. afterhours' word-wrap splits only on spaces and treats "\n" as a
@@ -16122,7 +16109,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         invalidate_item_geometry();
     }
 
-    // The folded stretch: one closed line in the work lane, a click opens it.
     template <class KindAt>
     void stretch_row(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
                      const std::vector<api::Message>& msgs, int lo, int hi, KindAt&& kind_at,
@@ -16150,8 +16136,6 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             stretch_toggle(*app, key, false);
     }
 
-    // The opened stretch's header, drawn above its first row: the same line
-    // with the chevron down; a click folds the stretch again.
     template <class KindAt>
     void stretch_head(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
                       const std::vector<api::Message>& msgs, KindAt&& kind_at, float paneWidth) {

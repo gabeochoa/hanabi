@@ -214,7 +214,6 @@ static void test_toggle_round_trips() {
     expect_rgb("toggled plane is Night", theme::window_bg(), 0x0D, 0x14, 0x1D);
 }
 
-// -- Named palettes: Classic and Win95 over the light mode ---------------------
 static double luminance_of(theme::Color c) {
     const auto ch = [](unsigned char v) {
         const double x = v / 255.0;
@@ -230,7 +229,6 @@ static double contrast_of(theme::Color a, theme::Color b) {
 static void test_named_palettes() {
     std::printf("test_named_palettes\n");
     theme::set_accent_choice(theme::kDefaultChoice);
-    // Choice keys resolve to a look and back.
     for (const char* key : {"light", "dark", "classic", "win95"}) {
         const theme::Look l = theme::look_for_choice(key, false);
         if (std::string(theme::choice_for_look(l)) != key) {
@@ -247,7 +245,6 @@ static void test_named_palettes() {
         std::puts("FAIL unknown choice is dark");
         ++failures;
     }
-    // Both palettes are light-class with their own chrome and readable text.
     theme::set_look(theme::Mode::Light, theme::Palette::Classic);
     if (theme::mode() != theme::Mode::Light) { std::puts("FAIL classic is light-class"); ++failures; }
     expect_rgb("classic plane is platinum", theme::window_bg(), 0xDD, 0xDD, 0xDD);
@@ -262,7 +259,6 @@ static void test_named_palettes() {
     if (contrast_of(theme::text_primary(), theme::panel_bg()) < 7.0) { std::puts("FAIL win95 text contrast"); ++failures; }
     if (contrast_of(theme::text_secondary(), theme::sidebar_bg()) < 4.5) { std::puts("FAIL win95 secondary contrast"); ++failures; }
     if (contrast_of(theme::window_bg(), theme::accent()) < 3.0) { std::puts("FAIL win95 navy on teal"); ++failures; }
-    // A swatch still moves only the accent family on a named palette.
     theme::set_accent_choice(theme::kAccentSwatches[1].key);
     expect_rgb("win95 chrome survives a swatch", theme::sidebar_bg(), 0xC0, 0xC0, 0xC0);
     if (theme::accent().r == 0 && theme::accent().g == 0 && theme::accent().b == 0x80) {
@@ -271,13 +267,11 @@ static void test_named_palettes() {
     }
     theme::set_accent_choice(theme::kDefaultChoice);
     expect_rgb("default restores navy", theme::accent(), 0x00, 0x00, 0x80);
-    // The toggle keeps the palette: dark is the one dark, light comes back as Win95.
     theme::toggle_mode();
     expect_rgb("dark from win95 is Night", theme::window_bg(), 0x0D, 0x14, 0x1D);
     theme::toggle_mode();
     expect_rgb("light from dark is win95 again", theme::window_bg(), 0x00, 0x80, 0x80);
     if (theme::palette() != theme::Palette::Win95) { std::puts("FAIL palette kept across toggle"); ++failures; }
-    // A pane scope on a named palette paints that palette's light.
     {
         theme::set_look(theme::Mode::Dark, theme::Palette::Classic);
         theme::PaneScope scope(theme::Mode::Light, theme::kDefaultChoice);

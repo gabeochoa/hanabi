@@ -1208,11 +1208,6 @@ struct HandleNativeDragResizeCommand
     }
 };
 
-// The arrow presses a native menu walk still owes, posted one every other
-// frame from the walk system's own tick: a menu swallows presses that land
-// faster than its tracking loop reads them, and a command's frame budget is
-// shorter than a long walk. A later native_key or native_menu_expect waits
-// for the queue to drain before it acts.
 inline std::vector<unsigned short>& native_walk_queue() {
     static std::vector<unsigned short> q;
     return q;
@@ -1860,12 +1855,6 @@ struct HandleCaptureReceiptCommand
 // never open; `drained` = idle AND no result lingers in the slot (the
 // pick-vs-delayed-close guard); `frames_driven>=N` = the adapter's heartbeat
 // drove at least N frames while the menu tracked (rendering continued).
-// native_menu_walk <action> [child_action]: the arrow presses that put the
-// native menu's keyboard cursor on a row (and a submenu leaf) named by its
-// action id, counted off the open generation's frozen rows the way AppKit
-// walks them -- separators and disabled rows skipped, Right opens a submenu
-// on its first enabled leaf. A fixture that counted Downs by hand broke
-// whenever a row moved; this one names what it wants.
 struct HandleNativeMenuWalkCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     int tick_ = 0;
@@ -2129,8 +2118,6 @@ struct HandleNativeMenuInjectCommand
             r.row = static_cast<std::size_t>(std::atoi(cmd.arg(0).c_str()));
             if (cmd.args.size() >= 2) r.child = static_cast<std::size_t>(std::atoi(cmd.arg(1).c_str()));
         } else {
-            // By action id, against the generation's frozen rows: a row that
-            // moves takes its index with it, so a fixture names what it picks.
             const hanabi::native_menu::Open* open = HandleNativeMenuWalkCommand::open_state();
             if (open == nullptr || open->generation != gen) {
                 if (cmd.frames_alive < kGiveUpFrame) {

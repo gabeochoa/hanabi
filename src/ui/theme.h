@@ -311,13 +311,8 @@ inline const Tokens kLight = {
     /*code_bg*/ {216, 223, 232, 255},         // #D8DFE8  syntax.background
 };
 
-// Named palettes over the light mode: the shipped tokens with the chrome of
-// another desktop. Each is light-class (text dark on pale surfaces), so every
-// luminance rule that asks `mode()` keeps its answer; only the tokens change.
 enum class Palette { Default, Classic, Win95 };
 
-// Classic Mac: platinum greys, black hairlines, black buttons with white
-// type, a blue-grey selection -- System 7 by way of Platinum.
 inline const Tokens kClassic = [] {
     Tokens c = kLight;
     c.window_bg = {221, 221, 221, 255};
@@ -353,8 +348,6 @@ inline const Tokens kClassic = [] {
     return c;
 }();
 
-// Windows 95: silver chrome on a teal ground, navy for everything that is
-// chosen or pressed, dark-grey bevel lines, a white document.
 inline const Tokens kWin95 = [] {
     Tokens c = kLight;
     c.window_bg = {0, 128, 128, 255};
@@ -400,9 +393,6 @@ inline const Tokens& tokens_for(Mode m, Palette p) {
     return kLight;
 }
 
-// A theme CHOICE as the settings file and the pickers name it: "light",
-// "dark", "system", "classic", "win95". The look it resolves to is a mode
-// and a palette; "system" asks the OS.
 struct Look {
     Mode mode = Mode::Dark;
     Palette palette = Palette::Default;
