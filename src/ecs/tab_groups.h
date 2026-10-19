@@ -124,6 +124,17 @@ class TabGroups {
         return tabs_[static_cast<std::size_t>(index_of(id))];
     }
 
+    void set_kept(const std::string& id, bool kept) {
+        const int idx = index_of(id);
+        if (idx < 0 || tabs_[static_cast<std::size_t>(idx)].kept == kept) return;
+        GroupTab tab = tabs_[static_cast<std::size_t>(idx)];
+        tabs_.erase(tabs_.begin() + idx);
+        tab.kept = kept;
+        if (kept) tab.preview = false;
+        const std::size_t at = insertion_point(tab.group, true);
+        tabs_.insert(tabs_.begin() + static_cast<std::ptrdiff_t>(at), std::move(tab));
+    }
+
     void keep(const std::string& id) {
         const int i = index_of(id);
         if (i >= 0) tabs_[static_cast<std::size_t>(i)].preview = false;

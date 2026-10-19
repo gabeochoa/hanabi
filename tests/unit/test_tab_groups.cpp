@@ -296,6 +296,22 @@ static void test_a_kept_tab_sits_in_front_of_its_pane() {
     CHECK(m.tabs_in(0).front().kept);
 }
 
+static void test_keeping_a_tab_moves_it_to_the_front_and_unkeeping_leaves_it() {
+    std::printf("test_keeping_a_tab_moves_it_to_the_front_and_unkeeping_leaves_it\n");
+    TabGroups m = three();
+    m.set_kept("c", true);
+    CHECK(ids_in(m, 0) == "cab");
+    m.set_kept("b", true);
+    CHECK(ids_in(m, 0) == "cba");
+    m.set_kept("c", false);
+    CHECK(ids_in(m, 0) == "bca");
+    m.set_kept("missing", true);
+    CHECK(all(m) == "bca");
+    m.open("p", true);
+    m.set_kept("p", true);
+    CHECK(!m.find("p")->preview);
+}
+
 static void test_the_axis_is_remembered_only_for_a_split() {
     std::printf("test_the_axis_is_remembered_only_for_a_split\n");
     CHECK(!TabGroups::persistable_axis(1, SplitAxis::Vertical));
@@ -344,6 +360,7 @@ int main() {
     test_stepping_stays_inside_the_pane();
     test_pane_step_visits_the_neighbouring_panes_selection();
     test_a_kept_tab_sits_in_front_of_its_pane();
+    test_keeping_a_tab_moves_it_to_the_front_and_unkeeping_leaves_it();
     test_the_axis_is_remembered_only_for_a_split();
     test_panes_share_the_width_until_the_floor();
     if (failures) {
