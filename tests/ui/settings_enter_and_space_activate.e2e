@@ -70,8 +70,6 @@ wait_frames 8
 expect_focused settings_background_dim_row
 shift_tab
 wait_frames 8
-shift_tab
-wait_frames 8
 expect_focused settings_background_row_0
 shift_tab
 wait_frames 8
