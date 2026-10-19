@@ -4,10 +4,12 @@ click_ui sb_settings
 wait_frames 10
 expect_focused settings_search
 
-# Backwards through General: Import settings, Export settings, Only
-# ungrouped, Group threads by, Sort threads by, Inbox triage keys, Escape
-# stops the running turn, Timestamps, Open diffs in Hanabi, Ask before
+# Backwards through General: Import settings, Export settings, Fold quiet
+# runs, Only ungrouped, Group threads by, Sort threads by, Inbox triage keys,
+# Escape stops the running turn, Timestamps, Open diffs in Hanabi, Ask before
 # quitting, Restore tabs, then New line.
+shift_tab
+wait_frames 6
 shift_tab
 wait_frames 6
 shift_tab
@@ -63,6 +65,14 @@ wait_frames 8
 shift_tab
 wait_frames 8
 expect_focused settings_icon_set_row
+shift_tab
+wait_frames 8
+expect_focused settings_background_dim_row
+shift_tab
+wait_frames 8
+shift_tab
+wait_frames 8
+expect_focused settings_background_row_0
 shift_tab
 wait_frames 8
 shift_tab
