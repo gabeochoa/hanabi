@@ -23,13 +23,7 @@ native_menu_expect action open_web
 native_menu_expect enabled copy_weblink
 native_menu_expect enabled open_web
 native_menu_expect frames_driven>=4
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
+native_menu_walk copy copy_weblink
 wait_frames 2
 native_key 36
 wait_frames 12
@@ -39,14 +33,7 @@ expect_link_opened ""
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6
 native_menu_expect open session:t6
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
+native_menu_walk copy copy_deeplink
 wait_frames 2
 native_key 36
 wait_frames 12

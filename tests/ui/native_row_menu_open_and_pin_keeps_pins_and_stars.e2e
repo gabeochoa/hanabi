@@ -18,8 +18,7 @@ wait_frames 6
 native_menu_expect open session:t7
 wait_frames 8
 native_menu_expect frames_driven>=4
-native_key 125
-native_key 125
+native_menu_walk open_pin
 wait_frames 2
 native_key 36
 wait_frames 16
@@ -38,8 +37,7 @@ expect_tab t9 preview
 native_right_click_ui chat_row_id_t2
 wait_frames 6
 native_menu_expect open session:t2
-native_key 125
-native_key 125
+native_menu_walk open_pin
 wait_frames 2
 native_key 36
 wait_frames 16

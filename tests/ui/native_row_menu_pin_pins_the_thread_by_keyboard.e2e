@@ -18,15 +18,7 @@ wait_frames 6
 native_menu_expect open session:t6
 native_menu_expect action pin
 native_menu_expect frames_driven>=4
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
+native_menu_walk pin
 wait_frames 2
 native_key 36
 wait_frames 16
@@ -40,15 +32,7 @@ wait_frames 6
 native_menu_expect open session:t6
 native_menu_expect action unpin
 native_menu_expect no_action pin
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
+native_menu_walk unpin
 wait_frames 2
 native_key 36
 wait_frames 16

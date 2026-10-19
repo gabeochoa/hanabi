@@ -528,12 +528,18 @@ inline bool native_menu_open(NativeMenuOpen& open, std::string scope, const char
     open.action_ids.clear();
     open.disabled_rows.clear();
     open.child_action_ids.clear();
+    open.child_disabled_rows.clear();
     for (const MenuItem& m : items) {
         open.action_ids.push_back(m.action_id);
         open.disabled_rows.push_back(m.disabled);
         std::vector<std::string> kids;
-        for (const MenuLeaf& c : m.children) kids.push_back(c.action_id);
+        std::vector<bool> off;
+        for (const MenuLeaf& c : m.children) {
+            kids.push_back(c.action_id);
+            off.push_back(c.disabled);
+        }
         open.child_action_ids.push_back(std::move(kids));
+        open.child_disabled_rows.push_back(std::move(off));
     }
     open.focus_before = focusBefore;
     open.eater_id = -1;

@@ -1843,6 +1843,96 @@ struct HandleCaptureReceiptCommand
 // never open; `drained` = idle AND no result lingers in the slot (the
 // pick-vs-delayed-close guard); `frames_driven>=N` = the adapter's heartbeat
 // drove at least N frames while the menu tracked (rendering continued).
+// native_menu_walk <action> [child_action]: the arrow presses that put the
+// native menu's keyboard cursor on a row (and a submenu leaf) named by its
+// action id, counted off the open generation's frozen rows the way AppKit
+// walks them -- separators and disabled rows skipped, Right opens a submenu
+// on its first enabled leaf. A fixture that counted Downs by hand broke
+// whenever a row moved; this one names what it wants.
+struct HandleNativeMenuWalkCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    std::vector<unsigned short> plan_;
+    std::size_t sent_ = 0;
+    int planned_for_ = -1;
+
+    static const hanabi::native_menu::Open* open_state() {
+        if (const ecs::AppComponent* app = app_component()) {
+            if (app->nativeRowMenu.open()) return &app->nativeRowMenu;
+            if (app->nativeMessageMenu.open()) return &app->nativeMessageMenu;
+        }
+        if (auto* strip = ecs::find_singleton<ecs::TabStripComponent>())
+            if (strip->nativeMenu.open()) return &strip->nativeMenu;
+        return nullptr;
+    }
+
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("native_menu_walk")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("native_menu_walk requires <action> [child_action]");
+            return;
+        }
+        if (!hanabi_native_has_window() || !native_mode_on()) {
+            cmd.fail("native_menu_walk needs `native_mode on` in a windowed run");
+            return;
+        }
+        if (planned_for_ != cmd.line_number) {
+            const hanabi::native_menu::Open* open = open_state();
+            if (open == nullptr || !hanabi::native_menu::tracking()) {
+                if (cmd.frames_alive < kGiveUpFrame) {
+                    cmd.retry();
+                    return;
+                }
+                cmd.fail("native_menu_walk: no native menu is open");
+                return;
+            }
+            plan_.clear();
+            sent_ = 0;
+            std::size_t row = hanabi::native_menu::kNoRow;
+            for (std::size_t i = 0; i < open->action_ids.size(); ++i)
+                if (open->action_ids[i] == cmd.arg(0)) { row = i; break; }
+            if (row == hanabi::native_menu::kNoRow) {
+                std::string rows;
+                for (const std::string& id : open->action_ids) rows += (id.empty() ? "-" : id) + ",";
+                cmd.fail(std::format("native_menu_walk {}: no such row in [{}]", cmd.arg(0), rows));
+                return;
+            }
+            std::size_t downs = 1;
+            for (std::size_t i = 0; i < row; ++i)
+                if (i >= open->disabled_rows.size() || !open->disabled_rows[i]) ++downs;
+            for (std::size_t k = 0; k < downs; ++k) plan_.push_back(125);
+            if (cmd.has_args(2)) {
+                const auto& kids = row < open->child_action_ids.size() ? open->child_action_ids[row]
+                                                                       : std::vector<std::string>{};
+                std::size_t child = hanabi::native_menu::kNoRow;
+                for (std::size_t i = 0; i < kids.size(); ++i)
+                    if (kids[i] == cmd.arg(1)) { child = i; break; }
+                if (child == hanabi::native_menu::kNoRow) {
+                    cmd.fail(std::format("native_menu_walk {} {}: no such leaf", cmd.arg(0), cmd.arg(1)));
+                    return;
+                }
+                plan_.push_back(124);
+                const auto& off = row < open->child_disabled_rows.size() ? open->child_disabled_rows[row]
+                                                                         : std::vector<bool>{};
+                for (std::size_t i = 0; i < child; ++i)
+                    if (i >= off.size() || !off[i]) plan_.push_back(125);
+            }
+            planned_for_ = cmd.line_number;
+            cmd.retry();
+            return;
+        }
+        if (sent_ < plan_.size()) {
+            hanabi_native_key(plan_[sent_], "", 0);
+            ++sent_;
+            cmd.retry();
+            return;
+        }
+        planned_for_ = -1;
+        cmd.consume();
+    }
+};
+
 struct HandleNativeMenuInjectCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -1909,15 +1999,31 @@ struct HandleNativeMenuInjectCommand
                             if (!got.empty()) got += ",";
                             got += (id.empty() ? "-" : id) + (dis ? "(disabled)" : "");
                             if (!want.empty() && id == want && dis == wantDisabled) ok = true;
+                            if (i >= openState->child_action_ids.size()) continue;
+                            const auto& kids = openState->child_action_ids[i];
+                            const auto& off = i < openState->child_disabled_rows.size()
+                                                  ? openState->child_disabled_rows[i]
+                                                  : std::vector<bool>{};
+                            for (std::size_t c = 0; c < kids.size(); ++c) {
+                                const bool cdis = c < off.size() && off[c];
+                                got += "/" + kids[c] + (cdis ? "(disabled)" : "");
+                                if (!want.empty() && kids[c] == want && cdis == wantDisabled) ok = true;
+                            }
                         }
                     } else if (cmd.arg(0) == "action" || cmd.arg(0) == "no_action") {
                         const bool wantAbsent = cmd.arg(0) == "no_action";
                         const std::string want = cmd.has_args(2) ? cmd.arg(1) : std::string();
                         bool present = false;
-                        for (const std::string& id : openState->action_ids) {
+                        for (std::size_t i = 0; i < openState->action_ids.size(); ++i) {
+                            const std::string& id = openState->action_ids[i];
                             if (!got.empty()) got += ",";
                             got += id.empty() ? "-" : id;
                             if (!want.empty() && id == want) present = true;
+                            if (i < openState->child_action_ids.size())
+                                for (const std::string& kid : openState->child_action_ids[i]) {
+                                    got += "/" + kid;
+                                    if (!want.empty() && kid == want) present = true;
+                                }
                         }
                         ok = wantAbsent ? (!want.empty() && !present) : present;
                     } else {
@@ -2000,11 +2106,42 @@ struct HandleNativeMenuInjectCommand
         }
         hanabi::native_menu::Result r;
         r.generation = gen;
+        const auto numeric = [](const std::string& a) {
+            return !a.empty() && std::all_of(a.begin(), a.end(), [](unsigned char ch) { return std::isdigit(ch); });
+        };
         if (cmd.arg(0) == "dismiss") {
             r.dismissed = true;
-        } else {
+        } else if (numeric(cmd.arg(0))) {
             r.row = static_cast<std::size_t>(std::atoi(cmd.arg(0).c_str()));
             if (cmd.args.size() >= 2) r.child = static_cast<std::size_t>(std::atoi(cmd.arg(1).c_str()));
+        } else {
+            // By action id, against the generation's frozen rows: a row that
+            // moves takes its index with it, so a fixture names what it picks.
+            const hanabi::native_menu::Open* open = HandleNativeMenuWalkCommand::open_state();
+            if (open == nullptr || open->generation != gen) {
+                if (cmd.frames_alive < kGiveUpFrame) {
+                    cmd.retry();
+                    return;
+                }
+                cmd.fail("native_menu_inject: the open generation has no frozen rows to name");
+                return;
+            }
+            for (std::size_t i = 0; i < open->action_ids.size(); ++i)
+                if (open->action_ids[i] == cmd.arg(0)) { r.row = i; break; }
+            if (r.row == hanabi::native_menu::kNoRow) {
+                cmd.fail(std::format("native_menu_inject {}: no such row", cmd.arg(0)));
+                return;
+            }
+            if (cmd.args.size() >= 2) {
+                const auto& kids = r.row < open->child_action_ids.size() ? open->child_action_ids[r.row]
+                                                                         : std::vector<std::string>{};
+                for (std::size_t i = 0; i < kids.size(); ++i)
+                    if (kids[i] == cmd.arg(1)) { r.child = i; break; }
+                if (r.child == hanabi::native_menu::kNoRow) {
+                    cmd.fail(std::format("native_menu_inject {} {}: no such leaf", cmd.arg(0), cmd.arg(1)));
+                    return;
+                }
+            }
         }
         hanabi::native_menu::inject_result_for_test(r);
         cmd.consume();
@@ -5194,6 +5331,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleCaptureReceiptCommand>());
     sm.register_update_system(std::make_unique<HandleCaptureMarkerCommand>());
     sm.register_update_system(std::make_unique<HandleNativeMenuInjectCommand>());
+    sm.register_update_system(std::make_unique<HandleNativeMenuWalkCommand>());
     sm.register_update_system(std::make_unique<HandleSnoozePromptInjectCommand>());
     sm.register_update_system(std::make_unique<HandleSnoozeStoreExpectCommand>());
     sm.register_update_system(std::make_unique<HandleExpectUiRowsJoinCommand>());

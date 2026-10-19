@@ -43,16 +43,13 @@ native_menu_expect idle
 expect_no_ui row_menu_native_eater
 expect_no_text "Session muted"
 expect_no_text "Session archived"
-# (3) in-snapshot pick lands: row 17 is "mute" for t6 (rows: 0 Open,
-# 1 Open & Pin, 2 sep, 3 Open in Split, 4 sep, 5 Rename, 6 Fork, 7 sep,
-# 8 Copy Title, 9 Copy Weblink, 10 Copy Deeplink, 11 Copy Session ID,
-# 12 Open in Web, 13 sep, 14 Export to Clipboard (disabled: t6 is not
-# attached), 15 sep, 16 Pin, 17 Mute, 18 Snooze, 19 sep, 20 Archive); the intent
-# applies.
+# (3) in-snapshot pick lands: the row is named by its action id ("mute")
+# against the generation's frozen rows, so a row that moves (the Copy fold
+# took four rows into one) takes its index with it; the intent applies.
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6
 native_menu_expect busy session:t6
-native_menu_inject 17
+native_menu_inject mute
 wait_frames 10
 native_menu_expect idle
 expect_text "Session muted"

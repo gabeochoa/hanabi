@@ -1333,6 +1333,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const bool webBase = model::has_web_base(app.webBaseUrl);
         {
             hanabi::surface::MenuItem m{"Copy", "row_menu_copy", false, false};
+            m.action_id = "copy";
             const auto leaf = [&](const char* label, const char* dbg, const char* id, bool off) {
                 hanabi::surface::MenuLeaf l;
                 l.label = label;

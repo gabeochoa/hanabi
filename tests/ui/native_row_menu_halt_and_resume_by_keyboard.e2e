@@ -18,15 +18,7 @@ native_menu_expect action halt_subtree
 # disabled: no web base here), Copy Deeplink, Copy Session ID, (Open in Web
 # disabled likewise), Export to Clipboard (t2 is attached, so enabled),
 # Halt: nine Downs.
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
+native_menu_walk halt
 wait_frames 4
 native_menu_expect open session:t2
 native_key 36
@@ -38,15 +30,7 @@ native_right_click_ui chat_row_id_t2
 wait_frames 6
 native_menu_expect open session:t2
 native_menu_expect action resume
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
+native_menu_walk resume
 wait_frames 4
 native_key 36
 wait_frames 30

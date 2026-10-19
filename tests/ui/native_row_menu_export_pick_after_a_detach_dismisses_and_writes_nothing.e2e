@@ -28,14 +28,7 @@ detach_thread t9
 expect_tab t9 absent within=60
 expect_cached t9 min=2 within=60
 native_menu_expect open session:t9
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
-native_key 125
+native_menu_walk export_clipboard
 wait_frames 2
 native_key 36
 wait_frames 12
