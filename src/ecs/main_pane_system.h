@@ -532,7 +532,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // the two are you" -- which the per-pane widget names and the per-pane
     // memory keys both have to know.
     static int pane_index(const AppComponent& app, const Pane& pane) {
-        return &pane == &app.panes[1] ? 1 : 0;
+        for (std::size_t i = 1; i < app.panes.size(); ++i)
+            if (&pane == &app.panes[i]) return static_cast<int>(i);
+        return 0;
     }
 
     // ---- Per-pane widget names (afterhours_gaps.md #147) -------------------
@@ -550,9 +552,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // spellings sit next to each other, one line apart, instead of at two
     // ends of an 8,800-line file where they can drift.
     static const std::string& scroll_name(int paneIndex) {
-        static const std::string kNames[2] = {"transcript_scroll",
-                                              "transcript_scroll_2"};
-        return kNames[paneIndex & 1];
+        static const std::array<std::string, model::kMaxPanes> kNames = [] {
+            std::array<std::string, model::kMaxPanes> names;
+            names[0] = "transcript_scroll";
+            for (int i = 1; i < model::kMaxPanes; ++i)
+                names[static_cast<std::size_t>(i)] = "transcript_scroll_" + std::to_string(i + 1);
+            return names;
+        }();
+        return kNames[static_cast<std::size_t>(std::clamp(paneIndex, 0, model::kMaxPanes - 1))];
     }
 
     static Pane* painting_pane() {

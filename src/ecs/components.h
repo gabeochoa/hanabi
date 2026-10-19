@@ -43,6 +43,7 @@
 #include "ask_card.h"
 #include "composer_escape.h"
 #include "focus_routing.h"
+#include "pane_layout.h"
 #include "inbox_sync_driver.h"
 #include "../ui/snooze_custom_flow.h"
 #include "transcript_cache.h"
@@ -1707,7 +1708,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // edit, 0.8.4, and D122768095: it is not consumed mid-edit). Mirrored each
     // frame from each pane's composer state; while a qid is here, that
     // thread's queue holds -- the message, and everything behind it, waits.
-    std::array<std::uint64_t, 2> queuedEditing{0, 0};
+    std::array<std::uint64_t, model::kMaxPanes> queuedEditing{};
     std::set<std::string> expandedTables;
     std::vector<std::vector<std::string>> menuTableRows;
     std::string requestReadWrite;
