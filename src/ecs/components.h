@@ -608,6 +608,7 @@ struct AppComponent : public afterhours::BaseComponent {
 
     // Tab set to restore once the session list has loaded (from Settings).
     std::vector<std::string> restoreTabIds;
+    std::string restoreTabLayout;
     // What each pane was showing at quit. Serviced by the same restore pass as
     // the tabs, and for the same reason: a thread has to be in the session
     // list before a pane can be told to open it.

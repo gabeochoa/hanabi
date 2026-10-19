@@ -364,6 +364,7 @@ static void setup_app_state() {
         app.restoreTabIds = Settings::get().get_open_tabs();
         app.restorePinnedIds = Settings::get().get_pinned_tabs();
         app.restoreActiveId = Settings::get().get_active_tab();
+        app.restoreTabLayout = Settings::get().get_tab_layout();
     }
     // The split is restored here, but the PANES' threads are restored by the
     // same pass that restores the tabs (tab_bar_system.h): a pane's thread has
@@ -1229,6 +1230,11 @@ static void persist_app_state() {
         Settings::get().set_split(app.splitOpen, app.splitRatio,
                                   app.panes[0].selectedId,
                                   app.panes[1].selectedId, app.focusedPane);
+        const auto* layoutStrip = ecs::find_singleton<ecs::TabStripComponent>();
+        Settings::get().set_tab_layout(
+            layoutStrip != nullptr && app.groupCount > 1
+                ? ecs::model::layout_by_session(*layoutStrip, app).dump()
+                : std::string());
     }
     if (Settings::get().get_theme() != "system")
         Settings::get().set_theme(theme::choice_for_look(theme::look()));

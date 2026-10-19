@@ -1366,8 +1366,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 
     static void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
                                     const std::string& id, bool keep = true,
-                                    bool pinned = false) {
-        model::open_session_in_tab(strip, app, id, keep, pinned);
+                                    bool pinned = false, int group = -1) {
+        model::open_session_in_tab(strip, app, id, keep, pinned, group);
     }
 
     static void switch_to_tab(AppComponent& app, Entity& newTab) {
@@ -1403,6 +1403,18 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             !waitingForSubagents) {
             app.restoreDone = true;
             auto* strip = find_singleton<TabStripComponent>();
+            model::TabGroups restoredLayout;
+            if (!app.restoreTabLayout.empty()) {
+                restoredLayout = model::tab_groups_from_json(
+                    nlohmann::json::parse(app.restoreTabLayout, nullptr, false),
+                    [&app](const std::string& id) {
+                        return std::find(app.restoreTabIds.begin(), app.restoreTabIds.end(), id) !=
+                                   app.restoreTabIds.end() &&
+                               (model::is_surface_tab(id) || app.find_summary(id));
+                    });
+                app.restoreTabLayout.clear();
+            }
+            const bool restoreGroups = restoredLayout.group_count() > 1;
             if (strip && !app.restoreTabIds.empty()) {
                 for (const auto& id : app.restoreTabIds)
                     // A surface tab has no summary to find -- it is not a
@@ -1415,8 +1427,23 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
                             /*pinned=*/
                             std::find(app.restorePinnedIds.begin(),
                                       app.restorePinnedIds.end(),
-                                      id) != app.restorePinnedIds.end());
+                                      id) != app.restorePinnedIds.end(),
+                            restoreGroups && restoredLayout.find(id) != nullptr
+                                ? restoredLayout.find(id)->group
+                                : -1);
                 (void) model::active_tab_entity();
+                if (restoreGroups) {
+                    app.groupCount = restoredLayout.group_count();
+                    app.splitOpen = true;
+                    app.splitAxis = restoredLayout.axis();
+                    while (app.panes.size() < static_cast<std::size_t>(app.groupCount))
+                        app.panes.emplace_back();
+                    for (int g = 0; g < app.groupCount; ++g)
+                        if (const auto shown = restoredLayout.selected_in(g);
+                            shown && app.panes[static_cast<std::size_t>(g)].selectedId != *shown)
+                            model::retarget_split_pane(app.panes[static_cast<std::size_t>(g)], *shown);
+                    app.restoreFocusedPane = restoredLayout.acted_group();
+                }
                 // Focus the persisted active tab (falls back to last opened).
                 if (!app.restoreActiveId.empty() &&
                     app.find_summary(app.restoreActiveId)) {
@@ -1434,7 +1461,7 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             // longer knows is skipped rather than opened -- the same rule the
             // tab restore above follows, and it keeps a stale settings.json
             // from producing a pane stuck on "Could not load transcript".
-            for (int i = 0; i < 2; ++i) {
+            for (int i = 0; i < 2 && !restoreGroups; ++i) {
                 const std::string& id = app.restoreSplitIds[i];
                 if (id.empty() || !app.find_summary(id) || strip == nullptr ||
                     !model::session_is_open(*strip, id))

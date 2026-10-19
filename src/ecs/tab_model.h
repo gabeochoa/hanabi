@@ -30,6 +30,7 @@
 #include "surface_tabs.h"
 #include "components.h"
 #include "tab_groups.h"
+#include "tab_groups_json.h"
 #include "tab_keep_flash.h"
 #include "ui_clock.h"
 #include "../resize_drive.h"
@@ -171,7 +172,7 @@ inline void set_tab_pinned(Tab& tab, bool pinned) {
 // stamp state on them silently stamped nothing (see FRICTION_LOG).
 inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
                                 const std::string& id, bool keep = true,
-                                bool pinned = false) {
+                                bool pinned = false, int group = -1) {
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
         if (opt.valid() && opt->has<Tab>() && opt->get<Tab>().sessionId == id) {
@@ -193,7 +194,7 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     if (e == nullptr) {
         e = &afterhours::EntityHelper::createEntity();
         e->addComponent<Tab>();
-        e->get<Tab>().group = app.groupCount > 1 ? app.focusedPane : 0;
+        e->get<Tab>().group = group >= 0 ? group : (app.groupCount > 1 ? app.focusedPane : 0);
         strip.tabOrder.push_back(e->id);
     }
     if (std::getenv("HANABI_DUMP"))
@@ -519,6 +520,19 @@ inline bool split_tab(TabStripComponent& strip, AppComponent& app, afterhours::E
     if (!groups.split_off(group_key(tab), index, axis)) return false;
     apply_groups(strip, app, groups);
     return true;
+}
+
+inline nlohmann::json layout_by_session(const TabStripComponent& strip, const AppComponent& app) {
+    if (app.groupCount <= 1) return nlohmann::json();
+    const TabGroups keyed = groups_of(strip, app);
+    std::vector<GroupTab> flat = keyed.tabs();
+    std::map<int, std::string> selection;
+    for (GroupTab& t : flat) t.id = session_of_key(t.id);
+    for (const auto& [group, key] : keyed.selections()) selection[group] = session_of_key(key);
+    std::optional<std::string> selected;
+    if (keyed.selected()) selected = session_of_key(*keyed.selected());
+    return tab_groups_to_json(TabGroups::from_state(std::move(flat), selection, keyed.acted_group(),
+                                                    std::move(selected), keyed.axis()));
 }
 
 inline bool split_focused(TabStripComponent& strip, AppComponent& app, SplitAxis axis) {
