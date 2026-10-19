@@ -184,7 +184,7 @@ struct BulkSelectSystem : afterhours::System<UIContext<InputAction>> {
                 ids = b.undoIds;
                 b.outcomes.clear();
             } else {
-                ids = hanabi::bulk::actionable(b.selected, app->bulkVisibleOrder);
+                ids = hanabi::bulk::actionable(b.selected, app->bulkVisibleOrderShown);
             }
             if (!ids.empty() && app->client) start(*app, a, std::move(ids));
         }

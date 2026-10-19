@@ -279,6 +279,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
+        app->bulkVisibleOrderShown = std::move(app->bulkVisibleOrder);
         app->bulkVisibleOrder.clear();
         if (app->bulk.selecting) render_bulk_bar(ctx, panel.ent(), *app, r.width);
         else render_search(ctx, panel.ent(), *app, r.width);
@@ -3378,7 +3379,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     void render_bulk_bar(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app, float panelW) {
         namespace bulk = hanabi::bulk;
         auto& b = app.bulk;
-        const int actionable = static_cast<int>(bulk::actionable(b.selected, app.bulkVisibleOrder).size());
+        const int actionable = static_cast<int>(bulk::actionable(b.selected, app.bulkVisibleOrderShown).size());
         const bulk::Tally t = bulk::tally(b.outcomes, b.selected);
         const bool needsRecheck = !bulk::unresolved(b.outcomes, b.selected).empty();
         const bool canAct = actionable > 0 && !bulk::blocks_actions(b.phase, b.outcomes, b.selected);
@@ -5678,7 +5679,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 const hanabi::bulk::Applied next = hanabi::bulk::apply(
                     g, s.id, starting ? hanabi::bulk::Selected{} : b.selected,
                     starting ? b.lastOpened : b.anchor,
-                    g == hanabi::bulk::Gesture::Extend ? app.bulkVisibleOrder : std::vector<std::string>{});
+                    g == hanabi::bulk::Gesture::Extend ? app.bulkVisibleOrderShown : std::vector<std::string>{});
                 b.selected = next.selected;
                 b.anchor = next.anchor;
             } else {
