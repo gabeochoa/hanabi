@@ -459,6 +459,30 @@ static void test_a_yielded_caret_returns_to_the_pane_that_yielded_it() {
         CHECK(!CaretYield::composer_draws(false, 0, 0, true, 0) && !CaretYield::composer_draws(false, 1, 0, true, 0));
     }
     {
+        using In = CaretYield::ReconcileInputs;
+        const auto tiled = [&](long long focus, int panes, int settingsPane = -1) {
+            In in; in.splitView = true; in.paneCount = panes; in.settingsPane = settingsPane;
+            in.focusedPane = 0; in.focusIdAtStart = focus;
+            for (int i = 0; i < panes; ++i)
+                in.ids[static_cast<std::size_t>(i)] = ecs::model::ComposerIds{200 + i, 300 + i};
+            return in;
+        };
+        CaretYield y;
+        y.yield(3);
+        y.reconcile(tiled(-2, 4));
+        CHECK(y.yielded() && y.pane == 3);
+        y.reconcile(tiled(201, 4));
+        CHECK(!y.yielded());
+        y.yield(3);
+        y.reconcile(tiled(303, 4));
+        CHECK(y.yielded() && y.pane == 3);
+        y.reconcile(tiled(-2, 4, 3));
+        CHECK(!y.yielded());
+        y.yield(2);
+        y.reconcile(tiled(-2, 3, 2));
+        CHECK(!y.yielded());
+    }
+    {
         ecs::model::KeyboardClaim claim;
         claim.observe(0, true, false, true);
         CHECK(ecs::model::composer_holds_keyboard(claim));

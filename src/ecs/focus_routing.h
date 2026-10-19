@@ -25,7 +25,11 @@
 // Pure, so the routing is assertable with no window and no ECS.
 // ---------------------------------------------------------------------------
 
+#include <algorithm>
+#include <array>
 #include <string>
+
+#include "pane_layout.h"
 
 namespace ecs::model {
 
@@ -141,16 +145,18 @@ struct CaretYield {
         int focusedPane = 0;
         long long focusIdAtStart = -1;
         bool composerOwnsInput = false;
-        ComposerIds ids[2];
+        int paneCount = 2;
+        std::array<ComposerIds, kMaxPanes> ids;
     };
     void reconcile(const ReconcileInputs& in) {
         if (pane == kNoYieldedPane) return;
-        for (int i = 0; i < 2; ++i)
+        const int count = std::clamp(in.paneCount, 0, kMaxPanes);
+        for (int i = 0; i < count; ++i)
             if (!composer_draws(in.splitView, i, in.settingsPane, in.settingsTab, in.focusedPane)) pane_gone(i);
         if (pane == kNoYieldedPane) return;
-        const int owner = caret_in_this_composer(in.focusIdAtStart, in.ids[0]) ? 0
-                          : caret_in_this_composer(in.focusIdAtStart, in.ids[1]) ? 1
-                                                                                 : kNoYieldedPane;
+        int owner = kNoYieldedPane;
+        for (int i = 0; i < count && owner == kNoYieldedPane; ++i)
+            if (caret_in_this_composer(in.focusIdAtStart, in.ids[static_cast<std::size_t>(i)])) owner = i;
         if (owner == kNoYieldedPane) return;
         if (owner != pane || in.composerOwnsInput) pane = kNoYieldedPane;
     }
