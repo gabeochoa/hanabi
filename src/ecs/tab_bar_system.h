@@ -88,13 +88,31 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         return runs;
     }
 
+    static std::vector<afterhours::EntityID> focused_run(const TabStripComponent& strip,
+                                                         const AppComponent& app) {
+        if (app.groupCount <= 1) return strip.tabOrder;
+        std::vector<afterhours::EntityID> run;
+        for (const auto id : strip.tabOrder) {
+            auto opt = EntityHelper::getEntityForID(id);
+            if (opt.valid() && opt->has<Tab>() && opt->get<Tab>().group == app.focusedPane)
+                run.push_back(id);
+        }
+        return run;
+    }
+
     // Where a tab dragged out of the strip would split: below the strip by
-    // a margin, over the right half of the pane area.
+    // a margin, over the half of the pane the pointer is in.
     static constexpr float kSplitDropMargin = 24.0f;
-    static bool split_drop_target(const TabStripComponent& strip, float tabY, float tabH,
-                                  float paneLeft) {
-        const float paneMid = (paneLeft + hanabi::viewport::width()) * 0.5f;
-        return strip.dragCurY > tabY + tabH + kSplitDropMargin && strip.dragCurX >= paneMid;
+    static model::DropZone split_drop_zone(const TabStripComponent& strip, float tabY, float tabH,
+                                           const std::vector<StripRun>& runs) {
+        if (!(strip.dragCurY > tabY + tabH + kSplitDropMargin)) return {};
+        std::vector<float> widths;
+        std::vector<float> origins;
+        for (const StripRun& run : runs) {
+            widths.push_back(run.rect.width);
+            origins.push_back(run.rect.x);
+        }
+        return model::pane_drop_zone(widths, origins, strip.dragCurX);
     }
 
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
@@ -144,11 +162,12 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
         if (app.requestSelectTabSlot != 0) {
             const int slot = app.requestSelectTabSlot;
             app.requestSelectTabSlot = 0;
+            const std::vector<afterhours::EntityID> slotRun = focused_run(strip, app);
             const int at = hanabi::shortcuts::tab_index_for_slot(
-                slot, static_cast<int>(strip.tabOrder.size()));
+                slot, static_cast<int>(slotRun.size()));
             if (at >= 0) {
                 auto opt = EntityHelper::getEntityForID(
-                    strip.tabOrder[static_cast<size_t>(at)]);
+                    slotRun[static_cast<size_t>(at)]);
                 if (opt.valid() && opt->has<Tab>()) {
                     if (opt->has<ActiveTab>()) {
                         model::keep_tab(opt.asE());
@@ -172,12 +191,13 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                                   app.requestTabStepWraps};
             app.requestTabStep = 0;
             app.requestTabStepWraps = false;
-            const int count = static_cast<int>(strip.tabOrder.size());
+            const std::vector<afterhours::EntityID> stepRun = focused_run(strip, app);
+            const int count = static_cast<int>(stepRun.size());
             int here = -1;
             int activeAt = -1;
             for (int i = 0; i < count; ++i) {
                 auto opt = EntityHelper::getEntityForID(
-                    strip.tabOrder[static_cast<size_t>(i)]);
+                    stepRun[static_cast<size_t>(i)]);
                 if (!opt.valid() || !opt->has<Tab>()) continue;
                 if (opt->get<Tab>().sessionId == app.pane().selectedId) here = i;
                 if (opt->has<ActiveTab>()) activeAt = i;
@@ -186,7 +206,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             const int at = hanabi::shortcuts::tab_index_after_step(here, count, step);
             if (at >= 0) {
                 auto opt = EntityHelper::getEntityForID(
-                    strip.tabOrder[static_cast<size_t>(at)]);
+                    stepRun[static_cast<size_t>(at)]);
                 if (opt.valid() && opt->has<Tab>()) switch_to_tab(app, opt.asE());
             }
         }
@@ -390,10 +410,24 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 const std::string draggedId =
                     draggedTab.valid() && draggedTab->has<Tab>() ? draggedTab->get<Tab>().sessionId
                                                                   : std::string();
-                if (strip.dragging && split_drop_target(strip, tabY, tabH, runLeft) &&
-                    !draggedId.empty() && !model::is_surface_tab(draggedId)) {
-                    app.requestSplitOpen = draggedId;
+                const model::DropZone zone = split_drop_zone(strip, tabY, tabH, runs);
+                int overStrip = -1;
+                for (const StripRun& other : runs)
+                    if (other.group != run.group && afterhours::ui::is_mouse_inside(
+                                                         ctx.mouse.pos,
+                                                         RectangleType{other.rect.x, other.rect.y,
+                                                                       other.rect.width,
+                                                                       other.rect.height}))
+                        overStrip = other.group;
+                if (strip.dragging && zone.valid && !draggedId.empty() &&
+                    !model::is_surface_tab(draggedId)) {
+                    model::split_tab(strip, app, strip.dragCandidate,
+                                     zone.before ? zone.group : zone.group + 1,
+                                     model::SplitAxis::Horizontal);
                     app.view = SmartView::Chat;
+                    ctx.mouse.just_pressed = false;
+                } else if (strip.dragging && overStrip >= 0 && !draggedId.empty()) {
+                    model::move_tab_to_group(strip, app, strip.dragCandidate, overStrip);
                     ctx.mouse.just_pressed = false;
                 } else if (strip.dragging && from < nTabs && nTabs > 1) {
                     // Center-x of the dragged tab follows the cursor, clamped so it
@@ -433,22 +467,23 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 strip.clear_drag();
             }
             // While a tab is held over the split drop zone, the zone says so: the
-            // right half of the pane area, tinted with the accent.
-            if (runIndex == 0 && strip.dragging && ctx.mouse.left_down &&
-                split_drop_target(strip, tabY, tabH, runLeft)) {
+            // half of the pane the pointer is over, tinted with the accent.
+            const model::DropZone heldZone = runIndex == 0 && strip.dragging && ctx.mouse.left_down
+                                                 ? split_drop_zone(strip, tabY, tabH, runs)
+                                                 : model::DropZone{};
+            if (heldZone.valid) {
                 const auto dragged = EntityHelper::getEntityForID(strip.dragCandidate);
                 if (dragged.valid() && dragged->has<Tab>() &&
                     !model::is_surface_tab(dragged->get<Tab>().sessionId)) {
-                    const float paneMid = (runLeft + hanabi::viewport::width()) * 0.5f;
                     const float top = tabY + tabH;
                     theme::Color tint = theme::accent();
                     tint.a = 46;
                     div(ctx, mk(uiRoot, 8650 + idBase),
                         ComponentConfig{}
-                            .with_size(ComponentSize{pixels(hanabi::viewport::width() - paneMid),
+                            .with_size(ComponentSize{pixels(heldZone.width),
                                                      pixels(hanabi::viewport::height() - top)})
                             .with_absolute_position()
-                            .with_translate(paneMid, top)
+                            .with_translate(heldZone.x, top)
                             .with_custom_background(tint)
                             .with_border(theme::accent(), pixels(2.0f))
                             .with_roundness(0.0f)

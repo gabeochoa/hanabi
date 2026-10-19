@@ -412,6 +412,7 @@ inline void reconcile_panes_with_tabs(const TabStripComponent& strip,
     }
     if (strip.tabOrder.empty()) {
         app.splitOpen = false;
+        app.groupCount = 1;
         app.focusedPane = 0;
         app.view = SmartView::Home;
     }
@@ -716,6 +717,8 @@ inline void close_bulk(TabStripComponent& strip, AppComponent& app,
         }
     }
     if (keepAt == strip.tabOrder.size()) return;
+    const int keepGroup =
+        afterhours::EntityHelper::getEntityForID(strip.tabOrder[keepAt])->get<Tab>().group;
     // Snapshot the ids before closing: tabOrder shrinks under the loop.
     std::vector<afterhours::EntityID> victims;
     for (std::size_t i = rightOnly ? keepAt + 1 : 0; i < strip.tabOrder.size(); ++i) {
@@ -723,9 +726,26 @@ inline void close_bulk(TabStripComponent& strip, AppComponent& app,
         auto opt = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
         if (!opt.valid() || !opt->has<Tab>()) continue;
         if (opt->get<Tab>().pinned) continue;
+        if (opt->get<Tab>().group != keepGroup) continue;
         victims.push_back(strip.tabOrder[i]);
     }
     if (victims.empty()) return;
+
+    if (app.groupCount > 1) {
+        TabGroups groups = groups_of(strip, app);
+        for (const afterhours::EntityID id : victims) {
+            auto opt = afterhours::EntityHelper::getEntityForID(id);
+            if (opt.valid() && opt->has<Tab>()) {
+                app.note_tab_closed(opt->get<Tab>().sessionId);
+                hanabi::tab_keep_flash::store().forget(opt->get<Tab>().sessionId);
+                app.findStates.forget(opt->get<Tab>().sessionId);
+            }
+            groups.close(group_key(id));
+            if (opt.valid()) opt.asE().cleanup = true;
+        }
+        apply_groups(strip, app, groups);
+        return;
+    }
 
     // The reference closes one at a time and each close re-picks the flat
     // neighbour of the erased slot; over a run of closes that walk lands on
@@ -803,9 +823,14 @@ inline void close_others(TabStripComponent& strip, AppComponent& app,
         }
     }
     std::size_t n = 0;
+    int keepGroup = 0;
+    if (keepAt < strip.tabOrder.size())
+        keepGroup = afterhours::EntityHelper::getEntityForID(strip.tabOrder[keepAt])->get<Tab>().group;
     for (std::size_t i = keepAt + 1; i < strip.tabOrder.size(); ++i) {
         auto opt = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
-        if (opt.valid() && opt->has<Tab>() && !opt->get<Tab>().pinned) ++n;
+        if (opt.valid() && opt->has<Tab>() && !opt->get<Tab>().pinned &&
+            opt->get<Tab>().group == keepGroup)
+            ++n;
     }
     return n;
 }
@@ -814,11 +839,17 @@ inline void close_others(TabStripComponent& strip, AppComponent& app,
 [[nodiscard]] inline std::size_t closable_others(const TabStripComponent& strip,
                                                  const std::string& keepId) {
     std::size_t n = 0;
+    int keepGroup = 0;
+    for (auto tabId : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+        if (opt.valid() && opt->has<Tab>() && opt->get<Tab>().sessionId == keepId)
+            keepGroup = opt->get<Tab>().group;
+    }
     for (auto tabId : strip.tabOrder) {
         auto opt = afterhours::EntityHelper::getEntityForID(tabId);
         if (!opt.valid() || !opt->has<Tab>()) continue;
         const Tab& t = opt->get<Tab>();
-        if (t.sessionId != keepId && !t.pinned) ++n;
+        if (t.sessionId != keepId && !t.pinned && t.group == keepGroup) ++n;
     }
     return n;
 }
@@ -890,6 +921,7 @@ inline void close_all(TabStripComponent& strip, AppComponent& app) {
     strip.tabOrder.clear();
     for (auto& pane : app.panes) reset_pane_to(pane, "");
     app.splitOpen = false;
+    app.groupCount = 1;
     app.focusedPane = 0;
     app.view = SmartView::Home;
 }
