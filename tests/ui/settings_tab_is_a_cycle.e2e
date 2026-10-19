@@ -55,6 +55,9 @@ wait_frames 6
 expect_focused settings_only_ungrouped_track
 key TAB
 wait_frames 6
+expect_focused settings_compress_runs_track
+key TAB
+wait_frames 6
 expect_focused settings_export_prefs_row
 key TAB
 wait_frames 6
@@ -70,6 +73,9 @@ expect_focused settings_import_prefs_row
 shift_tab
 wait_frames 6
 expect_focused settings_export_prefs_row
+shift_tab
+wait_frames 6
+expect_focused settings_compress_runs_track
 shift_tab
 wait_frames 6
 expect_focused settings_only_ungrouped_track

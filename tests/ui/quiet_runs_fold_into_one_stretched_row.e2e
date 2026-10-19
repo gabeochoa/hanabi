@@ -10,17 +10,17 @@ wait_frames 12
 expect_text "run the nightly checks every hour and report"
 expect_text "Worked for 2s across 1h 21m"
 assert_ui stretch_tks-w1 hidden=false
-expect_no_text "Woke up on the hourly timer"
+expect_no_text "delivered"
 expect_text "03:00 run green."
 click_ui stretch_tks-w1
 wait_frames 10
 assert_ui stretch_open_tks-w1 hidden=false
 expect_text "Worked for 2s across 1h 21m"
-expect_text "Woke up on the hourly timer"
+expect_text "delivered"
 click_ui stretch_open_tks-w1
 wait_frames 10
 assert_ui stretch_tks-w1 hidden=false
-expect_no_text "Woke up on the hourly timer"
+expect_no_text "delivered"
 click_ui sb_settings
 wait_frames 16
 click_ui sb_settings_nav_general
@@ -34,4 +34,4 @@ wait_frames 10
 key ESCAPE
 wait_frames 12
 expect_no_ui stretch_tks-w1
-expect_text "Woke up on the hourly timer"
+expect_text "delivered"
