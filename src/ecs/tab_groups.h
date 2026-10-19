@@ -82,6 +82,37 @@ class TabGroups {
 
     void adopt_axis(SplitAxis axis) { axis_ = axis; }
 
+    const std::map<int, std::string>& selections() const { return group_selection_; }
+
+    static TabGroups from_state(std::vector<GroupTab> tabs, const std::map<int, std::string>& selection,
+                                int acted, std::optional<std::string> selected,
+                                SplitAxis axis = SplitAxis::Horizontal) {
+        TabGroups out;
+        std::stable_sort(tabs.begin(), tabs.end(),
+                         [](const GroupTab& a, const GroupTab& b) { return a.group < b.group; });
+        std::set<std::string> seen;
+        for (auto& t : tabs) {
+            if (t.id.empty() || !seen.insert(t.id).second) continue;
+            t.group = std::max(t.group, 0);
+            out.tabs_.push_back(std::move(t));
+        }
+        for (const auto& [g, id] : selection)
+            if (out.contains(id) && out.find(id)->group == g) out.group_selection_[g] = id;
+        out.acted_ = acted;
+        out.axis_ = axis;
+        out.normalize();
+        for (int g = 0; g < out.group_count(); ++g)
+            if (!out.selected_in(g)) {
+                const auto strip = out.tabs_in(g);
+                if (!strip.empty()) out.group_selection_[g] = strip.front().id;
+            }
+        if (selected && out.contains(*selected)) out.selected_ = selected;
+        else if (auto in_acted = out.selected_in(out.acted_)) out.selected_ = in_acted;
+        else if (auto first = out.selected_in(0)) out.selected_ = first;
+        if (out.selected_) out.acted_ = out.find(*out.selected_)->group;
+        return out;
+    }
+
     static std::optional<SplitAxis> persistable_axis(int groups, SplitAxis axis) {
         if (groups > 1) return axis;
         return std::nullopt;

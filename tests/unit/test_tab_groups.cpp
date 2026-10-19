@@ -312,6 +312,40 @@ static void test_keeping_a_tab_moves_it_to_the_front_and_unkeeping_leaves_it() {
     CHECK(!m.find("p")->preview);
 }
 
+static void test_a_layout_is_rebuilt_from_its_flat_state() {
+    std::printf("test_a_layout_is_rebuilt_from_its_flat_state\n");
+    TabGroups m = three();
+    m.split_off("c", 1, SplitAxis::Vertical);
+    m.select("a");
+    m.select("b");
+    const TabGroups back = TabGroups::from_state(m.tabs(), m.selections(), m.acted_group(), m.selected(), m.axis());
+    CHECK(all(back) == all(m));
+    CHECK(*back.selected() == "b");
+    CHECK(*back.selected_in(1) == "c");
+    CHECK(back.axis() == SplitAxis::Vertical);
+    CHECK(back.group_keys().size() == 2);
+}
+
+static void test_flat_state_is_repaired_into_contiguous_numbered_panes() {
+    std::printf("test_flat_state_is_repaired_into_contiguous_numbered_panes\n");
+    std::vector<ecs::model::GroupTab> flat;
+    for (auto [id, g] : {std::pair<const char*, int>{"x", 5}, {"y", 2}, {"z", 5}, {"dup", 2}, {"dup", 5}, {"", 0}}) {
+        ecs::model::GroupTab t;
+        t.id = id;
+        t.group = g;
+        flat.push_back(t);
+    }
+    const TabGroups m = TabGroups::from_state(flat, {{5, "z"}, {2, "ghost"}}, 9, std::nullopt);
+    CHECK(m.group_count() == 2);
+    CHECK(ids_in(m, 0) == "ydup");
+    CHECK(ids_in(m, 1) == "xz");
+    CHECK(*m.selected_in(0) == "y");
+    CHECK(*m.selected_in(1) == "z");
+    CHECK(m.selected().has_value());
+    const TabGroups empty = TabGroups::from_state({}, {}, 3, std::nullopt);
+    CHECK(empty.empty() && empty.group_count() == 1 && !empty.selected());
+}
+
 static void test_the_axis_is_remembered_only_for_a_split() {
     std::printf("test_the_axis_is_remembered_only_for_a_split\n");
     CHECK(!TabGroups::persistable_axis(1, SplitAxis::Vertical));
@@ -345,6 +379,8 @@ int main() {
     test_pane_step_visits_the_neighbouring_panes_selection();
     test_a_kept_tab_sits_in_front_of_its_pane();
     test_keeping_a_tab_moves_it_to_the_front_and_unkeeping_leaves_it();
+    test_a_layout_is_rebuilt_from_its_flat_state();
+    test_flat_state_is_repaired_into_contiguous_numbered_panes();
     test_the_axis_is_remembered_only_for_a_split();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
