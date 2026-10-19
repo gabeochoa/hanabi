@@ -22,6 +22,7 @@
 
 #include "../../vendor/nlohmann/json.hpp"
 #include "attachments.h"
+#include "draft_key.h"
 #include "../search/json_field_scan.h"
 
 namespace api::disk_cache {
@@ -1203,8 +1204,10 @@ json load_drafts_doc() {
         json doc;
         in >> doc;
         if (doc.is_object() && doc.contains("drafts") &&
-            doc["drafts"].is_object())
+            doc["drafts"].is_object()) {
+            api::draft_key::migrate_legacy(doc["drafts"]);
             return doc;
+        }
     } catch (...) {
     }
     return json::object();

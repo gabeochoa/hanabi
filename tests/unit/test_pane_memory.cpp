@@ -295,29 +295,19 @@ static void test_render_cache_is_still_bounded() {
           2 * ecs::model::TranscriptRenderCache::kMaxThreads);
 }
 
-// --- two panes on ONE thread do not share what is typed into them ----------
+// --- a thread keeps what is typed into it wherever its pane is --------------
 //
-// This is the case splitting produces by default: the same thread in both
-// panes. Keyed by session id alone -- which is how the store was keyed until
-// the pane became a value -- both panes touch() the SAME entry, so the draft
-// typed on the left appears on the right, is sent once, and is lost from both;
-// the follow-the-bottom latch is shared, so scrolling one pane up makes the
-// other jump; and one minimap drag scrubs both rails.
-//
-// Written against the old key first: with `touch(id)` in place of
-// `touch(pane_key(i, id))` the first CHECK below fails on the line it is on,
-//
-//   FAIL: left->replyDraft == "typed on the left" (line 152)
-//   FAIL: right->replyDraft.empty() (line 153)
-//
-// because there is one entry and both names point at it.
-static void test_two_panes_on_one_thread_keep_their_own() {
-    std::printf("test_two_panes_on_one_thread_keep_their_own\n");
+// A thread is in one pane at a time (a tab is unique), so the state is keyed
+// by the thread and follows it when Split Right or Move Pane gives it a
+// different pane: the draft, the attachments, the follow latch and the
+// scroll velocity are the thread's, and two threads in two panes never share
+// them.
+static void test_a_thread_keeps_its_state_in_any_pane_and_two_threads_do_not_share() {
+    std::printf("test_a_thread_keeps_its_state_in_any_pane_and_two_threads_do_not_share\n");
     ecs::model::PaneStateStore store;
-    const std::string id = "the-same-thread";
 
-    ecs::model::PaneState& left = store.touch(ecs::model::pane_key(0, id));
-    ecs::model::PaneState& right = store.touch(ecs::model::pane_key(1, id));
+    ecs::model::PaneState& left = store.touch(ecs::model::pane_key(0, "thread-a"));
+    ecs::model::PaneState& right = store.touch(ecs::model::pane_key(1, "thread-b"));
 
     left.replyDraft = "typed on the left";
     left.attachments.push_back(
@@ -347,35 +337,26 @@ static void test_two_panes_on_one_thread_keep_their_own() {
     CHECK(!right.haveLastScrollY);
     CHECK(store.size() == 2);
 
-    // And the two keys are stable: coming back to either pane finds its own
-    // entry rather than making a third.
-    CHECK(&store.touch(ecs::model::pane_key(0, id)) == &left);
-    CHECK(&store.touch(ecs::model::pane_key(1, id)) == &right);
+    // Moving thread-a to pane 1 finds the same entry, not a third.
+    CHECK(&store.touch(ecs::model::pane_key(1, "thread-a")) == &left);
+    CHECK(&store.touch(ecs::model::pane_key(1, "thread-b")) == &right);
     CHECK(store.size() == 2);
     CHECK(store.drafts() == 1);
 }
 
-// --- two panes, one thread, two WIDTHS ---------------------------------------
+// --- two panes, two threads, two WIDTHS --------------------------------------
 //
 // The measurements are keyed by width, and a user bubble is measured at two
 // widths (see WidthPair: the maximum text width, then the hugged width that
-// falls out of it). Two panes on one thread at two different pane widths --
-// which is any split whose divider is not exactly centred -- is therefore FOUR
-// widths, and the pair holds two.
-//
-// Keyed by thread alone, the two panes share one pair: each pane's first ask
-// evicts what the other just wrote, every frame, for the life of the split.
-// Written against that key first, the loop below reported
-//
-//   FAIL: cache.absent() + cache.stale() == cold (line 205)
-//         (40 misses over 10 frames, against the 4 cold ones)
-//
-// which is the negative hit rate the WidthPair was introduced to kill, one
-// level up. Keyed by pane AND thread it is four cold misses and nothing after.
+// falls out of it). Two threads in two panes at two different pane widths --
+// which is any split whose divider is not exactly centred -- is four widths
+// across two threads, and each thread's pair holds its own two, so nothing
+// is evicted after the cold misses.
 static void test_two_panes_at_two_widths_do_not_thrash() {
     std::printf("test_two_panes_at_two_widths_do_not_thrash\n");
     ecs::model::TranscriptRenderCache cache;
-    const std::string id = "one-long-thread";
+    const std::string leftId = "one-long-thread";
+    const std::string rightId = "another-long-thread";
     // The left pane is wider than the right: the divider is off centre.
     const float leftMax = 630.0f, leftHug = 458.0f;
     const float rightMax = 420.0f, rightHug = 305.0f;
@@ -390,16 +371,16 @@ static void test_two_panes_at_two_widths_do_not_thrash() {
 
     for (int frame = 0; frame < 10; ++frame) {
         // The left pane's two passes over the one user bubble...
-        cache.reset_for_thread(ecs::model::pane_key(0, id));
+        cache.reset_for_thread(ecs::model::pane_key(0, leftId));
         measure("m1", leftMax);
         measure("m1", leftHug);
         // ...then the right pane's two, in the same frame.
-        cache.reset_for_thread(ecs::model::pane_key(1, id));
+        cache.reset_for_thread(ecs::model::pane_key(1, rightId));
         measure("m1", rightMax);
         measure("m1", rightHug);
     }
 
-    // Four cold misses -- one per (pane, width) -- and not one more.
+    // Four cold misses -- one per (thread, width) -- and not one more.
     const std::size_t cold = 4;
     CHECK(cache.absent() + cache.stale() == cold);
     CHECK(cache.threads() == 2);
@@ -494,29 +475,35 @@ static void test_unread_tracks_append_prepend_and_replace() {
     CHECK(liveState.unreadCount == 0);
 }
 
-static void test_every_pane_of_an_n_pane_window_keeps_its_own_state() {
-    std::printf("test_every_pane_of_an_n_pane_window_keeps_its_own_state\n");
-    CHECK(ecs::model::pane_key(0, "t1") == std::string("0\x1ft1"));
-    CHECK(ecs::model::pane_key(1, "t1") == std::string("1\x1ft1"));
-    CHECK(ecs::model::persisted_reply_key(1, "t1") == std::string("reply:1\x1ft1"));
+static void test_every_thread_of_an_n_pane_window_keeps_its_own_state() {
+    std::printf("test_every_thread_of_an_n_pane_window_keeps_its_own_state\n");
+    CHECK(ecs::model::pane_key(0, "t1") == ecs::model::pane_key(1, "t1"));
+    CHECK(ecs::model::pane_key(0, "t1") != ecs::model::pane_key(0, "t2"));
+    CHECK(ecs::model::persisted_reply_key(1, "t1") == ecs::model::persisted_reply_key(0, "t1"));
+    CHECK(ecs::model::persisted_reply_key(0, "t1") == std::string("reply:t\x1ft1"));
+    CHECK(ecs::model::pane_key(0, "__kickoff__") == std::string("0\x1f__kickoff__"));
+    CHECK(ecs::model::pane_key(1, "__kickoff__") == std::string("1\x1f__kickoff__"));
+    CHECK(ecs::model::pane_key(0, "") != ecs::model::pane_key(1, ""));
+    CHECK(ecs::model::pane_key(10, "") != ecs::model::pane_key(1, "0"));
+    CHECK(ecs::model::pane_key(-1, "") == ecs::model::pane_key(0, ""));
     ecs::model::PaneStateStore store;
     std::vector<ecs::model::PaneState*> states;
     for (int pane = 0; pane < 12; ++pane)
-        states.push_back(&store.touch(ecs::model::pane_key(pane, "t1")));
+        states.push_back(&store.touch(ecs::model::pane_key(pane, "thread-" + std::to_string(pane))));
     CHECK(store.size() == 12);
     for (std::size_t a = 0; a < states.size(); ++a)
         for (std::size_t b = a + 1; b < states.size(); ++b) CHECK(states[a] != states[b]);
-    CHECK(ecs::model::pane_key(10, "x") != ecs::model::pane_key(1, "0x"));
-    CHECK(ecs::model::pane_key(2, "t1") != ecs::model::pane_key(0, "t1"));
-    CHECK(ecs::model::pane_key(-1, "t1") == ecs::model::pane_key(0, "t1"));
+    for (int pane = 0; pane < 12; ++pane)
+        states.push_back(&store.touch(ecs::model::pane_key(pane, "__kickoff__")));
+    CHECK(store.size() == 24);
 }
 
 int main() {
     std::printf("=== test_pane_memory ===\n");
     test_pane_state_is_bounded();
     test_a_draft_is_never_evicted();
-    test_two_panes_on_one_thread_keep_their_own();
-    test_every_pane_of_an_n_pane_window_keeps_its_own_state();
+    test_a_thread_keeps_its_state_in_any_pane_and_two_threads_do_not_share();
+    test_every_thread_of_an_n_pane_window_keeps_its_own_state();
     test_render_cache_holds_both_panes();
     test_same_id_content_change_invalidates_geometry();
     test_unread_tracks_append_prepend_and_replace();
