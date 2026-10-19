@@ -134,6 +134,7 @@ struct BulkSelectSystem : afterhours::System<UIContext<InputAction>> {
         b.request.reset();
         b.requestRecheck = false;
         b.requestEnd = false;
+        b.endReason = "";
     }
 
     void start(AppComponent& app, const Action& a, std::vector<std::string> ids) {
@@ -170,9 +171,14 @@ struct BulkSelectSystem : afterhours::System<UIContext<InputAction>> {
         if (!app) return;
         auto& b = app->bulk;
         if (b.selecting && hanabi::keys::pressed(hanabi::keys::kEscape) && list_has_the_keyboard(*app) &&
-            !b.moveMenuOpen)
+            !b.moveMenuOpen) {
             b.requestEnd = true;
+            b.endReason = "escape";
+        }
         if (b.requestEnd) {
+            if (std::getenv("HANABI_DUMP"))
+                std::fprintf(stderr, "[bulk] end: %s selected=%zu phase=%d\n", b.endReason, b.selected.size(),
+                             static_cast<int>(b.phase));
             end(b);
             return;
         }
@@ -182,7 +188,6 @@ struct BulkSelectSystem : afterhours::System<UIContext<InputAction>> {
             std::vector<std::string> ids;
             if (a.kind == Action::Kind::Unarchive) {
                 ids = b.undoIds;
-                b.outcomes.clear();
             } else {
                 ids = hanabi::bulk::actionable(b.selected, app->bulkVisibleOrderShown);
             }

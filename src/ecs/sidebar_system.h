@@ -1853,8 +1853,12 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         if (result.activated != hanabi::surface::kNoMenuRow) {
             namespace sq = hanabi::sidebar_query;
             if (pickedAction == "select") {
-                if (app.bulk.selecting) app.bulk.requestEnd = true;
-                else app.bulk.selecting = true;
+                if (app.bulk.selecting) {
+                    app.bulk.requestEnd = true;
+                    app.bulk.endReason = "menu";
+                } else {
+                    app.bulk.selecting = true;
+                }
             } else if (pickedAction == "automations") {
                 app.showAutomation = !app.showAutomation;
             } else if (pickedAction == "hide_auto") {
@@ -3495,7 +3499,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                 .with_roundness(0.3f)
                 .with_debug_name("bulk_cancel"));
         hanabi::a11y::set_name(cancel.ent(), "Leave selection mode (Escape)");
-        if (cancel) b.requestEnd = true;
+        if (cancel) {
+            b.requestEnd = true;
+            b.endReason = "cancel";
+        }
     }
 
     void render_bulk_move_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {

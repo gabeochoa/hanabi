@@ -670,6 +670,7 @@ struct AppComponent : public afterhours::BaseComponent {
         std::optional<hanabi::bulk::Action> request;
         bool requestRecheck = false;
         bool requestEnd = false;
+        const char* endReason = "";
         bool moveMenuOpen = false;
         static constexpr int kWidth = 4;
     } bulk;
