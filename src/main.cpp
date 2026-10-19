@@ -2956,6 +2956,10 @@ static int run_e2e(const std::string& path, int w, int h) {
     namespace t = afterhours::testing;
 
     hanabi::latency::reset();
+    hanabi::latency::capture_hook() = [] {
+        std::uint64_t probe_us = 0;
+        return capture_latency_frame(probe_us);
+    };
     hanabi::e2e::delayed_latency_inputs().clear();
 
     // Same reason as the capture path: a scripted click on a tracker id must

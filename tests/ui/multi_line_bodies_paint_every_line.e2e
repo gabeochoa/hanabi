@@ -1,0 +1,17 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# env: HANABI_OPEN=t2
+# Every line of a message body leaves ink: the first line of a body with hard
+# newlines, its second and third lines, and the wrapped continuation of a body
+# that breaks on width. The text registry alone cannot say this -- a label can
+# be built and laid out and still paint nothing -- so each line is asked for
+# its pixels.
+require_thread t2
+wait_frames 20
+expect_text "Reconciled 4,812 accounts"
+expect_ink_text "Reconcile this cycle" within=60
+expect_ink_text "Reconciled 4,812 accounts" within=60
+expect_ink_text "acct 8842" within=60
+expect_ink_text "acct 1097" within=60
+expect_ink_text "Both look like a rounding artifact" within=60
+expect_ink_text "follow-up?" part=bottom within=60
+expect_ink_text "Both look like a rounding artifact" part=top within=60

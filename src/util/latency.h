@@ -93,7 +93,33 @@ struct Frame {
                        kInkTolerance;
             }));
     }
+
+    // The part of this frame inside a pixel rectangle, clamped to the frame.
+    Frame crop(int x, int y, int w, int h) const {
+        Frame out;
+        if (!valid()) return out;
+        const int x0 = std::max(0, x), y0 = std::max(0, y);
+        const int x1 = std::min(width, x + w), y1 = std::min(height, y + h);
+        if (x1 <= x0 || y1 <= y0) return out;
+        out.width = x1 - x0;
+        out.height = y1 - y0;
+        out.luma.reserve(static_cast<std::size_t>(out.width) * static_cast<std::size_t>(out.height));
+        for (int row = y0; row < y1; ++row)
+            out.luma.insert(out.luma.end(),
+                            luma.begin() + static_cast<std::ptrdiff_t>(row) * width + x0,
+                            luma.begin() + static_cast<std::ptrdiff_t>(row) * width + x1);
+        return out;
+    }
 };
+
+// The frame the e2e host can read back from the GPU on demand (the latency
+// probe's capture), for a fixture that asks about pixels rather than labels.
+// Null outside an e2e run.
+using CaptureFn = std::optional<Frame> (*)();
+inline CaptureFn& capture_hook() {
+    static CaptureFn fn = nullptr;
+    return fn;
+}
 
 struct Difference {
     int changed = 0;
