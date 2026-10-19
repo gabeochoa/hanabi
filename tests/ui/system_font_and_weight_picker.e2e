@@ -9,7 +9,7 @@ wait_frames 8
 # Composer; scroll with the pointer over the pane first.
 hover_ui settings_pane_scroll
 wait_frames 2
-scroll_wheel 0 -4
+scroll_wheel 0 -16
 wait_frames 6
 expect_text "Optimistic"
 expect_text "Regular"
@@ -25,7 +25,7 @@ click_ui sb_settings
 wait_frames 4
 hover_ui settings_pane_scroll
 wait_frames 2
-scroll_wheel 0 -4
+scroll_wheel 0 -16
 wait_frames 6
 expect_text "Optimistic"
 expect_text "Bold"
