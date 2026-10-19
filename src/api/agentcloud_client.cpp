@@ -454,6 +454,12 @@ Result<InboxStateWrite> AgentcloudClient::write_read(const std::string& session_
     return post_inbox_patch(session_id, patch, "read");
 }
 
+Result<InboxStateWrite> AgentcloudClient::write_unread(const std::string& session_id) {
+    inbox_state::Patch patch;
+    patch.read = false;
+    return post_inbox_patch(session_id, patch, "unread");
+}
+
 Result<InboxStateWrite> AgentcloudClient::write_snooze(const std::string& session_id,
                                                        std::optional<int64_t> snoozed_until_sec) {
     inbox_state::Patch patch;

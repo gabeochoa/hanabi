@@ -279,7 +279,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             return;
         }
 
-        render_search(ctx, panel.ent(), *app, r.width);
+        app->bulkVisibleOrder.clear();
+        if (app->bulk.selecting) render_bulk_bar(ctx, panel.ent(), *app, r.width);
+        else render_search(ctx, panel.ent(), *app, r.width);
         // The 4px the list is offset by, as a real child so the column keeps
         // stacking (afterhours has no margin-collapse to lean on).
         spacer(ctx, panel.ent(), 9, kSbListGap);
@@ -1256,6 +1258,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             render_list_menu(ctx, uiRoot, app);
             return;
         }
+        if (app.rowMenuViewId == kBulkMoveMenuId) {
+            render_bulk_move_menu(ctx, uiRoot, app);
+            return;
+        }
         if (app.rowMenuViewId.rfind(kSpaceMenuPrefix, 0) == 0) {
             render_space_menu(ctx, uiRoot, app);
             return;
@@ -1741,6 +1747,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // token the search field reads, so typing it and picking it are one
     // filter. The row in force carries a tick.
     static constexpr const char* kListMenuId = "\x1f" "list";
+    static constexpr const char* kBulkMoveMenuId = "\x1f" "bulk-move";
     static constexpr const char* kSpaceMenuPrefix = "\x1f" "space:";
     // A Space header's menu: Space settings… (the reference's header menu).
     void render_space_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {
@@ -1797,6 +1804,9 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Automations (the reference's switch): threads an automation started
         // are kept off the list by default; the count says what the switch
         // governs before the click, "none" when there is nothing to show.
+        add(app.bulk.selecting ? std::string("Done selecting") : std::string("Select threads\xe2\x80\xa6"),
+            "list_menu_select", "select");
+        items.push_back(hanabi::surface::MenuItem::divider("list_menu_select_rule"));
         add(tick(app.automationCount == 0
                      ? std::string("Automations \xc2\xb7 none")
                      : "Automations \xc2\xb7 " + std::to_string(app.automationCount),
@@ -1841,7 +1851,10 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         }
         if (result.activated != hanabi::surface::kNoMenuRow) {
             namespace sq = hanabi::sidebar_query;
-            if (pickedAction == "automations") {
+            if (pickedAction == "select") {
+                if (app.bulk.selecting) app.bulk.requestEnd = true;
+                else app.bulk.selecting = true;
+            } else if (pickedAction == "automations") {
                 app.showAutomation = !app.showAutomation;
             } else if (pickedAction == "hide_auto") {
                 if (hidingAuto) app.collapsedFolders.erase(kHideAutoKey);
@@ -3362,6 +3375,189 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // child means 100% of the PARENT width, so a percent text field next to
     // fixed siblings overflows the row every frame. Every column here is
     // therefore sized in PIXELS off panelW.
+    void render_bulk_bar(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app, float panelW) {
+        namespace bulk = hanabi::bulk;
+        auto& b = app.bulk;
+        const int actionable = static_cast<int>(bulk::actionable(b.selected, app.bulkVisibleOrder).size());
+        const bulk::Tally t = bulk::tally(b.outcomes, b.selected);
+        const bool needsRecheck = !bulk::unresolved(b.outcomes, b.selected).empty();
+        const bool canAct = actionable > 0 && !bulk::blocks_actions(b.phase, b.outcomes, b.selected);
+        const std::string label = bulk::label(static_cast<int>(b.selected.size()), t, b.phase);
+        const std::string detail = bulk::detail(static_cast<int>(b.selected.size()), t, b.phase);
+        auto wrap = div(ctx, mk(parent, 4),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kSbSearchH)})
+                .with_flex_direction(FlexDirection::Row)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_align_items(AlignItems::Center)
+                .with_padding(Padding{
+                    .top = pixels(kSbSearchH - kSbFieldH - 1.0f),
+                    .right = pixels(kSbInset),
+                    .bottom = pixels(0),
+                    .left = pixels(kSbInset)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("bulk_bar"));
+        const float iconW = 22.0f;
+        const float cancelW = 50.0f;
+        const float recheckW = 78.0f;
+        const float gap = 4.0f;
+        const float inner = std::max(60.0f, panelW - 2.0f * kSbInset);
+        const float verbsW = needsRecheck ? recheckW : 4.0f * (iconW + gap);
+        const float labelW = std::max(30.0f, inner - verbsW - cancelW - gap);
+        const theme::Color labelInk = t.unknown > 0 && b.phase == bulk::Phase::Idle ? theme::attention_badge()
+                                      : t.failed > 0 && b.phase == bulk::Phase::Idle ? theme::status_blocked()
+                                                                                       : theme::text_primary();
+        auto lbl = div(ctx, mk(wrap.ent(), 1),
+            ComponentConfig{}
+                .with_label(label)
+                .with_size(ComponentSize{pixels(labelW), pixels(kSbFieldH)})
+                .with_transparent_bg()
+                .with_custom_text_color(labelInk)
+                .with_font_size(theme::type::SM)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_alignment(TextAlignment::Left)
+                .with_roundness(0.0f)
+                .with_debug_name("bulk_count"));
+        hanabi::a11y::set_name(lbl.ent(), detail);
+        const auto verb = [&](int slot, const char* dbg, const std::string& name, bulk::Action a,
+                              auto&& drawGlyph) {
+            auto btn = button(ctx, mk(wrap.ent(), slot),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(iconW), pixels(kSbFieldH)})
+                    .with_margin(Margin{.left = pixels(gap)})
+                    .with_transparent_bg()
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_skip_tabbing(true)
+                    .with_roundness(0.3f)
+                    .with_disabled(!canAct)
+                    .with_on_draw_fg([fg = canAct ? theme::text_secondary() : theme::text_faint(),
+                                      drawGlyph](RectangleType r) { drawGlyph(r, fg); })
+                    .with_debug_name(dbg));
+            hanabi::a11y::set_name(btn.ent(), name);
+            if (btn && canAct) {
+                if (a.kind == bulk::Action::Kind::Move) {
+                    const auto r = btn.ent().template get<afterhours::ui::UIComponent>().rect();
+                    b.moveMenuOpen = true;
+                    app.open_view_menu(kBulkMoveMenuId, r.x, r.y + r.height + 2.0f);
+                } else {
+                    b.request = a;
+                }
+            }
+        };
+        if (needsRecheck) {
+            auto again = button(ctx, mk(wrap.ent(), 2),
+                ComponentConfig{}
+                    .with_label("Check again")
+                    .with_size(ComponentSize{pixels(recheckW), pixels(kSbFieldH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::accent())
+                    .with_font_size(theme::type::SM)
+                    .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_skip_tabbing(true)
+                    .with_roundness(0.3f)
+                    .with_disabled(b.phase != bulk::Phase::Idle)
+                    .with_debug_name("bulk_recheck"));
+            hanabi::a11y::set_name(again.ent(), "Read the state again before anything is retried");
+            if (again && b.phase == bulk::Phase::Idle) b.requestRecheck = true;
+        } else {
+            verb(2, "bulk_archive", bulk::archive_hint(actionable), bulk::Action::archive(),
+                 [](RectangleType r, theme::Color fg) {
+                     hanabi::icons::draw_at("archive", r.x + r.width * 0.5f, r.y + r.height * 0.5f, 14.0f, fg);
+                 });
+            verb(3, "bulk_move", bulk::verb(bulk::Action::move("")), bulk::Action::move(""),
+                 [](RectangleType r, theme::Color fg) {
+                     hanabi::icons::draw_at("folder_grid", r.x + r.width * 0.5f, r.y + r.height * 0.5f, 14.0f, fg);
+                 });
+            verb(5, "bulk_read", bulk::verb(bulk::Action::mark_read()), bulk::Action::mark_read(),
+                 [](RectangleType r, theme::Color fg) { hanabi::glyph::envelope(r, fg, true); });
+            verb(6, "bulk_unread", bulk::verb(bulk::Action::mark_unread()), bulk::Action::mark_unread(),
+                 [](RectangleType r, theme::Color fg) { hanabi::glyph::envelope(r, fg, false); });
+        }
+        auto cancel = button(ctx, mk(wrap.ent(), 7),
+            ComponentConfig{}
+                .with_label("Cancel")
+                .with_size(ComponentSize{pixels(cancelW), pixels(kSbFieldH)})
+                .with_margin(Margin{.left = pixels(gap)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::accent())
+                .with_font_size(theme::type::SM)
+                .with_custom_hover_bg(theme::hover_over(theme::chrome::sidebar()))
+                .with_cursor(afterhours::ui::CursorType::Pointer)
+                .with_click_activation(ClickActivationMode::Press)
+                .with_skip_tabbing(true)
+                .with_roundness(0.3f)
+                .with_debug_name("bulk_cancel"));
+        hanabi::a11y::set_name(cancel.ent(), "Leave selection mode (Escape)");
+        if (cancel) b.requestEnd = true;
+    }
+
+    void render_bulk_move_menu(UIContext<InputAction>& ctx, Entity& uiRoot, AppComponent& app) {
+        std::vector<hanabi::surface::MenuItem> items;
+        {
+            hanabi::surface::MenuItem none{"None", "bulk_move_none", false, false};
+            none.action_id = "folder:none";
+            items.push_back(std::move(none));
+        }
+        if (!app.webFolders.folders.empty()) {
+            items.push_back(hanabi::surface::MenuItem::divider("bulk_move_rule"));
+            for (const auto& f : app.webFolders.folders) {
+                hanabi::surface::MenuItem leaf{f.name, "bulk_move_" + f.id, false, false};
+                leaf.action_id = "folder:" + f.id;
+                items.push_back(std::move(leaf));
+            }
+        }
+        hanabi::surface::MenuMetrics metrics;
+        metrics.width = hanabi::surface::kContextMenuW;
+        const std::string scope = "bulk-move";
+        hanabi::surface::MenuResult result;
+        std::string pickedAction;
+        if (!app.rowMenuNativeTried) {
+            app.rowMenuNativeTried = true;
+            app.rowMenuFocusBefore = static_cast<long long>(ctx.focus_id);
+            hanabi::surface::native_menu_open(app.nativeRowMenu, scope, "bulk_move_menu", items, app.rowMenuX,
+                                              app.rowMenuY, static_cast<long long>(ctx.focus_id));
+        }
+        if (app.nativeRowMenu.open()) {
+            (void)menu_keys_for(app);
+            result = hanabi::surface::native_menu_frame(ctx, uiRoot, 8893, "bulk_move_menu", app.nativeRowMenu,
+                                                        scope);
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = app.nativeRowMenu.action_of(result.activated);
+        } else {
+            result = hanabi::surface::context_menu(ctx, uiRoot, 8893, metrics, app.rowMenuX, app.rowMenuY,
+                                                   "MOVE TO FOLDER", "bulk_move_menu", items, app.menuCursor,
+                                                   menu_keys_for(app), hanabi::surface::kContextMenuLayer,
+                                                   std::string_view());
+            if (result.activated != hanabi::surface::kNoMenuRow)
+                pickedAction = items[result.activated].action_id;
+        }
+        if (result.activated != hanabi::surface::kNoMenuRow) {
+            if (pickedAction.rfind("folder:", 0) == 0) {
+                const std::string fid = pickedAction.substr(7);
+                app.bulk.request = hanabi::bulk::Action::move(fid == "none" ? std::string() : fid);
+            }
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.bulk.moveMenuOpen = false;
+            app.close_row_menu();
+            return;
+        }
+        if (result.dismissed || result.cancelled) {
+            if (!app.nativeRowMenu.open())
+                hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
+                                                          result.activated_entity);
+            app.bulk.moveMenuOpen = false;
+            app.close_row_menu();
+        }
+    }
+
     void render_search(UIContext<InputAction>& ctx, Entity& parent,
                        AppComponent& app, float panelW) {
         // Wrap in a full-width padded row so the search field itself never
@@ -5123,7 +5319,25 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         const bool childrenOpen =
             hasChildren && model::children_shown(app.expandedParents, s.id);
         bool foldClicked = false;
-        if (glyphRole == model::RowGlyphRole::Status) {
+        app.bulkVisibleOrder.push_back(s.id);
+        if (app.bulk.selecting) {
+            const bool picked = app.bulk.selected.count(s.id) > 0;
+            const hanabi::bulk::Outcome* outcome = nullptr;
+            if (const auto it = app.bulk.outcomes.find(s.id); it != app.bulk.outcomes.end()) outcome = &it->second;
+            const bool troubled = outcome != nullptr && !outcome->leaves_selection();
+            const theme::Color ink = troubled ? theme::status_blocked() : picked ? theme::accent() : theme::text_faint();
+            auto box = div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(kGlyphW), pixels(20)})
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_on_draw_fg([picked, ink](RectangleType rect) {
+                        hanabi::glyph::radio(rect, picked, ink, 6.0f);
+                    })
+                    .with_debug_name((picked ? "row_selected_" : "row_select_") + s.id));
+            if (troubled) hanabi::a11y::set_name(box.ent(), hanabi::bulk::row_note(outcome));
+        } else if (glyphRole == model::RowGlyphRole::Status) {
             div(ctx, mk(row.ent(), 1),
                 ComponentConfig{}
                     .with_label(" ")
@@ -5163,7 +5377,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     // whichever row came first.
                     .with_debug_name((childrenOpen ? "row_fold_open_"
                                                    : "row_fold_") + s.id));
-            if (rowClicked && row.ent().has<afterhours::ui::UIComponent>()) {
+            if (rowClicked && !app.bulk.selecting && row.ent().has<afterhours::ui::UIComponent>()) {
                 const RectangleType rr =
                     row.ent().get<afterhours::ui::UIComponent>().rect();
                 if (ctx.mouse.pos.x < rr.x + hanabi::viewport::px(kFoldHitW)) {
@@ -5455,7 +5669,22 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // Apply the deferred row-open: open the thread on a row click UNLESS the
         // star was what got clicked (starring must not also open the thread).
         if (rowClicked && !starClicked && !bellClicked && !foldClicked) {
-            app.requestOpenTab = s.id;
+            const bool modified = hanabi::keys::cmd_or_ctrl_down() || hanabi::keys::shift_down();
+            if (app.bulk.selecting || modified) {
+                auto& b = app.bulk;
+                const bool starting = !b.selecting;
+                if (starting) b.selecting = true;
+                const auto g = hanabi::bulk::gesture(hanabi::keys::shift_down());
+                const hanabi::bulk::Applied next = hanabi::bulk::apply(
+                    g, s.id, starting ? hanabi::bulk::Selected{} : b.selected,
+                    starting ? b.lastOpened : b.anchor,
+                    g == hanabi::bulk::Gesture::Extend ? app.bulkVisibleOrder : std::vector<std::string>{});
+                b.selected = next.selected;
+                b.anchor = next.anchor;
+            } else {
+                app.bulk.lastOpened = s.id;
+                app.requestOpenTab = s.id;
+            }
         }
         if (std::getenv("HANABI_DUMP") && (rowClicked || ctx.mouse.just_released) &&
             ctx.mouse_was_in_subtree(row.ent().id))

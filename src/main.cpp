@@ -78,6 +78,7 @@
 #include "ecs/palette_system.h"
 #include "ecs/session_search_system.h"
 #include "ecs/arrow_system.h"
+#include "ecs/bulk_select_system.h"
 #include "ecs/inbox_triage_system.h"
 #include "ecs/attachment_intake_system.h"
 #include "ecs/escape_system.h"
@@ -487,6 +488,7 @@ static void build_systems(afterhours::SystemManager& sm) {
     // want.
     sm.register_update_system(std::make_unique<ecs::ArrowSystem>());
     sm.register_update_system(std::make_unique<ecs::InboxTriageSystem>());
+    sm.register_update_system(std::make_unique<ecs::BulkSelectSystem>());
     sm.register_update_system(std::make_unique<ecs::ActivateSystem>());
     // And for the focus ring: decided once, ahead of every widget, so nothing
     // renders a ring the keyboard has not earned (ui/focus_visible.h).

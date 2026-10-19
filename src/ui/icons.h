@@ -273,6 +273,26 @@ inline void chevron(RectangleType rect, bool collapsed, theme::Color c,
 // itself. `extent` is the arrow's half-height.
 // A stop mark: the square inside the reference's `stop.circle.fill`, drawn in the
 // button's ink over its filled circle.
+inline void envelope(RectangleType rect, theme::Color c, bool open, float halfW = 6.0f) {
+    const float cx = rect.x + rect.width * 0.5f;
+    const float cy = rect.y + rect.height * 0.5f;
+    const float w = viewport::px(halfW);
+    const float h = viewport::px(halfW * 0.7f);
+    const float t = viewport::px(1.4f);
+    const float top = open ? cy - h + viewport::px(2.0f) : cy - h;
+    afterhours::draw_line_ex(afterhours::vec2{cx - w, top}, afterhours::vec2{cx + w, top}, t, c);
+    afterhours::draw_line_ex(afterhours::vec2{cx - w, top}, afterhours::vec2{cx - w, cy + h}, t, c);
+    afterhours::draw_line_ex(afterhours::vec2{cx + w, top}, afterhours::vec2{cx + w, cy + h}, t, c);
+    afterhours::draw_line_ex(afterhours::vec2{cx - w, cy + h}, afterhours::vec2{cx + w, cy + h}, t, c);
+    if (open) {
+        afterhours::draw_line_ex(afterhours::vec2{cx - w, top}, afterhours::vec2{cx, cy - h - viewport::px(1.5f)}, t, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx, cy - h - viewport::px(1.5f)}, afterhours::vec2{cx + w, top}, t, c);
+    } else {
+        afterhours::draw_line_ex(afterhours::vec2{cx - w, top}, afterhours::vec2{cx, cy + viewport::px(1.0f)}, t, c);
+        afterhours::draw_line_ex(afterhours::vec2{cx, cy + viewport::px(1.0f)}, afterhours::vec2{cx + w, top}, t, c);
+    }
+}
+
 inline void stop_square(RectangleType rect, theme::Color c, float extent = 3.5f) {
     const float cx = rect.x + rect.width * 0.5f;
     const float cy = rect.y + rect.height * 0.5f;

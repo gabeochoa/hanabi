@@ -38,6 +38,7 @@
 #include "../settings.h"
 #include "../search/find_memo.h"
 #include "../native_menu.h"
+#include "../ui/bulk_select.h"
 #include "../ui/menu_keys.h"
 #include "ask_card.h"
 #include "composer_escape.h"
@@ -651,6 +652,28 @@ struct AppComponent : public afterhours::BaseComponent {
     // menu and applied by the sidebar — the same one-writer arrangement the
     // star toggle uses, so the sessions vector still has exactly one mutator.
     std::string requestToggleArchive;
+    struct Bulk {
+        bool selecting = false;
+        hanabi::bulk::Selected selected;
+        std::string anchor;
+        std::string lastOpened;
+        hanabi::bulk::Outcomes outcomes;
+        hanabi::bulk::Phase phase = hanabi::bulk::Phase::Idle;
+        std::optional<hanabi::bulk::Action> action;
+        std::deque<std::string> pending;
+        struct InFlight {
+            std::string id;
+            std::future<hanabi::bulk::Outcome> future;
+        };
+        std::vector<InFlight> inflight;
+        std::vector<std::string> undoIds;
+        std::optional<hanabi::bulk::Action> request;
+        bool requestRecheck = false;
+        bool requestEnd = false;
+        bool moveMenuOpen = false;
+        static constexpr int kWidth = 4;
+    } bulk;
+    std::vector<std::string> bulkVisibleOrder;
     std::string requestSetArchiveId;
     bool requestSetArchiveTo = false;
     // Request to silence (or un-silence) a thread on this machine. Same
@@ -1855,7 +1878,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // Which toggle Undo re-runs is carried HERE rather than inferred from the
     // message text: the bar knew only how to unarchive, so a mute toast wired
     // to the same button would have archived the thread instead of unmuting it.
-    enum class ToastUndo { None, Archive, Mute, Star, CopyText, FolderDelete };
+    enum class ToastUndo { None, Archive, Mute, Star, CopyText, FolderDelete, BulkArchive };
     static constexpr float kToastSeconds = 10.0f;
     std::string toastMessage;
     std::string toastUndoSessionId;  // empty = no Undo affordance

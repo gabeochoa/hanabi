@@ -188,6 +188,7 @@ class MockClient : public Client {
         const char* f = std::getenv("HANABI_MOCK_OVERLAY_FAIL");
         if (f != nullptr && std::string(f) == "archive")
             return Result<bool>::failure("archive refused");
+        if (bulk_fails(session_id)) return Result<bool>::failure("archive write HTTP 500");
         // HANABI_MOCK_ARCHIVE_HOLD=1: archive writes wait until the script
         // says `mock_release_archive` (deterministic, frame-rate free).
         if (const char* h = std::getenv("HANABI_MOCK_ARCHIVE_HOLD"); h != nullptr && *h == '1') {
@@ -351,6 +352,7 @@ class MockClient : public Client {
         }
         if (method == "POST" && path == folders::kOverlayPath && b.is_object() && b.contains("folderId")) {
             const std::string sid = b.value("sessionId", std::string());
+            if (bulk_fails(sid)) return Result<WebReply>::success({500, R"({"error":"folder write failed"})"});
             if (b["folderId"].is_null()) m.filed.erase(sid);
             else m.filed[sid] = b["folderId"].get<std::string>();
             overlay_writes().push_back("file " + sid + " " +
@@ -2316,9 +2318,32 @@ class MockClient : public Client {
         if (mock_journal::enabled())
             mock_journal::append(mock_journal::Entry{session_id, "read", "", 0, 0, ""});
         InboxStateWrite out;
+        if (bulk_fails(session_id)) {
+            out.http_status = 500;
+            return Result<InboxStateWrite>{false, std::move(out), "read write HTTP 500", false};
+        }
         out.http_status = 200;
         out.body = R"({"ok":true})";
         return Result<InboxStateWrite>::success(std::move(out));
+    }
+    Result<InboxStateWrite> write_unread(const std::string& session_id) override {
+        outbound_calls().fetch_add(1);
+        if (mock_journal::enabled())
+            mock_journal::append(mock_journal::Entry{session_id, "unread", "", 0, 0, ""});
+        InboxStateWrite out;
+        if (bulk_fails(session_id)) {
+            out.http_status = 500;
+            return Result<InboxStateWrite>{false, std::move(out), "unread write HTTP 500", false};
+        }
+        out.http_status = 200;
+        out.body = R"({"ok":true})";
+        return Result<InboxStateWrite>::success(std::move(out));
+    }
+    static bool bulk_fails(const std::string& session_id) {
+        const char* k = std::getenv("HANABI_MOCK_BULK_FAIL");
+        if (k == nullptr || *k == 0) return false;
+        const std::string list = std::string(",") + k + ",";
+        return list.find("," + session_id + ",") != std::string::npos;
     }
     Result<InboxStateWrite> write_snooze(const std::string& session_id,
                                          std::optional<int64_t> snoozed_until_sec) override {
