@@ -75,6 +75,7 @@
 #include "../ui/share.h"
 #include "../ui/read_cursor.h"
 #include "../keys.h"
+#include "../util/latency.h"
 #include "text_edit_actions.h"
 #include "ui_imports.h"
 
@@ -1728,7 +1729,14 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             if (!app.nativeRowMenu.open())
                 hanabi::surface::drawn_menu_restore_focus(ctx, app.rowMenuFocusBefore, result.eater_id,
                                                           result.activated_entity);
+            if (hanabi::latency::trace_on())
+                std::fprintf(stderr, "[latency] row menu closed (presented=%llu dismissed=%d cancelled=%d)\n",
+                             static_cast<unsigned long long>(hanabi::latency::presented_frames()),
+                             result.dismissed ? 1 : 0, result.cancelled ? 1 : 0);
             app.close_row_menu();
+        } else if (hanabi::latency::trace_on()) {
+            std::fprintf(stderr, "[latency] row menu built (presented=%llu)\n",
+                         static_cast<unsigned long long>(hanabi::latency::presented_frames()));
         }
     }
 
@@ -2596,6 +2604,15 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // every keystroke and the arrow keys with it. So the rows stay focusable
     // and the keystroke is filtered here. (FRICTION_LOG / gap #72 -- which is
     // the ring-at-rest premise only; the Enter collision it causes is ours.)
+    static bool right_pressed_in(UIContext<InputAction>& ctx, Entity& e) {
+        if (!ctx.mouse.right_just_pressed) return false;
+        if (ctx.mouse_was_in_subtree(e.id)) return true;
+        if (!e.has<afterhours::ui::UIComponent>()) return false;
+        const RectangleType r = afterhours::ui::detail::apply_ancestor_transform(
+            e, e.get<afterhours::ui::UIComponent>().rect());
+        return ctx.mouse.pos.x >= r.x && ctx.mouse.pos.x < r.x + r.width && ctx.mouse.pos.y >= r.y &&
+               ctx.mouse.pos.y < r.y + r.height;
+    }
     static bool pointer_click(UIContext<InputAction>& ctx, Entity& e) {
         if (!e.get<afterhours::ui::HasClickListener>().down) return false;
         // "Was the pointer on it" is the only reliable read: the listener can
@@ -3991,7 +4008,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // The list is where the filter shows; a saved view is not a pane.
             if (app.view != SmartView::Chat) app.view = SmartView::Home;
         }
-        if (ctx.mouse.right_just_pressed && ctx.mouse_was_in_subtree(row.ent().id))
+        if (right_pressed_in(ctx, row.ent()))
             app.open_view_menu(v.id, ctx.mouse.pos.x, ctx.mouse.pos.y);
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
@@ -4208,7 +4225,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.savedViewId.clear();
             Settings::get().set_selected_view("");
         }
-        if (!builtInId.empty() && ctx.mouse.right_just_pressed && ctx.mouse_was_in_subtree(row.ent().id))
+        if (!builtInId.empty() && right_pressed_in(ctx, row.ent()))
             app.open_view_menu(std::string(builtInId), ctx.mouse.pos.x,
                                ctx.mouse.pos.y);
 
@@ -4788,11 +4805,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         // A Space's header offers Space settings… on right-click.
-        if (model::is_space_section(key) && ctx.mouse.right_just_pressed && ctx.mouse_was_in_subtree(head.ent().id))
+        if (model::is_space_section(key) && right_pressed_in(ctx, head.ent()))
             app.open_view_menu(std::string(kSpaceMenuPrefix) + key.substr(6), ctx.mouse.pos.x,
                                ctx.mouse.pos.y);
         // A web-app folder's header offers Rename / Delete on right-click.
-        if (model::is_web_folder_section(key) && ctx.mouse.right_just_pressed && ctx.mouse_was_in_subtree(head.ent().id))
+        if (model::is_web_folder_section(key) && right_pressed_in(ctx, head.ent()))
             app.open_view_menu(std::string(kFolderMenuPrefix) + key.substr(7), ctx.mouse.pos.x,
                                ctx.mouse.pos.y);
         if (q.empty() &&
@@ -5667,7 +5684,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // show even against a backend with no rename verb.
         // offered now: Mute is machine-local, so the menu has an item to show
         // even against a backend with no rename verb.
-        if (ctx.mouse.right_just_pressed && ctx.mouse_was_in_subtree(row.ent().id)) {
+        if (right_pressed_in(ctx, row.ent())) {
             app.rowMenuOpen = true;
             app.rowMenuSessionId = s.id;
             app.rowMenuX = ctx.mouse.pos.x;
