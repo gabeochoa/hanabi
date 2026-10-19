@@ -422,7 +422,8 @@ struct AppComponent : public afterhours::BaseComponent {
     // pane is a loop and cannot service one and forget the other. That
     // asymmetry is exactly what the old split block was: a second, simpler,
     // subtly different copy of the first pane's plumbing.
-    std::vector<Pane> panes = std::vector<Pane>(2);
+    std::deque<Pane> panes = std::deque<Pane>(2);
+    int groupCount = 1;
     int focusedPane = 0;
     // Is the second pane showing? Closed == single pane, and `panes[1]` is left
     // alone -- its thread is remembered, so reopening the split is free and it
@@ -464,7 +465,10 @@ struct AppComponent : public afterhours::BaseComponent {
         return false;
     }
     // How many panes are actually showing: one, or all of them when split.
-    size_t active_pane_count() const { return splitOpen ? panes.size() : 1u; }
+    size_t active_pane_count() const {
+        if (!splitOpen) return 1u;
+        return groupCount > 1 ? static_cast<size_t>(groupCount) : 2u;
+    }
 
     // Which main-pane view is showing.
     SmartView view = SmartView::Home;
@@ -2705,6 +2709,7 @@ struct Tab : public afterhours::BaseComponent {
     std::string closeAccessibleLabel;
     bool accessiblePinned = false;
     bool accessibleActive = false;
+    int group = 0;
 };
 
 struct ActiveTab : public afterhours::BaseComponent {};
