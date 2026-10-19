@@ -36,7 +36,7 @@ differed from Puffin, and what was done:
 
 Not aligned, with the reason:
 
-- The pane × (merge all) has no Puffin counterpart; kept because three fixtures drive it.
+- The pane × (merge all) has no Puffin counterpart; kept because fixtures drive it.
 - The tab and row menus carry one Split item, Split Right; Puffin has Left / Right / Up / Down in both.
   Four rows take the tab menu from 719 px to 827 px, taller than the 760 px fixture window; the
   directions are reachable by chord, the Window menu and the drag zones (Split Down needs a vertical
