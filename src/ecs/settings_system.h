@@ -1311,6 +1311,10 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "background_dim") render_background_dim_row(ctx, parent, app);
         else if (id == "reasoning") render_reasoning_row(ctx, parent, app);
         else if (id == "fold_long") render_foldlong_row(ctx, parent, app);
+        else if (id == "compress_runs")
+            render_notify_kind_row(ctx, parent, 6, "Fold quiet runs into one line",
+                                   "settings_compress_runs", Settings::get().get_compress_runs(),
+                                   [](bool v) { Settings::get().set_compress_runs(v); });
         else if (id == "date_dividers") render_date_dividers_row(ctx, parent, app);
         else if (id == "subagents") render_subagents_row(ctx, parent, app);
         else if (id == "yap") render_yap_row(ctx, parent, app);

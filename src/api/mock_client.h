@@ -4288,6 +4288,47 @@ class MockClient : public Client {
                 tool("tkp3", "edit", "worker/breaker.rs", "@@ -1 +1 @@"),
                 {"tkz", Role::Assistant, "Done.", hrs_ago(1), ""},
             };
+            if (std::string(td) == "stretch") {
+                // Unattended work between two things said: two wakes, three
+                // runs, a quiet outcome and a thought, then a report; a lone
+                // run after the reader's reply stays a run.
+                auto done = [&](const char* id, int64_t at) {
+                    Message m = event_row(EventKind::RunOutcome, "", "", at);
+                    m.id = id;
+                    m.run_outcome = "completed";
+                    return m;
+                };
+                auto wake = [&](const char* id, int64_t at) {
+                    Message m = event_row(EventKind::Delivery, "timer", "Woke up on the hourly timer", at);
+                    m.id = id;
+                    return m;
+                };
+                Message thought{"tks-th", Role::Assistant, "The flaky suite passed on its retry.",
+                                mins_ago(40), "thinking"};
+                thought.kind = EventKind::Thinking;
+                s.messages = {
+                    {"tks0", Role::User, "run the nightly checks every hour and report", hrs_ago(3), ""},
+                    wake("tks-w1", mins_ago(120)),
+                    tool("tks1", "bash", "zig build test", "ok. 173 passed"),
+                    tool("tks2", "grep", "FLAKY", "tests/ui/the_unread_divider.e2e:3"),
+                    done("tks-d1", mins_ago(118)),
+                    wake("tks-w2", mins_ago(60)),
+                    tool("tks3", "bash", "zig build test", "ok. 173 passed"),
+                    tool("tks4", "bash", "zig build test -- flaky", "ok after retry"),
+                    thought,
+                    tool("tks5", "read", "tests/ui/the_unread_divider.e2e", "wait_frames 20"),
+                    done("tks-d2", mins_ago(39)),
+                    {"tks-rep", Role::Assistant,
+                     "Both hourly runs are green; the unread-divider fixture needed one retry at 02:00.",
+                     mins_ago(38), ""},
+                    {"tks-u2", Role::User, "thanks, keep going", mins_ago(20), ""},
+                    tool("tks6", "bash", "zig build test", "ok. 173 passed"),
+                    {"tks-end", Role::Assistant, "03:00 run green.", mins_ago(18), ""},
+                };
+                for (auto& m : s.messages)
+                    if (m.role == Role::Tool) m.created_at = m.id == "tks6" ? mins_ago(19) : m.id < std::string("tks3") ? mins_ago(119) : mins_ago(58);
+                s.summary.state = ThreadState::Ready;
+            }
             if (std::string(td) == "pace") {
                 Message bg{"tkbg", Role::Tool, "zig build gate", mins_ago(2), "bash"};
                 bg.tool_status = "running";

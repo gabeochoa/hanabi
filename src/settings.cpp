@@ -193,6 +193,7 @@ bool Settings::load_save_file() {
         show_reasoning_ = j.value("show_reasoning", show_reasoning_);
         fold_long_messages_ =
             j.value("fold_long_messages", fold_long_messages_);
+        compress_runs_ = j.value("compress_runs", compress_runs_);
         quiet_start_minutes_ =
             j.value("quiet_start_minutes", quiet_start_minutes_);
         quiet_end_minutes_ = j.value("quiet_end_minutes", quiet_end_minutes_);
@@ -439,6 +440,7 @@ void Settings::write_save_file() {
     j["show_date_dividers"] = show_date_dividers_;
     j["show_reasoning"] = show_reasoning_;
     j["fold_long_messages"] = fold_long_messages_;
+    j["compress_runs"] = compress_runs_;
     j["quiet_start_minutes"] = quiet_start_minutes_;
     j["quiet_end_minutes"] = quiet_end_minutes_;
     j["memory_backend"] = memory_backend_;
@@ -1346,6 +1348,12 @@ void Settings::set_show_reasoning(bool on) {
     if (auto_save_enabled) write_save_file();
 }
 
+bool Settings::get_compress_runs() const { return compress_runs_; }
+void Settings::set_compress_runs(bool on) {
+    if (on == compress_runs_) return;
+    compress_runs_ = on;
+    if (auto_save_enabled) write_save_file();
+}
 bool Settings::get_fold_long_messages() const { return fold_long_messages_; }
 void Settings::set_fold_long_messages(bool on) {
     if (on == fold_long_messages_) return;

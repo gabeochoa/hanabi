@@ -191,8 +191,11 @@ struct RowGeom {
         Artifact,
         Element,
         RunOutcome,
+        Stretch,
         KindCount
     };
+    // A lead of these kinds spans the hidden rows after it; its height is theirs.
+    static bool spans(Kind k) { return k == ToolPile || k == Stretch; }
     float before = 0.0f;  // date / new divider above the row
     float h = 0.0f;       // the row's own body
     float after = 0.0f;   // run-outcome line below it
@@ -250,6 +253,8 @@ struct LedgerFacts {
     bool show_reasoning = false;
     bool fold_long_messages = false;
     int tool_fold_mode = 0;
+    bool compress_runs = false;
+    unsigned stretch_epoch = 0;  // bumped when a stretch is opened or folded
     int unread_first = -1;
     std::string find_query;
     bool find_open = false;
@@ -394,7 +399,8 @@ class TranscriptLedger {
         ++geomRev_;
         rows_[row].exact = false;
         const RowGeom& g = rows_[row];
-        if (g.hidden && g.kind == RowGeom::ToolPile && g.leadDistance <= row)
+        if (g.hidden && RowGeom::spans(g.kind) &&
+            g.leadDistance <= row)
             rows_[row - g.leadDistance].exact = false;  // the pile's height is the run's
     }
     void mark_all_dirty() {
@@ -839,6 +845,7 @@ class TranscriptLedger {
             case RowGeom::Event: return 28.0f;
             case RowGeom::ToolBlock: return 44.0f;
             case RowGeom::ToolPile: return 60.0f;
+            case RowGeom::Stretch: return 36.0f;
             case RowGeom::Spawn: return 72.0f;
             case RowGeom::Thinking: return 40.0f;
             case RowGeom::Delivery: return 40.0f;
@@ -898,11 +905,11 @@ class TranscriptLedger {
             indexOf_[keys_.back()] = i;
             classify_row(i, classify);
             RowGeom& g = rows_[i];
-            if (g.hidden && g.kind == RowGeom::ToolPile && g.leadDistance <= i) {
+            if (g.hidden && RowGeom::spans(g.kind) && g.leadDistance <= i) {
                 // A pile grew by one: the lead's span and height change,
                 // nothing else in the run does. O(1), not a walk of the run.
                 const std::size_t leadRow = i - g.leadDistance;
-                if (rows_[leadRow].kind != RowGeom::ToolPile || rows_[leadRow].hidden) {
+                if (rows_[leadRow].kind != g.kind || rows_[leadRow].hidden) {
                     // A single tool block just became the lead of two.
                     classify_row(leadRow, classify);
                 }
@@ -921,7 +928,7 @@ class TranscriptLedger {
                 // A single tool block that just became a lead of two: the new
                 // row is now its follower.
                 if ((rows_[i - 1].kind != wasKind || rows_[i - 1].hidden != wasHidden) &&
-                    rows_[i - 1].kind == RowGeom::ToolPile && !rows_[i - 1].hidden)
+                    RowGeom::spans(rows_[i - 1].kind) && !rows_[i - 1].hidden)
                     classify_row(i, classify);
             }
         }
@@ -971,7 +978,7 @@ class TranscriptLedger {
             classify_row(i, classify);
             rows_[i].exact = false;
             rekey(i, id_of(i));
-            if (rows_[i].hidden && rows_[i].kind == RowGeom::ToolPile &&
+            if (rows_[i].hidden && RowGeom::spans(rows_[i].kind) &&
                 rows_[i].leadDistance <= i)
                 rows_[i - rows_[i].leadDistance].exact = false;  // the pile's height is the run's
             if (rows_[i].kind != wasKind || rows_[i].hidden != wasHidden) runChanged = true;
@@ -992,7 +999,7 @@ class TranscriptLedger {
         const bool wasHidden = rows_[row].hidden;
         classify_row(row, classify);
         const RowGeom& g = rows_[row];
-        if (g.hidden && g.kind == RowGeom::ToolPile && g.leadDistance <= row)
+        if (g.hidden && RowGeom::spans(g.kind) && g.leadDistance <= row)
             classify_row(row - g.leadDistance, classify);
         // A row that joined or left a hidden run: the rows after it in the
         // run carry distances to the wrong visible row until re-classified.
@@ -1031,7 +1038,10 @@ class TranscriptLedger {
         // every row -- scalar, no measure, counted under reindexed -- rather
         // than leaving stale bits until each row is visited.
         if (f.show_reasoning != facts_.show_reasoning ||
-            f.show_date_dividers != facts_.show_date_dividers) {
+            f.show_date_dividers != facts_.show_date_dividers ||
+            f.compress_runs != facts_.compress_runs ||
+            f.stretch_epoch != facts_.stretch_epoch ||
+            (f.compress_runs && f.streaming != facts_.streaming)) {
             facts_ = f;  // classify reads the new facts through the caller
             reclassify_all(classify);
         }

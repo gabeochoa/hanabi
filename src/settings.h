@@ -534,6 +534,10 @@ struct Settings {
     // it is the reader's call whether the transcript may hide text from them.
     bool get_fold_long_messages() const;
     void set_fold_long_messages(bool on);  // auto-persists
+    // Fold a stretch of unattended work (two or more runs of tool steps with
+    // nothing said between them) behind one line. Auto-persists.
+    bool get_compress_runs() const;
+    void set_compress_runs(bool on);
 
     // Memory backend: "traditional" (default) or "hindsight".
     const std::string& get_memory_backend() const;
@@ -697,6 +701,7 @@ struct Settings {
     bool show_date_dividers_ = true;
     bool show_reasoning_ = true;
     bool fold_long_messages_ = true;
+    bool compress_runs_ = true;
     int quiet_start_minutes_ = 0;
     int quiet_end_minutes_ = 0;
     std::string memory_backend_ = "traditional";

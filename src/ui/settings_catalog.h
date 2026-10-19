@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 68> kRows{{
+inline constexpr std::array<Row, 69> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -187,6 +187,9 @@ inline constexpr std::array<Row, 68> kRows{{
      Origin::Device},
     {"only_ungrouped", Pane::General, "Only threads in no group",
      "ungrouped personal filter sidebar space folder none",
+     Origin::Device},
+    {"compress_runs", Pane::General, "Fold quiet runs into one line",
+     "fold stretch silent unattended autonomous runs tool steps compress worked for",
      Origin::Device},
     {"export_prefs", Pane::General, "Export settings to another Mac",
      "export settings backup transfer json file another mac", Origin::Device},

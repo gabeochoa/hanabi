@@ -88,9 +88,10 @@ static void test_every_pane_has_a_row_unless_it_says_otherwise() {
 
 static void test_rows_in_returns_catalogue_order() {
     const auto general = cat::rows_in(Pane::General);
-    CHECK(general.size() == 13);
-    CHECK(std::string_view(general[11]->id) == "export_prefs");
-    CHECK(std::string_view(general[12]->id) == "import_prefs");
+    CHECK(general.size() == 14);
+    CHECK(std::string_view(general[11]->id) == "compress_runs");
+    CHECK(std::string_view(general[12]->id) == "export_prefs");
+    CHECK(std::string_view(general[13]->id) == "import_prefs");
     CHECK(std::string_view(general[0]->id) == "send_key");
     CHECK(std::string_view(general[1]->id) == "new_line");
     CHECK(std::string_view(general[2]->id) == "restore_tabs");

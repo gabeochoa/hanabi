@@ -709,6 +709,10 @@ struct AppComponent : public afterhours::BaseComponent {
     // set holds the pile keys (first tool msg id) the user has expanded. Default
     // collapsed — keeps a tool-heavy thread scannable and bounds render cost.
     std::set<std::string> expandedPiles;
+    // Stretches of unattended work the reader opened, by the lead message's
+    // id; each open or fold bumps the epoch the ledger reclassifies on.
+    std::set<std::string> expandedStretches;
+    unsigned stretchEpoch = 1;
 
     // Transcript: which tool rows the reader has explicitly CLOSED, against a
     // fold mode that would otherwise open them. The two sets are overrides on

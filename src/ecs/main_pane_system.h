@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "../ui/md_list_gap.h"
+#include "../ui/work_stretch.h"
 #include "../ui/audio_player.h"
 #include "../api/ask_file.h"
 #include "../api/attachments.h"
@@ -4422,6 +4423,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         lf.show_reasoning = show_reasoning();
         lf.fold_long_messages = fold_long_messages();
         lf.tool_fold_mode = hanabi::fold::to_int(fold_mode());
+        lf.compress_runs = Settings::get().get_compress_runs();
+        lf.stretch_epoch = app.stretchEpoch;
         lf.unread_first = firstUnread;
         lf.find_open = pane.findOpen;
         lf.find_query = pane.findQuery;
@@ -4490,6 +4493,49 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             hi = e + 1;
             return hi - lo >= 2;
         };
+        // A stretch of unattended work (ui/work_stretch.h): the kind each
+        // message is to the fold, and the bounds of the stretch containing k,
+        // found the way run_bounds finds a pile's -- the row before k was
+        // classified already, so a follower is one read and only a stretch's
+        // first row walks forward.
+        const bool threadLive = streamingHere || pane.openSession->summary.state ==
+                                                     api::ThreadState::Running;
+        const auto stretch_kind = [&](int k) -> hanabi::stretch::Kind {
+            using K = hanabi::stretch::Kind;
+            const auto& m = msgs[k];
+            if (is_spawn_tool(m) || is_artifact(m) || is_element(m)) return K::Boundary;
+            if (is_delivery(m)) return K::Wake;
+            if (is_compaction(m)) return K::Compaction;
+            if (is_one_line_event(m)) return K::Boundary;
+            if (m.role == api::Role::Tool) return K::Step;
+            if (m.kind == api::EventKind::RunOutcome)
+                return (m.run_outcome == "completed" && m.run_note.empty()) ? K::Done : K::Boundary;
+            if (is_thinking(m) && !(streamingHere && static_cast<size_t>(k) == liveIdx))
+                return K::Thinking;
+            return K::Boundary;
+        };
+        const auto stretch_bounds = [&](int k, int& lo, int& hi) -> bool {
+            if (!lf.compress_runs) return false;
+            if (!hanabi::stretch::routine(stretch_kind(k))) return false;
+            if (k > 0 && k - 1 < static_cast<int>(led.rows())) {
+                const model::RowGeom& prev = led.geom(static_cast<std::size_t>(k - 1));
+                if (prev.kind == model::RowGeom::Stretch) {
+                    lo = k - static_cast<int>(prev.hidden ? prev.leadDistance + 1 : 1);
+                    hi = k + 1;
+                    return true;
+                }
+                if (prev.hidden || hanabi::stretch::routine(stretch_kind(k - 1)))
+                    return false;  // inside a block that did not fold
+            }
+            if (app.expandedStretches.count(id_of(static_cast<std::size_t>(k))) != 0) return false;
+            const hanabi::stretch::Block b = hanabi::stretch::block_at(
+                static_cast<std::size_t>(k), static_cast<std::size_t>(n),
+                [&](std::size_t j) { return stretch_kind(static_cast<int>(j)); });
+            if (!hanabi::stretch::folds(b, static_cast<std::size_t>(n), threadLive)) return false;
+            lo = static_cast<int>(b.lo);
+            hi = static_cast<int>(b.hi);
+            return true;
+        };
         const auto classify = [&](std::size_t idx) -> model::RowClass {
             const int i = static_cast<int>(idx);
             const auto& m = msgs[i];
@@ -4497,8 +4543,16 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (lf.show_date_dividers && i > 0 && starts_new_day(msgs[i - 1], m))
                 c.before += kDateDividerH;
             if (i == firstUnread) c.before += kNewDividerH;
-            if (is_spawn_tool(m)) { c.kind = model::RowGeom::Spawn; return c; }
             int lo = 0, hi = 0;
+            if (stretch_bounds(i, lo, hi)) {
+                c.kind = model::RowGeom::Stretch;
+                c.span = static_cast<std::uint32_t>(hi - lo);
+                c.hidden = i != lo;
+                return c;
+            }
+            if (lf.compress_runs && app.expandedStretches.count(id_of(idx)) != 0)
+                c.before += kStretchHeadH;
+            if (is_spawn_tool(m)) { c.kind = model::RowGeom::Spawn; return c; }
             const bool inRun = m.role == api::Role::Tool && run_bounds(i, lo, hi);
             if (inRun) {
                 c.kind = model::RowGeom::ToolPile;
@@ -4560,6 +4614,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 case model::RowGeom::ToolPile:
                     r.h = tool_pile_height(app, msgs, i, i + g.span);
                     break;
+                case model::RowGeom::Stretch: r.h = kToolRowGap + kToolRowH + kToolRowGap; break;
                 case model::RowGeom::ToolBlock: r.h = tool_block_height(app, m); break;
                 case model::RowGeom::Delivery:
                     r.h = delivery_height(app, m, i, colW);
@@ -4918,6 +4973,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 if (lf.show_date_dividers && i > 0 && starts_new_day(msgs[i - 1], m))
                     date_divider(ctx, col, i, m.created_at, colW);
                 if (i == firstUnread) new_divider(ctx, col, i, unreadCount, colW);
+                if (g.kind != model::RowGeom::Stretch && lf.compress_runs &&
+                    app.expandedStretches.count(id_of(static_cast<std::size_t>(i))) != 0)
+                    stretch_head(ctx, col, i, msgs, stretch_kind, colW);
                 const float top = y + g.before;
                 switch (g.kind) {
                     case model::RowGeom::Spawn:
@@ -4925,6 +4983,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         break;
                     case model::RowGeom::ToolPile:
                         tool_pile(ctx, col, i, msgs, i, i + g.span, colW);
+                        break;
+                    case model::RowGeom::Stretch:
+                        stretch_row(ctx, col, i, msgs, i, i + g.span, stretch_kind, colW);
                         break;
                     case model::RowGeom::ToolBlock:
                         render_tool_block(ctx, col, i, m, colW);
@@ -16010,6 +16071,115 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // Collapsed PILE of >=2 consecutive tool messages: one dense header that
     // expands to indented nested per-node sub-rows.
+    // ---- Stretches of unattended work (ui/work_stretch.h) -------------------
+    static constexpr float kStretchHeadH = kToolRowGap + kToolRowH + kToolRowGap;
+
+    template <class KindAt>
+    static hanabi::stretch::Facts stretch_facts(const std::vector<api::Message>& msgs, int lo,
+                                                int hi, KindAt&& kind_at) {
+        using K = hanabi::stretch::Kind;
+        hanabi::stretch::Facts f;
+        bool inRun = false;
+        std::int64_t oldest = 0, newest = 0;
+        for (int k = lo; k < hi; ++k) {
+            const api::Message& m = msgs[k];
+            const K kind = kind_at(k);
+            if (kind == K::Step) {
+                if (!inRun) ++f.runs;
+                inRun = true;
+                ++f.steps;
+                if (tool_failed(m)) ++f.errors;
+                if (m.tool_duration_ms > 0) f.active_ms += m.tool_duration_ms;
+                if (m.tool_status == "running") f.streaming = true;
+            } else {
+                inRun = false;
+                if (kind == K::Wake) ++f.wakes;
+            }
+            if (m.created_at > 0) {
+                if (oldest == 0 || m.created_at < oldest) oldest = m.created_at;
+                if (m.created_at > newest) newest = m.created_at;
+            }
+        }
+        if (newest > oldest) f.span_ms = (newest - oldest) * 1000;
+        return f;
+    }
+
+    static std::string stretch_key(const std::vector<api::Message>& msgs, int lo) {
+        const api::Message& m = msgs[lo];
+        if (!m.id.empty()) return m.id;
+        if (!m.local_id.empty()) return "local:" + m.local_id;
+        return "i" + std::to_string(lo);
+    }
+
+    static void stretch_toggle(AppComponent& app, const std::string& key, bool open) {
+        if (key.empty()) return;
+        if (open) app.expandedStretches.erase(key);
+        else app.expandedStretches.insert(key);
+        ++app.stretchEpoch;
+        invalidate_item_geometry();
+    }
+
+    // The folded stretch: one closed line in the work lane, a click opens it.
+    template <class KindAt>
+    void stretch_row(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
+                     const std::vector<api::Message>& msgs, int lo, int hi, KindAt&& kind_at,
+                     float paneWidth) {
+        AppComponent* app = app_singleton();
+        const std::string key = stretch_key(msgs, lo);
+        const hanabi::stretch::Facts f = stretch_facts(msgs, lo, hi, kind_at);
+        float rowW = work_lane(paneWidth);
+        if (rowW < 160.0f) rowW = 160.0f;
+        auto wrap = div(ctx, mk(parent, 260 + keyIndex * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(rowW), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("stretch_" + key));
+        Entity& head = tool_row(ctx, wrap.ent(), 1, rowW, true, false, hanabi::stretch::line(f),
+                                f.steps, "", f.streaming ? "running" : "", false);
+        hanabi::a11y::describe(head, {.value = hanabi::stretch::line(f),
+                                      .role = hanabi::a11y::Role::Button,
+                                      .expanded = false});
+        head.addComponentIfMissing<afterhours::ui::HasClickListener>([](Entity&) {});
+        if (app && head.get<afterhours::ui::HasClickListener>().down)
+            stretch_toggle(*app, key, false);
+    }
+
+    // The opened stretch's header, drawn above its first row: the same line
+    // with the chevron down; a click folds the stretch again.
+    template <class KindAt>
+    void stretch_head(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
+                      const std::vector<api::Message>& msgs, KindAt&& kind_at, float paneWidth) {
+        AppComponent* app = app_singleton();
+        const int n = static_cast<int>(msgs.size());
+        const hanabi::stretch::Block b = hanabi::stretch::block_at(
+            static_cast<std::size_t>(keyIndex), static_cast<std::size_t>(n),
+            [&](std::size_t j) { return kind_at(static_cast<int>(j)); });
+        const std::string key = stretch_key(msgs, keyIndex);
+        const hanabi::stretch::Facts f =
+            stretch_facts(msgs, keyIndex, static_cast<int>(b.hi), kind_at);
+        float rowW = work_lane(paneWidth);
+        if (rowW < 160.0f) rowW = 160.0f;
+        auto wrap = div(ctx, mk(parent, 265 + keyIndex * 10),
+            ComponentConfig{}
+                .with_size(ComponentSize{pixels(rowW), children()})
+                .with_flex_direction(FlexDirection::Column)
+                .with_flex_wrap(FlexWrap::NoWrap)
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("stretch_open_" + key));
+        Entity& head = tool_row(ctx, wrap.ent(), 1, rowW, true, true, hanabi::stretch::line(f),
+                                f.steps, "", "", false);
+        hanabi::a11y::describe(head, {.value = hanabi::stretch::line(f),
+                                      .role = hanabi::a11y::Role::Button,
+                                      .expanded = true});
+        head.addComponentIfMissing<afterhours::ui::HasClickListener>([](Entity&) {});
+        if (app && head.get<afterhours::ui::HasClickListener>().down)
+            stretch_toggle(*app, key, true);
+    }
+
     void tool_pile(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
                    const std::vector<api::Message>& msgs, int lo, int hi,
                    float paneWidth) {
