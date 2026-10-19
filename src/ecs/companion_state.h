@@ -28,6 +28,7 @@ struct CompanionState {
 
     // A task.
     std::optional<api::companion::Task> task;
+    std::optional<api::companion::Project> project;
     int page = 0;  // 0 Overview, 1 Comments, 2 Related
     std::optional<api::companion::Related> related;
     std::string relatedError;
@@ -62,6 +63,7 @@ struct CompanionState {
         hunks.reset();
         fileError.clear();
         task.reset();
+        project.reset();
         page = 0;
         comments.reset();
         commentsError.clear();

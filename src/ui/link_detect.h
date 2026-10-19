@@ -35,6 +35,7 @@
 #include <string>
 #include <vector>
 
+#include "link_find.h"
 #include "text_select.h"
 #include "theme.h"
 
@@ -42,53 +43,6 @@ namespace hanabi::links {
 
 // One id found in a piece of text: where it starts, how long it is, and the
 // id itself.
-struct Link {
-    size_t off = 0;
-    size_t len = 0;
-    std::string id;
-};
-
-// The three prefixes this client knows: a diff/task (D), a task (T), an
-// incident (S). Anything else is prose.
-inline bool is_prefix(char c) { return c == 'D' || c == 'T' || c == 'S'; }
-
-// Digits an id needs before it is an id rather than a word. Three is the
-// shortest real tracker number; two would make "T12" out of half the acronyms
-// in an engineering conversation.
-inline constexpr size_t kMinDigits = 3;
-
-// A character that binds to what follows it, so what follows is part of a
-// bigger token and not an id of its own: the D in "ABCD1234" and the T in
-// "https://host/T123" are both somebody else's letters.
-inline bool binds(char c) {
-    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '/' ||
-           c == '_' || c == '.' || c == '-';
-}
-
-inline std::vector<Link> find(const std::string& text) {
-    std::vector<Link> out;
-    for (size_t i = 0; i < text.size(); ++i) {
-        if (!is_prefix(text[i])) continue;
-        if (i > 0 && binds(text[i - 1])) continue;
-        size_t j = i + 1;
-        while (j < text.size() &&
-               std::isdigit(static_cast<unsigned char>(text[j])) != 0)
-            ++j;
-        const size_t digits = j - i - 1;
-        if (digits < kMinDigits) continue;
-        // A trailing letter means the run is a word that happens to start
-        // this way ("T12345th"), not an id.
-        if (j < text.size() &&
-            std::isalnum(static_cast<unsigned char>(text[j])) != 0)
-            continue;
-        out.push_back(Link{i, j - i, text.substr(i, j - i)});
-        i = j - 1;
-    }
-    return out;
-}
-
-// Thread references (an @ mention's URL) are found by
-// hanabi::mention::find_threads and carried as Links whose id starts with this.
 inline constexpr std::string_view kThreadPrefix = "thread:";
 
 // The URL an id opens. Empty base -> empty URL -> no link at all; every caller

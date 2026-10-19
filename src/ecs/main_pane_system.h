@@ -3696,6 +3696,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             app->companion.open_entity(id[0], id.substr(1));
             return;
         }
+        if (id.rfind(hanabi::links::kProjectPrefix, 0) == 0 && app->client && app->client->supports_graphql() &&
+            !hanabi::keys::cmd_or_ctrl_down()) {
+            app->companion.open_entity('P', id.substr(hanabi::links::kProjectPrefix.size()));
+            return;
+        }
         if (id.rfind(tp, 0) == 0) {
             // A thread this client holds opens in a tab, as a sidebar click
             // would; one it does not hold goes to the web app's page.

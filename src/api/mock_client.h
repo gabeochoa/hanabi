@@ -2030,6 +2030,28 @@ class MockClient : public Client {
                                             {{"__typename", "Group"}, {"name", "payouts-oncall"}}})}}}}}});
         }
         // HANABI_MOCK_COMPANION_RELATED_FAIL=1 refuses the related read alone.
+        if (has("query HanabiCompanionProject(")) {
+            const std::string want = vars.value("projectNumber", std::string());
+            if (want != "PRJ4471120") return Result<json>::success({{"tasks_gsd_project", nullptr}});
+            return Result<json>::success(
+                {{"tasks_gsd_project",
+                  {{"prefixed_number", "PRJ4471120"},
+                   {"name", "Payouts reconciliation program"},
+                   {"description", {{"rte_content_markdown", "Reconcile every payout batch before it commits.\n\nTwo accounts drift each cycle; this closes the gap."}}},
+                   {"project_progress_status", "ON_TRACK"},
+                   {"plannable_priority", "P1"},
+                   {"start_date", "2026-09-01"},
+                   {"target_date", "2026-12-15"},
+                   {"num_closed_tasks", 7},
+                   {"num_tasks", 12},
+                   {"percent_complete", 58},
+                   {"owner", {{"name", "Pat Owner"}, {"unixname", "pat"}}},
+                   {"gsd_teams", {{"nodes", json::array({{{"name", "Subscriptions"}}, {{"name", "Payouts"}}, {{"name", "Payouts"}}})}}},
+                   {"documents_in_collection",
+                    {{"nodes", json::array({{{"name", "Program brief"}, {"url_link", "https://docs.example.test/brief"}},
+                                            {{"name", "Runbook"}, {"url_link", "https://docs.example.test/runbook"}},
+                                            {{"name", "Not a link"}, {"url_link", "ftp://nope"}}})}}}}}});
+        }
         if (has("query HanabiCompanionTaskRelated(")) {
             if (const char* f = std::getenv("HANABI_MOCK_COMPANION_RELATED_FAIL"); f != nullptr && *f == '1')
                 return Result<json>::failure("memory HTTP 500");
@@ -3585,10 +3607,10 @@ class MockClient : public Client {
                 m.id = "m-links";
                 m.role = Role::Assistant;
                 m.kind = EventKind::Text;
-                m.text = std::string(lpd) == "two"
-                             ? "Landed D117423523; the follow-up is T275363905."
-                             : "Landed D117423523; the follow-up is T275363905, and I filed "
-                               "kt-lgsh for the cards. D99990000 is someone else's.";
+                m.text = std::string(lpd) == "two"       ? "Landed D117423523; the follow-up is T275363905."
+                         : std::string(lpd) == "project" ? "Tracked under PRJ4471120 for the payouts program."
+                                                         : "Landed D117423523; the follow-up is T275363905, and I filed "
+                                                           "kt-lgsh for the cards. D99990000 is someone else's.";
                 m.created_at = mins_ago(8);
                 s.messages.push_back(std::move(m));
             }

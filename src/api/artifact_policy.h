@@ -34,7 +34,6 @@ inline std::string lower_ascii(std::string_view s) {
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     return out;
 }
-// "csv" (a table), "archive" (a zip / tar / gzip listing), or empty.
 inline std::string preview_kind(std::string_view media_type, std::string_view file) {
     const std::string mt = lower_ascii(media_type);
     const std::string f = lower_ascii(file);
