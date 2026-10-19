@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -334,6 +335,14 @@ inline EventResult event_queued(std::uint64_t timestamp_us = now_us()) {
     return EventResult::Fired;
 }
 
+inline bool trace_on() {
+    static const bool on = [] {
+        const char* v = std::getenv("HANABI_LATENCY_TRACE");
+        return v != nullptr && *v != '\0' && *v != '0';
+    }();
+    return on;
+}
+
 inline bool awaiting_delivery() {
     const Watch* watch = active();
     return watch != nullptr && watch->phase == Phase::AwaitingInk &&
@@ -421,6 +430,11 @@ inline void presented(std::optional<Frame> frame, std::uint64_t confirmed_at_us,
         const bool inkNow =
             requiredInk >= kInkFloor && frame->ink() >= kInkFloor;
         watch->ink_seen = watch->ink_seen || inkNow;
+        if (trace_on())
+            std::fprintf(stderr, "[latency] %s frame +%lld: gained=%d lost=%d required=%d outcome=%d\n",
+                         watch->label.c_str(),
+                         static_cast<long long>(presented_frames() - watch->event_frame), delta->ink_gained,
+                         delta->ink_lost, requiredInk, watch->outcome_seen ? 1 : 0);
         if (inkNow && outcome_within_render_lag(*watch)) {
             Reading reading;
             reading.event_to_ink_us = confirmed_at_us - watch->event_at_us;
