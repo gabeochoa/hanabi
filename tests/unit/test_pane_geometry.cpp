@@ -69,6 +69,23 @@ static void test_origins_advance_by_width_and_divider() {
     CHECK(pane_origins({}, 1.0f).empty());
 }
 
+static void test_a_drop_lands_on_the_half_of_the_pane_under_the_pointer() {
+    std::printf("test_a_drop_lands_on_the_half_of_the_pane_under_the_pointer\n");
+    const std::vector<float> w{408.0f, 407.0f};
+    const auto o = pane_origins(w, 280.0f);
+    const DropZone left = pane_drop_zone(w, o, 300.0f);
+    CHECK(left.valid && left.group == 0 && left.before && left.x == 280.0f && left.width == 204.0f);
+    const DropZone mid = pane_drop_zone(w, o, 600.0f);
+    CHECK(mid.valid && mid.group == 0 && !mid.before && mid.x == 484.0f);
+    const DropZone right = pane_drop_zone(w, o, 900.0f);
+    CHECK(right.valid && right.group == 1 && !right.before && right.x == 896.5f);
+    const DropZone gap = pane_drop_zone(w, o, 690.0f);
+    CHECK(!gap.valid);
+    CHECK(!pane_drop_zone(w, o, 100.0f).valid && !pane_drop_zone(w, o, 2000.0f).valid);
+    const DropZone whole = pane_drop_zone({820.0f}, {280.0f}, 1000.0f);
+    CHECK(whole.valid && whole.group == 0 && !whole.before && whole.x == 690.0f);
+}
+
 int main() {
     test_two_panes_tile_the_row_with_the_divider_between_them();
     test_a_ratio_is_held_at_the_minimum_pane();
@@ -77,6 +94,7 @@ int main() {
     test_three_panes_share_by_their_shares();
     test_three_panes_never_go_under_the_tiled_floor();
     test_origins_advance_by_width_and_divider();
+    test_a_drop_lands_on_the_half_of_the_pane_under_the_pointer();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;

@@ -48,4 +48,28 @@ inline std::vector<float> pane_origins(const std::vector<float>& widths, float l
     return out;
 }
 
+struct DropZone {
+    int group = 0;
+    bool before = false;
+    float x = 0.0f;
+    float width = 0.0f;
+    bool valid = false;
+};
+
+inline DropZone pane_drop_zone(const std::vector<float>& widths, const std::vector<float>& origins,
+                               float pointerX) {
+    DropZone zone;
+    for (std::size_t g = 0; g < widths.size() && g < origins.size(); ++g) {
+        if (pointerX < origins[g] || pointerX >= origins[g] + widths[g]) continue;
+        const float half = widths[g] * 0.5f;
+        zone.group = static_cast<int>(g);
+        zone.before = pointerX < origins[g] + half;
+        zone.x = zone.before ? origins[g] : origins[g] + half;
+        zone.width = half;
+        zone.valid = true;
+        return zone;
+    }
+    return zone;
+}
+
 }  // namespace ecs::model
