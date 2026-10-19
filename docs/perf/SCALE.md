@@ -169,6 +169,23 @@ or an element carries one null pointer where it carried 512 bytes.
 | before (960 B) | 649,288 KB | 0.46 s |
 | after (464 B) | **355,620 KB** | **0.28 s** |
 
+Mac (Boulder, the gate's own clone of e4a2d8a1 against ac0b03ee, two
+interleaved rounds each at load 10–14 with another build alongside,
+2026-10-19 09:13–09:22Z; `perf_scale_probe`, scales 10 and 100):
+
+| scale | arm | RSS max KB | mock seed KB | client KB | mock seed ms | frame cpu p99 / worst ms | >16 ms |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 10 | before r1 / r2 | 46,928 / 46,560 | 7,136 / 7,968 | 39,792 / 38,592 | 1.2 / 1.1 | 1.44 / 1.66 · 1.35 / 1.57 | 0 |
+| 10 | after r1 / r2 | 44,368 / 44,544 | 5,296 / 5,504 | 39,072 / 39,040 | 0.9 / 0.9 | 1.23 / 1.34 · 1.39 / 1.43 | 0 |
+| 100 | before r1 / r2 | 589,040 / 589,088 | 557,280 / 556,992 | 31,760 / 32,096 | 84.6 / 84.1 | 1.49 / 1.59 · 1.47 / 1.51 | 0 |
+| 100 | after r1 / r2 | **356,816 / 356,864** | **324,688 / 324,640** | 32,128 / 32,224 | **51.2 / 53.0** | 1.46 / 1.59 · 1.59 / 2.52 | 0 |
+
+At 100× the resident maximum falls 39 % and the seed 42 %, reproduced
+to the kilobyte across rounds; the client's own share is flat (the win
+is the catalog's messages, as the arithmetic says). Cold start, switch
+latency, scroll fps and the frame tail sit inside the round-to-round
+noise at that load — no frame over 16 ms in any of the eight rows.
+
 −294 MB is 496 bytes × 604k, within 2 MB of the arithmetic; the wall is
 the seed's allocation and copying, and the client's own copies of a
 `Session` (memory cache out, reconcile in, disk snapshot) move the same
