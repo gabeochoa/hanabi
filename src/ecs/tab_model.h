@@ -521,6 +521,29 @@ inline bool split_tab(TabStripComponent& strip, AppComponent& app, afterhours::E
     return true;
 }
 
+inline bool split_focused(TabStripComponent& strip, AppComponent& app, SplitAxis axis) {
+    TabGroups groups = groups_of(strip, app);
+    if (!groups.selected()) return false;
+    const auto group = groups.group_of(*groups.selected());
+    if (!group || !groups.split_off(*groups.selected(), *group + 1, axis)) return false;
+    apply_groups(strip, app, groups);
+    return true;
+}
+
+inline bool move_pane(TabStripComponent& strip, AppComponent& app, int delta) {
+    TabGroups groups = groups_of(strip, app);
+    if (!groups.move_group(groups.acted_group(), groups.acted_group() + delta)) return false;
+    apply_groups(strip, app, groups);
+    return true;
+}
+
+inline bool merge_panes(TabStripComponent& strip, AppComponent& app) {
+    TabGroups groups = groups_of(strip, app);
+    if (!groups.merge_all()) return false;
+    apply_groups(strip, app, groups);
+    return true;
+}
+
 inline void move_tab_to_group(TabStripComponent& strip, AppComponent& app, afterhours::EntityID tab,
                               int group) {
     TabGroups groups = groups_of(strip, app);

@@ -13,6 +13,8 @@ namespace ecs::model {
 
 enum class SplitAxis { Horizontal, Vertical };
 
+enum class TileRequest { None, SplitRight, SplitDown, MovePaneLeft, MovePaneRight };
+
 struct GroupTab {
     std::string id;
     int group = 0;

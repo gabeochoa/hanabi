@@ -448,6 +448,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // One-shot: toggle the split. The chord, the palette row and the menu item
     // all set this rather than each deciding for itself what a toggle means.
     bool requestSplitToggle = false;
+    model::TileRequest requestTile = model::TileRequest::None;
 
     // The divider's limits live in settings.h next to clamp_split_ratio: the
     // drag clamps as it writes and the restore clamps as it reads, and two

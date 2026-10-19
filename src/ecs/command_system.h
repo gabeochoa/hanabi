@@ -68,6 +68,18 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
             }
             break;
         }
+        case Command::SplitRight:
+            app.requestTile = model::TileRequest::SplitRight;
+            break;
+        case Command::SplitDown:
+            app.requestTile = model::TileRequest::SplitDown;
+            break;
+        case Command::MovePaneLeft:
+            app.requestTile = model::TileRequest::MovePaneLeft;
+            break;
+        case Command::MovePaneRight:
+            app.requestTile = model::TileRequest::MovePaneRight;
+            break;
         case Command::OpenSettings:
             // Settings is a tab: Cmd+, opens it, or focuses the one that
             // is already open (open_session_in_tab's own rule). Pressing it
@@ -177,6 +189,15 @@ struct System : afterhours::System<> {
             !archivable_on_screen(*app).empty());
         menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::FocusPreviousPane),
                                     app->splitOpen && app->focusedPane > 0);
+        const auto* tileStrip = find_singleton<TabStripComponent>();
+        const bool canSplit = app->view == SmartView::Chat && tileStrip != nullptr &&
+                              tileStrip->tabOrder.size() > 1;
+        menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::SplitRight), canSplit);
+        menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::SplitDown), canSplit);
+        menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::MovePaneLeft),
+                                    app->groupCount > 1 && app->focusedPane > 0);
+        menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::MovePaneRight),
+                                    app->groupCount > 1 && app->focusedPane + 1 < app->groupCount);
         menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::FocusNextPane),
                                     app->splitOpen && app->focusedPane + 1 < static_cast<int>(app->active_pane_count()));
 

@@ -87,7 +87,8 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
         app.requestSettings || !app.pendingSendQueue.empty() ||
         app.refocusComposer;
     s.split_change = app.splitDragging || app.requestSplitClose ||
-                     app.requestSplitToggle || !app.requestSplitOpen.empty();
+                     app.requestSplitToggle || !app.requestSplitOpen.empty() ||
+                     app.requestTile != ecs::model::TileRequest::None;
     s.dragging = s.dragging || app.splitDragging || app.rowDrag.live;
     s.streaming = app.streamActive;
     s.pending_future = s.pending_future || app.artifactFetchPending;

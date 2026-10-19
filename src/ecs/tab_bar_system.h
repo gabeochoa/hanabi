@@ -1324,8 +1324,19 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 // transcript fetch is picked up the same frame.
 struct TabFlowSystem : afterhours::System<AppComponent> {
     void for_each_with(Entity&, AppComponent& app, float) override {
-        if (auto* groupStrip = find_singleton<TabStripComponent>())
+        if (auto* groupStrip = find_singleton<TabStripComponent>()) {
             model::repair_groups(*groupStrip, app);
+            const model::TileRequest tile = app.requestTile;
+            app.requestTile = model::TileRequest::None;
+            if (tile == model::TileRequest::SplitRight)
+                model::split_focused(*groupStrip, app, model::SplitAxis::Horizontal);
+            else if (tile == model::TileRequest::SplitDown)
+                model::split_focused(*groupStrip, app, model::SplitAxis::Vertical);
+            else if (tile == model::TileRequest::MovePaneLeft)
+                model::move_pane(*groupStrip, app, -1);
+            else if (tile == model::TileRequest::MovePaneRight)
+                model::move_pane(*groupStrip, app, 1);
+        }
         // Restore persisted tabs once the session list is available.
         const bool waitingForSubagents =
             app.subagentSidebarOpen &&

@@ -356,7 +356,11 @@ static void install_main_menu() {
         [windowMenu addItem:command_item(command)];
     [windowMenu addItem:[NSMenuItem separatorItem]];
     for (const auto command : {hanabi::shortcuts::Command::FocusPreviousPane,
-                               hanabi::shortcuts::Command::FocusNextPane})
+                               hanabi::shortcuts::Command::FocusNextPane,
+                               hanabi::shortcuts::Command::SplitRight,
+                               hanabi::shortcuts::Command::SplitDown,
+                               hanabi::shortcuts::Command::MovePaneLeft,
+                               hanabi::shortcuts::Command::MovePaneRight})
         [windowMenu addItem:command_item(command)];
     [windowMenu addItem:[NSMenuItem separatorItem]];
     [windowMenu addItem:item(@"Bring All to Front", @selector(arrangeInFront:), @"", nil)];

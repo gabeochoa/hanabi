@@ -1163,6 +1163,11 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 app.requestSplitOpen = app.pane().selectedId;
             }
         }
+        if (app.requestSplitClose && app.groupCount > 1) {
+            app.requestSplitClose = false;
+            if (auto* groupStrip = find_singleton<TabStripComponent>())
+                model::merge_panes(*groupStrip, app);
+        }
         if (app.requestSplitClose) {
             app.requestSplitClose = false;
             app.splitOpen = false;
