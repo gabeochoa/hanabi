@@ -14,6 +14,6 @@ click_ui tool_head
 wait_frames 6
 expect_text "The jump adds the scroll offset to a layout position; writing the fix"
 expect_no_text "step  ·  The jump"
-assert_ui tool_icon_step hidden=false
-expect_text "grep  ·  revealRow"
+assert_ui sub_icon_step hidden=false
+expect_text "revealRow"
 expect_text "Fixed: the reveal centres the row once."
