@@ -47,7 +47,7 @@ namespace model {
 
 [[nodiscard]] inline bool showing_new_thread(const AppComponent& app) {
     const Pane& pane = app.panes[static_cast<std::size_t>(
-        std::clamp(app.focusedPane, 0, 1))];
+        app.clamp_pane(app.focusedPane))];
     return showing_new_thread(app.view, pane.selectedId,
                               pane.openSession.has_value());
 }
@@ -107,7 +107,7 @@ struct NewThreadSystem : afterhours::System<UIContext<InputAction>> {
         if (app->composerRestore.pending) {
             app->composerRestore.pending = false;
             const api::OutgoingTarget& target = app->composerRestore.target;
-            const int paneIndex = std::clamp(target.pane_index, 0, 1);
+            const int paneIndex = app->clamp_pane(target.pane_index);
             app->focusedPane = paneIndex;
             if (target.session_id.empty()) {
                 Pane& pane = app->panes[static_cast<std::size_t>(paneIndex)];

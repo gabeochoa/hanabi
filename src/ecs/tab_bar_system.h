@@ -94,7 +94,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             const std::string reopen = app.take_closed_tab();
             if (!reopen.empty()) {
                 app.requestOpenTab = reopen;
-                app.requestOpenTabPane = std::clamp(app.focusedPane, 0, 1);
+                app.requestOpenTabPane = app.clamp_pane(app.focusedPane);
                 app.requestOpenTabKeep = true;
             }
         }
@@ -1379,7 +1379,7 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             if (app.splitOpen && app.panes[1].selectedId.empty())
                 app.splitOpen = false;
             app.focusedPane =
-                app.splitOpen ? std::clamp(app.restoreFocusedPane, 0, 1) : 0;
+                app.splitOpen ? app.clamp_pane(app.restoreFocusedPane) : 0;
             app.restoreSplitIds[0].clear();
             app.restoreSplitIds[1].clear();
             app.restoreTabIds.clear();

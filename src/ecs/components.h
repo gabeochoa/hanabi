@@ -452,6 +452,9 @@ struct AppComponent : public afterhours::BaseComponent {
     const Pane& pane() const {
         return panes[static_cast<size_t>(focusedPane)];
     }
+    [[nodiscard]] int clamp_pane(int index) const {
+        return std::clamp(index, 0, static_cast<int>(panes.size()) - 1);
+    }
     Pane& other_pane() { return panes[focusedPane == 0 ? 1 : 0]; }
     [[nodiscard]] bool any_find_open() const {
         for (const Pane& p : panes)
@@ -1278,7 +1281,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // lands".
     [[nodiscard]] api::OutgoingTarget composer_target_for(int paneIndex) const {
         api::OutgoingTarget target;
-        target.pane_index = std::clamp(paneIndex, 0, 1);
+        target.pane_index = clamp_pane(paneIndex);
         const Pane& owner = panes[static_cast<std::size_t>(target.pane_index)];
         // A surface tab (Settings) is NOT a thread: it has no session to
         // reply to, and treating its reserved id as one would post
@@ -1519,7 +1522,7 @@ struct AppComponent : public afterhours::BaseComponent {
         if (!client || !client->supports_steer() || !target.valid() ||
             target.session_id.empty())
             return false;
-        const int paneIndex = std::clamp(target.pane_index, 0, 1);
+        const int paneIndex = clamp_pane(target.pane_index);
         const Pane& owner = panes[static_cast<std::size_t>(paneIndex)];
         return owner.openSession &&
                owner.openSession->summary.id == target.session_id &&

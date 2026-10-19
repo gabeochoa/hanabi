@@ -293,7 +293,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const size_t rows = splitView
                                 ? std::max(composerRows_[0], composerRows_[1])
                                 : composerRows_[static_cast<size_t>(
-                                      std::clamp(app->focusedPane, 0, 1))];
+                                      app->clamp_pane(app->focusedPane))];
         app->lastComposerChromeH = kComposerBaseH + attachH +
                                    composer_extra_h(rows);
         // Settings is a tab, and a tab showing Settings has no composer:
@@ -311,7 +311,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 return -1;
             }
             return model::is_settings_tab(app->pane().selectedId)
-                       ? std::clamp(app->focusedPane, 0, 1)
+                       ? app->clamp_pane(app->focusedPane)
                        : -1;
         }();
         const bool settingsTab = settingsPane >= 0 && !splitView;
@@ -433,7 +433,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             yieldIn.splitView = splitView;
             yieldIn.settingsPane = settingsPane;
             yieldIn.settingsTab = settingsTab;
-            yieldIn.focusedPane = std::clamp(app->focusedPane, 0, 1);
+            yieldIn.focusedPane = app->clamp_pane(app->focusedPane);
             yieldIn.focusIdAtStart = static_cast<long long>(ctx.focus_id);
             yieldIn.composerOwnsInput = model::composer_holds_keyboard(app->keyboardClaim);
             yieldIn.ids[0] = composerIdsLast_[0];
@@ -457,7 +457,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     // to, and its pane gives the row's height back.
                     if (i == settingsPane) continue;
                     const RectangleType pr = pane_screen_rect(*app, i);
-                    const bool focusedHere = i == std::clamp(app->focusedPane, 0, 1);
+                    const bool focusedHere = i == app->clamp_pane(app->focusedPane);
                     const float ownH = focusedHere ? cr.height : cr.height - askH;
                     render_composer(ctx, uiRoot, *app, i, pr.width, ownH,
                                     composerKickoff, pr.x,
@@ -8758,7 +8758,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          float absX = -1.0f, float absY = -1.0f) {
         (void)kickoff;
         const theme::PaneScope paneTheme =
-            pane_theme_scope(app.panes[static_cast<std::size_t>(std::clamp(paneIndex, 0, 1))].selectedId);
+            pane_theme_scope(app.panes[static_cast<std::size_t>(app.clamp_pane(paneIndex))].selectedId);
         // THIS pane's composer. In a split there are two, one under each
         // pane, each with its own draft, attachments and target; the one in
         // the focused pane is "active" and keeps the unsuffixed debug names
@@ -8766,7 +8766,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the other pane's field, which focuses that pane, swaps the names
         // the next frame and "composer_reply_input" is always the field with
         // the caret's pane.
-        paneIndex = std::clamp(paneIndex, 0, 1);
+        paneIndex = app.clamp_pane(paneIndex);
         Pane& ownPane = app.panes[static_cast<std::size_t>(paneIndex)];
         // Which composer is THE composer, for naming and for the widgets
         // that only one pane may own. Normally the focused pane's -- but a
@@ -8774,7 +8774,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // there the live composer is the other pane's, and it takes the
         // plain name rather than leaving the only usable box called
         // "_other".
-        const int focused = std::clamp(app.focusedPane, 0, 1);
+        const int focused = app.clamp_pane(app.focusedPane);
         const bool focusedIsSurface =
             model::is_surface_tab(app.panes[static_cast<std::size_t>(focused)].selectedId);
         const bool activeComposer =
@@ -8841,7 +8841,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the caret (ecs/focus_routing.h). Only the pane it was typed at
         // adopts it: in a split the other composer must not grow a letter.
         if (!app.typedSeed.empty() &&
-            composerTarget.pane_index == std::clamp(app.focusedPane, 0, 1)) {
+            composerTarget.pane_index == app.clamp_pane(app.focusedPane)) {
             replyDraft += app.typedSeed;
             app.typedSeed.clear();
         }
@@ -8960,7 +8960,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 std::move(*app.composerSubmit);
             app.composerSubmit.reset();
             const api::OutgoingTarget& target = submitted.message.target;
-            const int paneIndex = std::clamp(target.pane_index, 0, 1);
+            const int paneIndex = app.clamp_pane(target.pane_index);
             const Pane& owner = app.panes[static_cast<std::size_t>(paneIndex)];
             const ecs::model::Brake submittedBrake = ecs::model::brake_for(
                 target.session_id, app.find_summary(target.session_id),
@@ -10259,7 +10259,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // the request was made for answers it -- in a split, the other half
         // must not steal the keyboard.
         if (app.composer_focus_wanted() &&
-            composerTarget.pane_index == std::clamp(app.focusedPane, 0, 1)) {
+            composerTarget.pane_index == app.clamp_pane(app.focusedPane)) {
             app.composerFocusServed = app.composerFocusRequest;
             ctx.set_focus(focusable_field(inputRes.ent()));
             if (inputRes.ent()
@@ -10437,7 +10437,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (restoreFieldAfterSubmit) set_field(*restoreFieldAfterSubmit);
         // The queue hold follows what this composer has open (a thread switch
         // swaps the composer state, and with it the hold).
-        app.queuedEditing[static_cast<std::size_t>(std::clamp(paneIndex, 0, 1))] =
+        app.queuedEditing[static_cast<std::size_t>(app.clamp_pane(paneIndex))] =
             targetKickoff ? 0 : history.editingQueued;
 
         // Dismissing clears the slot AT ITS SOURCE. Clearing the rendered copy

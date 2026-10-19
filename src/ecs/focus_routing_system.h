@@ -41,7 +41,7 @@ struct FocusRoutingSystem : afterhours::System<UIContext<InputAction>> {
 
         const int pending = app->paneFocusPending;
         app->paneFocusPending = -1;
-        if (pending >= 0 && pending == std::clamp(app->focusedPane, 0, 1) &&
+        if (pending >= 0 && pending == app->clamp_pane(app->focusedPane) &&
             (model::pane_click_takes_caret(in) ||
              (in.typingLive && in.chatView && caretInComposer)))
             app->request_composer_focus();

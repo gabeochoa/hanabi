@@ -598,7 +598,7 @@ struct HandleSubmitThenFocusCommand
             state, text, target,
             app->client && app->client->supports_attachments());
         app->composerSubmit = std::move(submitted);
-        app->focusedPane = std::clamp(cmd.arg_as<int>(0), 0, 1);
+        app->focusedPane = app->clamp_pane(cmd.arg_as<int>(0));
         cmd.consume();
     }
 };
@@ -656,7 +656,7 @@ struct HandleKickoffThenFocusCommand
             cmd.fail("kickoff_then_focus requires an open split");
             return;
         }
-        const int owner = std::clamp(app->focusedPane, 0, 1);
+        const int owner = app->clamp_pane(app->focusedPane);
         const api::OutgoingTarget target{owner, "", "__kickoff__"};
         auto& state = ecs::model::pane_states().touch(
             ecs::model::pane_key(target.pane_index, target.draft_key));
@@ -664,7 +664,7 @@ struct HandleKickoffThenFocusCommand
         state.replyDraft = text;
         app->request_kickoff(ecs::model::snapshot_outgoing(
             state, text, target, app->client->supports_attachments()));
-        app->focusedPane = std::clamp(cmd.arg_as<int>(0), 0, 1);
+        app->focusedPane = app->clamp_pane(cmd.arg_as<int>(0));
         cmd.consume();
     }
 };
@@ -972,7 +972,7 @@ struct HandleExpectOpenCommand
         std::string actual = "(no app)";
         if (app != nullptr) {
             const ecs::Pane& pane = app->panes[static_cast<std::size_t>(
-                std::clamp(app->focusedPane, 0, 1))];
+                app->clamp_pane(app->focusedPane))];
             const bool open = pane.openSession &&
                               pane.openSession->summary.id == pane.selectedId &&
                               app->view == ecs::SmartView::Chat;
@@ -3501,7 +3501,7 @@ struct HandleForceSendCommand
             return;
         }
         app->requestSend = forced_surface_message(
-            cmd.arg(0), joined_args(cmd, 1), std::clamp(app->focusedPane, 0, 1));
+            cmd.arg(0), joined_args(cmd, 1), app->clamp_pane(app->focusedPane));
         cmd.consume();
     }
 };

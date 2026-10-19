@@ -1289,7 +1289,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.pendingNodeId.clear();
             app.kickoffPending = true;
             app.kickoffMessage = message;
-            app.kickoffPaneIndex = std::clamp(message.target.pane_index, 0, 1);
+            app.kickoffPaneIndex = app.clamp_pane(message.target.pane_index);
             app.transfer = std::make_shared<AppComponent::TransferShared>();
             std::shared_ptr<AppComponent::TransferShared> transfer = app.transfer;
             std::shared_ptr<api::Client> c = app.client;
@@ -1532,7 +1532,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     });
                     return true;
                 };
-                const std::size_t first = static_cast<std::size_t>(std::clamp(w.pane, 0, 1));
+                const std::size_t first = static_cast<std::size_t>(app.clamp_pane(w.pane));
                 if (first < app.active_pane_count() && ask(app.panes[first])) return;
                 for (std::size_t i = 0; i < app.active_pane_count(); ++i)
                     if (i != first && ask(app.panes[i])) return;
@@ -1799,8 +1799,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     : app.requestForkSourceId;
             const int sourcePane =
                 requested && requested->target.pane_index >= 0
-                    ? std::clamp(requested->target.pane_index, 0, 1)
-                    : std::clamp(app.requestForkPane, 0, 1);
+                    ? app.clamp_pane(requested->target.pane_index)
+                    : app.clamp_pane(app.requestForkPane);
             app.requestForkPane = sourcePane;
             const std::string title = app.requestForkTitle;
             app.forkPending = true;
@@ -1842,8 +1842,8 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             api::OutgoingMessage message = std::move(app.forkMessage);
             app.forkMessage = {};
             const int forkPane = message.target.pane_index >= 0
-                                     ? std::clamp(message.target.pane_index, 0, 1)
-                                     : std::clamp(app.requestForkPane, 0, 1);
+                                     ? app.clamp_pane(message.target.pane_index)
+                                     : app.clamp_pane(app.requestForkPane);
             if (r.ok) {
                 if (r.value.input_accepted)
                     release_sent_attachments(message);
@@ -2876,7 +2876,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.streamCollecting = true;
             app.streamPendingMessage = message;
             app.streamPendingSession = id;
-            app.streamPaneIndex = std::clamp(message.target.pane_index, 0, 1);
+            app.streamPaneIndex = app.clamp_pane(message.target.pane_index);
             app.streamPhase = AppComponent::StreamPhase::Thinking;
             app.streamStartedAt = static_cast<int64_t>(std::time(nullptr));
             app.transfer = std::make_shared<AppComponent::TransferShared>();
@@ -2996,7 +2996,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             app.streamPendingMessage = {};
             app.streamPendingSession.clear();
             app.transfer.reset();
-            const int ownerIndex = std::clamp(app.streamPaneIndex, 0, 1);
+            const int ownerIndex = app.clamp_pane(app.streamPaneIndex);
             Pane& streamPane = app.panes[static_cast<std::size_t>(ownerIndex)];
 
             const bool accepted = got.acceptedInput != 0 || got.error.empty();
@@ -3141,7 +3141,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
 
         if (!app.streamActive) return;
         if (app.streamDemoHold) return;
-        const int ownerIndex = std::clamp(app.streamPaneIndex, 0, 1);
+        const int ownerIndex = app.clamp_pane(app.streamPaneIndex);
         Pane& streamPane = app.panes[static_cast<std::size_t>(ownerIndex)];
 
         // If the open thread changed out from under an in-flight stream, drop
