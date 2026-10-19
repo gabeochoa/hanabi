@@ -256,6 +256,9 @@ bool Settings::load_save_file() {
             for (const auto& e : j["open_tabs"])
                 if (e.is_string()) open_tabs_.push_back(e.get<std::string>());
         }
+        tab_layout_.clear();
+        if (j.contains("tab_layout") && j["tab_layout"].is_object())
+            tab_layout_ = j["tab_layout"].dump();
         pinned_tabs_.clear();
         if (j.contains("pinned_tabs") && j["pinned_tabs"].is_array()) {
             for (const auto& e : j["pinned_tabs"])
@@ -376,6 +379,10 @@ void Settings::write_save_file() {
     j["open_tabs"] = open_tabs_;
     j["active_tab"] = active_tab_;
     j["pinned_tabs"] = pinned_tabs_;
+    if (!tab_layout_.empty()) {
+        json layout = json::parse(tab_layout_, nullptr, false);
+        if (layout.is_object()) j["tab_layout"] = std::move(layout);
+    }
     j["theme"] = theme_;
     j["font"] = font_choice_;
     j["font_weight"] = font_weight_;
@@ -596,6 +603,10 @@ const std::vector<std::string>& Settings::get_open_tabs() const {
     return open_tabs_;
 }
 const std::string& Settings::get_active_tab() const { return active_tab_; }
+const std::string& Settings::get_tab_layout() const { return tab_layout_; }
+void Settings::set_tab_layout(std::string layoutJson) {
+    tab_layout_ = std::move(layoutJson);
+}
 const std::vector<std::string>& Settings::get_pinned_tabs() const {
     return pinned_tabs_;
 }

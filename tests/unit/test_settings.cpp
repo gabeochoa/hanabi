@@ -757,6 +757,31 @@ static void test_tabs_and_pins_round_trip() {
     CHECK(s.get_pinned_tabs().empty());
 }
 
+static void test_tab_layout_round_trips_and_ignores_what_is_not_an_object() {
+    std::printf("test_tab_layout_round_trips_and_ignores_what_is_not_an_object\n");
+    isolate_settings();
+    auto& s = Settings::get();
+    const std::string layout = R"({"groups":[{"tabs":["a","b"],"selected":"b"},{"tabs":["c"]}],"axis":"vertical"})";
+
+    s.set_tab_layout(layout);
+    s.write_save_file();
+    s.set_tab_layout("");
+    s.load_save_file();
+    CHECK(s.get_tab_layout() ==
+          R"({"axis":"vertical","groups":[{"selected":"b","tabs":["a","b"]},{"tabs":["c"]}]})");
+
+    s.set_tab_layout("not json");
+    s.write_save_file();
+    s.set_tab_layout("x");
+    s.load_save_file();
+    CHECK(s.get_tab_layout().empty());
+
+    s.set_tab_layout("");
+    s.write_save_file();
+    s.load_save_file();
+    CHECK(s.get_tab_layout().empty());
+}
+
 // Fit to pane is the default; only a width the reader CHOSE is kept. The old
 // key was written on every save, so its "comfortable" reads as unset; its
 // "wide" and "full" were always choices.
@@ -1021,6 +1046,7 @@ int main() {
     test_font_preferences_round_trip_and_reject_unknown_values();
     test_appearance_context_and_chip_defaults_round_trip();
     test_tabs_and_pins_round_trip();
+    test_tab_layout_round_trips_and_ignores_what_is_not_an_object();
     // Last: it writes five thousand entries and reloads the file, so anything
     // after it would be asserting against a settings file this test authored.
     test_last_read_is_bounded();

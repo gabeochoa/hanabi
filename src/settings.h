@@ -111,6 +111,8 @@ struct Settings {
     const std::vector<std::string>& get_pinned_tabs() const;
     void set_open_tabs(std::vector<std::string> ids, std::string activeId,
                        std::vector<std::string> pinnedIds = {});
+    const std::string& get_tab_layout() const;
+    void set_tab_layout(std::string layoutJson);
 
     // ── Split view ──────────────────────────────────────────────────────
     // Whether the main pane is split, where the divider sits, and which
@@ -596,6 +598,7 @@ struct Settings {
     std::string last_session_;
     std::vector<std::string> open_tabs_;
     std::vector<std::string> pinned_tabs_;
+    std::string tab_layout_;
     std::string active_tab_;
     std::string theme_ = "dark";
     bool split_open_ = false;
