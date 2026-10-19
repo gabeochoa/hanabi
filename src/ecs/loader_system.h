@@ -1197,6 +1197,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
             if (!closed.selectedId.empty())
                 closed.scrollBottomPending = closed.selectedId;
         }
+        if (!app.requestSplitOpen.empty() && app.groupCount > 1) {
+            const std::string id = app.requestSplitOpen;
+            app.requestSplitOpen.clear();
+            if (auto* groupStrip = find_singleton<TabStripComponent>()) {
+                for (const auto tabId : groupStrip->tabOrder) {
+                    auto tab = afterhours::EntityHelper::getEntityForID(tabId);
+                    if (!tab.valid() || !tab->has<Tab>() || tab->get<Tab>().sessionId != id) continue;
+                    model::split_tab(*groupStrip, app, tabId, app.focusedPane + 1, app.splitAxis);
+                    break;
+                }
+            }
+        }
         if (!app.requestSplitOpen.empty()) {
             const std::string id = app.requestSplitOpen;
             app.requestSplitOpen.clear();

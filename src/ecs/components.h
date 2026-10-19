@@ -2757,12 +2757,19 @@ struct TabStripComponent : public afterhours::BaseComponent {
     // pure model (model::clamp_scroll / compute_max_scroll). A horizontal
     // wheel / shift+wheel over the strip adjusts it; selecting an off-screen
     // tab scrolls it into view (model::scroll_to_show).
-    float scrollX = 0.0f;
-    afterhours::EntityID visibleActive =
-        std::numeric_limits<afterhours::EntityID>::max();
-    size_t visibleActiveIndex = std::numeric_limits<size_t>::max();
-    size_t visibleTabCount = 0;
-    float visibleRunWidth = -1.0f;
+    struct RunState {
+        float scrollX = 0.0f;
+        afterhours::EntityID visibleActive =
+            std::numeric_limits<afterhours::EntityID>::max();
+        size_t visibleActiveIndex = std::numeric_limits<size_t>::max();
+        size_t visibleTabCount = 0;
+        float visibleRunWidth = -1.0f;
+    };
+    std::vector<RunState> runStates;
+    RunState& run_state(size_t index) {
+        if (runStates.size() <= index) runStates.resize(index + 1);
+        return runStates[index];
+    }
 
     // ---- Right-click context menu state (set/read only by TabBarSystem) ---
     // A right-click on a tab opens a small overlay menu anchored at the cursor
