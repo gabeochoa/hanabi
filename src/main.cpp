@@ -199,10 +199,9 @@ static void setup_app_state() {
         // accent rather than the stock blue for a frame.
         theme::set_accent_choice(Settings::get().get_accent_choice());
         theme::set_highlight_choice(Settings::get().get_highlight_choice());
-        const std::string& tc = Settings::get().get_theme();
-        bool light = (tc == "light") ||
-                     (tc == "system" && !hanabi::os_is_dark_mode());
-        theme::set_mode(light ? theme::Mode::Light : theme::Mode::Dark);
+        const theme::Look look =
+            theme::look_for_choice(Settings::get().get_theme(), hanabi::os_is_dark_mode());
+        theme::set_look(look.mode, look.palette);
     }
 
     {
@@ -1229,8 +1228,8 @@ static void persist_app_state() {
                                   app.panes[0].selectedId,
                                   app.panes[1].selectedId, app.focusedPane);
     }
-    Settings::get().set_theme(theme::mode() == theme::Mode::Light ? "light"
-                                                                  : "dark");
+    if (Settings::get().get_theme() != "system")
+        Settings::get().set_theme(theme::choice_for_look(theme::look()));
     Settings::get().write_save_file();
 }
 

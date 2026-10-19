@@ -41,8 +41,9 @@ static void check_direct(const char* name, theme::Color fg, theme::Color bg) {
     if (ratio < 4.5) ++failures;
 }
 
-static void check_mode(theme::Mode mode, const char* name) {
-    theme::set_mode(mode);
+static void check_mode(theme::Mode mode, const char* name,
+                       theme::Palette palette = theme::Palette::Default) {
+    theme::set_look(mode, palette);
     report_pair((std::string(name) + " blocked").c_str(), theme::tag_blocked_fg(),
                 theme::tag_blocked_bg());
     report_pair((std::string(name) + " ready").c_str(), theme::tag_ready_fg(),
@@ -131,7 +132,9 @@ static void check_mode(theme::Mode mode, const char* name) {
 int main() {
     check_mode(theme::Mode::Dark, "dark");
     check_mode(theme::Mode::Light, "light");
-    theme::set_mode(theme::Mode::Dark);
+    check_mode(theme::Mode::Light, "classic", theme::Palette::Classic);
+    check_mode(theme::Mode::Light, "win95", theme::Palette::Win95);
+    theme::set_look(theme::Mode::Dark, theme::Palette::Default);
     if (failures == 0) {
         std::puts("status pill contrast: PASS");
         return 0;

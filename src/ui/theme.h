@@ -22,6 +22,7 @@
 #include <cmath>
 #include <iterator>
 #include <string>
+#include <string_view>
 
 namespace theme {
 
@@ -310,8 +311,126 @@ inline const Tokens kLight = {
     /*code_bg*/ {216, 223, 232, 255},         // #D8DFE8  syntax.background
 };
 
+// Named palettes over the light mode: the shipped tokens with the chrome of
+// another desktop. Each is light-class (text dark on pale surfaces), so every
+// luminance rule that asks `mode()` keeps its answer; only the tokens change.
+enum class Palette { Default, Classic, Win95 };
+
+// Classic Mac: platinum greys, black hairlines, black buttons with white
+// type, a blue-grey selection -- System 7 by way of Platinum.
+inline const Tokens kClassic = [] {
+    Tokens c = kLight;
+    c.window_bg = {221, 221, 221, 255};
+    c.sidebar_bg = {204, 204, 204, 255};
+    c.panel_bg = {255, 255, 255, 255};
+    c.panel_bg_2 = {238, 238, 238, 255};
+    c.border = {0, 0, 0, 255};
+    c.border_soft = {0, 0, 0, 60};
+    c.section_header_bg = {204, 204, 204, 255};
+    c.divider = {0, 0, 0, 255};
+    c.text_primary = {0, 0, 0, 255};
+    c.text_secondary = {68, 68, 68, 255};
+    c.text_faint = {102, 102, 102, 255};
+    c.empty_state_text = {68, 68, 68, 255};
+    c.accent = {0, 0, 0, 255};
+    c.accent_soft = {0, 0, 0, 36};
+    c.find_match = {255, 204, 0, 150};
+    c.selection_bg = {153, 153, 255, 110};
+    c.link = {0, 0, 204, 255};
+    c.button_primary = {0, 0, 0, 255};
+    c.button_secondary = {238, 238, 238, 255};
+    c.hover_bg = {0, 0, 0, 20};
+    c.selected_bg = {170, 170, 170, 255};
+    c.row_separator = {153, 153, 153, 255};
+    c.focus_ring = {0, 0, 0, 255};
+    c.disabled_bg = {238, 238, 238, 255};
+    c.disabled_text = {136, 136, 136, 255};
+    c.dot = {0, 0, 0, 255};
+    c.bubble_user_bg = {238, 238, 238, 255};
+    c.bubble_assistant_bg = {255, 255, 255, 255};
+    c.bubble_other_bg = {246, 246, 246, 255};
+    c.code_bg = {238, 238, 238, 255};
+    return c;
+}();
+
+// Windows 95: silver chrome on a teal ground, navy for everything that is
+// chosen or pressed, dark-grey bevel lines, a white document.
+inline const Tokens kWin95 = [] {
+    Tokens c = kLight;
+    c.window_bg = {0, 128, 128, 255};
+    c.sidebar_bg = {192, 192, 192, 255};
+    c.panel_bg = {255, 255, 255, 255};
+    c.panel_bg_2 = {192, 192, 192, 255};
+    c.border = {128, 128, 128, 255};
+    c.border_soft = {128, 128, 128, 120};
+    c.section_header_bg = {192, 192, 192, 255};
+    c.divider = {128, 128, 128, 255};
+    c.text_primary = {0, 0, 0, 255};
+    c.text_secondary = {64, 64, 64, 255};
+    c.text_faint = {96, 96, 96, 255};
+    c.empty_state_text = {64, 64, 64, 255};
+    c.accent = {0, 0, 128, 255};
+    c.accent_soft = {0, 0, 128, 40};
+    c.find_match = {255, 255, 0, 160};
+    c.selection_bg = {0, 0, 128, 90};
+    c.link = {0, 0, 255, 255};
+    c.button_primary = {0, 0, 128, 255};
+    c.button_secondary = {192, 192, 192, 255};
+    c.hover_bg = {0, 0, 0, 24};
+    c.selected_bg = {0, 0, 128, 70};
+    c.row_separator = {128, 128, 128, 255};
+    c.focus_ring = {0, 0, 128, 255};
+    c.disabled_bg = {192, 192, 192, 255};
+    c.disabled_text = {128, 128, 128, 255};
+    c.dot = {0, 0, 128, 255};
+    c.bubble_user_bg = {0, 0, 128, 28};
+    c.bubble_assistant_bg = {255, 255, 255, 255};
+    c.bubble_other_bg = {223, 223, 223, 255};
+    c.code_bg = {223, 223, 223, 255};
+    return c;
+}();
+
+inline const Tokens& tokens_for(Mode m, Palette p) {
+    if (m == Mode::Dark) return kDark;
+    switch (p) {
+        case Palette::Classic: return kClassic;
+        case Palette::Win95: return kWin95;
+        case Palette::Default: break;
+    }
+    return kLight;
+}
+
+// A theme CHOICE as the settings file and the pickers name it: "light",
+// "dark", "system", "classic", "win95". The look it resolves to is a mode
+// and a palette; "system" asks the OS.
+struct Look {
+    Mode mode = Mode::Dark;
+    Palette palette = Palette::Default;
+    bool operator==(const Look&) const = default;
+};
+inline Look look_for_choice(std::string_view choice, bool osDark) {
+    if (choice == "classic") return {Mode::Light, Palette::Classic};
+    if (choice == "win95") return {Mode::Light, Palette::Win95};
+    if (choice == "light") return {Mode::Light, Palette::Default};
+    if (choice == "system") return {osDark ? Mode::Dark : Mode::Light, Palette::Default};
+    return {Mode::Dark, Palette::Default};
+}
+inline const char* choice_for_look(Look l) {
+    if (l.mode == Mode::Dark) return "dark";
+    switch (l.palette) {
+        case Palette::Classic: return "classic";
+        case Palette::Win95: return "win95";
+        case Palette::Default: break;
+    }
+    return "light";
+}
+inline bool choice_is_light(std::string_view choice, bool osDark) {
+    return look_for_choice(choice, osDark).mode == Mode::Light;
+}
+
 // Active token set (mutable, swapped at runtime). Defaults to dark.
 inline Mode g_mode = Mode::Dark;
+inline Palette g_palette = Palette::Default;
 inline Tokens t = kDark;
 
 // ---------------------------------------------------------------------------
@@ -399,7 +518,7 @@ inline void apply_custom() {
     // highlight means the palette's own hue, not whatever swatch was last
     // chosen. Without this reset a swatch's tint survived a return to
     // default until the next mode switch (the theme-token unit caught it).
-    const Tokens& base = (g_mode == Mode::Light) ? kLight : kDark;
+    const Tokens& base = tokens_for(g_mode, g_palette);
     t.accent = base.accent;
     t.accent_soft = base.accent_soft;
     t.button_primary = base.button_primary;
@@ -418,13 +537,17 @@ inline void apply_custom() {
         set_hue(t.find_match, (g_mode == Mode::Light) ? h->light : h->dark);
 }
 
-inline void set_mode(Mode m) {
+inline void set_look(Mode m, Palette p) {
     g_mode = m;
-    t = (m == Mode::Light) ? kLight : kDark;
+    g_palette = p;
+    t = tokens_for(m, p);
     apply_custom();
     hanabi::appearance::publish(m == Mode::Light ? hanabi::appearance::Scheme::Light
                                                  : hanabi::appearance::Scheme::Dark);
 }
+inline void set_mode(Mode m) { set_look(m, g_palette); }
+inline Palette palette() { return g_palette; }
+inline Look look() { return {g_mode, g_palette}; }
 
 inline void set_accent_choice(const std::string& key) {
     g_accent_choice = key;
@@ -444,7 +567,7 @@ class PaneScope {
         if (!active_) return;
         g_mode = m;
         g_accent_choice = accent;
-        t = (m == Mode::Light) ? kLight : kDark;
+        t = tokens_for(m, g_palette);
         apply_custom();
     }
     ~PaneScope() {

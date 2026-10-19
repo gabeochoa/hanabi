@@ -3992,17 +3992,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         // "System" now tracks the real macOS appearance (macos_is_dark_mode,
         // AppleInterfaceStyle) instead of always falling back to Dark — gap #16
         // resolved. Light/Dark are explicit; System resolves live.
-        bool light;
-        if (value == "system")
-            light = !hanabi::os_is_dark_mode();
-        else
-            light = (value == "light");
+        const theme::Look look = theme::look_for_choice(value, hanabi::os_is_dark_mode());
         auto& s = Settings::get();
         // Persist the CHOICE (light/dark/system) so System stays System across
         // relaunch and re-resolves against the OS each launch.
         s.set_theme(value);
         s.write_save_file();
-        theme::set_mode(light ? theme::Mode::Light : theme::Mode::Dark);
+        theme::set_look(look.mode, look.palette);
         // Picking a theme by hand buys a WHOLE interval of it, rather than
         // however many seconds were left on the rotation clock.
         theme_rotation::restart();
@@ -4477,11 +4473,13 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const char* label;
         bool light;
     };
-    static constexpr size_t kPaletteCount = 3;
+    static constexpr size_t kPaletteCount = 5;
     static constexpr std::array<PaletteEntry, kPaletteCount> kPalettes{{
         {"light", "Light", true},
         {"dark", "Dark", false},
         {"system", "System", false},
+        {"classic", "Classic", true},
+        {"win95", "Win95", true},
     }};
 
     static std::string current_palette(const AppComponent& app) {

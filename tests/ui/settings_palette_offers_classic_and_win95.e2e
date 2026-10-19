@@ -1,0 +1,24 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","settings_pane":"appearance"}
+# env: HANABI_TEST_OVERLAY=settings
+# Appearance > Palette names two more desktops beside Light / Dark / System:
+# Classic (platinum, black hairlines) and Win95 (silver on teal, navy picks).
+# Each is a theme choice of its own, persisted by name, light-class.
+wait_frames 20
+expect_text "Appearance"
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -900
+wait_frames 8
+expect_text "Palette   ·   Dark"
+click_ui settings_palette_classic
+wait_frames 10
+expect_text "Palette   ·   Classic"
+expect_theme classic
+click_ui settings_palette_win95
+wait_frames 10
+expect_text "Palette   ·   Win95"
+expect_theme win95
+click_ui settings_palette_dark
+wait_frames 10
+expect_text "Palette   ·   Dark"
+expect_theme dark
