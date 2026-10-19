@@ -96,7 +96,7 @@ for SCALE in $SCALES; do
     if [ "$SCALE" -gt 1 ]; then OPEN_ID="t2x1"; else OPEN_ID="t2"; fi
     LOG="$TMP/scroll-$SCALE.log"
     HANABI_OPEN="$OPEN_ID" HANABI_STRESS=read HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY=100 \
-        HANABI_STRESS_SETTLE=120 HANABI_PROF=1 HANABI_SOAK_SLOW_MS="${HANABI_PROBE_SLOW_MS:-4}" \
+        HANABI_STRESS_SETTLE=120 HANABI_PROF=1 HANABI_SOAK_SLOW_MS="${HANABI_PROBE_SLOW_MS:-1}" \
         timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$TMP/shot.png" >"$LOG" 2>&1
     grep -E '^\[soak\] slow frame ' "$LOG" | sort -t' ' -k5 -rn | head -"${HANABI_PROBE_SLOW_ROWS:-6}" >"$TMP/slow-$SCALE.txt" || true
     grep -E '^\[soak\] frame ' "$LOG" | sed -E 's/.* ([0-9.]+) ms\/f wall .*/\1/' >"$TMP/msf.txt"
@@ -124,12 +124,12 @@ done
 emit ""
 for SCALE in $SCALES; do
     if [ -s "$TMP/slow-$SCALE.txt" ]; then
-        emit "slowest scroll frames at ${SCALE}x (cpu ms, then the frame's top zones as ms/calls; HANABI_PROBE_SLOW_MS=${HANABI_PROBE_SLOW_MS:-4}):"
+        emit "slowest scroll frames at ${SCALE}x (cpu ms, then the frame's top zones as ms/calls; HANABI_PROBE_SLOW_MS=${HANABI_PROBE_SLOW_MS:-1}):"
         emit '```'
         while IFS= read -r line; do emit "$line"; done <"$TMP/slow-$SCALE.txt"
         emit '```'
     else
-        emit "no scroll frame over ${HANABI_PROBE_SLOW_MS:-4} ms cpu at ${SCALE}x after settle."
+        emit "no scroll frame over ${HANABI_PROBE_SLOW_MS:-1} ms cpu at ${SCALE}x after settle."
     fi
 done
 emit ""

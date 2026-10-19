@@ -241,9 +241,15 @@ the 250 ms gate at 100×.
    the zone table before each frame and, for a frame over
    `HANABI_SOAK_SLOW_MS` (8) after the settle, prints
    `[soak] slow frame N <ms>: zone=ms/calls …` with that frame's eight
-   biggest zones. The probe runs the scroll soak with it on at 4 ms and
+   biggest zones. The probe runs the scroll soak with it on at 1 ms and
    appends the six slowest frames per scale under the table, so the
    answer to "which row kind" is in the report rather than in a guess.
+   First Mac run (Boulder, load 9.6, 2026-10-19 12:27Z, main 1919a88a +
+   the zones): after the settle no scroll frame at 10× or 100× exceeded
+   4 ms of CPU — p99 1.28 / 1.26 ms, worst 1.32 / 1.42 ms — so the
+   scroll tail has no slow kind to name at these scales; the block now
+   lists the slowest six regardless, so the next run says which zones
+   an ordinary 1.3 ms frame is made of.
 3. **Menus, tooltips, popovers**: input to first painted frame ≤ 16 ms.
    `LATENCY.md` and `tests/ui/interaction_latency_budgets.e2e` already
    measure event-to-GPU-ink for popup open / close, focus gain / loss,

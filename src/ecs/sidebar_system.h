@@ -2604,9 +2604,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
     // every keystroke and the arrow keys with it. So the rows stay focusable
     // and the keystroke is filtered here. (FRICTION_LOG / gap #72 -- which is
     // the ring-at-rest premise only; the Enter collision it causes is ours.)
-    static bool right_pressed_in(UIContext<InputAction>& ctx, Entity& e) {
+    static bool right_pressed_in(UIContext<InputAction>& ctx, const AppComponent& app, Entity& e) {
         if (!ctx.mouse.right_just_pressed) return false;
-        if (ctx.mouse_was_in_subtree(e.id)) return true;
+        if (app.rowMenuOpen || app.messageMenuOpen || app.paletteOpen || app.renameOpen || app.sessionSearchOpen ||
+            app.companion.open || !app.viewerImagePath.empty() || app.showShortcuts || app.showBugReport)
+            return false;
         if (!e.has<afterhours::ui::UIComponent>()) return false;
         const RectangleType r = afterhours::ui::detail::apply_ancestor_transform(
             e, e.get<afterhours::ui::UIComponent>().rect());
@@ -4008,7 +4010,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             // The list is where the filter shows; a saved view is not a pane.
             if (app.view != SmartView::Chat) app.view = SmartView::Home;
         }
-        if (right_pressed_in(ctx, row.ent()))
+        if (right_pressed_in(ctx, app, row.ent()))
             app.open_view_menu(v.id, ctx.mouse.pos.x, ctx.mouse.pos.y);
         div(ctx, mk(row.ent(), 1),
             ComponentConfig{}
@@ -4225,7 +4227,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             app.savedViewId.clear();
             Settings::get().set_selected_view("");
         }
-        if (!builtInId.empty() && right_pressed_in(ctx, row.ent()))
+        if (!builtInId.empty() && right_pressed_in(ctx, app, row.ent()))
             app.open_view_menu(std::string(builtInId), ctx.mouse.pos.x,
                                ctx.mouse.pos.y);
 
@@ -4805,11 +4807,11 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         head.ent().addComponentIfMissing<afterhours::ui::HasClickListener>(
             [](Entity&) {});
         // A Space's header offers Space settings… on right-click.
-        if (model::is_space_section(key) && right_pressed_in(ctx, head.ent()))
+        if (model::is_space_section(key) && right_pressed_in(ctx, app, head.ent()))
             app.open_view_menu(std::string(kSpaceMenuPrefix) + key.substr(6), ctx.mouse.pos.x,
                                ctx.mouse.pos.y);
         // A web-app folder's header offers Rename / Delete on right-click.
-        if (model::is_web_folder_section(key) && right_pressed_in(ctx, head.ent()))
+        if (model::is_web_folder_section(key) && right_pressed_in(ctx, app, head.ent()))
             app.open_view_menu(std::string(kFolderMenuPrefix) + key.substr(7), ctx.mouse.pos.x,
                                ctx.mouse.pos.y);
         if (q.empty() &&
@@ -5684,7 +5686,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // show even against a backend with no rename verb.
         // offered now: Mute is machine-local, so the menu has an item to show
         // even against a backend with no rename verb.
-        if (right_pressed_in(ctx, row.ent())) {
+        if (right_pressed_in(ctx, app, row.ent())) {
             app.rowMenuOpen = true;
             app.rowMenuSessionId = s.id;
             app.rowMenuX = ctx.mouse.pos.x;

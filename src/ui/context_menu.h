@@ -156,6 +156,11 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
 
     MenuResult out;
     apply_menu_keys(cursor, keys, items, &out, ctx.mouse.pos.x, ctx.mouse.pos.y);
+    if (out.cancelled) {
+        out.dismissed = true;
+        out.eater_id = cursor.eater_id;
+        return out;
+    }
 
     std::vector<bool> seps(items.size());
     for (std::size_t i = 0; i < items.size(); ++i) seps[i] = items[i].separator;
@@ -180,6 +185,7 @@ MenuResult context_menu(Ctx& ctx, afterhours::Entity& root, int baseKey,
             .with_render_layer(layer - 1)
             .with_debug_name(std::string(debugName) + "_eater"));
     out.eater_id = static_cast<long long>(eater.ent().id);
+    cursor.eater_id = out.eater_id;
     out.dismissed =
         out.dismissed ||
         hanabi::overlay::dismisses(static_cast<bool>(eater), ctx.mouse.pos.x,

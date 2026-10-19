@@ -22,6 +22,7 @@ struct Cursor {
     bool hover_held = false;
     float hover_held_x = 0.0f;
     float hover_held_y = 0.0f;
+    long long eater_id = -1;
 
     bool in_submenu() const { return submenu_open && child != kNoRow; }
 
