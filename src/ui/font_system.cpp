@@ -1,6 +1,7 @@
 #include "font_system.h"
 #include "font_plan.h"
 
+#include <afterhours/src/font_coverage.h>
 #include <afterhours/src/plugins/files.h>
 
 #include <algorithm>
@@ -9,7 +10,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -390,6 +393,36 @@ float measure_advance(const char* text, float size,
 float measure_advance_in(const char* font_name, const char* text, float size) {
     if (font_name == nullptr || *font_name == '\0') return 0.0f;
     return advance_in_registered(font_name, text, size);
+}
+
+bool face_has_glyph(const char* font_name, std::uint32_t codepoint) {
+    std::string family = "default";
+    std::string weight = "regular";
+    const std::string name = font_name == nullptr ? std::string() : std::string(font_name);
+    if (!name.empty()) {
+        constexpr std::string_view kPrefix = "hanabi.";
+        const std::size_t dot = name.rfind('.');
+        if (name.compare(0, kPrefix.size(), kPrefix) != 0 || dot == std::string::npos ||
+            dot < kPrefix.size())
+            return false;
+        family = name.substr(kPrefix.size(), dot - kPrefix.size());
+        weight = name.substr(dot + 1);
+    }
+    const Family* found = find_family(family);
+    if (found == nullptr) return false;
+    auto path = found->paths.find(weight);
+    if (path == found->paths.end()) path = found->paths.find("regular");
+    if (path == found->paths.end()) return false;
+    static std::map<std::string, std::optional<afterhours::font_coverage::Ranges>> coverage;
+    auto cached = coverage.find(path->second);
+    if (cached == coverage.end()) {
+        afterhours::font_coverage::Ranges ranges;
+        const bool parsed = afterhours::font_coverage::parse_file(path->second.c_str(), ranges);
+        cached = coverage
+                     .emplace(path->second, parsed ? std::optional(std::move(ranges)) : std::nullopt)
+                     .first;
+    }
+    return cached->second && afterhours::font_coverage::covers(*cached->second, codepoint);
 }
 
 }  // namespace hanabi::fonts

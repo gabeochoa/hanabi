@@ -355,6 +355,10 @@ static void install_main_menu() {
                                hanabi::shortcuts::Command::NextTab})
         [windowMenu addItem:command_item(command)];
     [windowMenu addItem:[NSMenuItem separatorItem]];
+    for (const auto command : {hanabi::shortcuts::Command::FocusPreviousPane,
+                               hanabi::shortcuts::Command::FocusNextPane})
+        [windowMenu addItem:command_item(command)];
+    [windowMenu addItem:[NSMenuItem separatorItem]];
     [windowMenu addItem:item(@"Bring All to Front", @selector(arrangeInFront:), @"", nil)];
     windowRoot.submenu = windowMenu;
     [g_main_menu addItem:windowRoot];

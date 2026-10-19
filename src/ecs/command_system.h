@@ -59,6 +59,15 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
         case Command::ToggleSplit:
             app.requestSplitToggle = true;
             break;
+        case Command::FocusPreviousPane:
+        case Command::FocusNextPane: {
+            const int to = app.focusedPane + (command == Command::FocusNextPane ? 1 : -1);
+            if (app.splitOpen && to >= 0 && to < static_cast<int>(app.panes.size())) {
+                app.focusedPane = to;
+                app.paneFocusPending = to;
+            }
+            break;
+        }
         case Command::OpenSettings:
             // Settings is a tab: Cmd+, opens it, or focuses the one that
             // is already open (open_session_in_tab's own rule). Pressing it
@@ -166,6 +175,10 @@ struct System : afterhours::System<> {
         menubar_set_command_enabled(
             static_cast<int>(hanabi::shortcuts::Command::ArchiveCurrentConversation),
             !archivable_on_screen(*app).empty());
+        menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::FocusPreviousPane),
+                                    app->splitOpen && app->focusedPane > 0);
+        menubar_set_command_enabled(static_cast<int>(hanabi::shortcuts::Command::FocusNextPane),
+                                    app->splitOpen && app->focusedPane + 1 < static_cast<int>(app->panes.size()));
 
         int nativeCommand = -1;
         if (menubar_take_command(&nativeCommand) && nativeCommand >= 0 &&

@@ -1,0 +1,16 @@
+# Inline math in prose is set as math -- `$r$` is r, `$\pi r^2$` is πr², `$4\pi$`
+# is 4π -- while the dollars of money and shells stay exactly as typed, and a
+# span whose set form needs a glyph the prose face cannot draw (Roboto has no
+# →) stays literal rather than losing half of itself (the reference's
+# InlineMath; kt-x15r).
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MD_DEMO=math HANABI_OPEN=rmath
+require_thread rmath
+expect_text "πr²"
+expect_text "4π"
+expect_no_text "pi r^2"
+expect_no_text "*r*"
+expect_text "$5 and $10 a seat"
+expect_text "echo $HOME"
+expect_text "to y$ stays as typed"
+expect_no_text "→"

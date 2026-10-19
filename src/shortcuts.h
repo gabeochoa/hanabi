@@ -53,6 +53,8 @@ enum class Command : int {
     ArchiveCurrentConversation,
     // Help > Report a Bug (the reference's 0.8.9 bug report). Unassigned.
     ReportBug,
+    FocusPreviousPane,
+    FocusNextPane,
     Count,
 };
 
@@ -310,6 +312,20 @@ inline constexpr std::array<Definition,
          "Help",
          {},
          true},
+        {Command::FocusPreviousPane,
+         "focus_previous_pane",
+         "Focus Previous Pane",
+         "Window",
+         {afterhours::keys::LEFT,
+          static_cast<std::uint8_t>(CommandModifier | ControlModifier)},
+         false},
+        {Command::FocusNextPane,
+         "focus_next_pane",
+         "Focus Next Pane",
+         "Window",
+         {afterhours::keys::RIGHT,
+          static_cast<std::uint8_t>(CommandModifier | ControlModifier)},
+         false},
     }};
 
 // The commands that ship with NO key. Every other default must be non-empty
