@@ -14598,3 +14598,45 @@ CLASS: UI / MISSING
 
 CLASS: UI / WRONG
 
+
+### #616 — `load_shader` on the sokol/Metal backend accepts exactly two fragment programs by file NAME and no user text, so an app cannot run a fragment shader of its own (a window background, a "My shaders" editor)
+
+**Class:** GRAPHICS / MISSING (`backends/sokol/backend.h` at d1d7f0e: `load_shader` :665 reads `fsFileName`, sets `rec.is_ps1_post = file.find("ps1_post.fs")` and `rec.is_blur = file.find("blur.fs")`, and for any other path logs "has no Metal implementation (only blur.fs and ps1_post.fs are supported); failing closed" and returns an empty `ShaderType`. `begin_shader_mode` :730 only flips `g_shader_runtime.ps1_enabled`; the fragment bodies are compiled into the backend. The raylib backend compiles GLSL from the file at runtime, so the same call means two different things on the two backends.)
+
+**What happens.** Hanabi's window backgrounds (the reference's "Shader" and "My shaders" rows: a Metal fragment program behind the transcript with a uniform block of time / mouse / scroll / run status / palette / thread hash) cannot be fragment programs on this build. `graphics::load_shader(nullptr, "aurora.fs")` returns `{0}` and logs an error; there is no entry point that takes MSL (or a portable dialect) as text, and no `sg_shader` made from a runtime `sg_shader_desc` with a user `source`.
+
+**What was wanted.** `load_shader_source(const char* vs_text, const char* fs_text, Dialect)` (or `load_shader` reading the file and compiling it) on the sokol backend: `sg_make_shader` with `desc.fragment_func.source` set to the text, a fixed vertex stage matching sokol-gl's quad, and a `sg_pipeline` per blend mode, so a fragment body is data the way it is on raylib. A failed compile should return `{0}` with the compiler's message in the log, so an in-app editor can show it.
+
+**Hanabi reference.** `src/ui/background.h`: a preset is a pure function from the uniform block to a SCENE of gradient quads and radial blobs, drawn with `draw_rectangle_gradient_ex` / `draw_circle_gradient` in `src/ecs/background_pane.h` (`draw`). The uniform block (`hanabi::background::Uniforms`) is the reference's field list, so the day the library compiles user text the same block feeds it and the scenes become the fallback. The Settings row notes that "My shaders" waits on this. Fixture `settings_background_paints_behind_the_transcript`; unit `test_background`.
+
+**Cost of the workaround.** Presets are limited to what quads and radial falloffs compose (a gradient, a glow, curtains, blobs, motes — not smoke, noise, or anything per-pixel), at ≤ 32 primitives per frame; a user cannot write one at all.
+
+CLASS: GRAPHICS / MISSING
+
+### #617 — `set_shader_value` / `get_shader_location` on the sokol backend know two uniform names (`resolution`, `direction`); an app cannot hand a shader its own uniform block
+
+**Class:** GRAPHICS / MISSING (`backends/sokol/backend.h` :701 `get_shader_location` returns 1 for "resolution", 2 for "direction" on the blur shader, −1 for everything else; `set_shader_value` :712 stores only those two vec2s into the `ShaderRecord`. The raylib backend forwards to `rlSetUniform` by location.)
+
+**What happens.** Even with #616 closed, a background shader needs ~20 uniforms (time, time delta, frame, mouse, scroll, pane origin, focus, reduced motion, status and its clock, stream rate, run elapsed, tool active, palette slots, thread hash, glow). There is no path for a float, an int, a vec4, an array, or a struct block to reach a fragment stage: `set_shader_value` ignores every type but `SHADER_UNIFORM_VEC2` and every location but 1 and 2.
+
+**What was wanted.** The generic contract the `graphics_common.h` concept already declares (:176–:178): `get_shader_location` resolving a name against the compiled shader's uniform block, and `set_shader_value` writing any `SHADER_UNIFORM_*` type into a per-shader uniform buffer that `begin_shader_mode` binds (`sg_apply_uniforms`). A single "uniform block as bytes" entry point (`set_shader_uniforms(shader, const void*, size_t)`) would do for an app that owns a struct.
+
+**Hanabi reference.** `src/ui/background.h` `Uniforms` is the block; today it is consumed in C++ (`scene_for`). None of it crosses to the GPU.
+
+**Cost of the workaround.** None beyond #616's: the block exists and is filled per frame (`src/ecs/background_pane.h` `uniforms`), it just stops at the CPU.
+
+CLASS: GRAPHICS / MISSING
+
+### #618 — a texture is immutable once made: no `update_texture` / `sg_update_image` path, so a per-frame pixel buffer (a software-rasterised background, a live waveform, a decoded video frame) must be a new texture every frame
+
+**Class:** GRAPHICS / MISSING (`backends/sokol/drawing_helpers.h` :1610 `load_texture_from_pixels` sets `id.usage.immutable = true` and builds a mip chain; `unload_texture` :1693 destroys image, view and sampler. There is no `usage.stream_update` / `usage.dynamic_update` image and no wrapper over `sg_update_image`. The raylib backend has `UpdateTexture`.)
+
+**What happens.** The honest middle ground between #616 and the primitive scenes — evaluating a preset's fragment function on the CPU into a small RGBA buffer (64×36 is 2,304 texels, microseconds) and drawing it stretched with bilinear filtering — would have given per-pixel presets (smoke, noise fields, the reference's `lightsInSmoke`) today. It needs a texture whose pixels change each frame. With immutable images the only route is `load_texture_from_pixels` + `unload_texture` per frame: a `sg_make_image` / `sg_make_view` / `sg_make_sampler` triple and their deferred destruction every 16 ms, cycling the 64-slot image pool (`backend.h` :297 names it the smallest pool) and the sampler pool, which Hanabi already pushes with icons and inline images (#210).
+
+**What was wanted.** `load_texture_dynamic(w, h)` creating a `stream_update` image with one view and one sampler, and `update_texture(TextureType&, const unsigned char* rgba)` calling `sg_update_image` once per frame; the texture keeps its ids, so nothing cycles.
+
+**Hanabi reference.** None — the scene path (#616) was chosen over per-frame texture churn; `src/ui/background.h` documents the uniform block the CPU rasteriser would take.
+
+**Cost of the workaround.** The per-pixel class of presets is not available; see #616.
+
+CLASS: GRAPHICS / MISSING

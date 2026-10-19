@@ -162,6 +162,13 @@ struct Settings {
     // theme and font; the web preferences schema has no colour field.
     const std::string& get_accent_choice() const;
     void set_accent_choice(const std::string& key);  // auto-persists
+    // Window background behind the transcript: a preset key from
+    // ui/background.h ("off" default) and how much of the pane's colour sits
+    // over it ("subtle" / "balanced" / "vivid"). Auto-persist.
+    const std::string& get_background() const;
+    void set_background(const std::string& key);
+    const std::string& get_background_dim() const;
+    void set_background_dim(const std::string& key);
     const std::string& get_highlight_choice() const;
     void set_highlight_choice(const std::string& key);  // auto-persists
     const std::string& get_settings_pane() const;
@@ -607,6 +614,8 @@ struct Settings {
     double user_text_scale_ = 1.0;
     double assistant_text_scale_ = 1.0;
     std::string accent_choice_ = "default";
+    std::string background_ = "off";
+    std::string background_dim_ = "balanced";
     std::string highlight_choice_ = "default";
     std::string settings_pane_ = "general";
     bool restore_tabs_ = true;

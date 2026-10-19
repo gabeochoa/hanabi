@@ -71,6 +71,7 @@
 #include "keycap_row.h"
 #include "../ui/inbox_triage.h"
 #include "../ui/secondary_surface.h"
+#include "../ui/background.h"
 #include "../ui/settings_catalog.h"
 #include "../ui/settings_transfer.h"
 #include "../line_spacing.h"
@@ -1306,6 +1307,8 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             render_notify_kind_row(ctx, parent, 4, "Thread colours in the sidebar",
                                    "settings_thread_colours", Settings::get().get_thread_colours(),
                                    [](bool v) { Settings::get().set_thread_colours(v); });
+        else if (id == "background") render_background_row(ctx, parent, app);
+        else if (id == "background_dim") render_background_dim_row(ctx, parent, app);
         else if (id == "reasoning") render_reasoning_row(ctx, parent, app);
         else if (id == "fold_long") render_foldlong_row(ctx, parent, app);
         else if (id == "date_dividers") render_date_dividers_row(ctx, parent, app);
@@ -4389,6 +4392,84 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             if (current == kPalettes[static_cast<size_t>(i)].label) cur = i;
         if (const int stepped = activated_index(cur, n); stepped >= 0)
             apply_theme(app, kPalettes[static_cast<size_t>(stepped)].key);
+    }
+
+    // Appearance -> Background: Off and the presets, three to a row, the
+    // way the palette row lays its choices out; a note under them says why
+    // "My shaders" is not here yet.
+    void render_background_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
+        (void)app;
+        namespace bg = hanabi::background;
+        const bg::Preset current = bg::preset_from_key(Settings::get().get_background());
+        row_name_with(ctx, parent, 300, "Background",
+                      std::string("   \xc2\xb7   ") + bg::label_of(current), "settings_background");
+        constexpr float kGap = 6.0f;
+        constexpr int kPerRow = 3;
+        const float segW = (content_w() - kGap * (kPerRow - 1)) / static_cast<float>(kPerRow);
+        const int n = static_cast<int>(bg::kPresetCount);
+        int cur = 0;
+        for (int i = 0; i < n; ++i)
+            if (bg::kPresets[static_cast<size_t>(i)].preset == current) cur = i;
+        for (int rowIdx = 0; rowIdx * kPerRow < n; ++rowIdx) {
+            auto row = div(ctx, mk(parent, 301 + rowIdx),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
+                    .with_margin(Margin{.top = pixels(rowIdx == 0 ? 0.0f : kGap)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_background_row_" + std::to_string(rowIdx)));
+            anchor_control(row.ent());
+            for (int j = 0; j < kPerRow; ++j) {
+                const int i = rowIdx * kPerRow + j;
+                if (i >= n) break;
+                const auto& entry = bg::kPresets[static_cast<size_t>(i)];
+                const bool sel = i == cur;
+                auto btn = button(ctx, mk(row.ent(), j + 1),
+                    ComponentConfig{}
+                        .with_label(entry.label)
+                        .with_size(ComponentSize{pixels(segW), pixels(kSegBtnH)})
+                        .with_margin(Margin{.right = pixels(j == kPerRow - 1 ? 0.0f : kGap)})
+                        .with_custom_background(sel ? theme::button_primary() : theme::panel_bg_2())
+                        .with_custom_hover_bg(sel ? theme::button_primary() : theme::hover_bg())
+                        .with_custom_text_color(sel ? theme::window_bg() : theme::text_primary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Center)
+                        .with_justify_content(JustifyContent::Center)
+                        .with_align_items(AlignItems::Center)
+                        .with_cursor(afterhours::ui::CursorType::Pointer)
+                        .with_click_activation(ClickActivationMode::Press)
+                        .with_roundness(0.35f)
+                        .with_debug_name(std::string("settings_background_") + entry.key));
+                if (btn) Settings::get().set_background(entry.key);
+            }
+            if (const int stepped = activated_index(cur, n); stepped >= 0)
+                Settings::get().set_background(bg::kPresets[static_cast<size_t>(stepped)].key);
+        }
+        div(ctx, mk(parent, 305),
+            ComponentConfig{}
+                .with_label("My shaders (your own fragment programs) wait on the renderer's "
+                            "user-shader path.")
+                .with_size(ComponentSize{pixels(content_w()), pixels(kRowNameH)})
+                .with_margin(Margin{.top = pixels(4.0f)})
+                .with_transparent_bg()
+                .with_custom_text_color(theme::text_faint())
+                .with_font_size(theme::type::MICRO)
+                .with_alignment(TextAlignment::Left)
+                .with_text_overflow(TextOverflow::Ellipsis)
+                .with_debug_name("settings_background_note"));
+    }
+
+    void render_background_dim_row(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app) {
+        (void)app;
+        namespace bg = hanabi::background;
+        row_name(ctx, parent, 306, "Background strength", "settings_background_dim");
+        const int sel = static_cast<int>(bg::dim_from_key(Settings::get().get_background_dim()));
+        real_segmented(ctx, parent, 307, {bg::kDimLabels[0], bg::kDimLabels[1], bg::kDimLabels[2]}, sel,
+                       "settings_background_dim",
+                       [](int i) { Settings::get().set_background_dim(bg::kDimKeys[i]); });
     }
 
     struct PaletteEntry {

@@ -87,6 +87,7 @@
 #include "../test_hooks.h"
 #include "../api/mock_journal.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
+#include "../ui/background.h"
 #include "../ui/font_system.h"
 #include "../ui/link_detect.h"
 #include "../ui/text_select.h"
@@ -2977,6 +2978,31 @@ struct HandleExpectSoundCommand
     }
 };
 
+struct HandleExpectBackgroundCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_background")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_background requires a preset key (and an optional strength key)");
+            return;
+        }
+        namespace bg = hanabi::background;
+        const std::string& have = Settings::get().get_background();
+        if (have != cmd.arg(0) || bg::preset_from_key(have) != bg::preset_from_key(cmd.arg(0))) {
+            cmd.fail(std::format("expect_background: background is '{}', wanted '{}'", have, cmd.arg(0)));
+            return;
+        }
+        if (cmd.has_args(2) && Settings::get().get_background_dim() != cmd.arg(1)) {
+            cmd.fail(std::format("expect_background: strength is '{}', wanted '{}'",
+                                 Settings::get().get_background_dim(), cmd.arg(1)));
+            return;
+        }
+        cmd.consume();
+    }
+};
+
 struct HandleSettingsFileCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -5113,6 +5139,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleExpectSoundCommand>());
     sm.register_update_system(std::make_unique<HandleOpenThreadCommand>());
     sm.register_update_system(std::make_unique<HandleSettingsFileCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectBackgroundCommand>());
     sm.register_update_system(std::make_unique<HandleExpectNotifyKindCommand>());
     sm.register_update_system(std::make_unique<HandleExpectMockJournalCommand>());
     sm.register_update_system(std::make_unique<HandleExpectSavedViewsCommand>());

@@ -52,6 +52,7 @@
 #include "keyboard_focus.h"
 #include "digest_layout.h"
 #include "home_buckets.h"
+#include "background_pane.h"
 #include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
@@ -170,8 +171,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const float contentH =
             r.height + (splitView ? layout->composer.height : 0.0f);
 
-        auto panel = div(ctx, mk(uiRoot, 2000),
-            ComponentConfig{}
+        auto panelCfg = ComponentConfig{}
                 .with_size(ComponentSize{pixels(r.width), pixels(contentH)})
                 .with_absolute_position()
                 .with_translate(r.x, r.y)
@@ -180,7 +180,33 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_roundness(0.0f)
                 .with_render_layer(1)
-                .with_debug_name("main_pane"));
+                .with_debug_name("main_pane");
+        if (const auto preset = background_pane::preset();
+            preset != hanabi::background::Preset::Off && app->view == SmartView::Chat) {
+            const Pane& fp = app->pane();
+            const bool running = fp.openSession &&
+                                 fp.openSession->summary.state == api::ThreadState::Running;
+            const bool attention = fp.openSession &&
+                                   fp.openSession->summary.state == api::ThreadState::Attention;
+            const bool toolActive = fp.openSession && !fp.openSession->messages.empty() &&
+                                    fp.openSession->messages.back().role == api::Role::Tool &&
+                                    app->sending_for(fp.selectedId);
+            const auto& mo = hanabi::status_mark::mm3_motion();
+            const auto u = background_pane::uniforms(
+                LayoutComponent::Rect{r.x, r.y, r.width, contentH}, ctx.mouse.pos.x,
+                ctx.mouse.pos.y, mo.appActive, mo.reduceMotion, running ? 1 : attention ? 2 : 0,
+                toolActive, app->sending_for(fp.selectedId) ? 1.0f : 0.0f, 0.0f,
+                fp.selectedId, attention ? 1.0f : 0.0f);
+            const auto scene = hanabi::background::scene_for(preset, u);
+            const theme::Color base = theme::chrome::content();
+            const float scrim = hanabi::background::scrim_alpha(
+                hanabi::background::dim_from_key(Settings::get().get_background_dim()));
+            panelCfg.with_transparent_bg().with_on_draw_bg(
+                [scene, base, scrim](RectangleType rect) {
+                    background_pane::draw(rect, scene, base, scrim);
+                });
+        }
+        auto panel = div(ctx, mk(uiRoot, 2000), panelCfg);
 
         // The composer ALWAYS renders (Gabe: "it should just always render …
         // why would we hide it at any point"). It renders as its OWN absolute

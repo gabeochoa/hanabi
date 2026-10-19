@@ -81,6 +81,8 @@ bool Settings::load_save_file() {
         font_weight_ = hanabi::normalize_font_weight(
             j.value("font_weight", font_weight_));
         accent_choice_ = j.value("theme_accent", accent_choice_);
+        background_ = j.value("background", background_);
+        background_dim_ = j.value("background_dim", background_dim_);
         highlight_choice_ = j.value("theme_highlight", highlight_choice_);
         settings_pane_ = j.value("settings_pane", settings_pane_);
         restore_tabs_ = j.value("restore_tabs", restore_tabs_);
@@ -377,6 +379,8 @@ void Settings::write_save_file() {
     j["font"] = font_choice_;
     j["font_weight"] = font_weight_;
     j["theme_accent"] = accent_choice_;
+    j["background"] = background_;
+    j["background_dim"] = background_dim_;
     j["theme_highlight"] = highlight_choice_;
     j["settings_pane"] = settings_pane_;
     j["restore_tabs"] = restore_tabs_;
@@ -631,6 +635,19 @@ const std::string& Settings::get_accent_choice() const {
 void Settings::set_accent_choice(const std::string& key) {
     if (key == accent_choice_) return;
     accent_choice_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+
+const std::string& Settings::get_background() const { return background_; }
+void Settings::set_background(const std::string& key) {
+    if (key == background_) return;
+    background_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+const std::string& Settings::get_background_dim() const { return background_dim_; }
+void Settings::set_background_dim(const std::string& key) {
+    if (key == background_dim_) return;
+    background_dim_ = key;
     if (auto_save_enabled) write_save_file();
 }
 

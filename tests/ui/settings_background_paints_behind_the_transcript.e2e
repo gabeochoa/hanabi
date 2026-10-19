@@ -1,0 +1,40 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark","settings_pane":"appearance"}
+# env: HANABI_TEST_OVERLAY=settings
+# Appearance > Background: Off by default; a preset is picked by its name and
+# the strength by its segment; both persist and both survive leaving Settings.
+wait_frames 20
+expect_text "Appearance"
+expect_background off balanced
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -900
+wait_frames 8
+expect_text "Background   ·   Off"
+click_ui settings_background_aurora
+wait_frames 8
+expect_text "Background   ·   Aurora Veil"
+expect_background aurora balanced
+click_ui settings_background_dim_2
+wait_frames 8
+expect_background aurora vivid
+click_ui settings_background_glow
+wait_frames 8
+expect_text "Background   ·   Mouse Glow"
+expect_background glow vivid
+key ESCAPE
+wait_frames 12
+require_thread t2
+assert_ui main_pane hidden=false
+expect_background glow vivid
+click_ui sb_settings
+wait_frames 16
+click_ui sb_settings_nav_appearance
+wait_frames 10
+hover_ui settings_pane_scroll
+wait_frames 2
+scroll_wheel 0 -900
+wait_frames 8
+click_ui settings_background_off
+wait_frames 8
+expect_text "Background   ·   Off"
+expect_background off vivid
