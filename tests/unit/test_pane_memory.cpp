@@ -494,11 +494,29 @@ static void test_unread_tracks_append_prepend_and_replace() {
     CHECK(liveState.unreadCount == 0);
 }
 
+static void test_every_pane_of_an_n_pane_window_keeps_its_own_state() {
+    std::printf("test_every_pane_of_an_n_pane_window_keeps_its_own_state\n");
+    CHECK(ecs::model::pane_key(0, "t1") == std::string("0\x1ft1"));
+    CHECK(ecs::model::pane_key(1, "t1") == std::string("1\x1ft1"));
+    CHECK(ecs::model::persisted_reply_key(1, "t1") == std::string("reply:1\x1ft1"));
+    ecs::model::PaneStateStore store;
+    std::vector<ecs::model::PaneState*> states;
+    for (int pane = 0; pane < 12; ++pane)
+        states.push_back(&store.touch(ecs::model::pane_key(pane, "t1")));
+    CHECK(store.size() == 12);
+    for (std::size_t a = 0; a < states.size(); ++a)
+        for (std::size_t b = a + 1; b < states.size(); ++b) CHECK(states[a] != states[b]);
+    CHECK(ecs::model::pane_key(10, "x") != ecs::model::pane_key(1, "0x"));
+    CHECK(ecs::model::pane_key(2, "t1") != ecs::model::pane_key(0, "t1"));
+    CHECK(ecs::model::pane_key(-1, "t1") == ecs::model::pane_key(0, "t1"));
+}
+
 int main() {
     std::printf("=== test_pane_memory ===\n");
     test_pane_state_is_bounded();
     test_a_draft_is_never_evicted();
     test_two_panes_on_one_thread_keep_their_own();
+    test_every_pane_of_an_n_pane_window_keeps_its_own_state();
     test_render_cache_holds_both_panes();
     test_same_id_content_change_invalidates_geometry();
     test_unread_tracks_append_prepend_and_replace();

@@ -261,9 +261,8 @@ void update_unread(PaneState& state, const Messages& messages,
 // the same helper, so a kickoff draft is per pane too. Two panes offering to
 // start two different new tasks is right for the same reason.)
 inline std::string pane_key(int paneIndex, const std::string& id) {
-    std::string k;
-    k.reserve(id.size() + 2);
-    k.push_back(static_cast<char>('0' + (paneIndex & 1)));
+    std::string k = std::to_string(paneIndex < 0 ? 0 : paneIndex);
+    k.reserve(k.size() + id.size() + 1);
     k.push_back('\x1f');
     k.append(id);
     return k;
