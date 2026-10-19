@@ -14654,3 +14654,17 @@ CLASS: GRAPHICS / MISSING
 **Cost of the workaround.** None at steady state; the pitch was already Hanabi's. The hazard that remains is any other styled label sized tighter than its face's line height — a heading, a chart caption — which the ink verb can now catch one at a time.
 
 CLASS: UI / WRONG
+
+### #620 — one window per process: the sokol backend owns a single `sapp` window, the UI plugin a single entity collection and one `UIContext`, so a tab cannot be torn off into a window of its own
+
+**Class:** PLATFORM / MISSING (sokol backend + UI plugin; d1d7f0e)
+
+**What happens.** The reference tears a tab off into its own window and drags tabs between windows (its 0.5.20 and 0.9.0, kt-gqe3). Hanabi cannot start on it. The backend runs `sapp_run()` once with one `sapp_desc` (`backends/sokol/backend.h:910`); every size, DPI and present query is the process-global `sapp_width()` / `sapp_height()` / `sapp_dpi_scale()` (`metal_state.h:27–31`), the fontstash context is one global (`g_fons_ctx`, `metal_state.h:42`), the frame callbacks are one set of globals (`g_init_fn` / `g_frame_fn` / `g_cleanup_fn`, `metal_state.h:33–35`), and sokol_app itself is a single-window library by design. Above it the UI plugin keeps one `UICollectionHolder`, one `FontManager` singleton and one `UIContext` per `SystemManager`, so even with a second Metal layer there is no second tree to lay out into it or a second input stream to feed it.
+
+**What was wanted.** A second top-level window — its own `NSWindow` + `CAMetalLayer` + drawable size + DPI + input queue — hosting its own UI root, with the app able to move a tab's pane between the two. Everything the window-level globals answer today would need to be per-window.
+
+**Hanabi reference.** Parity map rows #22 (tear-off / drag between windows) and the N-pane half of #31. Hanabi's answer inside one window is N panes along one axis (the reference's own in-window tiling, 0.9.1), which the UI plugin can do today; that round is scheduled. No app-side workaround for a second window is attempted: a second process would be a second connection, cache and settings file, and the drag between them has nowhere to live.
+
+**Cost of the workaround.** The feature is absent. Everything else is unaffected.
+
+CLASS: PLATFORM / MISSING
