@@ -39,7 +39,7 @@ static void test_every_spelling_of_a_kind_is_that_kind() {
     CHECK(classify("WebSearch") == Kind::Web);
     CHECK(classify("web__fetch") == Kind::Web);
     CHECK(classify("meta__run") == Kind::Generic);
-    CHECK(classify("step") == Kind::Generic);
+    CHECK(classify("step") == Kind::Step);
     CHECK(classify("") == Kind::Generic);
     CHECK(std::string(word(Kind::Read)) == "read");
     CHECK(std::string(word(Kind::Shell)) == "shell");
@@ -97,7 +97,32 @@ static void test_a_row_names_the_tool_in_words() {
     CHECK(api::tool_kinds::debug_suffix(api::tool_kinds::Kind::Generic) == "");
 }
 
+static void test_step_is_narration() {
+    using api::tool_kinds::Kind;
+    using api::tool_kinds::classify;
+    using api::tool_kinds::is_narration;
+    using api::tool_kinds::step_text;
+    CHECK(classify("step") == Kind::Step);
+    CHECK(classify("functions.step") == Kind::Step);
+    CHECK(classify("mcp__x__step") == Kind::Step);
+    CHECK(classify("stepper") == Kind::Generic);
+    CHECK(step_text(R"({"text":"  Reading the catalog  "})") == "Reading the catalog");
+    CHECK(step_text(R"({"text":"Mixed Case, no full stop added"})") == "Mixed Case, no full stop added");
+    CHECK(step_text(R"({"text":""})").empty());
+    CHECK(step_text(R"({"text":"   \n"})").empty());
+    CHECK(step_text(R"({"note":"x"})").empty());
+    CHECK(step_text("not json").empty());
+    CHECK(step_text(R"({"text":")" + std::string(513, 'a') + R"("})").empty());
+    CHECK(step_text(R"({"text":")" + std::string(512, 'a') + R"("})").size() == 512);
+    CHECK(is_narration("step", R"({"text":"Working"})"));
+    CHECK(!is_narration("step", R"({"text":""})"));
+    CHECK(!is_narration("bash", R"({"text":"Working"})"));
+    CHECK(api::tool_kinds::headline(Kind::Step, R"({"text":" The line "})") == "The line");
+    CHECK(api::tool_kinds::debug_suffix(Kind::Step) == "_step");
+}
+
 int main() {
+    test_step_is_narration();
     std::printf("=== test_tool_kinds ===\n");
     test_every_spelling_of_a_kind_is_that_kind();
     test_a_row_names_the_tool_in_words();

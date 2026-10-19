@@ -1680,7 +1680,7 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             m.kind = EventKind::ToolCall;
             m.subtitle = str_or(e, "tool", "");
             if (const auto k = tool_kinds::classify(m.subtitle);
-                k == tool_kinds::Kind::Edit || k == tool_kinds::Kind::Write)
+                k == tool_kinds::Kind::Edit || k == tool_kinds::Kind::Write || k == tool_kinds::Kind::Step)
                 m.tool_input = str_or(e, "input", "");
             m.tool_background = bool_or(e, "background", false);
             if (const json& task = obj_at(e, "task"); task.is_object()) {

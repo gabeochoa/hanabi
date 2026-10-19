@@ -4349,6 +4349,30 @@ class MockClient : public Client {
                     if (m.role == Role::Tool) m.created_at = m.id == "tks6" ? mins_ago(19) : m.id < std::string("tks3") ? mins_ago(119) : mins_ago(58);
                 s.summary.state = ThreadState::Ready;
             }
+            if (std::string(td) == "narration") {
+                auto step = [&](const char* id, const char* text, int64_t at) {
+                    Message m{id, Role::Tool, text, at, "step"};
+                    m.tool_input = nlohmann::json{{"text", text}}.dump();
+                    m.tool_status = "completed";
+                    return m;
+                };
+                Message unreadable{"tkn-raw", Role::Tool, "step", mins_ago(8), "step"};
+                unreadable.tool_input = R"({"text":""})";
+                unreadable.tool_status = "completed";
+                s.messages = {
+                    {"tkn0", Role::User, "find why the settings search misses the row", mins_ago(12), ""},
+                    step("tkn1", "Reading the settings catalog to find the row", mins_ago(11)),
+                    tool("tkn2", "grep", "revealRow", "settings_system.h:702"),
+                    tool("tkn3", "read", "src/ecs/settings_system.h", "void reveal(AppComponent& app"),
+                    step("tkn4", "The jump adds the scroll offset to a layout position; writing the fix", mins_ago(10)),
+                    tool("tkn5", "Edit", "src/ecs/settings_system.h", "@@ -1,2 +1,3 @@\n-old\n+new"),
+                    unreadable,
+                    {"tkn-rep", Role::Assistant, "Fixed: the reveal centres the row once.", mins_ago(7), ""},
+                };
+                for (auto& m : s.messages)
+                    if (m.role == Role::Tool && m.created_at == hrs_ago(1)) m.created_at = mins_ago(10);
+                s.summary.state = ThreadState::Ready;
+            }
             if (std::string(td) == "pace") {
                 Message bg{"tkbg", Role::Tool, "zig build gate", mins_ago(2), "bash"};
                 bg.tool_status = "running";

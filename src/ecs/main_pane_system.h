@@ -15488,6 +15488,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return t;
     }
     static std::string tool_label(const api::Message& m) {
+        if (const std::string line = narration_text(m); !line.empty()) return line;
         const std::string command = tool_command(m);
         std::string out;
         const std::string name = api::tool_kinds::display_name(m.subtitle);
@@ -15626,9 +15627,34 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case Kind::Glob: draw_asterisk(r, c); return;
             case Kind::Web: draw_globe(r, c); return;
             case Kind::SubAgent: draw_agent_mark(r, c); return;
+            case Kind::Step: draw_quote(r, c); return;
             case Kind::Generic: break;
         }
         draw_wrench(r, c);
+    }
+    static void draw_quote(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        for (int i = -1; i <= 1; i += 2) {
+            const float x = cx + i * 2.4f;
+            afterhours::draw_line_ex(afterhours::vec2{x + 0.8f, cy - 2.6f},
+                                     afterhours::vec2{x - 0.8f, cy + 0.6f}, 1.5f, c);
+        }
+    }
+    static std::string narration_text(const api::Message& m) {
+        if (api::tool_kinds::classify(m.subtitle) != api::tool_kinds::Kind::Step) return {};
+        if (!m.tool_input.empty()) return api::tool_kinds::step_text(m.tool_input);
+        std::string t = m.text;
+        if (const size_t nl = t.find('\n'); nl != std::string::npos) t.resize(nl);
+        if (t.empty() || t == m.subtitle || t.size() > api::tool_kinds::kStepTextCap) return {};
+        return t;
+    }
+    static bool is_narration(const api::Message& m) { return !narration_text(m).empty(); }
+    static int narration_rows(const std::vector<api::Message>& msgs, int lo, int hi) {
+        int n = 0;
+        for (int i = lo; i < hi; ++i)
+            if (is_narration(msgs[i])) ++n;
+        return n;
     }
     static void draw_check(RectangleType r, theme::Color c) {
         const float cx = r.x + r.width * 0.5f;
@@ -16086,9 +16112,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (kind == K::Step) {
                 if (!inRun) ++f.runs;
                 inRun = true;
-                ++f.steps;
-                if (tool_failed(m)) ++f.errors;
-                if (m.tool_duration_ms > 0) f.active_ms += m.tool_duration_ms;
+                if (!is_narration(m)) {
+                    ++f.steps;
+                    if (tool_failed(m)) ++f.errors;
+                    if (m.tool_duration_ms > 0) f.active_ms += m.tool_duration_ms;
+                }
                 if (m.tool_status == "running") f.streaming = true;
             } else {
                 inRun = false;
@@ -16179,7 +16207,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void tool_pile(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
                    const std::vector<api::Message>& msgs, int lo, int hi,
                    float paneWidth) {
-        const int count = hi - lo;
+        const int count = hi - lo - narration_rows(msgs, lo, hi);
         const std::string key = msgs[lo].id.empty()
                                     ? ("pile" + std::to_string(keyIndex))
                                     : msgs[lo].id;
@@ -17465,9 +17493,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Single tool row: prefix the node ("[cli:aspen] cmd") when known, same
         // as the pile header (Gabe: "[cli:aspen] cd …"). Empty for local/unknown.
         const std::string oneCmd = tool_label(m);
+        const bool narration = is_narration(m);
         Entity& head = tool_row(ctx, parent, 200 + index * 10, rowW,
                                 /*expandable=*/expandable, open,
-                                oneCmd, 1, tool_duration(m), m.tool_status,
+                                oneCmd, 1, narration ? std::string() : tool_duration(m),
+                                narration && m.tool_status != "running" ? std::string() : m.tool_status,
                                 /*showCount=*/false,
                                 api::tool_kinds::classify(m.subtitle));
         head.addComponentIfMissing<afterhours::ui::HasClickListener>([](Entity&) {});
