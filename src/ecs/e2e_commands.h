@@ -5070,11 +5070,6 @@ struct HandleExpectOutboxRetryCountCommand
     }
 };
 
-// expect_ink_text "<text>" [min=N] [part=top|bottom] [within=F]: the label whose text contains
-// <text> has at least N pixels of ink inside its own on-screen box, read back
-// from the frame. The text registry says a label was built and laid out; this
-// says it painted, which a label can fail to do while every registry check
-// passes (a line dropped by a clip, a colour equal to its ground).
 struct HandleExpectInkTextCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity& e,

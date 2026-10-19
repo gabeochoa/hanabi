@@ -94,7 +94,6 @@ struct Frame {
             }));
     }
 
-    // The part of this frame inside a pixel rectangle, clamped to the frame.
     Frame crop(int x, int y, int w, int h) const {
         Frame out;
         if (!valid()) return out;
@@ -112,9 +111,6 @@ struct Frame {
     }
 };
 
-// The frame the e2e host can read back from the GPU on demand (the latency
-// probe's capture), for a fixture that asks about pixels rather than labels.
-// Null outside an e2e run.
 using CaptureFn = std::optional<Frame> (*)();
 inline CaptureFn& capture_hook() {
     static CaptureFn fn = nullptr;

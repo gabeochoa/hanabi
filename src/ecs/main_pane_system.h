@@ -11422,6 +11422,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // message (line_gap / prose_h), so a one-line bubble keeps its 100%
     // height and the gaps above and below the text stay what they are at
     // 100% (the reference's D123401189 / D123401190).
+    static float prose_inset_x() {
+        return afterhours::ui::imm::ThemeDefaults::get().theme.text_inset.x;
+    }
     static float line_pitch() {
         return std::round(kLinePitchPt * static_cast<float>(text_zoom() * side_pitch_factor()));
     }
@@ -11705,6 +11708,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_label(ln.empty() ? std::string(" ") : ln)
                 .with_size(ComponentSize{percent(1.0f), pixels(line_pitch())})
                 .with_line_height(pixels(line_pitch()))
+                    .with_text_inset(prose_inset_x(), 0.0f)
                 .with_transparent_bg()
                 .with_custom_text_color(ink)
                 .with_font_size(theme::type::BODY)
@@ -14405,6 +14409,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_styled_label(ip.spans)
                         .with_size(ComponentSize{percent(1.0f), pixels(segH)})
                         .with_line_height(pixels(line_pitch()))
+                    .with_text_inset(prose_inset_x(), 0.0f)
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_primary())
                         .with_font_size(theme::type::BODY)
@@ -15042,6 +15047,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_label(userBody)
                     .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
                     .with_line_height(pixels(line_pitch()))
+                    .with_text_inset(prose_inset_x(), 0.0f)
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_primary())
                     .with_font_size(theme::type::BODY)
