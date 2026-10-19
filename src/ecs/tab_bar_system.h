@@ -1520,11 +1520,10 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
         }
 
         // ---- The strip follows the focused pane -----------------------
-        // The tab strip is GLOBAL: one strip, and clicking a tab opens that
-        // thread in the focused pane. The other half of that decision is this
-        // -- the strip's highlight has to say which thread the focused pane is
-        // showing, or a split leaves it pointing at the pane you are not
-        // typing into.
+        // Each pane has its own strip, and a tab belongs to one pane. The
+        // window's active tab is the one the focused pane shows, so the
+        // marker has to follow the focus, or a split leaves it pointing at
+        // the pane you are not typing into.
         //
         // Only when the focus lands somewhere the strip can represent: a pane
         // showing a thread with no tab (nothing does that today, but the

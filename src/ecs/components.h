@@ -414,10 +414,11 @@ struct AppComponent : public afterhours::BaseComponent {
     bool liveListSeen = false;
 
     // ==== The panes ========================================================
-    // Two transcript views. `panes[0]` is the one that has always existed;
-    // `panes[1]` is the right-hand pane and is live only while `splitOpen`.
-    // `focusedPane` is the one the keyboard, the composer and the tab strip act
-    // on -- exactly one, always a valid index.
+    // One transcript view per pane. `panes[0]` is the one that has always
+    // existed; the rest are live only while `splitOpen`, which holds exactly
+    // when `groupCount` is more than one. `focusedPane` is the one the
+    // keyboard, the composer and the tab strip act on -- exactly one, always a
+    // valid index.
     //
     // A SEQUENCE rather than two named members, so every site that services a
     // pane is a loop and cannot service one and forget the other. That
@@ -428,9 +429,8 @@ struct AppComponent : public afterhours::BaseComponent {
     int groupCountGrown = 1;
     model::SplitAxis splitAxis = model::SplitAxis::Horizontal;
     int focusedPane = 0;
-    // Is the second pane showing? Closed == single pane, and `panes[1]` is left
-    // alone -- its thread is remembered, so reopening the split is free and it
-    // is what gets persisted.
+    // Is more than one pane showing? Panes past the first are released when
+    // they close (tab_model.h release_pane).
     bool splitOpen = false;
     // Where the divider sits, as the LEFT pane's share of the pane width.
     // Clamped to [kSplitMinRatio, kSplitMaxRatio] wherever it is written.
@@ -441,11 +441,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // frame, so the gesture cannot live in it.
     bool splitDragging = false;
 
-    // One-shot: open this thread in the pane that is NOT focused, splitting if
-    // it is not already split. Empty = nothing asked.
+    // One-shot: open this thread in a new pane beside the focused one (an open
+    // thread is just shown). Empty = nothing asked.
     std::string requestSplitOpen;
     bool requestSplitOpenKeepsFocus = false;
-    // One-shot: close the split (back to single pane).
+    // One-shot: close the split (every pane merged back into one).
     bool requestSplitClose = false;
     // One-shot: toggle the split. The chord, the palette row and the menu item
     // all set this rather than each deciding for itself what a toggle means.
