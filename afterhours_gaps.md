@@ -14640,3 +14640,17 @@ CLASS: GRAPHICS / MISSING
 **Cost of the workaround.** The per-pixel class of presets is not available; see #616.
 
 CLASS: GRAPHICS / MISSING
+
+### #619 — a label's self-clip DROPS a wrapped or styled line whose bottom falls more than half a pixel past the label's box, so a single line in a box shorter than the font's line height vanishes whole instead of being clipped
+
+**Class:** UI / WRONG (upstream `6327e72` "Labels: clip to their own box, drop wrapped lines that do not fit", 2026-09-27, inside the d1d7f0e pin. `plugins/ui/rendering.h`, the multi-line label path in both the immediate renderer and the command-buffer renderer: `if (y + line_h > label_rect.y + label_rect.height + 0.5f) { y += line_h; continue; }` — the line is skipped, not clipped. The path is taken for `lines.size() > 1 || has_spans`, so every styled label, one line or many, goes through it.)
+
+**What happens.** Hanabi sizes a paragraph's label to its own pitch (`prose_h(lines)` = 16 px a line at BODY 13 px) and styles it with spans, and its build sets the renderer's default text inset to 5 px on every side (`AFTERHOURS_DEFAULT_TEXT_INSET 5.f`). The label's text box is therefore 16 − 2 × 5 = 6 px tall for one line and 22 px for two; the face's line height is 13 px; so the one line of a one-line paragraph fails `y + 13 > top + 6 + 0.5` and is dropped — the bubble draws, the text does not — and a paragraph that wraps keeps its first line (13 ≤ 22.5) and loses its second (26 > 22.5). Before 6327e72 the same geometry drew the lines through the box's edges, which is what Hanabi's layout had always relied on. On main (291f7783) thread t2's second message draws as an empty bubble and its third as one line; the text registry, which reads labels, passes. A clip would have shown the line with a pixel or two shaved; the drop shows nothing and reports nothing.
+
+**What was wanted.** Clip the line to the box (the scissor the same change installs does that already) and draw it; drop only a line whose TOP is past the box. Or: a line that is the label's only line is always drawn. A label that is given an explicit `line_height` should also be drawn at that pitch without a fit check, since the caller has said what a line is.
+
+**Hanabi reference.** `src/ecs/main_pane_system.h`: the three prose label sites (`asst_line`, `user_text`, the spaced per-line labels) take no vertical text inset (`with_text_inset(prose_inset_x(), 0)`, keeping the horizontal one the layout budgets for) and pass `with_line_height(pixels(line_pitch()))`, so the text box is the full 16 px a line and the renderer steps at Hanabi's pitch; the fit check cannot fail; `tests/ui/multi_line_bodies_paint_every_line.e2e` reads the pixels of each line of t2's two multi-line bodies through `expect_ink_text` (`src/ecs/e2e_commands.h`), the regression test the text registry could not be.
+
+**Cost of the workaround.** None at steady state; the pitch was already Hanabi's. The hazard that remains is any other styled label sized tighter than its face's line height — a heading, a chart caption — which the ink verb can now catch one at a time.
+
+CLASS: UI / WRONG

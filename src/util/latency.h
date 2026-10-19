@@ -93,7 +93,51 @@ struct Frame {
                        kInkTolerance;
             }));
     }
+
+    Frame crop(int x, int y, int w, int h) const {
+        Frame out;
+        if (!valid()) return out;
+        const int x0 = std::max(0, x), y0 = std::max(0, y);
+        const int x1 = std::min(width, x + w), y1 = std::min(height, y + h);
+        if (x1 <= x0 || y1 <= y0) return out;
+        out.width = x1 - x0;
+        out.height = y1 - y0;
+        out.luma.reserve(static_cast<std::size_t>(out.width) * static_cast<std::size_t>(out.height));
+        for (int row = y0; row < y1; ++row)
+            out.luma.insert(out.luma.end(),
+                            luma.begin() + static_cast<std::ptrdiff_t>(row) * width + x0,
+                            luma.begin() + static_cast<std::ptrdiff_t>(row) * width + x1);
+        return out;
+    }
 };
+
+struct FrameRequest {
+    std::uint64_t asked = 0;      // tickets handed out
+    std::uint64_t served = 0;     // the ticket the held frame answers
+    std::optional<Frame> frame;
+    bool armed = false;           // a capture is owed after the next present
+};
+inline FrameRequest& frame_request() {
+    static FrameRequest r;
+    return r;
+}
+inline std::uint64_t request_frame() {
+    FrameRequest& r = frame_request();
+    r.armed = true;
+    return ++r.asked;
+}
+inline bool frame_wanted() { return frame_request().armed; }
+inline void frame_captured(std::optional<Frame> frame) {
+    FrameRequest& r = frame_request();
+    r.frame = std::move(frame);
+    r.served = r.asked;
+    r.armed = false;
+}
+inline const Frame* frame_for(std::uint64_t ticket) {
+    const FrameRequest& r = frame_request();
+    if (r.served < ticket || !r.frame || !r.frame->valid()) return nullptr;
+    return &*r.frame;
+}
 
 struct Difference {
     int changed = 0;

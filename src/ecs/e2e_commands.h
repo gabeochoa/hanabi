@@ -5246,8 +5246,111 @@ struct HandleExpectOutboxRetryCountCommand
     }
 };
 
+struct HandleExpectInkTextCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    std::uint64_t ticket_ = 0;
+    int ticketLine_ = -1;
+
+    void for_each_with(afterhours::Entity& e,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_ink_text")) return;
+        std::string want;
+        int minInk = 20;
+        std::string part;  // "", "top" or "bottom": which half of the box to read
+        for (std::size_t i = 0; i < cmd.args.size(); ++i) {
+            if (cmd.arg(i).rfind("within=", 0) == 0) continue;
+            if (cmd.arg(i).rfind("min=", 0) == 0) {
+                minInk = std::atoi(cmd.arg(i).c_str() + 4);
+                continue;
+            }
+            if (cmd.arg(i).rfind("part=", 0) == 0) {
+                part = cmd.arg(i).substr(5);
+                continue;
+            }
+            if (!want.empty()) want.push_back(' ');
+            want += cmd.arg(i);
+        }
+        if (want.size() >= 2 && ((want.front() == '"' && want.back() == '"') ||
+                                 (want.front() == '\'' && want.back() == '\'')))
+            want = want.substr(1, want.size() - 2);
+        if (want.empty()) {
+            within::fail_terminal(cmd, "expect_ink_text requires <text> [min=N] [part=top|bottom] [within=F]");
+            return;
+        }
+        if (cmd.seen_render < 0) {
+            cmd.seen_render = 0;
+            cmd.retry();
+            return;
+        }
+        if (ticketLine_ != cmd.line_number) {
+            ticketLine_ = cmd.line_number;
+            ticket_ = hanabi::latency::request_frame();
+            cmd.retry();
+            return;
+        }
+        const hanabi::latency::Frame* frame = hanabi::latency::frame_for(ticket_);
+        if (frame == nullptr) {
+            if (within::budget_open(e.id, cmd)) {
+                cmd.retry();
+                return;
+            }
+            within::fail_terminal(cmd, "expect_ink_text: no frame came back from the renderer");
+            return;
+        }
+        std::optional<RectangleType> box;
+        for (const auto& ent : afterhours::ui::UICollectionHolder::get().collection.get_entities()) {
+            if (!ent || !ent->has<afterhours::ui::UIComponent>() ||
+                !ent->has<afterhours::ui::HasLabel>())
+                continue;
+            const auto& cmp = ent->get<afterhours::ui::UIComponent>();
+            if (!cmp.was_rendered_to_screen || cmp.should_hide || ent->has<afterhours::ui::ShouldHide>())
+                continue;
+            if (ent->get<afterhours::ui::HasLabel>().label.find(want) == std::string::npos) continue;
+            RectangleType vis = afterhours::testing::ui_commands::get_screen_rect(*ent);
+            const auto [hasClip, clip] = afterhours::ui::detail::compute_intersected_clip_rect(*ent);
+            if (hasClip) vis = afterhours::ui::detail::intersect_rects(vis, clip);
+            if (vis.width >= 1.f && vis.height >= 1.f) {
+                box = vis;
+                break;
+            }
+        }
+        int ink = -1;
+        if (box) {
+            const int scale = std::max(1, afterhours::graphics::render_scale());
+            RectangleType read = *box;
+            if (part == "bottom") {
+                read.y += read.height * 0.5f;
+                read.height *= 0.5f;
+            } else if (part == "top") {
+                read.height *= 0.5f;
+            }
+            const auto crop = frame->crop(static_cast<int>(read.x) * scale, static_cast<int>(read.y) * scale,
+                                          static_cast<int>(read.width) * scale,
+                                          static_cast<int>(read.height) * scale);
+            ink = crop.ink();
+            if (ink >= minInk) {
+                ticketLine_ = -1;
+                cmd.consume();
+                return;
+            }
+        }
+        if (within::budget_open(e.id, cmd)) {
+            ticket_ = hanabi::latency::request_frame();
+            cmd.retry();
+            return;
+        }
+        ticketLine_ = -1;
+        within::fail_terminal(
+            cmd, box ? std::format("expect_ink_text '{}': {} ink pixels in its {}x{} box, wanted >= {}", want,
+                                   ink, static_cast<int>(box->width), static_cast<int>(box->height), minInk)
+                     : std::format("expect_ink_text '{}': no rendered label carries that text", want));
+    }
+};
+
 inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleWatchInkCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectInkTextCommand>());
     sm.register_update_system(std::make_unique<HandleExpectLatencyCommand>());
     sm.register_update_system(std::make_unique<HandleRequireThreadCommand>());
     sm.register_update_system(
