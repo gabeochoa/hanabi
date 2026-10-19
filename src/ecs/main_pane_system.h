@@ -11704,6 +11704,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             auto cfg = ComponentConfig{}
                 .with_label(ln.empty() ? std::string(" ") : ln)
                 .with_size(ComponentSize{percent(1.0f), pixels(line_pitch())})
+                .with_line_height(pixels(line_pitch()))
                 .with_transparent_bg()
                 .with_custom_text_color(ink)
                 .with_font_size(theme::type::BODY)
@@ -14403,6 +14404,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_label(ip.visible)
                         .with_styled_label(ip.spans)
                         .with_size(ComponentSize{percent(1.0f), pixels(segH)})
+                        .with_line_height(pixels(line_pitch()))
                         .with_transparent_bg()
                         .with_custom_text_color(theme::text_primary())
                         .with_font_size(theme::type::BODY)
@@ -15039,6 +15041,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     : ComponentConfig{}
                     .with_label(userBody)
                     .with_size(ComponentSize{percent(1.0f), pixels(bodyH)})
+                    .with_line_height(pixels(line_pitch()))
                     .with_transparent_bg()
                     .with_custom_text_color(theme::text_primary())
                     .with_font_size(theme::type::BODY)
