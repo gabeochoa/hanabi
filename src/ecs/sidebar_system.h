@@ -3434,7 +3434,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_skip_tabbing(true)
                     .with_roundness(0.3f)
                     .with_disabled(!canAct)
-                    .with_on_draw_fg([fg = canAct ? theme::text_secondary() : theme::text_faint(),
+                    .with_on_draw_fg([fg = canAct ? theme::text_primary() : theme::text_faint(),
                                       drawGlyph](RectangleType r) { drawGlyph(r, fg); })
                     .with_debug_name(dbg));
             hanabi::a11y::set_name(btn.ent(), name);
