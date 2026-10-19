@@ -144,6 +144,48 @@ inline void frame_cpu(unsigned long long ns) {
     e.nanos += ns;
 }
 
+using Snapshot = std::unordered_map<std::string, Entry>;
+
+inline Snapshot snapshot() {
+    if (!enabled()) return {};
+    return table();
+}
+
+struct ZoneDelta {
+    std::string label;
+    unsigned long long calls = 0;
+    unsigned long long nanos = 0;
+};
+
+inline std::vector<ZoneDelta> since(const Snapshot& before, std::size_t top) {
+    std::vector<ZoneDelta> out;
+    if (!enabled()) return out;
+    for (const auto& [name, e] : table()) {
+        if (name == "FRAME (cpu)") continue;
+        const auto it = before.find(name);
+        const unsigned long long calls = e.calls - (it == before.end() ? 0 : it->second.calls);
+        const unsigned long long nanos = e.nanos - (it == before.end() ? 0 : it->second.nanos);
+        if (calls == 0 && nanos == 0) continue;
+        out.push_back(ZoneDelta{name, calls, nanos});
+    }
+    std::sort(out.begin(), out.end(), [](const ZoneDelta& a, const ZoneDelta& b) {
+        return a.nanos != b.nanos ? a.nanos > b.nanos : a.calls > b.calls;
+    });
+    if (out.size() > top) out.resize(top);
+    return out;
+}
+
+inline std::string zones_line(const std::vector<ZoneDelta>& zones) {
+    std::string s;
+    char buf[160];
+    for (const ZoneDelta& z : zones) {
+        std::snprintf(buf, sizeof buf, "%s%s=%.2fms/%llu", s.empty() ? "" : " ", z.label.c_str(),
+                      static_cast<double>(z.nanos) / 1.0e6, z.calls);
+        s += buf;
+    }
+    return s;
+}
+
 // ---- Allocation counting ------------------------------------------------
 //
 // "Every std::string built to be handed to a label is an allocation, 60 times

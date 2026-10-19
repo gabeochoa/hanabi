@@ -2589,6 +2589,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                                                 step))
                     hanabi::prof::tick("stress.scroll_target_missing");
             }
+            const hanabi::prof::Snapshot zonesBefore = hanabi::prof::snapshot();
             const unsigned long long cpu0 = hanabi::prof::cpu_nanos();
             {
                 const hanabi::AutoreleaseFrame framePool;
@@ -2598,8 +2599,15 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
                 graphics::end_frame();
             }
             const unsigned long long frameCpu = hanabi::prof::cpu_nanos() - cpu0;
-            if (hanabi::prof::enabled())
+            if (hanabi::prof::enabled()) {
                 hanabi::prof::frame_cpu(frameCpu);
+                const double ms = static_cast<double>(frameCpu) / 1.0e6;
+                if (ms > hanabi::soak::slow_frame_ms() && i > hanabi::stress::settle_frames()) {
+                    std::printf("[soak] slow frame %d %.2f ms: %s\n", i, ms,
+                                hanabi::prof::zones_line(hanabi::prof::since(zonesBefore, 8)).c_str());
+                    std::fflush(stdout);
+                }
+            }
             hanabi::prof::frame();
             frameTail.add(static_cast<double>(frameCpu) / 1.0e6);
             framesRun = i;

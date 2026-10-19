@@ -96,8 +96,9 @@ for SCALE in $SCALES; do
     if [ "$SCALE" -gt 1 ]; then OPEN_ID="t2x1"; else OPEN_ID="t2"; fi
     LOG="$TMP/scroll-$SCALE.log"
     HANABI_OPEN="$OPEN_ID" HANABI_STRESS=read HANABI_SOAK="$FRAMES" HANABI_SOAK_EVERY=100 \
-        HANABI_STRESS_SETTLE=120 \
+        HANABI_STRESS_SETTLE=120 HANABI_PROF=1 HANABI_SOAK_SLOW_MS="${HANABI_PROBE_SLOW_MS:-4}" \
         timeout "$RUN_TIMEOUT" "$EXE" --screenshot "$TMP/shot.png" >"$LOG" 2>&1
+    grep -E '^\[soak\] slow frame ' "$LOG" | sort -t' ' -k5 -rn | head -"${HANABI_PROBE_SLOW_ROWS:-6}" >"$TMP/slow-$SCALE.txt" || true
     grep -E '^\[soak\] frame ' "$LOG" | sed -E 's/.* ([0-9.]+) ms\/f wall .*/\1/' >"$TMP/msf.txt"
     awk '{ if ($1 > 0) printf "%.2f\n", 1000.0/$1 }' "$TMP/msf.txt" >"$TMP/fps.txt"
     FPS_P50="$(pct 0.5 <"$TMP/fps.txt")"
@@ -119,6 +120,17 @@ for SCALE in $SCALES; do
 
     emit "| $SCALE | $LOAD | $FF_MIN / $FF_MED / $FF_MAX | $SEED_MED | $CLIENT_COLD | $SW_P50 / $SW_P95 / $SW_MAX (n=$SW_N) | $FPS_P50 / $FPS_P05 | $TAIL_P99 / $TAIL_WORST / $TAIL_OVER | $RSS_MAX | $MOCK_KB | $CLIENT_KB |"
     cp "$TMP/switch-$SCALE.log" "$TMP/scroll-$SCALE.log" "${HANABI_PROBE_KEEP:-/tmp}/" 2>/dev/null || true
+done
+emit ""
+for SCALE in $SCALES; do
+    if [ -s "$TMP/slow-$SCALE.txt" ]; then
+        emit "slowest scroll frames at ${SCALE}x (cpu ms, then the frame's top zones as ms/calls; HANABI_PROBE_SLOW_MS=${HANABI_PROBE_SLOW_MS:-4}):"
+        emit '```'
+        while IFS= read -r line; do emit "$line"; done <"$TMP/slow-$SCALE.txt"
+        emit '```'
+    else
+        emit "no scroll frame over ${HANABI_PROBE_SLOW_MS:-4} ms cpu at ${SCALE}x after settle."
+    fi
 done
 emit ""
 emit "scroll fps p95 column is the 5th percentile of fps (the slow tail); switch n is the number of opens the probe saw land; mock seed KB / ms are the mock building its catalog (resident growth; wall time inside the launch), client cold ms = cold start median minus that, client KB = RSS max minus that; frame cpu tail is per-frame CPU over the scroll run (p99, worst, frames over 16 ms)."

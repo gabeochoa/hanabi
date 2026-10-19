@@ -62,6 +62,15 @@ inline int frames() {
     return n;
 }
 
+inline double slow_frame_ms() {
+    static const double v = [] {
+        const char* s = std::getenv("HANABI_SOAK_SLOW_MS");
+        const double parsed = (s != nullptr && *s != '\0') ? std::atof(s) : 0.0;
+        return parsed > 0.0 ? parsed : 8.0;
+    }();
+    return v;
+}
+
 inline int bucket() {
     static const int n = [] {
         const char* v = std::getenv("HANABI_SOAK_EVERY");

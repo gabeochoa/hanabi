@@ -4979,6 +4979,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     app.expandedStretches.count(id_of(static_cast<std::size_t>(i))) != 0)
                     stretch_head(ctx, col, i, msgs, stretch_kind, colW);
                 const float top = y + g.before;
+                const hanabi::prof::Scope _row(row_zone(g.kind));
                 switch (g.kind) {
                     case model::RowGeom::Spawn:
                         render_spawn_card(ctx, col, i, m, colW);
@@ -14269,7 +14270,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     pending += blockH;
                 } else {
                     flush(9000 + seg);
-                    render_table(ctx, parent, 100 + seg, rows, textW, aligns, tkey, expanded);
+                    {
+                        const hanabi::prof::Scope _t("render.block.table");
+                        render_table(ctx, parent, 100 + seg, rows, textW, aligns, tkey, expanded);
+                    }
                 }
                 ++seg;
                 start = p;
@@ -17053,6 +17057,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
             return;
         }
+    }
+    static const char* row_zone(model::RowGeom::Kind kind) {
+        switch (kind) {
+            case model::RowGeom::Spawn: return "render.row.spawn";
+            case model::RowGeom::ToolPile: return "render.row.tool_pile";
+            case model::RowGeom::Stretch: return "render.row.stretch";
+            case model::RowGeom::ToolBlock: return "render.row.tool";
+            case model::RowGeom::Delivery: return "render.row.delivery";
+            case model::RowGeom::Compaction: return "render.row.compaction";
+            case model::RowGeom::Artifact: return "render.row.artifact";
+            case model::RowGeom::Element: return "render.row.element";
+            case model::RowGeom::Event: return "render.row.event";
+            case model::RowGeom::RunOutcome: return "render.row.outcome";
+            case model::RowGeom::Thinking: return "render.row.thinking";
+            case model::RowGeom::System: return "render.row.system";
+            case model::RowGeom::Bubble:
+            case model::RowGeom::KindCount: break;
+        }
+        return "render.row.bubble";
     }
     static std::string compaction_key(const api::Message& m, int index) {
         return m.id.empty() ? ("compaction" + std::to_string(index)) : m.id;

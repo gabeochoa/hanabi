@@ -233,7 +233,17 @@ the 250 ms gate at 100×.
    exit; the probe shows p99 / worst / frames-over-16ms for the scroll
    run. Open: the first Mac numbers in that column, then whichever row
    kind the worst frames fall on (a table, a diff card, a long code
-   block) via the existing per-row prof zones.
+   block) via the existing per-row prof zones. The attribution now
+   exists: every transcript row renders inside a `render.row.<kind>`
+   zone (bubble, tool, tool_pile, stretch, spawn, thinking, event,
+   delivery, compaction, artifact, element, outcome, system) and a table
+   inside `render.block.table`; under `HANABI_PROF=1` the soak snapshots
+   the zone table before each frame and, for a frame over
+   `HANABI_SOAK_SLOW_MS` (8) after the settle, prints
+   `[soak] slow frame N <ms>: zone=ms/calls …` with that frame's eight
+   biggest zones. The probe runs the scroll soak with it on at 4 ms and
+   appends the six slowest frames per scale under the table, so the
+   answer to "which row kind" is in the report rather than in a guess.
 3. **Menus, tooltips, popovers**: input to first painted frame ≤ 16 ms.
    `LATENCY.md` and `tests/ui/interaction_latency_budgets.e2e` already
    measure event-to-GPU-ink for popup open / close, focus gain / loss,
