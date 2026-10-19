@@ -8,6 +8,7 @@
 namespace ecs::model {
 
 inline constexpr float kShareEpsilon = 1e-4f;
+inline constexpr float kPaneMinWidth = 480.0f;
 
 inline std::vector<float> even_shares(int panes) {
     if (panes <= 0) return {};

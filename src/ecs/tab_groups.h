@@ -13,9 +13,6 @@ namespace ecs::model {
 
 enum class SplitAxis { Horizontal, Vertical };
 
-inline constexpr float kPaneMinWidth = 480.0f;
-inline constexpr float kPaneGap = 1.0f;
-
 struct GroupTab {
     std::string id;
     int group = 0;
@@ -395,17 +392,5 @@ class TabGroups {
     int acted_ = 0;
     SplitAxis axis_ = SplitAxis::Horizontal;
 };
-
-inline std::vector<float> pane_extents(float total, int panes, float gap = kPaneGap,
-                                       float floor = kPaneMinWidth) {
-    if (panes <= 0) return {};
-    const float share = (total - gap * static_cast<float>(panes - 1)) / static_cast<float>(panes);
-    return std::vector<float>(static_cast<std::size_t>(panes), std::max(share, floor));
-}
-
-inline float required_extent(int panes, float gap = kPaneGap, float floor = kPaneMinWidth) {
-    if (panes <= 0) return 0.0f;
-    return floor * static_cast<float>(panes) + gap * static_cast<float>(panes - 1);
-}
 
 }  // namespace ecs::model

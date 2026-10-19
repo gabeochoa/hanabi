@@ -321,22 +321,6 @@ static void test_the_axis_is_remembered_only_for_a_split() {
     CHECK(m.axis() == SplitAxis::Vertical);
 }
 
-static void test_panes_share_the_width_until_the_floor() {
-    std::printf("test_panes_share_the_width_until_the_floor\n");
-    using ecs::model::pane_extents;
-    using ecs::model::required_extent;
-    auto two = pane_extents(1801.0f, 2);
-    CHECK(two.size() == 2 && two[0] == 900.0f && two[1] == 900.0f);
-    auto three = pane_extents(1601.0f, 3);
-    CHECK(three.size() == 3 && three[0] == 533.0f);
-    auto floored = pane_extents(1200.0f, 3);
-    CHECK(floored[0] == 480.0f && floored[2] == 480.0f);
-    CHECK(required_extent(3) == 1442.0f);
-    CHECK(required_extent(1) == 480.0f);
-    CHECK(pane_extents(100.0f, 0).empty());
-    CHECK(required_extent(0) == 0.0f);
-}
-
 int main() {
     test_open_adds_to_the_acted_group_and_selects();
     test_a_preview_is_replaced_by_the_next_preview();
@@ -362,7 +346,6 @@ int main() {
     test_a_kept_tab_sits_in_front_of_its_pane();
     test_keeping_a_tab_moves_it_to_the_front_and_unkeeping_leaves_it();
     test_the_axis_is_remembered_only_for_a_split();
-    test_panes_share_the_width_until_the_floor();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;
