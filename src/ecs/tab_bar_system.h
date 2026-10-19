@@ -26,6 +26,7 @@
 #include "../native_snooze_prompt.h"
 #include "../util/capture_clock.h"
 #include "../settings.h"
+#include "../util/gfx_resize.h"
 #include "pane_geometry.h"
 #include "tab_colors.h"
 #include "tab_model.h"
@@ -1394,6 +1395,15 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             else if (tile == model::TileRequest::MovePaneRight)
                 model::move_pane(*groupStrip, app, 1);
         }
+        if (app.groupCount > app.groupCountGrown && app.groupCount > 2) {
+            if (const auto* groupLayout = find_singleton<LayoutComponent>()) {
+                const int needed = static_cast<int>(std::ceil(model::window_extent_needed(
+                    app.groupCount, model::kDividerW, model::kPaneMinWidth, groupLayout->main.x)));
+                if (static_cast<int>(hanabi::viewport::width()) < needed)
+                    hanabi::gfx::request_resize(needed, static_cast<int>(hanabi::viewport::height()));
+            }
+        }
+        app.groupCountGrown = app.groupCount;
         // Restore persisted tabs once the session list is available.
         const bool waitingForSubagents =
             app.subagentSidebarOpen &&

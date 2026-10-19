@@ -3262,7 +3262,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (usable <= 1.0f) return;
             app.paneShares = model::shares_after_drag(model::normalized_shares(app.paneShares, panes),
                                                       which, d.template as<float>(), usable,
-                                                      kMinimumPaneW);
+                                                      model::kPaneMinWidth);
             return;
         }
         const float usable = paneW - kDividerW;
