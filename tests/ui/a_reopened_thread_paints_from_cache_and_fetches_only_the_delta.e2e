@@ -1,9 +1,7 @@
-# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2x1"],"active_tab":"t2x1","theme":"dark"}
 # env: HANABI_MOCK_SCALE=2 HANABI_MOCK_DISK_CACHE=1 HANABI_MOCK_JOURNAL=/tmp/hanabi-e2e-delta-journal.jsonl
+require_thread t2x1
 wait_frames 20
-expect_text "Home"
-open_thread t2x1
-wait_frames 40
 expect_open t2x1
 open_thread t9
 wait_frames 20
