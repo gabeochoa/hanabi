@@ -346,6 +346,41 @@ static void test_flat_state_is_repaired_into_contiguous_numbered_panes() {
     CHECK(empty.empty() && empty.group_count() == 1 && !empty.selected());
 }
 
+static void test_a_pane_moves_along_the_row_and_keeps_what_it_holds() {
+    std::printf("test_a_pane_moves_along_the_row_and_keeps_what_it_holds\n");
+    TabGroups m = three();
+    m.split_off("b", 1, SplitAxis::Horizontal);
+    m.split_off("c", 2, SplitAxis::Horizontal);
+    CHECK(all(m) == "a|b|c");
+    const auto keys = m.group_keys();
+    CHECK(m.move_group(0, 2));
+    CHECK(all(m) == "b|c|a");
+    CHECK(m.group_keys()[2] == keys[0] && m.group_keys()[0] == keys[1] && m.group_keys()[1] == keys[2]);
+    CHECK(*m.selected_in(2) == "a" && *m.selected_in(0) == "b");
+    CHECK(m.acted_group() == 1);
+    CHECK(*m.selected() == "c");
+    CHECK(m.move_group(2, 0));
+    CHECK(all(m) == "a|b|c");
+    CHECK(!m.move_group(1, 1));
+    CHECK(!m.move_group(-1, 1));
+    CHECK(!m.move_group(0, 3));
+    TabGroups one = three();
+    CHECK(!one.move_group(0, 0));
+}
+
+static void test_merging_panes_puts_every_tab_in_the_first_and_keeps_the_selection() {
+    std::printf("test_merging_panes_puts_every_tab_in_the_first_and_keeps_the_selection\n");
+    TabGroups m = three();
+    m.split_off("c", 1, SplitAxis::Horizontal);
+    m.select("c");
+    CHECK(m.merge_all());
+    CHECK(all(m) == "abc");
+    CHECK(*m.selected() == "c");
+    CHECK(m.group_keys().size() == 1);
+    CHECK(m.acted_group() == 0);
+    CHECK(!m.merge_all());
+}
+
 static void test_the_axis_is_remembered_only_for_a_split() {
     std::printf("test_the_axis_is_remembered_only_for_a_split\n");
     CHECK(!TabGroups::persistable_axis(1, SplitAxis::Vertical));
@@ -381,6 +416,8 @@ int main() {
     test_keeping_a_tab_moves_it_to_the_front_and_unkeeping_leaves_it();
     test_a_layout_is_rebuilt_from_its_flat_state();
     test_flat_state_is_repaired_into_contiguous_numbered_panes();
+    test_a_pane_moves_along_the_row_and_keeps_what_it_holds();
+    test_merging_panes_puts_every_tab_in_the_first_and_keeps_the_selection();
     test_the_axis_is_remembered_only_for_a_split();
     if (failures) {
         std::printf("%d failure(s)\n", failures);

@@ -281,6 +281,43 @@ class TabGroups {
         select(id);
     }
 
+    bool move_group(int from, int to) {
+        const int count = group_count();
+        if (from < 0 || from >= count || to < 0 || to >= count || from == to) return false;
+        std::map<int, int> relabel;
+        for (int g = 0; g < count; ++g) {
+            int moved = g;
+            if (g == from) moved = to;
+            else if (from < to && g > from && g <= to) moved = g - 1;
+            else if (from > to && g >= to && g < from) moved = g + 1;
+            relabel[g] = moved;
+        }
+        std::vector<int> keys(keys_.size());
+        for (std::size_t g = 0; g < keys_.size(); ++g)
+            keys[static_cast<std::size_t>(relabel[static_cast<int>(g)])] = keys_[g];
+        keys_ = std::move(keys);
+        for (auto& t : tabs_) t.group = relabel[t.group];
+        std::stable_sort(tabs_.begin(), tabs_.end(),
+                         [](const GroupTab& a, const GroupTab& b) { return a.group < b.group; });
+        group_selection_ = remap(group_selection_, relabel);
+        previous_ = remap(previous_, relabel);
+        acted_ = relabel[acted_];
+        return true;
+    }
+
+    bool merge_all() {
+        if (group_count() < 2) return false;
+        std::optional<std::string> keep = selected_;
+        for (auto& t : tabs_) t.group = 0;
+        group_selection_.clear();
+        previous_.clear();
+        acted_ = 0;
+        keys_.assign(1, keys_.empty() ? mint() : keys_.front());
+        if (keep && contains(*keep)) select(*keep);
+        else if (!tabs_.empty()) select(tabs_.front().id);
+        return true;
+    }
+
     void move(int from, int to) {
         if (from < 0 || from >= static_cast<int>(tabs_.size())) return;
         to = std::clamp(to, 0, static_cast<int>(tabs_.size()) - 1);
