@@ -1,9 +1,10 @@
 # settings: {"window_width":1100,"window_height":1400,"open_tabs":[],"active_tab":"","theme":"dark","read_seq":{"rseq":4}}
-# env: HANABI_READ_SEQ_DEMO=1
+# env: HANABI_READ_SEQ_DEMO=1 HANABI_MOCK_JOURNAL=/tmp/hanabi-e2e-bulk-read-journal.jsonl
 # Selection mode from the list options menu: the toolbar replaces the search
 # field with the count, each click toggles a row, Mark read acts on the
 # selected rows and what succeeded leaves the selection; Cancel brings the
 # search field back.
+clear_mock_journal
 wait_frames 20
 expect_text "2 new"
 click_ui sb_search_filter

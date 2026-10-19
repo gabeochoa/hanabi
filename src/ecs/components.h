@@ -674,6 +674,7 @@ struct AppComponent : public afterhours::BaseComponent {
         static constexpr int kWidth = 4;
     } bulk;
     std::vector<std::string> bulkVisibleOrder;
+    std::vector<std::string> bulkVisibleOrderShown;
     std::string requestSetArchiveId;
     bool requestSetArchiveTo = false;
     // Request to silence (or un-silence) a thread on this machine. Same
