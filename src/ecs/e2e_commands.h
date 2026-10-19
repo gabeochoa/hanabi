@@ -88,6 +88,7 @@
 #include "../api/mock_journal.h"
 #include <afterhours/src/plugins/e2e_testing/platform_test_input.h>
 #include "../ui/background.h"
+#include "background_pane.h"
 #include "../ui/font_system.h"
 #include "../ui/link_detect.h"
 #include "../ui/text_select.h"
@@ -3135,6 +3136,18 @@ struct HandleExpectBackgroundCommand
             cmd.fail(std::format("expect_background: strength is '{}', wanted '{}'",
                                  Settings::get().get_background_dim(), cmd.arg(1)));
             return;
+        }
+        if (cmd.has_args(3) && cmd.arg(2) == "painted") {
+            const auto& st = ecs::background_pane::state();
+            if (st.paints == 0 || st.lastPrimitives == 0) {
+                if (cmd.frames_alive < kGiveUpFrame) {
+                    cmd.retry();
+                    return;
+                }
+                cmd.fail(std::format("expect_background painted: {} paints, last scene {} primitives",
+                                     st.paints, st.lastPrimitives));
+                return;
+            }
         }
         cmd.consume();
     }

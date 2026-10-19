@@ -4243,10 +4243,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (gutter < kContentInset) gutter = kContentInset;
         const float findClearance = pane.findOpen ? 33.0f : 0.0f;
 
-        auto scroll = div(ctx, mk(parent, 2),
-            preset::ScrollPanel()
+        auto scrollCfg = preset::ScrollPanel()
                 .with_size(ComponentSize{percent(1.0f), pixels(listH)})
-                .with_custom_background(theme::panel_bg())
+                .with_custom_background(theme::panel_bg());
+        if (background_pane::preset() != hanabi::background::Preset::Off)
+            scrollCfg.with_transparent_bg();
+        auto scroll = div(ctx, mk(parent, 2),
+            scrollCfg
                 // Symmetric gutters center the reading column; a small extra
                 // 6px is trimmed on the right for the overlay scrollbar strip.
                 // The top inset is Puffin's: its transcript ScrollView pads

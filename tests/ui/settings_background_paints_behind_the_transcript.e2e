@@ -27,7 +27,7 @@ open_thread t2
 wait_frames 30
 expect_open t2
 assert_ui main_pane hidden=false
-expect_background glow vivid
+expect_background glow vivid painted
 click_ui sb_settings
 wait_frames 16
 click_ui sb_settings_nav_appearance

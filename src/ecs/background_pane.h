@@ -30,6 +30,8 @@ struct State {
     float mouseX = 0.0f, mouseY = 0.0f;
     bool mouseSeen = false;
     float glow = 0.0f;
+    unsigned long paints = 0;       // draw() calls so far
+    std::size_t lastPrimitives = 0; // the last scene's quads + blobs
 };
 
 inline State& state() {
@@ -115,6 +117,8 @@ inline bg::Uniforms uniforms(const LayoutComponent::Rect& r, float mouseX, float
 // Paints base colour, scene, then the legibility scrim, clipped to the pane.
 inline void draw(const RectangleType& rect, const bg::Scene& scene, theme::Color base,
                  float scrimAlpha) {
+    ++state().paints;
+    state().lastPrimitives = bg::primitive_count(scene);
     afterhours::draw_rectangle(rect, base);
     afterhours::begin_scissor_mode(static_cast<int>(rect.x), static_cast<int>(rect.y),
                                    static_cast<int>(rect.width), static_cast<int>(rect.height));
