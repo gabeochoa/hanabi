@@ -41,7 +41,7 @@ struct ArtifactViewerSystem : afterhours::System<UIContext<InputAction>> {
             const Pane& pane = app.panes[i];
             if (!pane.openSession) continue;
             for (const api::Message& m : pane.openSession->messages)
-                if (m.kind == api::EventKind::Artifact && !m.artifact.hidden &&
+                if (m.kind == api::EventKind::Artifact && !m.artifact().hidden &&
                     m.image_path == path)
                     return true;
                 // A markdown picture in a message's text (ui/md_image.h)

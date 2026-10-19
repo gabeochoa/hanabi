@@ -326,17 +326,17 @@ json to_json(const Message& m) {
                 // query, and answered it as a VALID query, so no hint said
                 // why. docs/SEARCH.md S4.
                 {"tool_status", m.tool_status},
-                {"element", element_to_json(m.element)},
+                {"element", element_to_json(m.element())},
                 {"run_outcome", m.run_outcome},
                 {"run_note", m.run_note},
-                {"artifact", json{{"id", m.artifact.id},
-                                  {"version", m.artifact.version},
-                                  {"file", m.artifact.file},
-                                  {"media_type", m.artifact.media_type},
-                                  {"size_bytes", m.artifact.size_bytes},
-                                  {"file_count", m.artifact.file_count},
-                                  {"hidden", m.artifact.hidden},
-                                  {"shown_seq", m.artifact.shown_seq}}}};
+                {"artifact", json{{"id", m.artifact().id},
+                                  {"version", m.artifact().version},
+                                  {"file", m.artifact().file},
+                                  {"media_type", m.artifact().media_type},
+                                  {"size_bytes", m.artifact().size_bytes},
+                                  {"file_count", m.artifact().file_count},
+                                  {"hidden", m.artifact().hidden},
+                                  {"shown_seq", m.artifact().shown_seq}}}};
 }
 
 Message message_from_json(const json& j) {
@@ -362,19 +362,19 @@ Message message_from_json(const json& j) {
     m.kind = static_cast<EventKind>(
         j.value("kind", static_cast<int>(EventKind::Text)));
     if (j.contains("element") && j.at("element").is_object())
-        m.element = element_from_json(j.at("element"));
+        m.element_mut() = element_from_json(j.at("element"));
     m.run_outcome = j.value("run_outcome", "");
     m.run_note = j.value("run_note", "");
     if (j.contains("artifact") && j.at("artifact").is_object()) {
         const json& a = j.at("artifact");
-        m.artifact.id = a.value("id", "");
-        m.artifact.version = a.value("version", "");
-        m.artifact.file = a.value("file", "");
-        m.artifact.media_type = a.value("media_type", "");
-        m.artifact.size_bytes = a.value("size_bytes", (std::uint64_t)0);
-        m.artifact.file_count = a.value("file_count", 0);
-        m.artifact.hidden = a.value("hidden", false);
-        m.artifact.shown_seq = a.value("shown_seq", (int64_t)0);
+        m.artifact_mut().id = a.value("id", "");
+        m.artifact_mut().version = a.value("version", "");
+        m.artifact_mut().file = a.value("file", "");
+        m.artifact_mut().media_type = a.value("media_type", "");
+        m.artifact_mut().size_bytes = a.value("size_bytes", (std::uint64_t)0);
+        m.artifact_mut().file_count = a.value("file_count", 0);
+        m.artifact_mut().hidden = a.value("hidden", false);
+        m.artifact_mut().shown_seq = a.value("shown_seq", (int64_t)0);
     }
     if (m.kind == EventKind::Artifact) m.image_path.clear();
     return m;

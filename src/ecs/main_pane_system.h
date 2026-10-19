@@ -16682,10 +16682,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return colW - kEventInset - kThinkingInset;
     }
     static std::string element_body(const api::Message& m) {
-        return m.text.empty() ? api::elements::heading(m.element) : m.text;
+        return m.text.empty() ? api::elements::heading(m.element()) : m.text;
     }
     static float element_height(const api::Message& m, float colW) {
-        const std::string prov = api::elements::provenance(m.element);
+        const std::string prov = api::elements::provenance(m.element());
         const int lines = ask_wrap_lines(element_body(m), element_text_w(colW));
         return event_row_height() + (prov.empty() ? 0.0f : kElementProvenanceH) +
                kElementBodyGap + (lines > 0 ? prose_h(lines) : 0.0f) +
@@ -16694,8 +16694,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     void render_element_row(UIContext<InputAction>& ctx, Entity& parent,
                             int index, const api::Message& m, float colW) {
-        const std::string head_text = api::elements::heading(m.element);
-        const std::string prov = api::elements::provenance(m.element);
+        const std::string head_text = api::elements::heading(m.element());
+        const std::string prov = api::elements::provenance(m.element());
         const std::string body_text = element_body(m);
         const float textW = element_text_w(colW);
 
@@ -16798,14 +16798,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
     static constexpr float kArtifactAudioH = 30.0f;
     static bool artifact_playable(const api::Message& m) {
-        return m.artifact.is_audio() && m.artifact.fetch == api::ArtifactFetch::Ready &&
-               !m.artifact.local_path.empty();
+        return m.artifact().is_audio() && m.artifact().fetch == api::ArtifactFetch::Ready &&
+               !m.artifact().local_path.empty();
     }
     static float artifact_height(const api::Message& m, float colW) {
         float h = event_row_height();
-        if (m.artifact.hidden) return h;
+        if (m.artifact().hidden) return h;
         if (artifact_playable(m)) return h + kArtifactAudioH + kArtifactImageGapBot;
-        if (m.artifact.is_image() && !m.image_path.empty() &&
+        if (m.artifact().is_image() && !m.image_path.empty() &&
             hanabi::inline_image::available(m.image_path))
             h += kArtifactImageGapTop +
                  hanabi::inline_image::fitted_height(
@@ -16828,26 +16828,26 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("artifact_block"));
 
         std::string detail = m.text;
-        if (detail.empty() && !m.artifact.media_type.empty()) detail = m.artifact.media_type;
-        const std::string& name = (m.subtitle == m.artifact.id && !m.artifact.file.empty())
-                                      ? m.artifact.file
+        if (detail.empty() && !m.artifact().media_type.empty()) detail = m.artifact().media_type;
+        const std::string& name = (m.subtitle == m.artifact().id && !m.artifact().file.empty())
+                                      ? m.artifact().file
                                       : m.subtitle;
         const auto append = [&](const std::string& part) {
             if (part.empty()) return;
             if (!detail.empty()) detail += "  \xc2\xb7  ";
             detail += part;
         };
-        if (m.artifact.file_count > 1)
-            append(std::to_string(m.artifact.file_count) + " files, first shown");
-        if (m.artifact.hidden) append("hidden");
-        else switch (m.artifact.fetch) {
+        if (m.artifact().file_count > 1)
+            append(std::to_string(m.artifact().file_count) + " files, first shown");
+        if (m.artifact().hidden) append("hidden");
+        else switch (m.artifact().fetch) {
             case api::ArtifactFetch::Idle:
             case api::ArtifactFetch::Pending: append("fetching\xe2\x80\xa6"); break;
             case api::ArtifactFetch::Unavailable:
-                append("unavailable: " + m.artifact.unavailable_reason);
+                append("unavailable: " + m.artifact().unavailable_reason);
                 break;
             case api::ArtifactFetch::Ready:
-                if (m.artifact.is_image() && !m.image_path.empty() &&
+                if (m.artifact().is_image() && !m.image_path.empty() &&
                     !hanabi::inline_image::available(m.image_path))
                     append("unavailable: the image could not be decoded");
                 break;
@@ -16875,7 +16875,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if (app.pane().openSession) {
             const std::string webUrl = model::artifact_web_url_for(
                 app.webBaseUrl, app.pane().openSession->summary.id,
-                m.artifact.id, m.artifact.version);
+                m.artifact().id, m.artifact().version);
             if (!webUrl.empty()) {
                 Entity& headEnt = head.ent();
                 headEnt.addComponentIfMissing<afterhours::ui::HasClickListener>(
@@ -16886,11 +16886,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
-        if (m.artifact.hidden) return;
+        if (m.artifact().hidden) return;
         // An audio clip plays from its row (kt-nmbp): Play / Pause, a bar
         // that fills as it plays, and the time. One clip at a time.
         if (artifact_playable(m)) {
-            const std::string clip = m.artifact.local_path;
+            const std::string clip = m.artifact().local_path;
             const hanabi::audio::State st = hanabi::audio::state();
             const bool mine = st.path == clip;
             const bool playing = mine && st.playing;
@@ -16960,7 +16960,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_debug_name("artifact_audio_time"));
             return;
         }
-        if (m.artifact.is_image() && !m.image_path.empty() &&
+        if (m.artifact().is_image() && !m.image_path.empty() &&
             hanabi::inline_image::available(m.image_path)) {
             const std::string ip = m.image_path;
             const float imgW = artifact_image_width(colW);

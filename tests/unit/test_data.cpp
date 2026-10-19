@@ -2163,10 +2163,10 @@ static void test_copy_and_export_keep_the_artifact_line_hidden_or_not() {
     api::Message shown = tc_msg("a1", api::Role::System, "image/png  \xc2\xb7  4 KB");
     shown.kind = api::EventKind::Artifact;
     shown.subtitle = "price-tiers.png";
-    shown.artifact.id = "art-chart";
+    shown.artifact_mut().id = "art-chart";
     api::Message hidden = shown;
     hidden.id = "a2";
-    hidden.artifact.hidden = true;
+    hidden.artifact_mut().hidden = true;
     const std::string line = "*(artifact: price-tiers.png \xe2\x80\x94 image/png  \xc2\xb7  4 KB)*\n\n";
     CHECK(tc::body_of(shown) == line);
     CHECK(tc::body_of(hidden) == line);
@@ -2268,14 +2268,14 @@ static void test_element_rows_export_through_one_fenced_body_arm() {
         CHECK(elements == 3);
         CHECK(rows[1].id == "2");
         CHECK(rows[2].id == "element:shard-health");
-        CHECK(rows[2].element.revision == 2);
-        CHECK(rows[2].element.anchor_seq == 3);
+        CHECK(rows[2].element().revision == 2);
+        CHECK(rows[2].element().anchor_seq == 3);
         CHECK(rows[2].text.find("| C | ok | 0s |") != std::string::npos);
         CHECK(rows[3].id == "4");
         CHECK(rows[4].id == "element:fence-note");
         CHECK(rows[6].id == "element:run-summary");
         CHECK(rows[6].text == "Run summary");
-        CHECK(el::provenance(rows[6].element) == "artifact art_9 \xc2\xb7 std/Card");
+        CHECK(el::provenance(rows[6].element()) == "artifact art_9 \xc2\xb7 std/Card");
         CHECK(el::fence_enclosing(rows[4].text) == "````");
     }
 }
@@ -2306,25 +2306,25 @@ static void test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identi
     hidden.role = api::Role::System;
     hidden.kind = api::EventKind::Artifact;
     hidden.subtitle = "price-tiers.png";
-    hidden.artifact.id = "art-1";
-    hidden.artifact.version = "v1";
-    hidden.artifact.file = "price-tiers.png";
-    hidden.artifact.media_type = "image/png";
-    hidden.artifact.size_bytes = 4901;
-    hidden.artifact.file_count = 2;
-    hidden.artifact.hidden = true;
-    hidden.artifact.shown_seq = 6;
-    hidden.artifact.local_path = "/old/launch/art-1-v1-price-tiers.png";
-    hidden.artifact.fetch = api::ArtifactFetch::Ready;
-    hidden.artifact.unavailable_reason = "stale";
+    hidden.artifact_mut().id = "art-1";
+    hidden.artifact_mut().version = "v1";
+    hidden.artifact_mut().file = "price-tiers.png";
+    hidden.artifact_mut().media_type = "image/png";
+    hidden.artifact_mut().size_bytes = 4901;
+    hidden.artifact_mut().file_count = 2;
+    hidden.artifact_mut().hidden = true;
+    hidden.artifact_mut().shown_seq = 6;
+    hidden.artifact_mut().local_path = "/old/launch/art-1-v1-price-tiers.png";
+    hidden.artifact_mut().fetch = api::ArtifactFetch::Ready;
+    hidden.artifact_mut().unavailable_reason = "stale";
     hidden.image_path = "/old/launch/art-1-v1-price-tiers.png";
     api::Message shown = hidden;
     shown.id = "31";
-    shown.artifact.version = "v2";
-    shown.artifact.file = "chart.png";
-    shown.artifact.file_count = 1;
-    shown.artifact.hidden = false;
-    shown.artifact.shown_seq = 9;
+    shown.artifact_mut().version = "v2";
+    shown.artifact_mut().file = "chart.png";
+    shown.artifact_mut().file_count = 1;
+    shown.artifact_mut().hidden = false;
+    shown.artifact_mut().shown_seq = 9;
     shown.image_path = "/old/launch/art-1-v2-chart.png";
     api::Message picture;
     picture.id = "40";
@@ -2343,16 +2343,16 @@ static void test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identi
     CHECK(m[1].kind == api::EventKind::RunOutcome && m[1].id == "run_finished:20");
     CHECK(m[1].run_outcome == "completed" && m[1].run_note == "1 of 1 declared call did not run");
     CHECK(m[1].text.empty());
-    CHECK(m[2].kind == api::EventKind::Artifact && m[2].artifact.id == "art-1");
-    CHECK(m[2].artifact.version == "v1" && m[2].artifact.file == "price-tiers.png");
-    CHECK(m[2].artifact.media_type == "image/png" && m[2].artifact.size_bytes == 4901);
-    CHECK(m[2].artifact.file_count == 2 && m[2].artifact.hidden && m[2].artifact.shown_seq == 6);
-    CHECK(m[2].artifact.local_path.empty() && m[2].artifact.unavailable_reason.empty());
-    CHECK(m[2].artifact.fetch == api::ArtifactFetch::Idle);
+    CHECK(m[2].kind == api::EventKind::Artifact && m[2].artifact().id == "art-1");
+    CHECK(m[2].artifact().version == "v1" && m[2].artifact().file == "price-tiers.png");
+    CHECK(m[2].artifact().media_type == "image/png" && m[2].artifact().size_bytes == 4901);
+    CHECK(m[2].artifact().file_count == 2 && m[2].artifact().hidden && m[2].artifact().shown_seq == 6);
+    CHECK(m[2].artifact().local_path.empty() && m[2].artifact().unavailable_reason.empty());
+    CHECK(m[2].artifact().fetch == api::ArtifactFetch::Idle);
     CHECK(m[2].image_path.empty());
-    CHECK(!m[3].artifact.hidden && m[3].artifact.version == "v2" && m[3].artifact.file == "chart.png");
-    CHECK(m[3].image_path.empty() && m[3].artifact.local_path.empty());
-    CHECK(m[3].artifact.fetch == api::ArtifactFetch::Idle);
+    CHECK(!m[3].artifact().hidden && m[3].artifact().version == "v2" && m[3].artifact().file == "chart.png");
+    CHECK(m[3].image_path.empty() && m[3].artifact().local_path.empty());
+    CHECK(m[3].artifact().fetch == api::ArtifactFetch::Idle);
     CHECK(m[4].image_path == "/attachments/photo.png");
 
     const std::string legacy = R"({"version":1,
@@ -2371,9 +2371,9 @@ static void test_disk_cache_round_trips_the_run_terminal_and_the_artifact_identi
     if (old) {
         CHECK(old->messages.size() == 2);
         CHECK(old->messages[0].run_outcome.empty() && old->messages[0].run_note.empty());
-        CHECK(old->messages[0].artifact.empty() && !old->messages[0].artifact.hidden);
+        CHECK(old->messages[0].artifact().empty() && !old->messages[0].artifact().hidden);
         CHECK(old->messages[1].kind == api::EventKind::Artifact);
-        CHECK(old->messages[1].artifact.empty() && old->messages[1].image_path.empty());
+        CHECK(old->messages[1].artifact().empty() && old->messages[1].image_path.empty());
         CHECK(old->messages[1].subtitle == "legacy.png");
     }
 
@@ -2420,9 +2420,9 @@ static void test_disk_cache_round_trips_an_element_row() {
         CHECK(row.subtitle == "Run summary");
         api::ElementFacts want = card;
         want.anchor_seq = 31;
-        CHECK(row.element == want);
+        CHECK(row.element() == want);
         CHECK(back->messages[1].text == "still here");
-        CHECK(!back->messages[1].element.present());
+        CHECK(!back->messages[1].element().present());
     }
     api::disk_cache::wipe_all();
 }

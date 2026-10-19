@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -394,8 +395,29 @@ struct Message {
     EventKind kind = EventKind::Text;
     std::string local_id;
     std::vector<Attachment> attachments;
-    ArtifactRef artifact;
-    ElementFacts element;
+
+    const ArtifactRef& artifact() const { return extras_ ? extras_->artifact : empty_extras().artifact; }
+    const ElementFacts& element() const { return extras_ ? extras_->element : empty_extras().element; }
+    ArtifactRef& artifact_mut() { return own_extras().artifact; }
+    ElementFacts& element_mut() { return own_extras().element; }
+    bool has_artifact() const { return extras_ && !extras_->artifact.id.empty(); }
+    bool has_element() const { return extras_ && !extras_->element.element.empty(); }
+
+private:
+    struct Extras {
+        ArtifactRef artifact;
+        ElementFacts element;
+    };
+    static const Extras& empty_extras() {
+        static const Extras e;
+        return e;
+    }
+    Extras& own_extras() {
+        if (!extras_) extras_ = std::make_shared<Extras>();
+        else if (extras_.use_count() > 1) extras_ = std::make_shared<Extras>(*extras_);
+        return *extras_;
+    }
+    std::shared_ptr<Extras> extras_;
 };
 
 inline bool carries_run_terminal(const Message& m) {

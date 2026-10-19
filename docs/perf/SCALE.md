@@ -154,6 +154,33 @@ in `element_rows.h`, 9 in `transcript_reconcile.h`) and 10 writes, and
 is by hand per site, not a substitution — it needs the Mac compile loop
 and goes after the gate clears.
 
+### AFTER-3 — the 464-byte message
+
+Done, with the compiler finding the sites: `Message` keeps `artifact()`
+/ `element()` (const reads; an empty static when the message has none)
+and `artifact_mut()` / `element_mut()` (copy-on-write into one shared
+`Extras` block holding both structs), so a message without an artifact
+or an element carries one null pointer where it carried 512 bytes.
+`sizeof(api::Message)` 960 → **464**. The same Linux probe, scale 100,
+604k messages:
+
+| | RSS growth for the seed | probe wall (seed + 2,000 opens) |
+|---|---:|---:|
+| before (960 B) | 649,288 KB | 0.46 s |
+| after (464 B) | **355,620 KB** | **0.28 s** |
+
+−294 MB is 496 bytes × 604k, within 2 MB of the arithmetic; the wall is
+the seed's allocation and copying, and the client's own copies of a
+`Session` (memory cache out, reconcile in, disk snapshot) move the same
+fraction less. 92 sites rewrote; the mock's `HANABI_TOOLS_DEMO` threads
+and the disk cache's artifact / element round trip are the writers. The
+remaining 464 bytes are thirteen strings (416) and the scalars; eight of
+the strings are tool-row fields (`tool_result`, `tool_status`,
+`tool_node`, `tool_input`, `run_outcome`, `run_note`, `image_path`,
+`local_id`), which is the next cut if memory comes back to the top of
+the queue — half the rows in a typical thread are tool rows, so it would
+pay less per message than this one did.
+
 ## Cold start at 100×: also the mock
 
 The same Linux probe times the launch-path pieces at 100× (2,000 rows):

@@ -64,8 +64,8 @@ static void test_e1_a_single_emit_is_one_row_at_its_seq() {
     CHECK(rows[2].role == api::Role::System);
     CHECK(rows[2].subtitle == "Shard health");
     CHECK(rows[2].text == "A ok\nB ok");
-    CHECK(rows[2].element.anchor_seq == 30);
-    CHECK(rows[2].element.revision == 1);
+    CHECK(rows[2].element().anchor_seq == 30);
+    CHECK(rows[2].element().revision == 1);
     CHECK(rows[2].created_at == 1700000000);
     CHECK(rows[3].id == "40");
     CHECK(el::order_seq(rows[2]) == 30);
@@ -81,10 +81,10 @@ static void test_e2_a_reemit_replaces_content_in_place() {
     CHECK(rows.size() == 4);
     CHECK(count_elements(rows) == 1);
     CHECK(rows[2].text == "A ok\nB ok\nC ok");
-    CHECK(rows[2].element.revision == 2);
-    CHECK(rows[2].element.anchor_seq == 30);
+    CHECK(rows[2].element().revision == 2);
+    CHECK(rows[2].element().anchor_seq == 30);
     CHECK(rows[2].created_at == 1700000050);
-    CHECK(el::provenance(rows[2].element) == "pinned \xc2\xb7 std/Table \xc2\xb7 rev 2");
+    CHECK(el::provenance(rows[2].element()) == "pinned \xc2\xb7 std/Table \xc2\xb7 rev 2");
     CHECK(rows[0].id == "10" && rows[1].id == "20" && rows[3].id == "40");
 }
 
@@ -98,8 +98,8 @@ static void test_e3_an_older_page_moves_the_anchor_but_never_rolls_content_back(
     CHECK(older.index == 1);
     CHECK(rows[1].id == "element:shard-health");
     CHECK(rows[1].text == "rev three");
-    CHECK(rows[1].element.revision == 3);
-    CHECK(rows[1].element.anchor_seq == 15);
+    CHECK(rows[1].element().revision == 3);
+    CHECK(rows[1].element().anchor_seq == 15);
     auto middle = el::fold_element(rows, table(2, "rev two"), 25, 0);
     CHECK(middle.kind == Fold::Unchanged);
     CHECK(rows.size() == 4);
@@ -119,7 +119,7 @@ static void test_e4_an_equal_revision_is_a_no_op() {
     CHECK(rows[2].created_at == 1700000000);
     const auto later = el::fold_element(rows, table(2, "same"), 60, 0);
     CHECK(later.kind == Fold::Unchanged);
-    CHECK(rows[2].element.anchor_seq == 30);
+    CHECK(rows[2].element().anchor_seq == 30);
 }
 
 static void test_e5_seed_then_live_converge_on_one_row_per_instance() {
@@ -140,7 +140,7 @@ static void test_e5_seed_then_live_converge_on_one_row_per_instance() {
     CHECK(live.kind == Fold::Replaced);
     CHECK(rows.size() == 5);
     CHECK(rows[1].text == "live table");
-    CHECK(rows[1].element.anchor_seq == 15);
+    CHECK(rows[1].element().anchor_seq == 15);
     CHECK(rows[3].text == "12 passed");
     CHECK(el::fold_element(rows, other, 35, 1700000035).kind == Fold::Unchanged);
 }
@@ -201,7 +201,7 @@ static void test_e8_heading_is_the_title_else_the_element_key() {
     el::fold_element(rows, table(2, "y", ""), 5, 0);
     CHECK(rows.size() == 1);
     CHECK(rows[0].subtitle == "Shard health");
-    CHECK(rows[0].element.title == "Shard health");
+    CHECK(rows[0].element().title == "Shard health");
     CHECK(rows[0].text == "y");
 }
 
@@ -254,14 +254,14 @@ static void test_reconcile_folds_element_rows_instead_of_replacing_them() {
     CHECK(out.kind == ReconcileOutcome::Kind::Unchanged);
     CHECK(mine.size() == 4);
     CHECK(mine[1].id == "element:shard-health");
-    CHECK(mine[1].element.anchor_seq == 15);
+    CHECK(mine[1].element().anchor_seq == 15);
     std::vector<Message> newer = {row("40", api::Role::Assistant, "updated")};
     el::fold_element(newer, table(3, "rev three"), 55, 0);
     out = ecs::model::reconcile_transcript(mine, newer);
     CHECK(out.kind == ReconcileOutcome::Kind::Updated);
     CHECK(out.first == 1 && out.count == 1);
     CHECK(mine[1].text == "rev three");
-    CHECK(mine[1].element.anchor_seq == 15);
+    CHECK(mine[1].element().anchor_seq == 15);
     CHECK(mine.size() == 4);
     std::vector<Message> stale = {row("40", api::Role::Assistant, "updated")};
     el::fold_element(stale, table(1, "rev one"), 35, 0);
@@ -283,7 +283,7 @@ static void test_reconcile_moves_a_row_whose_true_anchor_arrives_later() {
     CHECK(out.kind == ReconcileOutcome::Kind::Reset);
     CHECK(mine.size() == 3);
     CHECK(mine[0].id == "element:shard-health");
-    CHECK(mine[0].element.anchor_seq == 15);
+    CHECK(mine[0].element().anchor_seq == 15);
     CHECK(mine[1].id == "20" && mine[2].id == "40");
     ElementFacts card;
     card.instance = "run-summary";

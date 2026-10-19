@@ -1806,15 +1806,15 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             ref.shown_seq = seq;
             Message& m = push_event(EventKind::Artifact, std::move(title),
                                     artifact_row_text(ref));
-            m.artifact = std::move(ref);
+            m.artifact_mut() = std::move(ref);
         } else if (type == "artifact_hidden") {
             if (str_or(e, "audience", "") != "to_client") continue;
             const std::string hidden = str_or(e, "artifact_id", "");
             if (hidden.empty()) continue;
             for (Message& m : out)
-                if (m.kind == EventKind::Artifact && m.artifact.id == hidden &&
-                    m.artifact.shown_seq <= seq)
-                    m.artifact.hidden = true;
+                if (m.kind == EventKind::Artifact && m.artifact().id == hidden &&
+                    m.artifact().shown_seq <= seq)
+                    m.artifact_mut().hidden = true;
         } else if (type == "run_started") {
             last_run_started = seq;
             first_row_of_run[seq] = out.size();

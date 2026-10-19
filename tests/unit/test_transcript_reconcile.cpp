@@ -124,41 +124,41 @@ static void test_a_hidden_artifact_row_is_refreshed_and_keeps_its_adopted_bytes(
     Message art = row("13", api::Role::System, "image/png  \xc2\xb7  4 KB");
     art.kind = api::EventKind::Artifact;
     art.subtitle = "price-tiers.png";
-    art.artifact.id = "art-1";
-    art.artifact.version = "v1";
-    art.artifact.file = "price-tiers.png";
-    art.artifact.media_type = "image/png";
-    art.artifact.local_path = "/cache/artifacts/art-1-v1-price-tiers.png";
-    art.artifact.fetch = api::ArtifactFetch::Ready;
-    art.image_path = art.artifact.local_path;
+    art.artifact_mut().id = "art-1";
+    art.artifact_mut().version = "v1";
+    art.artifact_mut().file = "price-tiers.png";
+    art.artifact_mut().media_type = "image/png";
+    art.artifact_mut().local_path = "/cache/artifacts/art-1-v1-price-tiers.png";
+    art.artifact_mut().fetch = api::ArtifactFetch::Ready;
+    art.image_path = art.artifact().local_path;
     mine.push_back(art);
 
     Message fresh_hidden = art;
-    fresh_hidden.artifact.hidden = true;
-    fresh_hidden.artifact.local_path.clear();
-    fresh_hidden.artifact.fetch = api::ArtifactFetch::Idle;
+    fresh_hidden.artifact_mut().hidden = true;
+    fresh_hidden.artifact_mut().local_path.clear();
+    fresh_hidden.artifact_mut().fetch = api::ArtifactFetch::Idle;
     fresh_hidden.image_path.clear();
     ReconcileOutcome out = ecs::model::reconcile_transcript(mine, {fresh_hidden});
     CHECK(out.kind == Kind::Updated);
-    CHECK(mine[3].artifact.hidden);
-    CHECK(mine[3].artifact.local_path == "/cache/artifacts/art-1-v1-price-tiers.png");
-    CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Ready);
-    CHECK(mine[3].image_path == mine[3].artifact.local_path);
+    CHECK(mine[3].artifact().hidden);
+    CHECK(mine[3].artifact().local_path == "/cache/artifacts/art-1-v1-price-tiers.png");
+    CHECK(mine[3].artifact().fetch == api::ArtifactFetch::Ready);
+    CHECK(mine[3].image_path == mine[3].artifact().local_path);
 
     out = ecs::model::reconcile_transcript(mine, {fresh_hidden});
     CHECK(out.kind == Kind::Unchanged);
-    CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Ready);
+    CHECK(mine[3].artifact().fetch == api::ArtifactFetch::Ready);
 
     Message fresh_v2 = art;
-    fresh_v2.artifact.version = "v2";
-    fresh_v2.artifact.local_path.clear();
-    fresh_v2.artifact.fetch = api::ArtifactFetch::Idle;
+    fresh_v2.artifact_mut().version = "v2";
+    fresh_v2.artifact_mut().local_path.clear();
+    fresh_v2.artifact_mut().fetch = api::ArtifactFetch::Idle;
     fresh_v2.image_path.clear();
     out = ecs::model::reconcile_transcript(mine, {fresh_v2});
     CHECK(out.kind == Kind::Updated);
-    CHECK(mine[3].artifact.version == "v2" && !mine[3].artifact.hidden);
-    CHECK(mine[3].artifact.local_path.empty() && mine[3].image_path.empty());
-    CHECK(mine[3].artifact.fetch == api::ArtifactFetch::Idle);
+    CHECK(mine[3].artifact().version == "v2" && !mine[3].artifact().hidden);
+    CHECK(mine[3].artifact().local_path.empty() && mine[3].image_path.empty());
+    CHECK(mine[3].artifact().fetch == api::ArtifactFetch::Idle);
 }
 
 static void test_a_run_terminal_arriving_on_an_existing_row_lands() {

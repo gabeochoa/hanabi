@@ -37,19 +37,19 @@ inline bool same_row(const api::Message& a, const api::Message& b) {
            a.tool_result == b.tool_result && a.tool_node == b.tool_node &&
            a.tool_duration_ms == b.tool_duration_ms &&
            a.attachments.size() == b.attachments.size() &&
-           a.artifact.hidden == b.artifact.hidden &&
-           a.artifact.version == b.artifact.version &&
-           a.artifact.file_count == b.artifact.file_count &&
+           a.artifact().hidden == b.artifact().hidden &&
+           a.artifact().version == b.artifact().version &&
+           a.artifact().file_count == b.artifact().file_count &&
            a.run_outcome == b.run_outcome && a.run_note == b.run_note;
 }
 
 inline void carry_artifact_state(const api::Message& from, api::Message& to) {
-    if (to.kind != api::EventKind::Artifact || from.artifact.version != to.artifact.version) return;
-    to.artifact.local_path = from.artifact.local_path;
-    to.artifact.fetch = from.artifact.fetch;
-    to.artifact.unavailable_reason = from.artifact.unavailable_reason;
-    if (to.artifact.media_type.empty()) to.artifact.media_type = from.artifact.media_type;
-    if (to.artifact.file.empty()) to.artifact.file = from.artifact.file;
+    if (to.kind != api::EventKind::Artifact || from.artifact().version != to.artifact().version) return;
+    to.artifact_mut().local_path = from.artifact().local_path;
+    to.artifact_mut().fetch = from.artifact().fetch;
+    to.artifact_mut().unavailable_reason = from.artifact().unavailable_reason;
+    if (to.artifact().media_type.empty()) to.artifact_mut().media_type = from.artifact().media_type;
+    if (to.artifact().file.empty()) to.artifact_mut().file = from.artifact().file;
     to.image_path = from.image_path;
 }
 

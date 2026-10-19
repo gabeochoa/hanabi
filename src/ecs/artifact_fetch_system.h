@@ -138,7 +138,7 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     bool resolve(AppComponent& app, const std::string& sessionId, api::Message& m) {
-        api::ArtifactRef& ref = m.artifact;
+        api::ArtifactRef& ref = m.artifact_mut();
         api::ArtifactFetch settled;
         std::string reason;
         if (hanabi::artifact_policy::settle_without_fetch(ref, settled, reason)) {
@@ -209,7 +209,7 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
             for (std::size_t i = 0; i < msgs.size(); ++i) {
                 api::Message& m = msgs[i];
                 if (m.kind != api::EventKind::Artifact) continue;
-                observed.push_back(key_of(m.artifact));
+                observed.push_back(key_of(m.artifact()));
                 if (resolve(*app, sessionId, m)) pane.note_transcript_update(i);
             }
         }

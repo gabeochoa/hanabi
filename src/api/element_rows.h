@@ -75,8 +75,8 @@ inline std::string fence_enclosing(std::string_view text) {
 }
 
 inline std::string export_block(const Message& m) {
-    const std::string head = heading(m.element);
-    const std::string prov = provenance(m.element);
+    const std::string head = heading(m.element());
+    const std::string prov = provenance(m.element());
     const std::string body = m.text.empty() ? head : m.text;
     const std::string fence = fence_enclosing(body);
     std::string out = "### **Element: " + head + "**";
@@ -86,13 +86,13 @@ inline std::string export_block(const Message& m) {
 }
 
 inline void install_facts(Message& row, const ElementFacts& facts) {
-    const std::uint64_t anchor = row.element.anchor_seq;
-    const std::string held_title = row.element.title;
-    row.element = facts;
-    row.element.anchor_seq = anchor;
-    if (row.element.title.empty()) row.element.title = held_title;
-    row.subtitle = heading(row.element);
-    row.text = row_text(row.element);
+    const std::uint64_t anchor = row.element().anchor_seq;
+    const std::string held_title = row.element().title;
+    row.element_mut() = facts;
+    row.element_mut().anchor_seq = anchor;
+    if (row.element().title.empty()) row.element_mut().title = held_title;
+    row.subtitle = heading(row.element());
+    row.text = row_text(row.element());
 }
 
 inline Message make_row(const ElementFacts& facts, std::uint64_t anchor_seq,
@@ -103,12 +103,12 @@ inline Message make_row(const ElementFacts& facts, std::uint64_t anchor_seq,
     row.kind = EventKind::Element;
     row.created_at = created_at;
     install_facts(row, facts);
-    row.element.anchor_seq = anchor_seq;
+    row.element_mut().anchor_seq = anchor_seq;
     return row;
 }
 
 inline std::uint64_t order_seq(const Message& m) {
-    if (is_element_row(m)) return m.element.anchor_seq;
+    if (is_element_row(m)) return m.element().anchor_seq;
     if (m.id.empty() || m.sync != SyncState::None) return 0;
     std::uint64_t seq = 0;
     for (const char c : m.id) {
@@ -165,9 +165,9 @@ inline FoldOutcome fold_element(std::vector<Message>& rows,
     }
 
     Message& held = rows[held_at];
-    const bool newer = facts.revision > held.element.revision;
+    const bool newer = facts.revision > held.element().revision;
     const bool lower_anchor =
-        seq != 0 && (held.element.anchor_seq == 0 || seq < held.element.anchor_seq);
+        seq != 0 && (held.element().anchor_seq == 0 || seq < held.element().anchor_seq);
     if (!newer && !lower_anchor) {
         out.index = held_at;
         return out;
@@ -181,7 +181,7 @@ inline FoldOutcome fold_element(std::vector<Message>& rows,
         out.index = held_at;
         return out;
     }
-    held.element.anchor_seq = seq;
+    held.element_mut().anchor_seq = seq;
     Message moving = std::move(held);
     rows.erase(rows.begin() + static_cast<std::ptrdiff_t>(held_at));
     out.from = held_at;
@@ -192,7 +192,7 @@ inline FoldOutcome fold_element(std::vector<Message>& rows,
 }
 
 inline FoldOutcome fold_element_row(std::vector<Message>& rows, const Message& fresh) {
-    return fold_element(rows, fresh.element, fresh.element.anchor_seq, fresh.created_at);
+    return fold_element(rows, fresh.element(), fresh.element().anchor_seq, fresh.created_at);
 }
 
 }

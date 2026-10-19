@@ -2582,14 +2582,14 @@ class MockClient : public Client {
         m.kind = EventKind::Artifact;
         m.subtitle = name;
         m.created_at = created_at;
-        m.artifact.id = artifact_id;
-        m.artifact.version = "v1";
-        m.artifact.file = name;
-        m.artifact.media_type = mime;
-        m.artifact.size_bytes = file_size_or_zero(fixture);
-        if (resolved) m.artifact.local_path = fixture;
+        m.artifact_mut().id = artifact_id;
+        m.artifact_mut().version = "v1";
+        m.artifact_mut().file = name;
+        m.artifact_mut().media_type = mime;
+        m.artifact_mut().size_bytes = file_size_or_zero(fixture);
+        if (resolved) m.artifact_mut().local_path = fixture;
         m.text = std::string(mime) + "  \xc2\xb7  " +
-                 std::to_string(m.artifact.size_bytes / 1024) + " KB";
+                 std::to_string(m.artifact().size_bytes / 1024) + " KB";
         return m;
     }
 
@@ -3523,14 +3523,14 @@ class MockClient : public Client {
                     kArtifactDemoAudio, resolved, mins_ago(9));
                 if (mode == "typeless") {
                     for (Message* m : {&chart, &clip}) {
-                        m->artifact.file.clear();
-                        m->artifact.media_type.clear();
-                        m->artifact.size_bytes = 0;
-                        m->subtitle = m->artifact.id;
+                        m->artifact_mut().file.clear();
+                        m->artifact_mut().media_type.clear();
+                        m->artifact_mut().size_bytes = 0;
+                        m->subtitle = m->artifact().id;
                         m->text.clear();
                     }
                 }
-                if (mode == "hidden") chart.artifact.hidden = true;
+                if (mode == "hidden") chart.artifact_mut().hidden = true;
                 s.messages.push_back(std::move(chart));
                 s.messages.push_back(std::move(clip));
             }

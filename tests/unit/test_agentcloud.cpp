@@ -532,7 +532,7 @@ static void test_a_table_element_row_shows_its_cells() {
     if (out.size() == 1) {
         CHECK(out[0].kind == api::EventKind::Element);
         CHECK(out[0].text == "Activity | Measured\nRead | 4 min\nGate | 21");
-        CHECK(out[0].element.projection == "Table: 2 rows (Activity, Measured)");
+        CHECK(out[0].element().projection == "Table: 2 rows (Activity, Measured)");
     }
 }
 
@@ -549,12 +549,12 @@ static void test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event() {
     CHECK(out[1].id == "element:shard-health");
     CHECK(out[1].subtitle == "Shard health");
     CHECK(out[1].text == "A ok\nB ok");
-    CHECK(out[1].element.instance == "shard-health");
-    CHECK(out[1].element.revision == 1);
-    CHECK(out[1].element.placement == "pinned");
-    CHECK(out[1].element.element == "std/Table");
-    CHECK(out[1].element.run == 1);
-    CHECK(out[1].element.anchor_seq == 2);
+    CHECK(out[1].element().instance == "shard-health");
+    CHECK(out[1].element().revision == 1);
+    CHECK(out[1].element().placement == "pinned");
+    CHECK(out[1].element().element == "std/Table");
+    CHECK(out[1].element().run == 1);
+    CHECK(out[1].element().anchor_seq == 2);
     CHECK(out[1].created_at == 1700000002);
     CHECK(out[2].text == "there");
     CHECK(out[1].text.find("children") == std::string::npos);
@@ -574,14 +574,14 @@ static void test_a_page_folds_every_revision_of_an_instance_into_one_row() {
     CHECK(out[0].text == "show");
     CHECK(out[1].id == "element:shard-health");
     CHECK(out[1].text == "rev three");
-    CHECK(out[1].element.revision == 3);
-    CHECK(out[1].element.anchor_seq == 11);
+    CHECK(out[1].element().revision == 3);
+    CHECK(out[1].element().anchor_seq == 11);
     CHECK(out[1].created_at == 1700000015);
     CHECK(out[2].text == "first");
     CHECK(out[3].text == "second");
     const auto again = parse_page_frames(reply);
     CHECK(again.size() == out.size());
-    CHECK(again[1].text == out[1].text && again[1].element == out[1].element);
+    CHECK(again[1].text == out[1].text && again[1].element() == out[1].element());
 }
 
 static void test_a_malformed_element_frame_is_the_degraded_row_at_its_seq() {
@@ -613,7 +613,7 @@ static void test_a_malformed_element_frame_is_the_degraded_row_at_its_seq() {
     ]})");
     CHECK(sparse.size() == 2 && sparse[0].kind == api::EventKind::Element);
     CHECK(sparse[0].subtitle == "std/Note" && sparse[0].text == "std/Note");
-    CHECK(sparse[0].element.run == 0);
+    CHECK(sparse[0].element().run == 0);
     CHECK(sparse[1].kind == api::EventKind::Unsupported && sparse[1].id == "9");
     api::ElementFacts facts;
     CHECK(api::agentcloud::element_facts_from_json(
@@ -649,15 +649,15 @@ static void test_the_attach_seed_folds_into_the_page_and_moves_a_windowed_anchor
     CHECK(session.elements_advertised);
     CHECK(session.messages.size() == 5);
     CHECK(session.messages[0].id == "element:shard-health");
-    CHECK(session.messages[0].element.anchor_seq == 15);
+    CHECK(session.messages[0].element().anchor_seq == 15);
     CHECK(session.messages[0].text == "rev three");
-    CHECK(session.messages[0].element.revision == 3);
+    CHECK(session.messages[0].element().revision == 3);
     CHECK(session.messages[1].id == "element:run-summary");
-    CHECK(session.messages[1].element.anchor_seq == 30);
+    CHECK(session.messages[1].element().anchor_seq == 30);
     CHECK(session.messages[1].text == "Run summary");
-    CHECK(session.messages[1].element.artifact_id == "art_9");
+    CHECK(session.messages[1].element().artifact_id == "art_9");
     CHECK(session.messages[2].id == "element:run-zero");
-    CHECK(session.messages[2].element.run == 0);
+    CHECK(session.messages[2].element().run == 0);
     CHECK(session.messages[3].text == "later question");
     CHECK(session.messages[4].text == "answer");
     const auto again = api::agentcloud::parse_element_state(hello, session);
@@ -676,7 +676,7 @@ static void test_the_elements_capability_is_recorded_and_changes_nothing() {
     CHECK(!without.elements_advertised);
     CHECK(with.messages.size() == 1 && without.messages.size() == 1);
     CHECK(with.messages[0].text == without.messages[0].text);
-    CHECK(with.messages[0].element == without.messages[0].element);
+    CHECK(with.messages[0].element() == without.messages[0].element());
     api::Session bare;
     const auto none = api::agentcloud::parse_element_state(R"({"type":"hello","state":{}})", bare);
     CHECK(none.folded == 0 && none.skipped == 0 && bare.messages.empty());
@@ -1270,28 +1270,28 @@ static void test_a_shown_artifact_is_a_row_with_its_file_and_size() {
     CHECK(out[1].kind == api::EventKind::Artifact);
     CHECK(out[1].role == Role::System);
     CHECK(out[1].subtitle == "Price tiers");
-    CHECK(out[1].artifact.id == "art-1");
-    CHECK(out[1].artifact.version == "v1");
-    CHECK(out[1].artifact.file == "price-tiers.png");
-    CHECK(out[1].artifact.media_type == "image/png");
-    CHECK(out[1].artifact.size_bytes == 4901);
-    CHECK(out[1].artifact.is_image());
-    CHECK(out[1].artifact.local_path.empty());
+    CHECK(out[1].artifact().id == "art-1");
+    CHECK(out[1].artifact().version == "v1");
+    CHECK(out[1].artifact().file == "price-tiers.png");
+    CHECK(out[1].artifact().media_type == "image/png");
+    CHECK(out[1].artifact().size_bytes == 4901);
+    CHECK(out[1].artifact().is_image());
+    CHECK(out[1].artifact().local_path.empty());
     CHECK(out[1].text == "image/png  \xc2\xb7  4 KB");
     CHECK(out[1].created_at == 1700000100);
-    CHECK(out[2].artifact.version == "v2");
-    CHECK(out[2].artifact.file == "note.wav");
-    CHECK(out[2].artifact.is_audio());
+    CHECK(out[2].artifact().version == "v2");
+    CHECK(out[2].artifact().file == "note.wav");
+    CHECK(out[2].artifact().is_audio());
     CHECK(out[2].text == "audio/wav  \xc2\xb7  2.0 MB");
     CHECK(out[3].kind == api::EventKind::Artifact);
     CHECK(out[3].subtitle == "art-unknown");
-    CHECK(out[3].artifact.media_type.empty());
+    CHECK(out[3].artifact().media_type.empty());
     CHECK(out[3].text.empty());
     CHECK(api::agentcloud::artifact_size_label(512) == "512 B");
     CHECK(api::agentcloud::artifact_size_label(20u * 1024u * 1024u) == "20 MB");
-    CHECK(out[1].artifact.shown_seq == 6);
-    CHECK(out[1].artifact.file_count == 1);
-    CHECK(!out[1].artifact.hidden && !out[2].artifact.hidden && !out[3].artifact.hidden);
+    CHECK(out[1].artifact().shown_seq == 6);
+    CHECK(out[1].artifact().file_count == 1);
+    CHECK(!out[1].artifact().hidden && !out[2].artifact().hidden && !out[3].artifact().hidden);
 }
 
 static void test_the_artifact_fetch_stops_at_the_cap_before_the_body_arrives() {
@@ -1515,12 +1515,12 @@ static void test_a_hidden_artifact_keeps_its_row_marked_and_a_stale_hide_is_igno
     const auto out = parse_page_frames(reply);
     CHECK(out.size() == 3);
     for (const auto& m : out) CHECK(m.kind == api::EventKind::Artifact);
-    CHECK(out[0].artifact.shown_seq == 3 && out[0].artifact.hidden);
-    CHECK(out[1].artifact.shown_seq == 4 && out[1].artifact.hidden);
-    CHECK(out[2].artifact.shown_seq == 8 && !out[2].artifact.hidden);
-    CHECK(out[2].artifact.version == "v2" && out[2].artifact.file == "c.png");
-    CHECK(out[0].artifact.file == "a.png" && out[0].artifact.file_count == 2);
-    CHECK(out[2].artifact.file_count == 1);
+    CHECK(out[0].artifact().shown_seq == 3 && out[0].artifact().hidden);
+    CHECK(out[1].artifact().shown_seq == 4 && out[1].artifact().hidden);
+    CHECK(out[2].artifact().shown_seq == 8 && !out[2].artifact().hidden);
+    CHECK(out[2].artifact().version == "v2" && out[2].artifact().file == "c.png");
+    CHECK(out[0].artifact().file == "a.png" && out[0].artifact().file_count == 2);
+    CHECK(out[2].artifact().file_count == 1);
 }
 
 static void test_a_compaction_round_is_reported_while_it_runs() {
