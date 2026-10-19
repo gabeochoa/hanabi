@@ -407,16 +407,15 @@ struct HandleExpectGroupsCommand
         }
         const ecs::AppComponent* app = app_component();
         const std::string have = layout();
-        bool ok = app != nullptr && have == cmd.arg(0);
-        if (ok && cmd.has_args(2)) ok = app->focusedPane == cmd.arg_as<int>(1);
-        if (ok && cmd.has_args(3)) {
-            std::string shown;
+        std::string shown;
+        if (app != nullptr)
             for (std::size_t i = 0; i < app->active_pane_count(); ++i) {
                 if (i > 0) shown += ",";
                 shown += app->panes[i].selectedId;
             }
-            ok = shown == cmd.arg(2);
-        }
+        bool ok = app != nullptr && have == cmd.arg(0);
+        if (ok && cmd.has_args(2)) ok = app->focusedPane == cmd.arg_as<int>(1);
+        if (ok && cmd.has_args(3)) ok = shown == cmd.arg(2);
         if (ok) {
             cmd.consume();
             return;
@@ -425,9 +424,11 @@ struct HandleExpectGroupsCommand
             cmd.retry();
             return;
         }
-        cmd.fail(std::format("groups mismatch: have '{}' want '{}' focused={} groupCount={}", have,
-                             cmd.arg(0), app != nullptr ? app->focusedPane : -1,
-                             app != nullptr ? app->groupCount : -1));
+        cmd.fail(std::format(
+            "groups mismatch: have '{}' want '{}' focused={} (want {}) shown='{}' (want '{}') groupCount={}",
+            have, cmd.arg(0), app != nullptr ? app->focusedPane : -1,
+            cmd.has_args(2) ? cmd.arg(1) : std::string("-"), shown,
+            cmd.has_args(3) ? cmd.arg(2) : std::string("-"), app != nullptr ? app->groupCount : -1));
     }
 };
 

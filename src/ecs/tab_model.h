@@ -214,6 +214,11 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     tab.pinned = pinned;
     e->addComponentIfMissing<ActiveTab>();
 
+    if (app.groupCount > 1 && tab.group >= 0 && tab.group < app.groupCount &&
+        tab.group != app.focusedPane) {
+        app.focusedPane = tab.group;
+        app.paneFocusPending = tab.group;
+    }
     auto& pane = app.pane();
     pane.supersede_transcript_loads();
     pane.selectedId = id;
