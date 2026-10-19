@@ -55,6 +55,7 @@
 #include "digest_layout.h"
 #include "home_buckets.h"
 #include "background_pane.h"
+#include "pane_geometry.h"
 #include "pane_layout.h"
 #include "pane_state.h"
 #include "thread_model.h"
@@ -3044,8 +3045,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // rather than in a local static for the reason every gesture in this app
     // does: the widget is rebuilt every frame, so the gesture cannot be.
     // The divider's WIDTH is its hit target; the line it paints is 1px.
-    static constexpr float kDividerW = 5.0f;
-    static constexpr float kMinimumPaneW = 280.0f;
+    static constexpr float kDividerW = model::kDividerW;
+    static constexpr float kMinimumPaneW = model::kMinimumPaneW;
 
     void render_split(UIContext<InputAction>& ctx, Entity& parent,
                       AppComponent& app, float paneW, float paneH,
@@ -3106,37 +3107,21 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
 
     // The left pane's width in pixels, from the persisted ratio, clamped so a
     // drag can never reduce either side to nothing.
-    static constexpr float kAskUsablePaneW = 240.0f;
+    static constexpr float kAskUsablePaneW = model::kAskUsablePaneW;
 
-    static bool split_fits(float usable) {
-        return usable >= kAskUsablePaneW * 2.0f;
-    }
+    static bool split_fits(float usable) { return model::split_fits(usable); }
 
     static float clamped_split_left(float desired, float usable) {
-        if (usable <= 0.0f) return 0.0f;
-        if (!split_fits(usable)) return usable;
-        const float floorW =
-            usable >= kMinimumPaneW * 2.0f ? kMinimumPaneW : kAskUsablePaneW;
-        return std::round(std::clamp(desired, floorW, usable - floorW));
+        return model::clamped_split_left(desired, usable);
     }
 
     static float split_left_width(const AppComponent& app, float paneW) {
-        const float usable = paneW - kDividerW;
-        return clamped_split_left(usable * hanabi::clamp_split_ratio(app.splitRatio),
-                                  usable);
+        return model::split_left_width(hanabi::clamp_split_ratio(app.splitRatio), paneW);
     }
 
     static std::vector<float> pane_widths(const AppComponent& app, float paneW) {
-        const int panes = static_cast<int>(app.active_pane_count());
-        if (panes <= 2) {
-            const float leftW = split_left_width(app, paneW);
-            return panes == 2 ? std::vector<float>{leftW, paneW - kDividerW - leftW}
-                              : std::vector<float>{paneW};
-        }
-        const float usable = paneW - kDividerW * static_cast<float>(panes - 1);
-        return model::pane_widths_for(model::normalized_shares(app.paneShares, panes), usable,
-                                      kMinimumPaneW)
-            .widths;
+        return model::pane_widths(static_cast<int>(app.active_pane_count()),
+                                  hanabi::clamp_split_ratio(app.splitRatio), app.paneShares, paneW);
     }
 
     // ONE pane of the split. The debug name carries the pane index, and that
