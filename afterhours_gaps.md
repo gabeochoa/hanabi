@@ -14668,3 +14668,17 @@ CLASS: UI / WRONG
 **Cost of the workaround.** The feature is absent. Everything else is unaffected.
 
 CLASS: PLATFORM / MISSING
+
+### #621 — the none backend's `font_has_glyph` and `is_font_loaded` answer false for EVERY face, so a headless run cannot ask what a face draws, and a coverage rule that is right headed reads as "nothing is covered"
+
+**Class:** GRAPHICS / WRONG (none backend; d1d7f0e. `backends/none/font_helper.h:70-71`: `inline bool is_font_loaded(const Font &) { return false; }` and `inline bool font_has_glyph(const Font, int) { return false; }`. The sokol backend answers from the cmap it records at load (`backends/sokol/font_helper.h:118`, the answer #48 asked for); the none backend, which every headless test run uses, answers the same call with a constant.)
+
+**What happens.** Hanabi's inline math keeps a `$…$` span literal when the prose faces cannot draw the glyphs its set form needs (a missing glyph is drawn as nothing). The first version asked `afterhours::font_has_glyph` through the font manager. Headed it was right; headless every code point reported uncovered, so `$\pi r^2$` stayed as source, `tests/ui/inline_math_is_set_as_math_and_dollars_stay_dollars.e2e` timed out on `expect_text "πr²"`, and the unit test, which reads the TTF with `afterhours::font_coverage`, passed. Nothing said the backend could not answer: false is also the honest answer for a glyph the face lacks.
+
+**What was wanted.** The none backend returns what the cmap says — it already has `font_coverage::parse_file` in the same tree — or returns true for "unknown is not missing", the rule the sokol backend states for a face with no recorded cmap. At the least a way to ask whether the backend can answer at all.
+
+**Hanabi reference.** `src/ui/font_system.cpp` `face_has_glyph` resolves the registered face name to its file and reads `afterhours::font_coverage` itself, memoised per file, so the answer does not depend on the backend. Any other consumer of `font_has_glyph` through the manager is wrong headless in the same way.
+
+**Cost of the workaround.** A second cmap read per face file, once; a call that bypasses the manager's loaded-font table.
+
+CLASS: GRAPHICS / WRONG
