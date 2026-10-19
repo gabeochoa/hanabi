@@ -58,8 +58,8 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
         return "";
     }
 
-    static bool drawable(std::string_view media_type) {
-        return hanabi::artifact_policy::fetchable(media_type);
+    static bool drawable(std::string_view media_type, std::string_view file = {}) {
+        return hanabi::artifact_policy::fetchable(media_type, file);
     }
     static std::string unsupported_reason(std::string_view media_type) {
         return hanabi::artifact_policy::unsupported_reason(media_type);
@@ -88,12 +88,12 @@ struct ArtifactFetchSystem : afterhours::System<UIContext<InputAction>> {
         if (type.empty() && hanabi::artifact_sniff::usable(content.media_type))
             type = content.media_type;
         if (type.empty()) type = hanabi::artifact_sniff::media_type(content.bytes);
-        if (!drawable(type)) {
+        std::string file = ref.file;
+        if (file.empty()) file = content.file_name;
+        if (!drawable(type, file)) {
             out.error = type.empty() ? "unrecognised content" : unsupported_reason(type);
             return out;
         }
-        std::string file = ref.file;
-        if (file.empty()) file = content.file_name;
         const std::string target = api::disk_cache::artifact_path(
             ref.id, ref.version, file, extension_for(file, type));
         if (target.empty()) {

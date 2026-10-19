@@ -139,6 +139,9 @@ struct ToastSystem : afterhours::System<UIContext<InputAction>> {
                     case AppComponent::ToastUndo::Star:
                         app->requestToggleStar = app->toastUndoSessionId;
                         break;
+                    case AppComponent::ToastUndo::BulkArchive:
+                        app->bulk.request = hanabi::bulk::Action::unarchive();
+                        break;
                     case AppComponent::ToastUndo::FolderDelete:
                         if (app->folderUndo) {
                             AppComponent::WebFolderOp op;

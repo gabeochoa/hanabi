@@ -9,125 +9,126 @@ its `# env:` line, and the app honours them when launched by hand too.
 
 | Variable | Read at | Fixtures | Meaning |
 |---|---|---|---|
-| `HANABI_ARTIFACT_DEMO` | `src/api/mock_client.h:2941` | 9 |  |
-| `HANABI_ARTIFACT_DEMO_AUDIO_TYPE` | `src/api/mock_client.h:2942` | 1 |  |
-| `HANABI_ASK_DEMO` | `src/api/mock_client.h:1293` | 56 |  |
-| `HANABI_ASK_FAIL` | `src/api/mock_client.h:509` | 11 |  |
-| `HANABI_ASK_FILE_LIMITS` | `src/api/mock_client.h:2939` | 2 |  |
-| `HANABI_ASK_GONE` | `src/api/mock_client.h:507` | 3 |  |
-| `HANABI_ASK_NO_RESOLVE` | `src/api/mock_client.h:487` | 0 |  |
-| `HANABI_ASK_RAISED_GAP` | `src/api/mock_client.h:620` | 1 |  |
-| `HANABI_ASK_VANISH_AFTER` | `src/api/mock_client.h:609` | 1 |  |
-| `HANABI_BIG_EVENTS` | `src/api/mock_client.h:2936` | 0 |  |
-| `HANABI_BIG_TABLE_DEMO` | `src/api/mock_client.h:2934` | 1 |  |
-| `HANABI_BIG_TRANSCRIPT` | `src/api/mock_client.h:2935` | 12 |  |
-| `HANABI_BIG_TURNS` | `src/api/mock_client.h:2935` | 0 |  |
-| `HANABI_BRAKES_DEMO` | `src/api/mock_client.h:2938` | 7 |  |
-| `HANABI_CHANGES_DEMO` | `src/api/mock_client.h:2942` | 3 |  |
-| `HANABI_CHART_DEMO` | `src/api/mock_client.h:2930` | 1 |  |
-| `HANABI_CODE_DEMO` | `src/api/mock_client.h:2933` | 1 |  |
-| `HANABI_CODE_WRAP_DEMO` | `src/api/mock_client.h:2930` | 2 |  |
-| `HANABI_COMPACT_DEMO` | `src/api/mock_client.h:2940` | 1 |  |
-| `HANABI_DATES_DEMO` | `src/api/mock_client.h:2933` | 2 |  |
-| `HANABI_DIFF_DEMO` | `src/api/mock_client.h:2934` | 2 |  |
-| `HANABI_DRAFTS_DEMO` | `src/api/mock_client.h:292` | 1 |  |
-| `HANABI_ELEMENTS_CARD_TABLE` | `src/api/mock_client.h:2930` | 1 |  |
-| `HANABI_ELEMENTS_DEMO` | `src/api/mock_client.h:2943` | 4 |  |
-| `HANABI_ELEMENTS_TABLE` | `src/api/mock_client.h:2930` | 1 |  |
-| `HANABI_FOLDER_DEMO` | `src/api/mock_client.h:2936` | 4 |  |
-| `HANABI_FOLD_DEMO` | `src/api/mock_client.h:2933` | 4 |  |
-| `HANABI_LINK_PREVIEW_DEMO` | `src/api/mock_client.h:1853` | 3 |  |
-| `HANABI_LONGMSG_DEMO` | `src/api/mock_client.h:2935` | 3 |  |
-| `HANABI_LONGMSG_LINES` | `src/api/mock_client.h:2935` | 0 |  |
-| `HANABI_MD_DEMO` | `src/api/mock_client.h:2931` | 3 |  |
-| `HANABI_MD_IMAGE_DEMO` | `src/api/mock_client.h:2930` | 2 |  |
-| `HANABI_MODEL_DEMO` | `src/api/mock_client.h:2940` | 1 |  |
-| `HANABI_PLAN_DEMO` | `src/api/mock_client.h:2938` | 5 |  |
-| `HANABI_READ_SEQ_DEMO` | `src/api/mock_client.h:2934` | 2 |  |
-| `HANABI_STOPPED_DEMO` | `src/api/mock_client.h:2932` | 1 |  |
-| `HANABI_STRESS_SESSIONS` | `src/api/mock_client.h:2931` | 8 |  |
-| `HANABI_THINKING_DEMO` | `src/api/mock_client.h:2931` | 4 |  |
-| `HANABI_TOOLS_DEMO` | `src/api/mock_client.h:2939` | 2 |  |
+| `HANABI_ARTIFACT_DEMO` | `src/api/mock_client.h:2999` | 10 |  |
+| `HANABI_ARTIFACT_DEMO_AUDIO_TYPE` | `src/api/mock_client.h:3000` | 1 |  |
+| `HANABI_ASK_DEMO` | `src/api/mock_client.h:1295` | 56 |  |
+| `HANABI_ASK_FAIL` | `src/api/mock_client.h:511` | 11 |  |
+| `HANABI_ASK_FILE_LIMITS` | `src/api/mock_client.h:2997` | 2 |  |
+| `HANABI_ASK_GONE` | `src/api/mock_client.h:509` | 3 |  |
+| `HANABI_ASK_NO_RESOLVE` | `src/api/mock_client.h:489` | 0 |  |
+| `HANABI_ASK_RAISED_GAP` | `src/api/mock_client.h:622` | 1 |  |
+| `HANABI_ASK_VANISH_AFTER` | `src/api/mock_client.h:611` | 1 |  |
+| `HANABI_BIG_EVENTS` | `src/api/mock_client.h:2994` | 0 |  |
+| `HANABI_BIG_TABLE_DEMO` | `src/api/mock_client.h:2992` | 1 |  |
+| `HANABI_BIG_TRANSCRIPT` | `src/api/mock_client.h:2993` | 12 |  |
+| `HANABI_BIG_TURNS` | `src/api/mock_client.h:2993` | 0 |  |
+| `HANABI_BRAKES_DEMO` | `src/api/mock_client.h:2996` | 7 |  |
+| `HANABI_CHANGES_DEMO` | `src/api/mock_client.h:3000` | 3 |  |
+| `HANABI_CHART_DEMO` | `src/api/mock_client.h:2988` | 1 |  |
+| `HANABI_CODE_DEMO` | `src/api/mock_client.h:2991` | 1 |  |
+| `HANABI_CODE_WRAP_DEMO` | `src/api/mock_client.h:2988` | 2 |  |
+| `HANABI_COMPACT_DEMO` | `src/api/mock_client.h:2998` | 1 |  |
+| `HANABI_DATES_DEMO` | `src/api/mock_client.h:2991` | 2 |  |
+| `HANABI_DIFF_DEMO` | `src/api/mock_client.h:2992` | 2 |  |
+| `HANABI_DRAFTS_DEMO` | `src/api/mock_client.h:293` | 1 |  |
+| `HANABI_ELEMENTS_CARD_TABLE` | `src/api/mock_client.h:2988` | 1 |  |
+| `HANABI_ELEMENTS_DEMO` | `src/api/mock_client.h:3001` | 4 |  |
+| `HANABI_ELEMENTS_TABLE` | `src/api/mock_client.h:2988` | 1 |  |
+| `HANABI_FOLDER_DEMO` | `src/api/mock_client.h:2994` | 4 |  |
+| `HANABI_FOLD_DEMO` | `src/api/mock_client.h:2991` | 4 |  |
+| `HANABI_LINK_PREVIEW_DEMO` | `src/api/mock_client.h:1855` | 4 |  |
+| `HANABI_LONGMSG_DEMO` | `src/api/mock_client.h:2993` | 3 |  |
+| `HANABI_LONGMSG_LINES` | `src/api/mock_client.h:2993` | 0 |  |
+| `HANABI_MD_DEMO` | `src/api/mock_client.h:2989` | 3 |  |
+| `HANABI_MD_IMAGE_DEMO` | `src/api/mock_client.h:2988` | 2 |  |
+| `HANABI_MODEL_DEMO` | `src/api/mock_client.h:2998` | 1 |  |
+| `HANABI_PLAN_DEMO` | `src/api/mock_client.h:2996` | 5 |  |
+| `HANABI_READ_SEQ_DEMO` | `src/api/mock_client.h:2992` | 2 |  |
+| `HANABI_STOPPED_DEMO` | `src/api/mock_client.h:2990` | 1 |  |
+| `HANABI_STRESS_SESSIONS` | `src/api/mock_client.h:2989` | 8 |  |
+| `HANABI_THINKING_DEMO` | `src/api/mock_client.h:2989` | 4 |  |
+| `HANABI_TOOLS_DEMO` | `src/api/mock_client.h:2997` | 4 |  |
 
 ## Failure and refusal injection
 
 | Variable | Read at | Fixtures | Meaning |
 |---|---|---|---|
-| `HANABI_MOCK_ARTIFACT_FAIL_ONCE` | `src/api/mock_client.h:2405` | 1 |  |
-| `HANABI_MOCK_COMPACT_CLOSE` | `src/api/mock_client.h:1583` | 1 |  |
-| `HANABI_MOCK_COMPACT_DROP` | `src/api/mock_client.h:1605` | 1 |  |
-| `HANABI_MOCK_COMPACT_REFUSE` | `src/api/mock_client.h:1603` | 1 |  |
-| `HANABI_MOCK_COMPANION_COMMENTS_FAIL` | `src/api/mock_client.h:1996` | 1 |  |
-| `HANABI_MOCK_COMPANION_RELATED_FAIL` | `src/api/mock_client.h:2032` | 1 |  |
-| `HANABI_MOCK_CREATE_FAIL` | `src/api/mock_client.h:875` | 4 |  |
-| `HANABI_MOCK_DRAFTS_FAIL` | `src/api/mock_client.h:289` | 0 |  |
-| `HANABI_MOCK_HALT_REFUSE` | `src/api/mock_client.h:1767` | 1 |  |
-| `HANABI_MOCK_LINK_PREVIEW_FAIL` | `src/api/mock_client.h:1860` | 1 |  |
-| `HANABI_MOCK_LIST_FAIL_FROM` | `src/api/mock_client.h:402` | 2 |  |
-| `HANABI_MOCK_LIST_FAIL_TIMES` | `src/api/mock_client.h:411` | 1 |  |
-| `HANABI_MOCK_MEMORY_FAIL` | `src/api/mock_client.h:1838` | 1 |  |
-| `HANABI_MOCK_MEMORY_WRITE_FAIL` | `src/api/mock_client.h:2254` | 1 |  |
+| `HANABI_MOCK_ARTIFACT_FAIL_ONCE` | `src/api/mock_client.h:2454` | 1 |  |
+| `HANABI_MOCK_BULK_FAIL` | `src/api/mock_client.h:2365` | 1 | `<id>[,<id>...]`: every archive, read / unread and folder write for those threads answers HTTP 500 (the selection toolbar's failed arm). |
+| `HANABI_MOCK_COMPACT_CLOSE` | `src/api/mock_client.h:1585` | 1 |  |
+| `HANABI_MOCK_COMPACT_DROP` | `src/api/mock_client.h:1607` | 1 |  |
+| `HANABI_MOCK_COMPACT_REFUSE` | `src/api/mock_client.h:1605` | 1 |  |
+| `HANABI_MOCK_COMPANION_COMMENTS_FAIL` | `src/api/mock_client.h:1998` | 1 |  |
+| `HANABI_MOCK_COMPANION_RELATED_FAIL` | `src/api/mock_client.h:2056` | 1 |  |
+| `HANABI_MOCK_CREATE_FAIL` | `src/api/mock_client.h:877` | 4 |  |
+| `HANABI_MOCK_DRAFTS_FAIL` | `src/api/mock_client.h:290` | 0 |  |
+| `HANABI_MOCK_HALT_REFUSE` | `src/api/mock_client.h:1769` | 1 |  |
+| `HANABI_MOCK_LINK_PREVIEW_FAIL` | `src/api/mock_client.h:1862` | 1 |  |
+| `HANABI_MOCK_LIST_FAIL_FROM` | `src/api/mock_client.h:404` | 2 |  |
+| `HANABI_MOCK_LIST_FAIL_TIMES` | `src/api/mock_client.h:413` | 1 |  |
+| `HANABI_MOCK_MEMORY_FAIL` | `src/api/mock_client.h:1840` | 1 |  |
+| `HANABI_MOCK_MEMORY_WRITE_FAIL` | `src/api/mock_client.h:2278` | 1 |  |
 | `HANABI_MOCK_OPEN_FAIL_ONCE` | `src/api/mock_faults.h:12` | 1 | <session id>[:<reason>]: the first open of that session fails (a transport failure, not a refusal) with the reason; the next open succeeds |
 | `HANABI_MOCK_OVERLAY_FAIL` | `src/api/mock_client.h:137` | 4 |  |
-| `HANABI_MOCK_PHOTO_FAIL` | `src/api/mock_client.h:2209` | 1 |  |
-| `HANABI_MOCK_REFUSE` | `src/api/mock_client.h:530` | 4 |  |
-| `HANABI_MOCK_REFUSE_AFTER_FIRST` | `src/api/mock_client.h:533` | 1 |  |
-| `HANABI_MOCK_REFUSE_ONCE` | `src/api/mock_client.h:539` | 1 |  |
-| `HANABI_MOCK_REFUSE_OPTIONS` | `src/api/mock_client.h:1673` | 1 |  |
-| `HANABI_MOCK_SEND_FAIL` | `src/api/mock_client.h:1178` | 3 |  |
-| `HANABI_MOCK_SPACE_DENY` | `src/api/mock_client.h:2143` | 1 |  |
-| `HANABI_MOCK_WEB_OVERLAY_FAIL` | `src/api/mock_client.h:271` | 1 |  |
-| `HANABI_MOCK_WEB_PREFS_FAIL` | `src/api/mock_client.h:307` | 1 |  |
+| `HANABI_MOCK_PHOTO_FAIL` | `src/api/mock_client.h:2233` | 1 |  |
+| `HANABI_MOCK_REFUSE` | `src/api/mock_client.h:532` | 4 |  |
+| `HANABI_MOCK_REFUSE_AFTER_FIRST` | `src/api/mock_client.h:535` | 1 |  |
+| `HANABI_MOCK_REFUSE_ONCE` | `src/api/mock_client.h:541` | 1 |  |
+| `HANABI_MOCK_REFUSE_OPTIONS` | `src/api/mock_client.h:1675` | 1 |  |
+| `HANABI_MOCK_SEND_FAIL` | `src/api/mock_client.h:1180` | 3 |  |
+| `HANABI_MOCK_SPACE_DENY` | `src/api/mock_client.h:2167` | 1 |  |
+| `HANABI_MOCK_WEB_OVERLAY_FAIL` | `src/api/mock_client.h:272` | 1 |  |
+| `HANABI_MOCK_WEB_PREFS_FAIL` | `src/api/mock_client.h:308` | 1 |  |
 
 ## Holds, delays and clocks
 
 | Variable | Read at | Fixtures | Meaning |
 |---|---|---|---|
-| `HANABI_MOCK_ARCHIVE_HOLD` | `src/api/mock_client.h:193` | 1 |  |
-| `HANABI_MOCK_COMPACT_HOLD_MS` | `src/api/mock_client.h:2617` | 1 |  |
-| `HANABI_MOCK_COMPACT_SEND_HOLD` | `src/api/mock_client.h:2513` | 1 |  |
-| `HANABI_MOCK_LIVE` | `src/api/mock_client.h:656` | 1 |  |
+| `HANABI_MOCK_ARCHIVE_HOLD` | `src/api/mock_client.h:194` | 1 |  |
+| `HANABI_MOCK_COMPACT_HOLD_MS` | `src/api/mock_client.h:2676` | 1 |  |
+| `HANABI_MOCK_COMPACT_SEND_HOLD` | `src/api/mock_client.h:2568` | 1 |  |
+| `HANABI_MOCK_LIVE` | `src/api/mock_client.h:658` | 1 |  |
 | `HANABI_MOCK_NOW` | `src/api/mock_client.h:83` | 6 |  |
 | `HANABI_MOCK_OPEN_DELAY_MS` | `src/api/mock_faults.h:21` | 0 | every transcript read (a full open or a since-delta) sleeps this long first: a round trip's worth of latency for the perf probes |
 | `HANABI_MOCK_PAGE_DELAY_MS` | `src/api/mock_faults.h:11` | 0 | sleep this long before answering a windowed or resumed transcript read, so a load-earlier state can be photographed |
-| `HANABI_MOCK_ROW_CLOCKS` | `src/api/mock_client.h:388` | 4 |  |
-| `HANABI_MOCK_STREAM_HOLD` | `src/api/mock_client.h:1394` | 4 |  |
+| `HANABI_MOCK_ROW_CLOCKS` | `src/api/mock_client.h:390` | 4 |  |
+| `HANABI_MOCK_STREAM_HOLD` | `src/api/mock_client.h:1396` | 4 |  |
 
 ## Capability toggles
 
 | Variable | Read at | Fixtures | Meaning |
 |---|---|---|---|
-| `HANABI_MOCK_HALT_NO_ECHO` | `src/api/mock_client.h:1774` | 1 |  |
-| `HANABI_MOCK_NO_ATTACHMENTS` | `src/api/mock_client.h:1120` | 1 |  |
-| `HANABI_MOCK_NO_COMPACT` | `src/api/mock_client.h:1564` | 1 |  |
-| `HANABI_MOCK_NO_FORK` | `src/api/mock_client.h:942` | 3 |  |
-| `HANABI_MOCK_NO_HALT` | `src/api/mock_client.h:1727` | 1 |  |
-| `HANABI_MOCK_NO_HALT_ADVERT` | `src/api/mock_client.h:2949` | 1 |  |
-| `HANABI_MOCK_NO_MODEL_MENU` | `src/api/mock_client.h:1627` | 1 |  |
-| `HANABI_MOCK_NO_NODES` | `src/api/mock_client.h:946` | 0 |  |
-| `HANABI_MOCK_NO_RENAME` | `src/api/mock_client.h:1533` | 7 |  |
-| `HANABI_MOCK_NO_SESSION_OPTIONS` | `src/api/mock_client.h:1545` | 0 |  |
+| `HANABI_MOCK_HALT_NO_ECHO` | `src/api/mock_client.h:1776` | 1 |  |
+| `HANABI_MOCK_NO_ATTACHMENTS` | `src/api/mock_client.h:1122` | 1 |  |
+| `HANABI_MOCK_NO_COMPACT` | `src/api/mock_client.h:1566` | 1 |  |
+| `HANABI_MOCK_NO_FORK` | `src/api/mock_client.h:944` | 3 |  |
+| `HANABI_MOCK_NO_HALT` | `src/api/mock_client.h:1729` | 1 |  |
+| `HANABI_MOCK_NO_HALT_ADVERT` | `src/api/mock_client.h:3007` | 1 |  |
+| `HANABI_MOCK_NO_MODEL_MENU` | `src/api/mock_client.h:1629` | 1 |  |
+| `HANABI_MOCK_NO_NODES` | `src/api/mock_client.h:948` | 0 |  |
+| `HANABI_MOCK_NO_RENAME` | `src/api/mock_client.h:1535` | 7 |  |
+| `HANABI_MOCK_NO_SESSION_OPTIONS` | `src/api/mock_client.h:1547` | 0 |  |
 
 ## Other mock state
 
 | Variable | Read at | Fixtures | Meaning |
 |---|---|---|---|
-| `HANABI_MOCK_ACCESS` | `src/api/mock_client.h:2947` | 5 |  |
-| `HANABI_MOCK_AUTOCOMPACT` | `src/api/mock_client.h:312` | 1 |  |
-| `HANABI_MOCK_AUTOMATION` | `src/api/mock_client.h:435` | 3 |  |
-| `HANABI_MOCK_CREATED_AT_UNKNOWN` | `src/api/mock_client.h:1050` | 2 |  |
-| `HANABI_MOCK_HALT_OBSERVE_LATCH` | `src/api/mock_client.h:1776` | 2 |  |
-| `HANABI_MOCK_INBOX_GET` | `src/api/mock_client.h:2283` | 2 |  |
-| `HANABI_MOCK_INBOX_POST` | `src/api/mock_client.h:2328` | 1 |  |
+| `HANABI_MOCK_ACCESS` | `src/api/mock_client.h:3005` | 5 |  |
+| `HANABI_MOCK_AUTOCOMPACT` | `src/api/mock_client.h:313` | 1 |  |
+| `HANABI_MOCK_AUTOMATION` | `src/api/mock_client.h:437` | 3 |  |
+| `HANABI_MOCK_CREATED_AT_UNKNOWN` | `src/api/mock_client.h:1052` | 2 |  |
+| `HANABI_MOCK_HALT_OBSERVE_LATCH` | `src/api/mock_client.h:1778` | 2 |  |
+| `HANABI_MOCK_INBOX_GET` | `src/api/mock_client.h:2307` | 2 |  |
+| `HANABI_MOCK_INBOX_POST` | `src/api/mock_client.h:2375` | 1 |  |
 | `HANABI_MOCK_JOURNAL` | `src/api/mock_journal.h:15` | 3 | path of a JSONL file; every send the mock accepts appends one line {session_id, kind, text, attachments, at_unix_ms, local_id?}; every transcript read appends kind 'attach' with text 'full' or 'since N'; the e2e verb clear_mock_journal truncates it |
-| `HANABI_MOCK_MODELS` | `src/api/mock_client.h:1651` | 3 |  |
+| `HANABI_MOCK_MODELS` | `src/api/mock_client.h:1653` | 3 |  |
 | `HANABI_MOCK_OPEN_ROW_US` | `src/api/mock_faults.h:22` | 0 | and this much more per message the read returns, so a full window costs more than a one-row delta |
 | `HANABI_MOCK_SCALE` | `src/api/mock_scale.h:21` | 2 | <n> (1..1000, default 1): every seeded session gains n-1 clones (<id>x<copy>), each carrying the base transcript n times over with numeric seq ids 1..N, last_seq=N, stepped timestamps; sessions, messages per thread, tool rows and attachments all scale by n, deterministically; the base rows are untouched, so every fixture that names them still holds |
-| `HANABI_MOCK_SENSITIVE` | `src/api/mock_client.h:1948` | 1 |  |
-| `HANABI_MOCK_SHORTCODES` | `src/api/mock_client.h:1903` | 1 |  |
-| `HANABI_MOCK_SNOOZES` | `src/api/mock_client.h:2374` | 5 |  |
-| `HANABI_MOCK_SPACES` | `src/api/mock_client.h:2102` | 0 |  |
-| `HANABI_MOCK_SPACE_ADMIN` | `src/api/mock_client.h:2072` | 1 |  |
-| `HANABI_MOCK_SPACE_FILING` | `src/api/mock_client.h:1923` | 8 |  |
-| `HANABI_MOCK_SPACE_SENSITIVE` | `src/api/mock_client.h:2074` | 1 |  |
-| `HANABI_MOCK_WEB_FOLDERS` | `src/api/mock_client.h:241` | 3 |  |
+| `HANABI_MOCK_SENSITIVE` | `src/api/mock_client.h:1950` | 1 |  |
+| `HANABI_MOCK_SHORTCODES` | `src/api/mock_client.h:1905` | 1 |  |
+| `HANABI_MOCK_SNOOZES` | `src/api/mock_client.h:2421` | 5 |  |
+| `HANABI_MOCK_SPACES` | `src/api/mock_client.h:2126` | 0 |  |
+| `HANABI_MOCK_SPACE_ADMIN` | `src/api/mock_client.h:2096` | 1 |  |
+| `HANABI_MOCK_SPACE_FILING` | `src/api/mock_client.h:1925` | 8 |  |
+| `HANABI_MOCK_SPACE_SENSITIVE` | `src/api/mock_client.h:2098` | 1 |  |
+| `HANABI_MOCK_WEB_FOLDERS` | `src/api/mock_client.h:242` | 3 |  |

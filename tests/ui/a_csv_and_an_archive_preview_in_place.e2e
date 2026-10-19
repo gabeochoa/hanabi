@@ -1,0 +1,44 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_ARTIFACT_DEMO=files HANABI_OPEN=t1
+# A CSV artifact opens as a table whose numeric columns sit on the right, and
+# an archive opens as a tree of folders with Name and Size, a folder folding
+# on a click; Escape closes either.
+require_thread t1
+wait_frames 12
+expect_text "tiers.csv"
+expect_text "bundle.zip"
+click_text "tiers.csv"
+wait_frames 8
+assert_ui artifact_preview hidden=false
+expect_text "comma-separated  ·  4 rows"
+expect_text "Supporter"
+assert_ui csv_head_num_2 hidden=false
+assert_ui csv_head_num_3 hidden=false
+assert_ui csv_head_text_0 hidden=false
+assert_ui csv_head_text_1 hidden=false
+expect_text "$1,200.50"
+key ESCAPE
+wait_frames 6
+expect_no_ui artifact_preview
+click_text "bundle.zip"
+wait_frames 8
+assert_ui artifact_preview hidden=false
+expect_text "zip  ·  4 entries"
+expect_text "Name"
+expect_text "Size"
+expect_text "report/"
+expect_text "summary.md"
+expect_text "data/"
+expect_text "LICENSE"
+expect_text "Folder"
+expect_text "1 KB"
+click_ui archive_folder_0
+wait_frames 6
+expect_no_text "summary.md"
+expect_text "LICENSE"
+click_ui archive_folder_folded_0
+wait_frames 6
+expect_text "summary.md"
+click_ui artifact_viewer_backdrop
+wait_frames 6
+expect_no_ui artifact_preview

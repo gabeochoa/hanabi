@@ -188,6 +188,7 @@ class MockClient : public Client {
         const char* f = std::getenv("HANABI_MOCK_OVERLAY_FAIL");
         if (f != nullptr && std::string(f) == "archive")
             return Result<bool>::failure("archive refused");
+        if (bulk_fails(session_id)) return Result<bool>::failure("archive write HTTP 500");
         // HANABI_MOCK_ARCHIVE_HOLD=1: archive writes wait until the script
         // says `mock_release_archive` (deterministic, frame-rate free).
         if (const char* h = std::getenv("HANABI_MOCK_ARCHIVE_HOLD"); h != nullptr && *h == '1') {
@@ -351,6 +352,7 @@ class MockClient : public Client {
         }
         if (method == "POST" && path == folders::kOverlayPath && b.is_object() && b.contains("folderId")) {
             const std::string sid = b.value("sessionId", std::string());
+            if (bulk_fails(sid)) return Result<WebReply>::success({500, R"({"error":"folder write failed"})"});
             if (b["folderId"].is_null()) m.filed.erase(sid);
             else m.filed[sid] = b["folderId"].get<std::string>();
             overlay_writes().push_back("file " + sid + " " +
@@ -2028,6 +2030,28 @@ class MockClient : public Client {
                                             {{"__typename", "Group"}, {"name", "payouts-oncall"}}})}}}}}});
         }
         // HANABI_MOCK_COMPANION_RELATED_FAIL=1 refuses the related read alone.
+        if (has("query HanabiCompanionProject(")) {
+            const std::string want = vars.value("projectNumber", std::string());
+            if (want != "PRJ4471120") return Result<json>::success({{"tasks_gsd_project", nullptr}});
+            return Result<json>::success(
+                {{"tasks_gsd_project",
+                  {{"prefixed_number", "PRJ4471120"},
+                   {"name", "Payouts reconciliation program"},
+                   {"description", {{"rte_content_markdown", "Reconcile every payout batch before it commits.\n\nTwo accounts drift each cycle; this closes the gap."}}},
+                   {"project_progress_status", "ON_TRACK"},
+                   {"plannable_priority", "P1"},
+                   {"start_date", "2026-09-01"},
+                   {"target_date", "2026-12-15"},
+                   {"num_closed_tasks", 7},
+                   {"num_tasks", 12},
+                   {"percent_complete", 58},
+                   {"owner", {{"name", "Pat Owner"}, {"unixname", "pat"}}},
+                   {"gsd_teams", {{"nodes", json::array({{{"name", "Subscriptions"}}, {{"name", "Payouts"}}, {{"name", "Payouts"}}})}}},
+                   {"documents_in_collection",
+                    {{"nodes", json::array({{{"name", "Program brief"}, {"url_link", "https://docs.example.test/brief"}},
+                                            {{"name", "Runbook"}, {"url_link", "https://docs.example.test/runbook"}},
+                                            {{"name", "Not a link"}, {"url_link", "ftp://nope"}}})}}}}}});
+        }
         if (has("query HanabiCompanionTaskRelated(")) {
             if (const char* f = std::getenv("HANABI_MOCK_COMPANION_RELATED_FAIL"); f != nullptr && *f == '1')
                 return Result<json>::failure("memory HTTP 500");
@@ -2316,9 +2340,32 @@ class MockClient : public Client {
         if (mock_journal::enabled())
             mock_journal::append(mock_journal::Entry{session_id, "read", "", 0, 0, ""});
         InboxStateWrite out;
+        if (bulk_fails(session_id)) {
+            out.http_status = 500;
+            return Result<InboxStateWrite>{false, std::move(out), "read write HTTP 500", false};
+        }
         out.http_status = 200;
         out.body = R"({"ok":true})";
         return Result<InboxStateWrite>::success(std::move(out));
+    }
+    Result<InboxStateWrite> write_unread(const std::string& session_id) override {
+        outbound_calls().fetch_add(1);
+        if (mock_journal::enabled())
+            mock_journal::append(mock_journal::Entry{session_id, "unread", "", 0, 0, ""});
+        InboxStateWrite out;
+        if (bulk_fails(session_id)) {
+            out.http_status = 500;
+            return Result<InboxStateWrite>{false, std::move(out), "unread write HTTP 500", false};
+        }
+        out.http_status = 200;
+        out.body = R"({"ok":true})";
+        return Result<InboxStateWrite>::success(std::move(out));
+    }
+    static bool bulk_fails(const std::string& session_id) {
+        const char* k = std::getenv("HANABI_MOCK_BULK_FAIL");
+        if (k == nullptr || *k == 0) return false;
+        const std::string list = std::string(",") + k + ",";
+        return list.find("," + session_id + ",") != std::string::npos;
     }
     Result<InboxStateWrite> write_snooze(const std::string& session_id,
                                          std::optional<int64_t> snoozed_until_sec) override {
@@ -2398,6 +2445,8 @@ class MockClient : public Client {
         ++artifact_fetches();
         const char* fixture = ref.id == "art-chart"  ? kArtifactDemoImage
                               : ref.id == "art-clip" ? kArtifactDemoAudio
+                              : ref.id == "art-table" ? kArtifactDemoTable
+                              : ref.id == "art-bundle" ? kArtifactDemoArchive
                                                      : nullptr;
         if (!fixture)
             return Result<ArtifactContent>::failure("no such artifact: " + ref.id);
@@ -2418,8 +2467,14 @@ class MockClient : public Client {
         for (std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
             out.bytes.append(buf, n);
         std::fclose(f);
-        out.media_type = ref.id == "art-chart" ? "image/png" : "audio/wav";
-        out.file_name = ref.id == "art-chart" ? "price-tiers.png" : "approval-note.wav";
+        out.media_type = ref.id == "art-chart" ? "image/png"
+                         : ref.id == "art-table" ? "text/csv"
+                         : ref.id == "art-bundle" ? "application/zip"
+                                                   : "audio/wav";
+        out.file_name = ref.id == "art-chart" ? "price-tiers.png"
+                        : ref.id == "art-table" ? "tiers.csv"
+                        : ref.id == "art-bundle" ? "bundle.zip"
+                                                  : "approval-note.wav";
         return Result<ArtifactContent>::success(std::move(out));
     }
 
@@ -2562,6 +2617,10 @@ class MockClient : public Client {
         "tests/fixtures/artifacts/chart.png";
     static constexpr const char* kArtifactDemoAudio =
         "tests/fixtures/artifacts/clip.wav";
+    static constexpr const char* kArtifactDemoTable =
+        "tests/fixtures/artifacts/tiers.csv";
+    static constexpr const char* kArtifactDemoArchive =
+        "tests/fixtures/artifacts/bundle.zip";
 
     static std::uint64_t file_size_or_zero(const char* path) {
         FILE* f = std::fopen(path, "rb");
@@ -3533,6 +3592,12 @@ class MockClient : public Client {
                 if (mode == "hidden") chart.artifact_mut().hidden = true;
                 s.messages.push_back(std::move(chart));
                 s.messages.push_back(std::move(clip));
+                if (mode == "files") {
+                    s.messages.push_back(artifact_demo_row("m8", "art-table", "tiers.csv", "text/csv",
+                                                           kArtifactDemoTable, true, mins_ago(8)));
+                    s.messages.push_back(artifact_demo_row("m9", "art-bundle", "bundle.zip", "application/zip",
+                                                           kArtifactDemoArchive, true, mins_ago(7)));
+                }
             }
             // HANABI_LINK_PREVIEW_DEMO: a reply naming a diff, a task and a
             // knot (and a diff this viewer may not see) for the link cards;
@@ -3542,10 +3607,10 @@ class MockClient : public Client {
                 m.id = "m-links";
                 m.role = Role::Assistant;
                 m.kind = EventKind::Text;
-                m.text = std::string(lpd) == "two"
-                             ? "Landed D117423523; the follow-up is T275363905."
-                             : "Landed D117423523; the follow-up is T275363905, and I filed "
-                               "kt-lgsh for the cards. D99990000 is someone else's.";
+                m.text = std::string(lpd) == "two"       ? "Landed D117423523; the follow-up is T275363905."
+                         : std::string(lpd) == "project" ? "Tracked under PRJ4471120 for the payouts program."
+                                                         : "Landed D117423523; the follow-up is T275363905, and I filed "
+                                                           "kt-lgsh for the cards. D99990000 is someone else's.";
                 m.created_at = mins_ago(8);
                 s.messages.push_back(std::move(m));
             }
@@ -4322,6 +4387,30 @@ class MockClient : public Client {
                 };
                 for (auto& m : s.messages)
                     if (m.role == Role::Tool) m.created_at = m.id == "tks6" ? mins_ago(19) : m.id < std::string("tks3") ? mins_ago(119) : mins_ago(58);
+                s.summary.state = ThreadState::Ready;
+            }
+            if (std::string(td) == "narration") {
+                auto step = [&](const char* id, const char* text, int64_t at) {
+                    Message m{id, Role::Tool, text, at, "step"};
+                    m.tool_input = nlohmann::json{{"text", text}}.dump();
+                    m.tool_status = "completed";
+                    return m;
+                };
+                Message unreadable{"tkn-raw", Role::Tool, "step", mins_ago(8), "step"};
+                unreadable.tool_input = R"({"text":""})";
+                unreadable.tool_status = "completed";
+                s.messages = {
+                    {"tkn0", Role::User, "find why the settings search misses the row", mins_ago(12), ""},
+                    step("tkn1", "Reading the settings catalog to find the row", mins_ago(11)),
+                    tool("tkn2", "grep", "revealRow", "settings_system.h:702"),
+                    tool("tkn3", "read", "src/ecs/settings_system.h", "void reveal(AppComponent& app"),
+                    step("tkn4", "The jump adds the scroll offset to a layout position; writing the fix", mins_ago(10)),
+                    tool("tkn5", "Edit", "src/ecs/settings_system.h", "@@ -1,2 +1,3 @@\n-old\n+new"),
+                    unreadable,
+                    {"tkn-rep", Role::Assistant, "Fixed: the reveal centres the row once.", mins_ago(7), ""},
+                };
+                for (auto& m : s.messages)
+                    if (m.role == Role::Tool && m.created_at == hrs_ago(1)) m.created_at = mins_ago(10);
                 s.summary.state = ThreadState::Ready;
             }
             if (std::string(td) == "pace") {

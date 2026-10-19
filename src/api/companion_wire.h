@@ -75,6 +75,13 @@ inline constexpr const char* kCommentsDoc =
 // The viewer's Sensitive-mode rollout gate, the same lookup the web client
 // makes before create (the reference's SensitiveModeGate). Advisory: the
 // orchestrator stays the admission authority.
+inline constexpr const char* kProjectDoc =
+    "query HanabiCompanionProject($projectNumber: String!) { tasks_gsd_project(project_number: "
+    "$projectNumber) { prefixed_number name description { rte_content_markdown } "
+    "project_progress_status plannable_priority start_date target_date num_closed_tasks num_tasks "
+    "percent_complete owner { name unixname } gsd_teams { nodes { name } } "
+    "documents_in_collection(first: 3) { nodes { name url_link } } } }";
+inline constexpr std::size_t kProjectProseLimit = 16000;
 inline constexpr const char* kSensitiveGateDoc =
     "query HanabiSensitiveModeGate { viewer { sensitive_mode: "
     "if_gk(gk: \"agentcloud_sensitive_mode_switch\") { __typename } } }";
@@ -101,6 +108,9 @@ inline std::string file_body(const std::string& versionId, const std::string& pa
 }
 inline std::string task_body(std::int64_t number) {
     return body(kTaskDoc, json{{"number", number}, {"tags", kMaxTags}, {"subscribers", kMaxSubscribers}});
+}
+inline std::string project_body(const std::string& number) {
+    return body(kProjectDoc, json{{"projectNumber", "PRJ" + number}});
 }
 inline std::string related_body(std::int64_t number) {
     return body(kRelatedDoc, json{{"number", number}, {"rows", kMaxRelated}});
@@ -333,6 +343,111 @@ inline Parsed<Task> parse_task(const json& data, const std::string& number) {
 }
 
 // A person as the panel draws them: "Pat Owner (pat)", or the name alone.
+struct ProjectLink {
+    std::string title;
+    std::string url;
+};
+
+struct Project {
+    std::string number;
+    std::string title;
+    std::string status;
+    std::string priority;
+    std::string owner;
+    std::string ownerHandle;
+    std::string start;   // YYYY-MM-DD, as the server states the calendar day
+    std::string target;
+    int percentComplete = -1;
+    int closedTasks = -1;
+    int totalTasks = -1;
+    std::string description;
+    bool truncated = false;
+    std::vector<std::string> teams;
+    std::vector<ProjectLink> documents;
+};
+
+inline std::string calendar_day(const json& v) {
+    if (!v.is_string()) return {};
+    const std::string s = v.get<std::string>();
+    if (s.size() != 10 || s[4] != '-' || s[7] != '-') return {};
+    for (std::size_t i : {0u, 1u, 2u, 3u, 5u, 6u, 8u, 9u})
+        if (s[i] < '0' || s[i] > '9') return {};
+    const int month = std::atoi(s.substr(5, 2).c_str());
+    const int day = std::atoi(s.substr(8, 2).c_str());
+    if (month < 1 || month > 12 || day < 1 || day > 31) return {};
+    return s;
+}
+
+inline int count_or_minus(const json& v) {
+    if (!v.is_number() || v.is_boolean()) return -1;
+    const double d = v.get<double>();
+    if (d < 0 || d != static_cast<double>(static_cast<long long>(d))) return -1;
+    return static_cast<int>(d);
+}
+
+inline std::string status_label(const json& v) {
+    if (!v.is_string()) return {};
+    std::string s = v.get<std::string>();
+    for (char& c : s)
+        if (c == '_') c = ' ';
+    bool start = true;
+    for (char& c : s) {
+        if (start && c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+        else if (!start && c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        start = c == ' ';
+    }
+    return s;
+}
+
+inline Parsed<Project> parse_project(const json& data, const std::string& number) {
+    if (!data.is_object() || !data.contains("tasks_gsd_project"))
+        return Parsed<Project>(std::string("Couldn't read the project response. Try reloading."));
+    const json& p = data["tasks_gsd_project"];
+    if (p.is_null()) return Parsed<Project>(std::string("This project was not found, or you do not have access to it."));
+    if (!p.is_object() || str(p, "prefixed_number") != "PRJ" + number ||
+        (p.contains("owner") && !p["owner"].is_null() && !p["owner"].is_object()))
+        return Parsed<Project>(std::string("Couldn't read the project response. Try reloading."));
+    Project k;
+    k.number = number;
+    k.title = str(p, "name").empty() ? "PRJ" + number : str(p, "name");
+    k.status = status_label(p.value("project_progress_status", json()));
+    k.priority = str(p, "plannable_priority");
+    const json& owner = p.value("owner", json());
+    if (owner.is_object()) {
+        k.owner = str(owner, "name").empty() ? str(owner, "unixname") : str(owner, "name");
+        k.ownerHandle = str(owner, "unixname");
+    }
+    k.start = calendar_day(p.value("start_date", json()));
+    k.target = calendar_day(p.value("target_date", json()));
+    k.percentComplete = std::min(100, count_or_minus(p.value("percent_complete", json())));
+    k.closedTasks = count_or_minus(p.value("num_closed_tasks", json()));
+    k.totalTasks = count_or_minus(p.value("num_tasks", json()));
+    const json& desc = p.value("description", json());
+    if (desc.is_object()) k.description = str(desc, "rte_content_markdown");
+    if (k.description.size() > kProjectProseLimit) {
+        k.description.resize(kProjectProseLimit);
+        k.truncated = true;
+    }
+    const json& teams = p.value("gsd_teams", json());
+    if (teams.is_object() && teams.contains("nodes") && teams["nodes"].is_array())
+        for (const json& n : teams["nodes"]) {
+            const std::string name = str(n, "name");
+            if (!name.empty() && std::find(k.teams.begin(), k.teams.end(), name) == k.teams.end())
+                k.teams.push_back(name);
+        }
+    const json& docs = p.value("documents_in_collection", json());
+    if (docs.is_object() && docs.contains("nodes") && docs["nodes"].is_array())
+        for (const json& n : docs["nodes"]) {
+            if (k.documents.size() >= 3) break;
+            const std::string url = str(n, "url_link");
+            if (url.empty() || url.size() > 4096 || (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0))
+                continue;
+            const std::string title = str(n, "name");
+            k.documents.push_back(ProjectLink{title.empty() ? std::string("Document") : title, url});
+        }
+    return Parsed<Project>(std::move(k));
+}
+
 inline std::string person_label(const std::string& name, const std::string& handle) {
     if (name.empty()) return handle;
     if (handle.empty() || handle == name) return name;

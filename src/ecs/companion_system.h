@@ -67,6 +67,10 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
                     auto p = api::companion::parse_diff(r.value, c.number);
                     if (auto* d = std::get_if<api::companion::Diff>(&p)) c.diff = std::move(*d);
                     else c.error = std::get<std::string>(p);
+                } else if (c.kind == 'P') {
+                    auto p = api::companion::parse_project(r.value, c.number);
+                    if (auto* d = std::get_if<api::companion::Project>(&p)) c.project = std::move(*d);
+                    else c.error = std::get<std::string>(p);
                 } else {
                     auto p = api::companion::parse_task(r.value, c.number);
                     if (auto* t = std::get_if<api::companion::Task>(&p)) c.task = std::move(*t);
@@ -130,8 +134,9 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
         if (c.requestLoad) {
             c.requestLoad = false;
             c.docGen = c.generation;
-            const std::string body =
-                c.kind == 'D' ? api::companion::diff_body(n) : api::companion::task_body(n);
+            const std::string body = c.kind == 'D'   ? api::companion::diff_body(n)
+                                     : c.kind == 'P' ? api::companion::project_body(c.number)
+                                                     : api::companion::task_body(n);
             c.docFuture = std::async(std::launch::async, [client, body] { return client->graphql(body); });
         }
         if (c.requestFile >= 0 && c.diff && c.requestFile < static_cast<int>(c.diff->files.size())) {
@@ -152,6 +157,96 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
             c.commentsFuture =
                 std::async(std::launch::async, [client, body] { return client->graphql(body); });
         }
+    }
+
+    template <class Line, class Chip>
+    void render_project(UIContext<InputAction>& ctx, AppComponent& app, CompanionState& c, Entity& panel,
+                        float w, Line&& line, Chip&& chip) {
+        if (!c.project) {
+            line(panel, 2, "Reading the project\xe2\x80\xa6", 22.0f, theme::text_secondary(), theme::type::SM,
+                 "companion_loading");
+            return;
+        }
+        const api::companion::Project& p = *c.project;
+        line(panel, 2, p.title, 24.0f, theme::text_primary(), theme::type::BODY, "companion_title");
+        std::string meta = p.status;
+        if (!p.priority.empty()) meta += (meta.empty() ? "" : "  \xc2\xb7  ") + ("priority " + p.priority);
+        if (!p.owner.empty())
+            meta += (meta.empty() ? "" : "  \xc2\xb7  ") + ("owner " + api::companion::person_label(p.owner, p.ownerHandle));
+        if (!meta.empty()) line(panel, 3, meta, 20.0f, theme::text_secondary(), theme::type::SM, "companion_meta");
+        std::string when;
+        if (!p.start.empty()) when = "Starts " + p.start;
+        if (!p.target.empty()) when += (when.empty() ? "" : "  \xc2\xb7  ") + ("Target " + p.target);
+        if (!when.empty()) line(panel, 4, when, 20.0f, theme::text_faint(), theme::type::SM, "companion_when");
+        std::string progress;
+        if (p.closedTasks >= 0 && p.totalTasks >= 0)
+            progress = std::to_string(p.closedTasks) + " of " + std::to_string(p.totalTasks) +
+                       (p.totalTasks == 1 ? " task" : " tasks") + " closed";
+        if (p.percentComplete >= 0)
+            progress += (progress.empty() ? "" : "  \xc2\xb7  ") + std::to_string(p.percentComplete) + "% complete";
+        if (!progress.empty()) {
+            auto bar = div(ctx, mk(panel, 5),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(w), pixels(24.0f)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_render_layer(11)
+                    .with_debug_name("companion_progress"));
+            const float trackW = 120.0f;
+            const float fill = p.percentComplete >= 0 ? trackW * static_cast<float>(p.percentComplete) / 100.0f : 0.0f;
+            div(ctx, mk(bar.ent(), 1),
+                ComponentConfig{}
+                    .with_label(" ")
+                    .with_size(ComponentSize{pixels(trackW), pixels(8.0f)})
+                    .with_margin(Margin{.right = pixels(10.0f)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_roundness(0.5f)
+                    .with_render_layer(11)
+                    .with_on_draw_fg([fill](RectangleType r) {
+                        if (fill <= 0.0f) return;
+                        afterhours::draw_rectangle_rounded(RectangleType{r.x, r.y, fill, r.height}, 1.0f, 6,
+                                                           theme::accent());
+                    })
+                    .with_debug_name("companion_progress_bar"));
+            line(bar.ent(), 2, progress, 20.0f, theme::text_secondary(), theme::type::SM,
+                 "companion_progress_text", w - trackW - 10.0f);
+        }
+        int id = 6;
+        if (!p.teams.empty()) {
+            std::string teams;
+            for (const auto& t : p.teams) teams += (teams.empty() ? "" : ", ") + t;
+            line(panel, id++, "Teams: " + teams, 20.0f, theme::text_secondary(), theme::type::SM, "companion_teams");
+        }
+        if (!p.documents.empty()) {
+            auto docs = div(ctx, mk(panel, id++),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(w), pixels(30.0f)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_render_layer(11)
+                    .with_debug_name("companion_documents"));
+            int k = 1;
+            for (const auto& d : p.documents) {
+                const float bw = std::clamp(theme::text_px(d.title.c_str(), theme::type::SM) + 24.0f, 60.0f, 220.0f);
+                if (chip(docs.ent(), k, d.title, false, bw, "companion_document_" + std::to_string(k)))
+                    hanabi::links::open(d.url);
+                ++k;
+            }
+        }
+        const auto paras = api::changes::split_lines(p.description);
+        for (std::size_t i = 0; i < paras.size() && i < 14; ++i)
+            line(panel, id++, paras[i], 18.0f, theme::text_primary(), theme::type::SM,
+                 "companion_desc_" + std::to_string(i));
+        if (paras.empty())
+            line(panel, id++, "No description.", 18.0f, theme::text_faint(), theme::type::SM, "companion_desc_empty");
+        else if (p.truncated || paras.size() > 14)
+            line(panel, id++, "\xe2\x80\xa6 more in the browser", 18.0f, theme::text_faint(), theme::type::SM,
+                 "companion_desc_more");
+        (void)app;
     }
 
     void for_each_with(Entity&, UIContext<InputAction>& ctx, float) override {
@@ -225,7 +320,7 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
         };
 
         // Header: the entity, and the way out to the browser.
-        const std::string ref = std::string(1, c.kind) + c.number;
+        const std::string ref = (c.kind == 'P' ? std::string("PRJ") : std::string(1, c.kind)) + c.number;
         auto head = row(1, "companion_head", 34.0f);
         line(head.ent(), 1, ref, 30.0f, theme::text_primary(), theme::type::H1, "companion_ref",
              w - 260.0f);
@@ -331,6 +426,10 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
         }
 
         // A task.
+        if (c.kind == 'P') {
+            render_project(ctx, *app, c, panel.ent(), w, line, chip);
+            return;
+        }
         if (!c.task) {
             line(panel.ent(), 2, "Reading the task\xe2\x80\xa6", 22.0f, theme::text_secondary(),
                  theme::type::SM, "companion_loading");

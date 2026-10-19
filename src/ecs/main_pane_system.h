@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <memory>
+#include "../api/artifact_policy.h"
 #include "../api/shortcode.h"
 #include "../ui/md_image.h"
 #include "../api/agentcloud_hosts.h"
@@ -3693,6 +3694,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         if ((id[0] == 'T' || (id[0] == 'D' && Settings::get().get_native_diffs())) && app->client &&
             app->client->supports_graphql() && !hanabi::keys::cmd_or_ctrl_down()) {
             app->companion.open_entity(id[0], id.substr(1));
+            return;
+        }
+        if (id.rfind(hanabi::links::kProjectPrefix, 0) == 0 && app->client && app->client->supports_graphql() &&
+            !hanabi::keys::cmd_or_ctrl_down()) {
+            app->companion.open_entity('P', id.substr(hanabi::links::kProjectPrefix.size()));
             return;
         }
         if (id.rfind(tp, 0) == 0) {
@@ -15488,6 +15494,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         return t;
     }
     static std::string tool_label(const api::Message& m) {
+        if (const std::string line = narration_text(m); !line.empty()) return line;
         const std::string command = tool_command(m);
         std::string out;
         const std::string name = api::tool_kinds::display_name(m.subtitle);
@@ -15626,9 +15633,34 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case Kind::Glob: draw_asterisk(r, c); return;
             case Kind::Web: draw_globe(r, c); return;
             case Kind::SubAgent: draw_agent_mark(r, c); return;
+            case Kind::Step: draw_quote(r, c); return;
             case Kind::Generic: break;
         }
         draw_wrench(r, c);
+    }
+    static void draw_quote(RectangleType r, theme::Color c) {
+        const float cx = r.x + r.width * 0.5f;
+        const float cy = r.y + r.height * 0.5f;
+        for (int i = -1; i <= 1; i += 2) {
+            const float x = cx + i * 2.4f;
+            afterhours::draw_line_ex(afterhours::vec2{x + 0.8f, cy - 2.6f},
+                                     afterhours::vec2{x - 0.8f, cy + 0.6f}, 1.5f, c);
+        }
+    }
+    static std::string narration_text(const api::Message& m) {
+        if (api::tool_kinds::classify(m.subtitle) != api::tool_kinds::Kind::Step) return {};
+        if (!m.tool_input.empty()) return api::tool_kinds::step_text(m.tool_input);
+        std::string t = m.text;
+        if (const size_t nl = t.find('\n'); nl != std::string::npos) t.resize(nl);
+        if (t.empty() || t == m.subtitle || t.size() > api::tool_kinds::kStepTextCap) return {};
+        return t;
+    }
+    static bool is_narration(const api::Message& m) { return !narration_text(m).empty(); }
+    static int narration_rows(const std::vector<api::Message>& msgs, int lo, int hi) {
+        int n = 0;
+        for (int i = lo; i < hi; ++i)
+            if (is_narration(msgs[i])) ++n;
+        return n;
     }
     static void draw_check(RectangleType r, theme::Color c) {
         const float cx = r.x + r.width * 0.5f;
@@ -16086,9 +16118,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (kind == K::Step) {
                 if (!inRun) ++f.runs;
                 inRun = true;
-                ++f.steps;
-                if (tool_failed(m)) ++f.errors;
-                if (m.tool_duration_ms > 0) f.active_ms += m.tool_duration_ms;
+                if (!is_narration(m)) {
+                    ++f.steps;
+                    if (tool_failed(m)) ++f.errors;
+                    if (m.tool_duration_ms > 0) f.active_ms += m.tool_duration_ms;
+                }
                 if (m.tool_status == "running") f.streaming = true;
             } else {
                 inRun = false;
@@ -16179,7 +16213,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void tool_pile(UIContext<InputAction>& ctx, Entity& parent, int keyIndex,
                    const std::vector<api::Message>& msgs, int lo, int hi,
                    float paneWidth) {
-        const int count = hi - lo;
+        const int count = hi - lo - narration_rows(msgs, lo, hi);
         const std::string key = msgs[lo].id.empty()
                                     ? ("pile" + std::to_string(keyIndex))
                                     : msgs[lo].id;
@@ -16876,13 +16910,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const std::string webUrl = model::artifact_web_url_for(
                 app.webBaseUrl, app.pane().openSession->summary.id,
                 m.artifact().id, m.artifact().version);
-            if (!webUrl.empty()) {
+            const std::string previewKind =
+                m.artifact().fetch == api::ArtifactFetch::Ready && !m.artifact().local_path.empty()
+                    ? hanabi::artifact_policy::preview_kind(m.artifact().media_type, m.artifact().file)
+                    : std::string();
+            if (!webUrl.empty() || !previewKind.empty()) {
                 Entity& headEnt = head.ent();
                 headEnt.addComponentIfMissing<afterhours::ui::HasClickListener>(
                     [](Entity&) {});
-                if (headEnt.get<afterhours::ui::HasClickListener>().down &&
-                    hanabi::keys::cmd_or_ctrl_down())
+                if (!previewKind.empty() && headEnt.has<afterhours::ui::HasCursor>())
+                    headEnt.get<afterhours::ui::HasCursor>().cursor = afterhours::ui::CursorType::Pointer;
+                const bool pressed = headEnt.get<afterhours::ui::HasClickListener>().down;
+                if (pressed && hanabi::keys::cmd_or_ctrl_down() && !webUrl.empty()) {
                     hanabi::links::open(webUrl);
+                } else if (pressed && !previewKind.empty()) {
+                    if (app.viewerImagePath.empty()) {
+                        app.viewerFocusBefore = hanabi::native_menu::viewer_focus_before(
+                            static_cast<long long>(ctx.focus_id), static_cast<long long>(headEnt.id),
+                            app.focusBeforeLastPress);
+                        app.viewerOpenerEntity = static_cast<long long>(headEnt.id);
+                    }
+                    app.viewerImagePath = m.artifact().local_path;
+                    app.viewerImageName = name;
+                    app.viewerPreviewKind = previewKind;
+                    app.viewerPreviewBytes = m.artifact().size_bytes;
+                }
             }
         }
 
@@ -17465,9 +17517,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // Single tool row: prefix the node ("[cli:aspen] cmd") when known, same
         // as the pile header (Gabe: "[cli:aspen] cd …"). Empty for local/unknown.
         const std::string oneCmd = tool_label(m);
+        const bool narration = is_narration(m);
         Entity& head = tool_row(ctx, parent, 200 + index * 10, rowW,
                                 /*expandable=*/expandable, open,
-                                oneCmd, 1, tool_duration(m), m.tool_status,
+                                oneCmd, 1, narration ? std::string() : tool_duration(m),
+                                narration && m.tool_status != "running" ? std::string() : m.tool_status,
                                 /*showCount=*/false,
                                 api::tool_kinds::classify(m.subtitle));
         head.addComponentIfMissing<afterhours::ui::HasClickListener>([](Entity&) {});

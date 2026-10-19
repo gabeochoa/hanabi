@@ -1,0 +1,33 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_BULK_FAIL=t2
+# Three selected, one write refused: the two that archived leave the
+# selection and the toolbar names the one that did not; the toast offers one
+# Undo over exactly the two that were filed, and Escape leaves the mode.
+wait_frames 20
+click_ui sb_search_filter
+wait_frames 6
+click_ui list_menu_select
+wait_frames 6
+click_ui chat_row_id_t1
+wait_frames 4
+click_ui chat_row_id_t2
+wait_frames 4
+click_ui chat_row_id_t3
+wait_frames 4
+expect_text "3 selected"
+click_ui bulk_archive
+wait_frames 40
+expect_text "1 failed"
+expect_text "2 threads archived"
+expect_ui row_selected_t2
+expect_no_ui chat_row_id_t1
+expect_no_ui chat_row_id_t3
+click_ui toast_undo
+wait_frames 40
+expect_ui chat_row_id_t1
+expect_ui chat_row_id_t3
+expect_text "1 failed"
+key ESCAPE
+wait_frames 6
+expect_ui sb_search
+expect_no_ui bulk_count

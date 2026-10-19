@@ -1,0 +1,19 @@
+# settings: {"window_width":1100,"window_height":900,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_TOOLS_DEMO=narration HANABI_OPEN=rtools
+# The agent's `step` calls are narration, not work: the sentence is the row,
+# byte for byte, with no tool name in front of it and no outcome column; the
+# run's count leaves them out; a step with no readable sentence stays the
+# plain tool row it would have been.
+require_thread rtools
+wait_frames 12
+expect_text "find why the settings search misses the row"
+expect_text "Reading the settings catalog to find the row"
+expect_no_text "step  ·  Reading"
+expect_text "4 tool calls"
+click_ui tool_head
+wait_frames 6
+expect_text "The jump adds the scroll offset to a layout position; writing the fix"
+expect_no_text "step  ·  The jump"
+assert_ui tool_icon_step hidden=false
+expect_text "grep  ·  revealRow"
+expect_text "Fixed: the reveal centres the row once."

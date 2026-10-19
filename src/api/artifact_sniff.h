@@ -18,6 +18,9 @@ inline std::string media_type(std::string_view b) {
     if (starts("ID3") || starts("\xFF\xFB") || starts("\xFF\xF3") || starts("\xFF\xF2"))
         return "audio/mpeg";
     if (starts("ftyp", 4)) return "audio/mp4";
+    if (starts("PK\x03\x04") || starts("PK\x05\x06")) return "application/zip";
+    if (starts("\x1F\x8B")) return "application/gzip";
+    if (starts("ustar", 257)) return "application/x-tar";
     return "";
 }
 

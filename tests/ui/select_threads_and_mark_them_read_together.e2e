@@ -1,0 +1,36 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","read_seq":{"rseq":4}}
+# Selection mode from the list options menu: the toolbar replaces the search
+# field with the count, each click toggles a row, Mark read acts on the
+# selected rows and what succeeded leaves the selection; Cancel brings the
+# search field back.
+wait_frames 20
+expect_text "2 new"
+click_ui sb_search_filter
+wait_frames 6
+expect_text "Select threads…"
+click_ui list_menu_select
+wait_frames 6
+expect_text "0 selected"
+expect_no_ui sb_search
+click_ui chat_row_id_rseq
+wait_frames 4
+expect_text "1 selected"
+expect_ui row_selected_rseq
+click_ui chat_row_id_t2
+wait_frames 4
+expect_text "2 selected"
+click_ui chat_row_id_t2
+wait_frames 4
+expect_text "1 selected"
+expect_ui row_select_t2
+click_ui chat_row_id_t2
+wait_frames 4
+click_ui bulk_read
+wait_frames 30
+expect_text "0 selected"
+expect_no_text "2 new"
+expect_mock_journal "\"session_id\":\"rseq\""
+click_ui bulk_cancel
+wait_frames 6
+expect_ui sb_search
+expect_no_ui bulk_count

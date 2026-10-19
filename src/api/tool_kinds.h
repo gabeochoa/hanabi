@@ -17,7 +17,9 @@
 
 namespace api::tool_kinds {
 
-enum class Kind { Generic, Read, Write, Edit, Shell, Grep, Glob, SubAgent, Web };
+enum class Kind { Generic, Read, Write, Edit, Shell, Grep, Glob, SubAgent, Web, Step };
+
+inline constexpr std::size_t kStepTextCap = 512;
 
 inline std::string lower(std::string_view s) {
     std::string out(s);
@@ -52,7 +54,27 @@ inline Kind classify(std::string_view tool_name) {
     if (n == "glob" || ends("__glob")) return Kind::Glob;
     if (n == "task" || n == "agent" || has("subagent")) return Kind::SubAgent;
     if (has("web") || has("fetch_url") || n == "browser") return Kind::Web;
+    if (n == "step" || n == "functions.step" || ends("__step")) return Kind::Step;
     return Kind::Generic;
+}
+
+inline std::string step_text(std::string_view raw_input) {
+    const nlohmann::json in = nlohmann::json::parse(raw_input, nullptr, false);
+    if (in.is_discarded() || !in.is_object()) return {};
+    const auto it = in.find("text");
+    if (it == in.end() || !it->is_string()) return {};
+    std::string text = it->get<std::string>();
+    const auto notSpace = [](unsigned char c) { return c != ' ' && c != '\t' && c != '\n' && c != '\r'; };
+    while (!text.empty() && !notSpace(static_cast<unsigned char>(text.back()))) text.pop_back();
+    std::size_t lead = 0;
+    while (lead < text.size() && !notSpace(static_cast<unsigned char>(text[lead]))) ++lead;
+    text.erase(0, lead);
+    if (text.empty() || text.size() > kStepTextCap) return {};
+    return text;
+}
+
+inline bool is_narration(std::string_view tool_name, std::string_view raw_input) {
+    return classify(tool_name) == Kind::Step && !step_text(raw_input).empty();
 }
 
 inline const char* word(Kind k) {
@@ -65,6 +87,7 @@ inline const char* word(Kind k) {
         case Kind::Glob: return "glob";
         case Kind::SubAgent: return "agent";
         case Kind::Web: return "web";
+        case Kind::Step: return "step";
         case Kind::Generic: break;
     }
     return "tool";
@@ -159,6 +182,9 @@ inline std::string headline(Kind kind, const std::string& raw) {
             break;
         case Kind::Web:
             out = first_of(in, {"url", "query", "prompt"});
+            break;
+        case Kind::Step:
+            out = step_text(raw);
             break;
         case Kind::Generic:
             break;

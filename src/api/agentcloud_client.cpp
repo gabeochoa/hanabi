@@ -454,6 +454,12 @@ Result<InboxStateWrite> AgentcloudClient::write_read(const std::string& session_
     return post_inbox_patch(session_id, patch, "read");
 }
 
+Result<InboxStateWrite> AgentcloudClient::write_unread(const std::string& session_id) {
+    inbox_state::Patch patch;
+    patch.read = false;
+    return post_inbox_patch(session_id, patch, "unread");
+}
+
 Result<InboxStateWrite> AgentcloudClient::write_snooze(const std::string& session_id,
                                                        std::optional<int64_t> snoozed_until_sec) {
     inbox_state::Patch patch;
@@ -1674,7 +1680,7 @@ std::vector<Message> parse_page_frames(const std::string& msg_json) {
             m.kind = EventKind::ToolCall;
             m.subtitle = str_or(e, "tool", "");
             if (const auto k = tool_kinds::classify(m.subtitle);
-                k == tool_kinds::Kind::Edit || k == tool_kinds::Kind::Write)
+                k == tool_kinds::Kind::Edit || k == tool_kinds::Kind::Write || k == tool_kinds::Kind::Step)
                 m.tool_input = str_or(e, "input", "");
             m.tool_background = bool_or(e, "background", false);
             if (const json& task = obj_at(e, "task"); task.is_object()) {

@@ -1,0 +1,31 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1"],"active_tab":"t1","theme":"dark"}
+# env: HANABI_LINK_PREVIEW_DEMO=project HANABI_OPEN=t1 HANABI_TRACKER_BASE_URL=https://tracker.example.com
+# A PRJ reference is a link; a click opens the project in the Companion with
+# the fields the web's project panel reads -- status, priority, owner, dates,
+# progress, teams, the first documents -- and Cmd-click goes to the browser.
+require_thread t1
+wait_frames 12
+expect_text "Tracked under PRJ4471120"
+click_link PRJ4471120
+wait_frames 20
+assert_ui companion_panel hidden=false
+expect_text "PRJ4471120"
+expect_text "Payouts reconciliation program"
+expect_text "On Track  ·  priority P1  ·  owner Pat Owner (pat)"
+expect_text "Starts 2026-09-01  ·  Target 2026-12-15"
+expect_text "7 of 12 tasks closed  ·  58% complete"
+expect_text "Teams: Subscriptions, Payouts"
+assert_ui companion_document_1 hidden=false
+assert_ui companion_document_2 hidden=false
+expect_no_ui companion_document_3
+expect_text "Reconcile every payout batch before it commits."
+click_ui companion_close
+wait_frames 6
+expect_no_ui companion_panel
+reset_link_opened
+hold_modifier ctrl
+click_link PRJ4471120
+wait_frames 6
+release_modifier ctrl
+expect_link_opened https://tracker.example.com/PRJ4471120
+expect_no_ui companion_panel

@@ -147,7 +147,53 @@ static void test_task_people_and_related() {
     CHECK(std::holds_alternative<std::string>(parse_related(rel, "556")));
 }
 
+static void test_project_document() {
+    const json data{{"tasks_gsd_project",
+                     {{"prefixed_number", "PRJ4471120"},
+                      {"name", "Payouts reconciliation program"},
+                      {"description", {{"rte_content_markdown", "Reconcile every batch."}}},
+                      {"project_progress_status", "ON_TRACK"},
+                      {"plannable_priority", "P1"},
+                      {"start_date", "2026-09-01"},
+                      {"target_date", "2026-13-40"},
+                      {"num_closed_tasks", 7},
+                      {"num_tasks", 12},
+                      {"percent_complete", 158},
+                      {"owner", {{"name", "Pat Owner"}, {"unixname", "pat"}}},
+                      {"gsd_teams", {{"nodes", json::array({{{"name", "Subs"}}, {{"name", "Subs"}}, {{"name", "Payouts"}}})}}},
+                      {"documents_in_collection",
+                       {{"nodes", json::array({{{"name", "Brief"}, {"url_link", "https://x.test/brief"}},
+                                               {{"name", ""}, {"url_link", "http://x.test/run"}},
+                                               {{"name", "Nope"}, {"url_link", "ftp://x"}},
+                                               {{"name", "Fourth"}, {"url_link", "https://x.test/4"}}})}}}}}};
+    const auto parsed = co::parse_project(data, "4471120");
+    const auto* p = std::get_if<co::Project>(&parsed);
+    CHECK(p != nullptr);
+    if (p == nullptr) return;
+    CHECK(p->title == "Payouts reconciliation program");
+    CHECK(p->status == "On Track");
+    CHECK(p->priority == "P1");
+    CHECK(p->owner == "Pat Owner" && p->ownerHandle == "pat");
+    CHECK(p->start == "2026-09-01");
+    CHECK(p->target.empty());
+    CHECK(p->percentComplete == 100);
+    CHECK(p->closedTasks == 7 && p->totalTasks == 12);
+    CHECK(p->description == "Reconcile every batch.");
+    CHECK((p->teams == std::vector<std::string>{"Subs", "Payouts"}));
+    CHECK(p->documents.size() == 3);
+    CHECK(p->documents[0].title == "Brief");
+    CHECK(p->documents[1].title == "Document");
+    CHECK(p->documents[2].url == "https://x.test/4");
+    const auto missing = co::parse_project(json{{"tasks_gsd_project", nullptr}}, "1");
+    CHECK(std::get_if<std::string>(&missing) != nullptr &&
+          std::get<std::string>(missing).find("not found") != std::string::npos);
+    const auto wrong = co::parse_project(json{{"tasks_gsd_project", {{"prefixed_number", "PRJ9"}}}}, "1");
+    CHECK(std::get_if<std::string>(&wrong) != nullptr);
+    CHECK(co::project_body("42").find("\"projectNumber\\\":\\\"PRJ42\\\"") != std::string::npos);
+}
+
 int main() {
+    test_project_document();
     test_task_people_and_related();
     test_diff_document_and_files();
     test_every_hunk_of_the_file_asked();

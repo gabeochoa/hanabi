@@ -994,6 +994,10 @@ class Client {
         (void)session_id;
         return Result<InboxStateWrite>::failure("read state is not synced on this backend");
     }
+    virtual Result<InboxStateWrite> write_unread(const std::string& session_id) {
+        (void)session_id;
+        return Result<InboxStateWrite>::failure("read state is not synced on this backend");
+    }
     virtual Result<InboxStateWrite> write_snooze(const std::string& session_id,
                                                  std::optional<int64_t> snoozed_until_sec) {
         (void)session_id;

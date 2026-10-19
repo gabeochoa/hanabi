@@ -144,6 +144,7 @@ class AgentcloudClient : public Client {
     }
     Result<InboxStateRead> read_inbox_state() override;
     Result<InboxStateWrite> write_read(const std::string& session_id) override;
+    Result<InboxStateWrite> write_unread(const std::string& session_id) override;
     Result<InboxStateWrite> post_inbox_patch(const std::string& session_id,
                                              const inbox_state::Patch& patch, const char* what);
     Result<InboxStateWrite> write_snooze(const std::string& session_id,
