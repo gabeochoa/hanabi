@@ -5,8 +5,8 @@
 # frame edge and ran the tail under the pane's close button. The cap could
 # never fire: the string is 67 characters with its age suffix.
 #
-# settings: {"window_width":760,"window_height":620,"open_tabs":["t3","t6"],"active_tab":"t6","theme":"dark"}
-# env: HANABI_SPLIT=t6 HANABI_WIN_W=760 HANABI_WIN_H=620
+# settings: {"window_width":760,"window_height":620,"open_tabs":["t3","t6"],"active_tab":"t6","tab_layout":{"groups":[{"tabs":["t3"],"kept":[],"selected":"t3"},{"tabs":["t6"],"kept":[],"selected":"t6"}],"active":"t6","axis":"horizontal"},"theme":"dark"}
+# env: HANABI_WIN_W=760 HANABI_WIN_H=620
 
 require_thread t6
 # Ellipsised, not cut: the caption is present up to a break the face's own

@@ -1,14 +1,15 @@
-# A tab dragged DOWN out of the strip and dropped on the right half of the
-# pane area opens beside the thread on screen -- the reference's tab-to-split
-# drop, the tab menu's "Open in Split" by hand. While it is held over that
-# half, the drop zone is tinted so the reader can see where it will land.
-# Dropped anywhere else it is an ordinary reorder drag (or nothing).
+# A tab dragged DOWN out of the strip and dropped on a pane moves into a pane
+# of its own beside it: the half the pointer is over decides the side -- the
+# right half splits to the right, the left half to the left (Puffin's
+# tab-to-split drop, the same split as the tab menu's). While it is held over a
+# half, that half is tinted so the reader can see where it will land.
 #
 # settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
 
 require_thread t2
 wait_frames 10
 expect_no_ui split_close
+expect_groups "t2,t6" 0 "t2"
 
 mouse_down 560 48
 wait_frames 2
@@ -21,18 +22,21 @@ mouse_up 900 400
 wait_frames 20
 expect_no_ui tab_split_drop_zone
 assert_ui split_close hidden=false
+expect_groups "t2|t6" 1 "t2,t6"
 
-# Dropped on the LEFT half instead, nothing splits.
+# Close the split, then drop on the LEFT half: the tab splits to the left.
 click_ui split_close
 wait_frames 20
 expect_no_ui split_close
+expect_groups "t2,t6" 0 "t2"
 mouse_down 560 48
 wait_frames 2
 mouse_move 520 200
 wait_frames 2
 mouse_move 400 400
 wait_frames 4
-expect_no_ui tab_split_drop_zone
+assert_ui tab_split_drop_zone hidden=false
 mouse_up 400 400
 wait_frames 20
-expect_no_ui split_close
+assert_ui split_close hidden=false
+expect_groups "t6|t2" 0 "t6,t2"
