@@ -44,6 +44,7 @@
 #include "composer_escape.h"
 #include "focus_routing.h"
 #include "pane_layout.h"
+#include "tab_groups.h"
 #include "inbox_sync_driver.h"
 #include "../ui/snooze_custom_flow.h"
 #include "transcript_cache.h"
@@ -424,6 +425,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // subtly different copy of the first pane's plumbing.
     std::deque<Pane> panes = std::deque<Pane>(2);
     int groupCount = 1;
+    model::SplitAxis splitAxis = model::SplitAxis::Horizontal;
     int focusedPane = 0;
     // Is the second pane showing? Closed == single pane, and `panes[1]` is left
     // alone -- its thread is remembered, so reopening the split is free and it

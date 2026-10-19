@@ -18,6 +18,8 @@
 #include <cstdlib>
 #include <cctype>
 #include <cmath>
+#include <map>
+#include <optional>
 #include <string>
 
 #include <branding.h>
@@ -27,6 +29,7 @@
 #include "../util/format.h"
 #include "surface_tabs.h"
 #include "components.h"
+#include "tab_groups.h"
 #include "tab_keep_flash.h"
 #include "ui_clock.h"
 #include "../resize_drive.h"
@@ -49,6 +52,13 @@ inline afterhours::Entity* active_tab_entity() {
 }
 
 inline void switch_to_tab(AppComponent& app, afterhours::Entity& newTab) {
+    if (app.groupCount > 1) {
+        const int group = newTab.get<Tab>().group;
+        if (group >= 0 && group < app.groupCount && group != app.focusedPane) {
+            app.focusedPane = group;
+            app.paneFocusPending = group;
+        }
+    }
     auto& pane = app.pane();
     pane.supersede_transcript_loads();
     if (auto* old = active_tab_entity()) old->removeComponent<ActiveTab>();
@@ -183,6 +193,7 @@ inline void open_session_in_tab(TabStripComponent& strip, AppComponent& app,
     if (e == nullptr) {
         e = &afterhours::EntityHelper::createEntity();
         e->addComponent<Tab>();
+        e->get<Tab>().group = app.groupCount > 1 ? app.focusedPane : 0;
         strip.tabOrder.push_back(e->id);
     }
     if (std::getenv("HANABI_DUMP"))
@@ -388,6 +399,135 @@ inline void reconcile_panes_with_tabs(const TabStripComponent& strip,
     }
 }
 
+inline std::string group_key(afterhours::EntityID id) {
+    return std::to_string(static_cast<long long>(id));
+}
+
+inline afterhours::EntityID group_key_id(const std::string& key) {
+    return static_cast<afterhours::EntityID>(std::stoll(key));
+}
+
+inline std::string session_of_key(const std::string& key) {
+    auto opt = afterhours::EntityHelper::getEntityForID(group_key_id(key));
+    return opt.valid() && opt->has<Tab>() ? opt->get<Tab>().sessionId : std::string();
+}
+
+inline std::string key_for_session_in_group(const TabStripComponent& strip,
+                                            const std::string& session, int group) {
+    if (session.empty()) return {};
+    for (const auto id : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(id);
+        if (opt.valid() && opt->has<Tab>() && opt->get<Tab>().sessionId == session &&
+            opt->get<Tab>().group == group)
+            return group_key(id);
+    }
+    return {};
+}
+
+inline TabGroups groups_of(const TabStripComponent& strip, const AppComponent& app) {
+    std::vector<GroupTab> flat;
+    for (const auto id : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(id);
+        if (!opt.valid() || !opt->has<Tab>()) continue;
+        const Tab& tab = opt->get<Tab>();
+        GroupTab entry;
+        entry.id = group_key(id);
+        entry.group = tab.group;
+        entry.preview = !tab.keptOpen;
+        entry.kept = tab.pinned;
+        flat.push_back(std::move(entry));
+    }
+    const int count = std::max(app.groupCount, 1);
+    std::map<int, std::string> selection;
+    for (int g = 0; g < count && g < static_cast<int>(app.panes.size()); ++g) {
+        const std::string key = key_for_session_in_group(
+            strip, app.panes[static_cast<std::size_t>(g)].selectedId, g);
+        if (!key.empty()) selection[g] = key;
+    }
+    std::optional<std::string> selected;
+    if (const auto it = selection.find(app.focusedPane); it != selection.end())
+        selected = it->second;
+    return TabGroups::from_state(std::move(flat), selection, app.focusedPane,
+                                 std::move(selected), app.splitAxis);
+}
+
+inline bool groups_match(const TabStripComponent& strip, const AppComponent& app,
+                         const TabGroups& groups) {
+    if (groups.group_count() != std::max(app.groupCount, 1)) return false;
+    if (groups.size() != strip.tabOrder.size()) return false;
+    for (std::size_t i = 0; i < strip.tabOrder.size(); ++i) {
+        const GroupTab& want = groups.tabs()[i];
+        if (want.id != group_key(strip.tabOrder[i])) return false;
+        auto opt = afterhours::EntityHelper::getEntityForID(strip.tabOrder[i]);
+        if (!opt.valid() || !opt->has<Tab>() || opt->get<Tab>().group != want.group) return false;
+    }
+    return true;
+}
+
+inline void apply_groups(TabStripComponent& strip, AppComponent& app, const TabGroups& groups) {
+    std::vector<afterhours::EntityID> order;
+    for (const GroupTab& t : groups.tabs()) {
+        const afterhours::EntityID id = group_key_id(t.id);
+        auto opt = afterhours::EntityHelper::getEntityForID(id);
+        if (!opt.valid() || !opt->has<Tab>()) continue;
+        opt->get<Tab>().group = t.group;
+        order.push_back(id);
+    }
+    for (const afterhours::EntityID id : strip.tabOrder) {
+        if (std::find(order.begin(), order.end(), id) != order.end()) continue;
+        if (!afterhours::EntityHelper::getEntityForID(id).valid()) order.push_back(id);
+    }
+    strip.tabOrder = std::move(order);
+    const int count = groups.group_count();
+    app.groupCount = std::max(count, 1);
+    app.splitAxis = groups.axis();
+    while (app.panes.size() < static_cast<std::size_t>(std::max(count, 2))) app.panes.emplace_back();
+    for (int g = 0; g < count; ++g) {
+        const auto key = groups.selected_in(g);
+        if (!key) continue;
+        const std::string session = session_of_key(*key);
+        Pane& pane = app.panes[static_cast<std::size_t>(g)];
+        if (!session.empty() && (pane.selectedId != session || !pane.openSession))
+            retarget_split_pane(pane, session);
+    }
+    app.splitOpen = count > 1;
+    const int previousFocus = app.focusedPane;
+    app.focusedPane = 0;
+    if (groups.selected()) {
+        if (const auto at = groups.group_of(*groups.selected()))
+            app.focusedPane = std::min(*at, std::max(count - 1, 0));
+        auto* old = active_tab_entity();
+        auto opt = afterhours::EntityHelper::getEntityForID(group_key_id(*groups.selected()));
+        if (opt.valid() && opt->has<Tab>()) {
+            if (old != nullptr && old != &opt.asE()) old->removeComponent<ActiveTab>();
+            opt->addComponentIfMissing<ActiveTab>();
+        }
+    }
+    if (app.focusedPane != previousFocus) app.paneFocusPending = app.focusedPane;
+    if (!strip.tabOrder.empty()) app.view = SmartView::Chat;
+}
+
+inline void repair_groups(TabStripComponent& strip, AppComponent& app) {
+    if (app.groupCount <= 1) return;
+    const TabGroups groups = groups_of(strip, app);
+    if (!groups_match(strip, app, groups)) apply_groups(strip, app, groups);
+}
+
+inline bool split_tab(TabStripComponent& strip, AppComponent& app, afterhours::EntityID tab,
+                      int index, SplitAxis axis) {
+    TabGroups groups = groups_of(strip, app);
+    if (!groups.split_off(group_key(tab), index, axis)) return false;
+    apply_groups(strip, app, groups);
+    return true;
+}
+
+inline void move_tab_to_group(TabStripComponent& strip, AppComponent& app, afterhours::EntityID tab,
+                              int group) {
+    TabGroups groups = groups_of(strip, app);
+    groups.move_to_group(group_key(tab), group);
+    apply_groups(strip, app, groups);
+}
+
 enum class CloseIntent { Aimed, Forced };
 enum class CloseOutcome { Closed, Refused, Absent };
 
@@ -438,6 +578,19 @@ inline CloseOutcome request_close(TabStripComponent& strip, AppComponent& app,
     hanabi::tab_keep_flash::store().forget(sessionId);
     app.findStates.forget(sessionId);
     app.note_tab_closed(sessionId);
+    if (app.groupCount > 1) {
+        TabGroups groups = groups_of(strip, app);
+        groups.close(group_key(opt->id));
+        opt.asE().cleanup = true;
+        apply_groups(strip, app, groups);
+        if (strip.tabOrder.empty()) {
+            app.splitOpen = false;
+            app.groupCount = 1;
+            app.focusedPane = 0;
+            app.view = SmartView::Home;
+        }
+        return CloseOutcome::Closed;
+    }
     strip.tabOrder.erase(strip.tabOrder.begin() + static_cast<long>(index));
     opt.asE().cleanup = true;
 

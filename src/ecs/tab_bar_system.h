@@ -1324,6 +1324,8 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
 // transcript fetch is picked up the same frame.
 struct TabFlowSystem : afterhours::System<AppComponent> {
     void for_each_with(Entity&, AppComponent& app, float) override {
+        if (auto* groupStrip = find_singleton<TabStripComponent>())
+            model::repair_groups(*groupStrip, app);
         // Restore persisted tabs once the session list is available.
         const bool waitingForSubagents =
             app.subagentSidebarOpen &&
@@ -1445,7 +1447,7 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
         if (!strip) return;
         const int originalPane = app.focusedPane;
         const std::string originalId = app.pane().selectedId;
-        if (!app.splitOpen || targetPane < 0 || targetPane > 1)
+        if (!app.splitOpen || targetPane < 0 || targetPane >= static_cast<int>(app.active_pane_count()))
             targetPane = originalPane;
         app.focusedPane = targetPane;
         TabBarSystem::open_session_in_tab(*strip, app, id, keep);
