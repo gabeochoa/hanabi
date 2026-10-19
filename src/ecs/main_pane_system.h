@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <memory>
+#include "../api/artifact_policy.h"
 #include "../api/shortcode.h"
 #include "../ui/md_image.h"
 #include "../api/agentcloud_hosts.h"
@@ -16904,13 +16905,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             const std::string webUrl = model::artifact_web_url_for(
                 app.webBaseUrl, app.pane().openSession->summary.id,
                 m.artifact.id, m.artifact.version);
-            if (!webUrl.empty()) {
+            const std::string previewKind =
+                m.artifact.fetch == api::ArtifactFetch::Ready && !m.artifact.local_path.empty()
+                    ? hanabi::artifact_policy::preview_kind(m.artifact.media_type, m.artifact.file)
+                    : std::string();
+            if (!webUrl.empty() || !previewKind.empty()) {
                 Entity& headEnt = head.ent();
                 headEnt.addComponentIfMissing<afterhours::ui::HasClickListener>(
                     [](Entity&) {});
-                if (headEnt.get<afterhours::ui::HasClickListener>().down &&
-                    hanabi::keys::cmd_or_ctrl_down())
+                if (!previewKind.empty() && headEnt.has<afterhours::ui::HasCursor>())
+                    headEnt.get<afterhours::ui::HasCursor>().cursor = afterhours::ui::CursorType::Pointer;
+                const bool pressed = headEnt.get<afterhours::ui::HasClickListener>().down;
+                if (pressed && hanabi::keys::cmd_or_ctrl_down() && !webUrl.empty()) {
                     hanabi::links::open(webUrl);
+                } else if (pressed && !previewKind.empty()) {
+                    if (app.viewerImagePath.empty()) {
+                        app.viewerFocusBefore = hanabi::native_menu::viewer_focus_before(
+                            static_cast<long long>(ctx.focus_id), static_cast<long long>(headEnt.id),
+                            app.focusBeforeLastPress);
+                        app.viewerOpenerEntity = static_cast<long long>(headEnt.id);
+                    }
+                    app.viewerImagePath = m.artifact.local_path;
+                    app.viewerImageName = name;
+                    app.viewerPreviewKind = previewKind;
+                    app.viewerPreviewBytes = m.artifact.size_bytes;
+                }
             }
         }
 

@@ -1069,6 +1069,8 @@ struct AppComponent : public afterhours::BaseComponent {
 
     std::string viewerImagePath;
     std::string viewerImageName;
+    std::string viewerPreviewKind;  // "" an image; "csv" / "archive" a preview of the file at viewerImagePath
+    std::uint64_t viewerPreviewBytes = 0;
     long long viewerFocusBefore = -1;
     long long viewerOpenerEntity = -1;
     long long viewerBackdropEntity = -1;

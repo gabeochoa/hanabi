@@ -1,0 +1,5 @@
+sku,tier,price,qty,note
+A-1001,Supporter,4.99,312,"first, monthly"
+A-1002,Fan,9.99,1200,
+A-1003,Patron,39.99,18,"says ""hi"""
+A-1004,Founder,"$1,200.50",2,-

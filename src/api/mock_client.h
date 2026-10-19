@@ -2423,6 +2423,8 @@ class MockClient : public Client {
         ++artifact_fetches();
         const char* fixture = ref.id == "art-chart"  ? kArtifactDemoImage
                               : ref.id == "art-clip" ? kArtifactDemoAudio
+                              : ref.id == "art-table" ? kArtifactDemoTable
+                              : ref.id == "art-bundle" ? kArtifactDemoArchive
                                                      : nullptr;
         if (!fixture)
             return Result<ArtifactContent>::failure("no such artifact: " + ref.id);
@@ -2443,8 +2445,14 @@ class MockClient : public Client {
         for (std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
             out.bytes.append(buf, n);
         std::fclose(f);
-        out.media_type = ref.id == "art-chart" ? "image/png" : "audio/wav";
-        out.file_name = ref.id == "art-chart" ? "price-tiers.png" : "approval-note.wav";
+        out.media_type = ref.id == "art-chart" ? "image/png"
+                         : ref.id == "art-table" ? "text/csv"
+                         : ref.id == "art-bundle" ? "application/zip"
+                                                   : "audio/wav";
+        out.file_name = ref.id == "art-chart" ? "price-tiers.png"
+                        : ref.id == "art-table" ? "tiers.csv"
+                        : ref.id == "art-bundle" ? "bundle.zip"
+                                                  : "approval-note.wav";
         return Result<ArtifactContent>::success(std::move(out));
     }
 
@@ -2587,6 +2595,10 @@ class MockClient : public Client {
         "tests/fixtures/artifacts/chart.png";
     static constexpr const char* kArtifactDemoAudio =
         "tests/fixtures/artifacts/clip.wav";
+    static constexpr const char* kArtifactDemoTable =
+        "tests/fixtures/artifacts/tiers.csv";
+    static constexpr const char* kArtifactDemoArchive =
+        "tests/fixtures/artifacts/bundle.zip";
 
     static std::uint64_t file_size_or_zero(const char* path) {
         FILE* f = std::fopen(path, "rb");
@@ -3558,6 +3570,12 @@ class MockClient : public Client {
                 if (mode == "hidden") chart.artifact.hidden = true;
                 s.messages.push_back(std::move(chart));
                 s.messages.push_back(std::move(clip));
+                if (mode == "files") {
+                    s.messages.push_back(artifact_demo_row("m8", "art-table", "tiers.csv", "text/csv",
+                                                           kArtifactDemoTable, true, mins_ago(8)));
+                    s.messages.push_back(artifact_demo_row("m9", "art-bundle", "bundle.zip", "application/zip",
+                                                           kArtifactDemoArchive, true, mins_ago(7)));
+                }
             }
             // HANABI_LINK_PREVIEW_DEMO: a reply naming a diff, a task and a
             // knot (and a diff this viewer may not see) for the link cards;
