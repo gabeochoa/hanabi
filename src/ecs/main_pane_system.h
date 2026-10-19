@@ -229,8 +229,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // screen (render_composer disables it + shows a reason when the backend
         // can't send).
         if (app->escape == EscapeIntent::CloseFind) {
-            Pane& target =
-                app->pane().findOpen ? app->pane() : app->other_pane();
+            Pane* found = &app->pane();
+            if (!found->findOpen)
+                for (Pane& candidate : app->panes)
+                    if (candidate.findOpen) {
+                        found = &candidate;
+                        break;
+                    }
+            Pane& target = *found;
             target.findOpen = false;
             target.findIndex = 0;
             target.findCurrent = {};

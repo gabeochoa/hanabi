@@ -362,6 +362,23 @@ inline void retarget_split_pane(Pane& target, const std::string& id) {
     target.scrollBottomPending = id;
 }
 
+inline void release_pane(Pane& closed) {
+    closed.supersede_transcript_loads();
+    closed.openSession.reset();
+    closed.transcriptState = LoadState::Idle;
+    closed.transcriptError.clear();
+    closed.transcriptLoadingId.clear();
+    closed.requestOpenId.clear();
+    closed.findOpen = false;
+    closed.findQuery.clear();
+    closed.findIndex = 0;
+    closed.findCurrent = {};
+    closed.findSyncedId.clear();
+    closed.findSynced = {};
+    if (!closed.selectedId.empty())
+        closed.scrollBottomPending = closed.selectedId;
+}
+
 inline void reset_pane_to(Pane& pane, const std::string& sessionId) {
     pane.supersede_transcript_loads();
     pane.selectedId = sessionId;
@@ -492,6 +509,8 @@ inline void apply_groups(TabStripComponent& strip, AppComponent& app, const TabG
             retarget_split_pane(pane, session);
     }
     app.splitOpen = count > 1;
+    for (std::size_t g = static_cast<std::size_t>(std::max(count, 1)); g < app.panes.size(); ++g)
+        release_pane(app.panes[g]);
     const int previousFocus = app.focusedPane;
     app.focusedPane = 0;
     if (groups.selected()) {
@@ -555,6 +574,35 @@ inline bool merge_panes(TabStripComponent& strip, AppComponent& app) {
     TabGroups groups = groups_of(strip, app);
     if (!groups.merge_all()) return false;
     apply_groups(strip, app, groups);
+    return true;
+}
+
+inline bool open_in_split(TabStripComponent& strip, AppComponent& app, const std::string& id,
+                          bool keepFocus) {
+    for (const auto tabId : strip.tabOrder) {
+        auto opt = afterhours::EntityHelper::getEntityForID(tabId);
+        if (!opt.valid() || !opt->has<Tab>() || opt->get<Tab>().sessionId != id) continue;
+        if (!keepFocus) {
+            keep_tab(opt.asE());
+            switch_to_tab(app, opt.asE());
+        }
+        return false;
+    }
+    if (strip.tabOrder.empty()) {
+        open_session_in_tab(strip, app, id);
+        return false;
+    }
+    const int index = app.groupCount > 1 ? app.focusedPane + 1 : 1;
+    const int before = app.focusedPane;
+    TabGroups groups = groups_of(strip, app);
+    groups.reserve_group(index, app.splitAxis);
+    apply_groups(strip, app, groups);
+    app.groupCount = std::max(app.groupCount, index + 1);
+    while (app.panes.size() < static_cast<std::size_t>(app.groupCount)) app.panes.emplace_back();
+    app.splitOpen = true;
+    open_session_in_tab(strip, app, id, true, false, index);
+    if (keepFocus) app.focusedPane = std::min(before, app.groupCount - 1);
+    app.view = SmartView::Chat;
     return true;
 }
 

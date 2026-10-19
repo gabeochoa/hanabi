@@ -365,6 +365,12 @@ static void setup_app_state() {
         app.restorePinnedIds = Settings::get().get_pinned_tabs();
         app.restoreActiveId = Settings::get().get_active_tab();
         app.restoreTabLayout = Settings::get().get_tab_layout();
+        if (app.restoreTabLayout.empty() && Settings::get().get_split_open()) {
+            const nlohmann::json legacy = ecs::model::legacy_split_layout(
+                app.restoreTabIds, Settings::get().get_split_pane(0),
+                Settings::get().get_split_pane(1), Settings::get().get_split_focused_pane());
+            if (!legacy.is_null()) app.restoreTabLayout = legacy.dump();
+        }
     }
     // The split is restored here, but the PANES' threads are restored by the
     // same pass that restores the tabs (tab_bar_system.h): a pane's thread has
@@ -377,12 +383,8 @@ static void setup_app_state() {
     if (const std::string& sv = Settings::get().get_selected_view();
         !sv.empty() && Settings::get().saved_views().find(sv) != nullptr)
         app.savedViewId = sv;
-    app.splitOpen = Settings::get().get_split_open();
     app.splitRatio =
         hanabi::clamp_split_ratio(Settings::get().get_split_ratio());
-    app.restoreSplitIds[0] = Settings::get().get_split_pane(0);
-    app.restoreSplitIds[1] = Settings::get().get_split_pane(1);
-    app.restoreFocusedPane = Settings::get().get_split_focused_pane();
     // Back-compat: if no tab set persisted, fall back to last_session.
     if (app.restoreTabIds.empty()) {
         const std::string& last = Settings::get().get_last_session();
@@ -1390,8 +1392,10 @@ static void request_test_opens(ecs::AppComponent* app) {
     }
     // HANABI_SPLIT=<id> opens a SECOND thread in the right pane. Needs
     // HANABI_OPEN to have named the primary.
-    if (const char* sid = std::getenv("HANABI_SPLIT"); sid && *sid)
+    if (const char* sid = std::getenv("HANABI_SPLIT"); sid && *sid) {
         app->requestSplitOpen = sid;
+        app->requestSplitOpenKeepsFocus = true;
+    }
 }
 
 // HANABI_THINK_DEMO=1 forces the live "thinking" indicator (pulsing dot +
@@ -2463,6 +2467,7 @@ static int run_headless_screenshot(const std::string& path, int w, int h) {
         // Requires HANABI_OPEN to have set the primary pane first.
         if (const char* sid = std::getenv("HANABI_SPLIT"); sid && *sid) {
             appForWait->requestSplitOpen = sid;
+            appForWait->requestSplitOpenKeepsFocus = true;
             appForWait->view = ecs::SmartView::Chat;
             for (int p = 0; p < 6; ++p) {
                 const hanabi::AutoreleaseFrame framePool;

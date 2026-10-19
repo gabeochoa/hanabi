@@ -444,6 +444,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // One-shot: open this thread in the pane that is NOT focused, splitting if
     // it is not already split. Empty = nothing asked.
     std::string requestSplitOpen;
+    bool requestSplitOpenKeepsFocus = false;
     // One-shot: close the split (back to single pane).
     bool requestSplitClose = false;
     // One-shot: toggle the split. The chord, the palette row and the menu item
@@ -462,7 +463,6 @@ struct AppComponent : public afterhours::BaseComponent {
     [[nodiscard]] int clamp_pane(int index) const {
         return std::clamp(index, 0, static_cast<int>(panes.size()) - 1);
     }
-    Pane& other_pane() { return panes[focusedPane == 0 ? 1 : 0]; }
     [[nodiscard]] bool any_find_open() const {
         for (const Pane& p : panes)
             if (p.findOpen) return true;
@@ -613,7 +613,6 @@ struct AppComponent : public afterhours::BaseComponent {
     // What each pane was showing at quit. Serviced by the same restore pass as
     // the tabs, and for the same reason: a thread has to be in the session
     // list before a pane can be told to open it.
-    std::array<std::string, 2> restoreSplitIds;
     int restoreFocusedPane = 0;
     std::vector<std::string> restorePinnedIds;
     std::string restoreActiveId;

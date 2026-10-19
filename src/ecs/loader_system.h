@@ -1148,80 +1148,18 @@ struct LoaderSystem : afterhours::System<AppComponent> {
         for (size_t i = app.active_pane_count(); i < app.panes.size(); ++i)
             app.panes[i].reap_superseded_loads();
 
-        // Open a thread in the pane that is not focused, splitting if
-        // it is not already. The pane then loads it through the SAME
-        // service_pane path above on the next frame.
         if (app.requestSplitToggle) {
             app.requestSplitToggle = false;
-            if (app.splitOpen) {
+            if (app.groupCount > 1)
                 app.requestSplitClose = true;
-            } else if (app.pane().openSession) {
-                // Splitting shows the SAME thread in both panes: it is
-                // the cheapest useful default (two places in one long
-                // transcript) and the second pane is one tab click from
-                // becoming anything else.
-                app.requestSplitOpen = app.pane().selectedId;
-            }
-        }
-        if (app.requestSplitClose && app.groupCount > 1) {
-            app.requestSplitClose = false;
-            if (auto* groupStrip = find_singleton<TabStripComponent>())
-                model::merge_panes(*groupStrip, app);
+            else
+                app.requestTile = model::TileRequest::SplitRight;
         }
         if (app.requestSplitClose) {
             app.requestSplitClose = false;
-            app.splitOpen = false;
-            app.focusedPane = 0;
-            // Let go of the closed pane's transcript. Its ID is kept -- that
-            // is what gets persisted and what makes reopening the split
-            // instant off the LRU -- but the messages are the largest thing
-            // this app holds, and a pane nobody can see holding a 690-message
-            // transcript for the rest of the session is a leak with a
-            // plausible excuse. Anything in flight for it is dropped the same
-            // way a tab switch drops a slow fetch.
-            Pane& closed = app.panes[1];
-            closed.supersede_transcript_loads();
-            closed.openSession.reset();
-            closed.transcriptState = LoadState::Idle;
-            closed.transcriptError.clear();
-            closed.transcriptLoadingId.clear();
-            closed.requestOpenId.clear();
-            closed.findOpen = false;
-            closed.findQuery.clear();
-            closed.findIndex = 0;
-            closed.findCurrent = {};
-            closed.findSyncedId.clear();
-            closed.findSynced = {};
-            // ...and reopening must actually re-open it, so the pane asks for
-            // its thread again rather than sitting empty.
-            if (!closed.selectedId.empty())
-                closed.scrollBottomPending = closed.selectedId;
-        }
-        if (!app.requestSplitOpen.empty() && app.groupCount > 1) {
-            const std::string id = app.requestSplitOpen;
-            app.requestSplitOpen.clear();
-            if (auto* groupStrip = find_singleton<TabStripComponent>()) {
-                for (const auto tabId : groupStrip->tabOrder) {
-                    auto tab = afterhours::EntityHelper::getEntityForID(tabId);
-                    if (!tab.valid() || !tab->has<Tab>() || tab->get<Tab>().sessionId != id) continue;
-                    model::split_tab(*groupStrip, app, tabId, app.focusedPane + 1, app.splitAxis);
-                    break;
-                }
-            }
-        }
-        if (!app.requestSplitOpen.empty()) {
-            const std::string id = app.requestSplitOpen;
-            app.requestSplitOpen.clear();
-            app.splitOpen = true;
-            Pane& target = app.other_pane();
-            // `|| !target.openSession` is not belt and braces: closing a split
-            // drops the pane's transcript and keeps its id, so a pane that is
-            // already "on" this thread has nothing to show until it asks
-            // again. Without it, splitting -> closing -> splitting left the
-            // second pane permanently blank.
-            if (target.selectedId != id || !target.openSession)
-                model::retarget_split_pane(target, id);
-            app.view = SmartView::Chat;
+            if (app.groupCount > 1)
+                if (auto* groupStrip = find_singleton<TabStripComponent>())
+                    model::merge_panes(*groupStrip, app);
         }
 
         //

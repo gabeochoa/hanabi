@@ -1334,7 +1334,16 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     break;
                 }
                 case Split:
-                    app.requestSplitOpen = keepId;
+                    for (const auto splitTab : strip.tabOrder) {
+                        auto splitEntity = EntityHelper::getEntityForID(splitTab);
+                        if (!splitEntity.valid() || !splitEntity->has<Tab>() ||
+                            splitEntity->get<Tab>().sessionId != keepId)
+                            continue;
+                        model::split_tab(strip, app, splitTab,
+                                         splitEntity->get<Tab>().group + 1,
+                                         model::SplitAxis::Horizontal);
+                        break;
+                    }
                     app.view = SmartView::Chat;
                     break;
                 case Halt:
@@ -1467,28 +1476,8 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
                     }
                 }
             }
-            // The panes' own threads. A remembered id that the backend no
-            // longer knows is skipped rather than opened -- the same rule the
-            // tab restore above follows, and it keeps a stale settings.json
-            // from producing a pane stuck on "Could not load transcript".
-            for (int i = 0; i < 2 && !restoreGroups; ++i) {
-                const std::string& id = app.restoreSplitIds[i];
-                if (id.empty() || !app.find_summary(id) || strip == nullptr ||
-                    !model::session_is_open(*strip, id))
-                    continue;
-                Pane& p = app.panes[i];
-                if (p.selectedId == id) continue;  // pane 0: the active tab
-                p.selectedId = id;
-                p.requestOpenId = id;
-                p.scrollBottomPending = id;
-            }
-            // A split with nothing in its second pane is not a split.
-            if (app.splitOpen && app.panes[1].selectedId.empty())
-                app.splitOpen = false;
             app.focusedPane =
-                app.splitOpen ? app.clamp_pane(app.restoreFocusedPane) : 0;
-            app.restoreSplitIds[0].clear();
-            app.restoreSplitIds[1].clear();
+                app.groupCount > 1 ? app.clamp_pane(app.restoreFocusedPane) : 0;
             app.restoreTabIds.clear();
             app.restorePinnedIds.clear();
             app.restoreActiveId.clear();
@@ -1528,6 +1517,14 @@ struct TabFlowSystem : afterhours::System<AppComponent> {
             }
         }
 
+        if (app.requestOpenTab.empty() && !app.requestSplitOpen.empty() && app.restoreDone) {
+            const std::string splitId = app.requestSplitOpen;
+            const bool keepFocus = app.requestSplitOpenKeepsFocus;
+            app.requestSplitOpen.clear();
+            app.requestSplitOpenKeepsFocus = false;
+            if (auto* splitStrip = find_singleton<TabStripComponent>())
+                model::open_in_split(*splitStrip, app, splitId, keepFocus);
+        }
         if (app.requestOpenTab.empty()) return;
         std::string id = app.requestOpenTab;
         if (hanabi::switch_probe::enabled())
