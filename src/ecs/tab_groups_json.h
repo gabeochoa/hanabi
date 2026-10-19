@@ -1,8 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "../../vendor/nlohmann/json.hpp"
 #include "tab_groups.h"
@@ -39,6 +41,25 @@ inline nlohmann::json tab_groups_to_json(const TabGroups& groups) {
     if (const auto axis = TabGroups::persistable_axis(static_cast<int>(out["groups"].size()), groups.axis()))
         out["axis"] = axis_name(*axis);
     return out;
+}
+
+inline nlohmann::json legacy_split_layout(const std::vector<std::string>& openTabs,
+                                          const std::string& left, const std::string& right,
+                                          int focusedPane) {
+    using nlohmann::json;
+    if (left.empty() || right.empty() || left == right) return json();
+    if (std::find(openTabs.begin(), openTabs.end(), right) == openTabs.end()) return json();
+    json firstTabs = json::array();
+    for (const std::string& id : openTabs)
+        if (id != right) firstTabs.push_back(id);
+    if (firstTabs.empty()) return json();
+    const bool leftOpen = std::find(openTabs.begin(), openTabs.end(), left) != openTabs.end();
+    const std::string shown = leftOpen ? left : firstTabs.front().get<std::string>();
+    json first = {{"tabs", firstTabs}, {"kept", json::array()}, {"selected", shown}};
+    json second = {{"tabs", json::array({right})}, {"kept", json::array()}, {"selected", right}};
+    return json{{"groups", json::array({first, second})},
+                {"active", focusedPane == 1 ? right : shown},
+                {"axis", "horizontal"}};
 }
 
 inline TabGroups tab_groups_from_json(

@@ -118,6 +118,33 @@ static void test_bad_input_restores_an_empty_model() {
     }
 }
 
+static void test_a_saved_mirror_split_becomes_two_panes_that_move_the_second_tab() {
+    std::printf("test_a_saved_mirror_split_becomes_two_panes_that_move_the_second_tab\n");
+    const json j = ecs::model::legacy_split_layout({"t1", "t2", "t3"}, "t1", "t3", 1);
+    const TabGroups m = ecs::model::tab_groups_from_json(j);
+    CHECK(m.group_count() == 2);
+    CHECK(ids_in(m, 0) == "t1t2");
+    CHECK(ids_in(m, 1) == "t3");
+    CHECK(*m.selected_in(0) == "t1" && *m.selected_in(1) == "t3");
+    CHECK(*m.selected() == "t3" && m.acted_group() == 1);
+    const TabGroups left = ecs::model::tab_groups_from_json(
+        ecs::model::legacy_split_layout({"t1", "t2", "t3"}, "t2", "t3", 0));
+    CHECK(*left.selected() == "t2" && left.acted_group() == 0);
+    const TabGroups gone = ecs::model::tab_groups_from_json(
+        ecs::model::legacy_split_layout({"t1", "t2", "t3"}, "t9", "t3", 0));
+    CHECK(*gone.selected_in(0) == "t1");
+}
+
+static void test_a_saved_mirror_split_that_cannot_be_two_panes_stays_one() {
+    std::printf("test_a_saved_mirror_split_that_cannot_be_two_panes_stays_one\n");
+    CHECK(ecs::model::legacy_split_layout({"t1", "t2"}, "t1", "t1", 0).is_null());
+    CHECK(ecs::model::legacy_split_layout({"t1", "t2"}, "t1", "t9", 0).is_null());
+    CHECK(ecs::model::legacy_split_layout({"t1", "t2"}, "", "t2", 0).is_null());
+    CHECK(ecs::model::legacy_split_layout({"t1", "t2"}, "t1", "", 0).is_null());
+    CHECK(ecs::model::legacy_split_layout({"t2"}, "t1", "t2", 0).is_null());
+    CHECK(ecs::model::legacy_split_layout({}, "t1", "t2", 0).is_null());
+}
+
 int main() {
     test_a_layout_round_trips();
     test_one_pane_writes_no_axis();
@@ -126,6 +153,8 @@ int main() {
     test_unwanted_and_repeated_tabs_are_dropped_and_empty_panes_collapse();
     test_a_named_selection_that_is_gone_falls_back_to_the_first_tab();
     test_bad_input_restores_an_empty_model();
+    test_a_saved_mirror_split_becomes_two_panes_that_move_the_second_tab();
+    test_a_saved_mirror_split_that_cannot_be_two_panes_stays_one();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;
