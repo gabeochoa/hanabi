@@ -249,7 +249,14 @@ the 250 ms gate at 100×.
    4 ms of CPU — p99 1.28 / 1.26 ms, worst 1.32 / 1.42 ms — so the
    scroll tail has no slow kind to name at these scales; the block now
    lists the slowest six regardless, so the next run says which zones
-   an ordinary 1.3 ms frame is made of.
+   an ordinary 1.3 ms frame is made of. That run (13:15Z, load 9.6–10):
+   the six worst scroll frames are 1.34–1.40 ms at 10× and 1.42–1.57 ms
+   at 100×, every one the same shape — `transcript.pass2_build`
+   0.12–0.17 ms, `render.row.bubble` 0.11–0.16 ms over 17–18 rows,
+   `sidebar.sort` ≤ 0.02, everything else 0.00 (md_bytes is called
+   ~2,100 times for no measurable time). The bubble rows are ~0.3 ms of
+   a 1.4 ms frame; the rest is outside the zoned code — frame overhead,
+   not a row kind. Item 2 is closed at these scales.
 3. **Menus, tooltips, popovers**: input to first painted frame ≤ 16 ms.
    `LATENCY.md` and `tests/ui/interaction_latency_budgets.e2e` already
    measure event-to-GPU-ink for popup open / close, focus gain / loss,

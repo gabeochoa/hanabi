@@ -31,9 +31,30 @@ Five more arms in `tests/ui/interaction_latency_budgets.e2e`: `row_menu_open`
 gone), `palette_open` (⌘K → `palette_panel`), `palette_close` (Esc), and
 `tooltip_close` (Esc on a shown tooltip → gone). A tooltip's OPEN is its
 hover delay by design (`a_tooltip_waits_for_the_pointer.e2e`), so it is not
-a latency arm. Budgets start at 3 frames like the other popups; the first
-Mac run records the measured frames here and the budget tightens to 1 where
-the measurement already is.
+a latency arm. Budgets started at 3 frames like the other popups.
+
+Measured 2026-10-19 (Boulder, main 1919a88a then perf-feel 1af4b204, three
+runs each, frames identical across runs at loads 10–39):
+
+| arm | main 1919a88a | perf-feel 1af4b204 | budget now | what moved |
+|---|---:|---:|---:|---|
+| `row_menu_open` | 3 | **1** | 1 | the sidebar's menus open on the right button's PRESS (NSMenu does); release was a frame later on a Mac and one more under the injector's one-frame hold |
+| `row_menu_close` | 3 | **2** | 2 | the drawn menu applied its keys after building itself, so the Escape frame painted it once more; it now returns cancelled before building |
+| `palette_open` | 2 | 2 | 2 | — |
+| `palette_close` | 2 | 2 | 2 | — |
+| `tooltip_close` | 2 | 2 | 2 | — |
+| `popup_open` | 1 | 1 | 1 | budget tightened to the measurement |
+| `popup_close` | 2 | 2 | 2 | budget tightened to the measurement |
+| `focus_gain` / `focus_loss` | 1 / 1 | 1 / 1 | 1 / 1 | budget tightened to the measurement |
+
+Every close measures 2: the frame that takes the key no longer builds the
+surface, and the frame after presents without it. Every open that measures
+1 builds the surface on the input frame. `palette_open` at 2 is the one
+open left above the floor; where its second frame goes is the next
+question for this table. `HANABI_LATENCY_TRACE=1` prints each probed
+frame's ink delta per arm, and the row menu says when it was built and
+closed by presented frame, which is how the two row-menu frames were
+placed.
 
 ## Measurements
 

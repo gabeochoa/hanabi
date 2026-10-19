@@ -15,22 +15,22 @@ wait_frames 8
 watch_ink focus_gain focus composer_reply_input
 click_ui composer_reply_input
 wait_frames 6
-expect_latency focus_gain 3
+expect_latency focus_gain 1
 watch_ink focus_loss blur composer_reply_input
 click 140 58
 wait_frames 6
-expect_latency focus_loss 3
+expect_latency focus_loss 1
 
 click_ui composer_reply_input
 wait_frames 4
 watch_ink popup_open ui slash_menu
 type "/"
 wait_frames 10
-expect_latency popup_open 3
+expect_latency popup_open 1
 watch_ink popup_close ui_gone slash_menu
 key ESCAPE
 wait_frames 8
-expect_latency popup_close 3
+expect_latency popup_close 2
 key ESCAPE
 wait_frames 8
 
@@ -54,23 +54,23 @@ expect_latency click_feedback 8
 watch_ink row_menu_open ui row_menu
 right_click_text "two workers still out"
 wait_frames 10
-expect_latency row_menu_open 3
+expect_latency row_menu_open 1
 watch_ink row_menu_close ui_gone row_menu
 key ESCAPE
 wait_frames 8
-expect_latency row_menu_close 3
+expect_latency row_menu_close 2
 watch_ink palette_open ui palette_panel
 key CMD+K
 wait_frames 10
-expect_latency palette_open 3
+expect_latency palette_open 2
 watch_ink palette_close ui_gone palette_panel
 key ESCAPE
 wait_frames 8
-expect_latency palette_close 3
+expect_latency palette_close 2
 hover_ui composer_attach
 wait_frames 50
 expect_text "Attach a file"
 watch_ink tooltip_close ui_gone tooltip
 key ESCAPE
 wait_frames 8
-expect_latency tooltip_close 3
+expect_latency tooltip_close 2
