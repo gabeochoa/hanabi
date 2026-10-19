@@ -34,7 +34,7 @@ inline std::vector<float> pane_widths(int panes, float ratio, const std::vector<
                           : std::vector<float>{paneW};
     }
     const float usable = paneW - kDividerW * static_cast<float>(panes - 1);
-    return pane_widths_for(normalized_shares(shares, panes), usable, kMinimumPaneW).widths;
+    return pane_widths_for(normalized_shares(shares, panes), usable, kPaneMinWidth).widths;
 }
 
 inline std::vector<float> pane_origins(const std::vector<float>& widths, float left) {

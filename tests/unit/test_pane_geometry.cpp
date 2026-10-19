@@ -53,6 +53,15 @@ static void test_three_panes_share_by_their_shares() {
     CHECK(even.size() == 3 && std::fabs(even[0] - 500.0f) < 0.01f);
 }
 
+static void test_three_panes_never_go_under_the_tiled_floor() {
+    std::printf("test_three_panes_never_go_under_the_tiled_floor\n");
+    const auto w = pane_widths(3, 0.5f, {}, 1200.0f);
+    CHECK(w.size() == 3 && w[0] == 480.0f && w[1] == 480.0f && w[2] == 480.0f);
+    const auto skew = pane_widths(3, 0.5f, {0.8f, 0.1f, 0.1f}, 2010.0f);
+    CHECK(skew[1] == 480.0f && skew[2] == 480.0f && skew[0] > 1000.0f);
+    CHECK(kPaneMinWidth == 480.0f);
+}
+
 static void test_origins_advance_by_width_and_divider() {
     std::printf("test_origins_advance_by_width_and_divider\n");
     const auto o = pane_origins({408.0f, 407.0f}, 280.0f);
@@ -66,6 +75,7 @@ int main() {
     test_a_row_too_narrow_for_two_gives_the_left_pane_everything();
     test_one_pane_takes_the_row();
     test_three_panes_share_by_their_shares();
+    test_three_panes_never_go_under_the_tiled_floor();
     test_origins_advance_by_width_and_divider();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
