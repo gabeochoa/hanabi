@@ -569,6 +569,9 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 auto& tabEntity = tabOpt.asE();
                 auto& tab = tabEntity.get<Tab>();
                 bool isActive = tabEntity.has<ActiveTab>();
+                const bool shownInPane =
+                    isActive || (app.groupCount > 1 && run.group < static_cast<int>(app.panes.size()) &&
+                                 app.panes[static_cast<std::size_t>(run.group)].selectedId == tab.sessionId);
                 bool isDragged = dragging && i == dragFrom;
                 // A preview tab keeps the recessed fill even while it is the one
                 // you are reading: the accent bar above still says "this is the
@@ -619,11 +622,11 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                hanabi::test_hooks::force_hover("tab:" +
                                                                tab.sessionId);
 
-                afterhours::Color bg = (isActive && !isPreview)
+                afterhours::Color bg = (shownInPane && !isPreview)
                                            ? tab_colors::tab_active()
                                        : hovered ? tab_colors::tab_hover()
                                                  : tab_colors::tab_inactive();
-                afterhours::Color txt = (isActive && !isPreview)
+                afterhours::Color txt = (shownInPane && !isPreview)
                                             ? tab_colors::tab_text_act()
                                             : tab_colors::tab_text();
 
@@ -696,7 +699,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                 if (labelBudget < 1) labelBudget = 1;
                 const std::string& fullLabel = model::refresh_tab_label(app, tab);
                 const std::string& tabAccessible =
-                    model::tab_accessible_label(tab, isActive);
+                    model::tab_accessible_label(tab, shownInPane);
                 // A sliver of a clipped tab has room for no real character, and
                 // `ellipsize` to a budget of one returns the ellipsis alone -- so
                 // the strip drew a 3px dash floating in the gap past the last
@@ -758,7 +761,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                         .with_custom_text_color(txt)
                         .with_font_size(theme::type::ROW)
                         .with_font_weight(
-                            isActive ? theme::type::EMPHASIS
+                            shownInPane ? theme::type::EMPHASIS
                                      : afterhours::colors::FontWeight::Regular)
                         .with_alignment(TextAlignment::Left)
                         .with_roundness(0.0f)
@@ -838,7 +841,7 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                                 .with_roundness(0.0f)
                                 .with_render_layer(baseLayer + 1)
                                 .with_on_draw_fg(hanabi::icons::draw_fg(
-                                    "gear", "", isActive ? tab_colors::tab_text_act()
+                                    "gear", "", shownInPane ? tab_colors::tab_text_act()
                                                          : tab_colors::close_ink(),
                                     12.0f))
                                 .with_debug_name("tab_glyph_settings"));
