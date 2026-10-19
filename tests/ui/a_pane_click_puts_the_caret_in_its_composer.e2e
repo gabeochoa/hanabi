@@ -14,9 +14,13 @@ wait_frames 20
 key CTRL+BACKSLASH
 wait_frames 20
 assert_ui split_right hidden=false
-assert_ui split_focus_edge x=280
+assert_ui split_focus_edge x=693
 
-# Type into the LEFT pane's composer, so there is a draft to lose.
+# The tab that was split out has the keyboard; click back into the left pane
+# and type into ITS composer, so there is a draft to lose.
+click 300 400
+wait_frames 14
+assert_ui split_focus_edge x=280
 click_ui composer_reply_input
 wait_frames 8
 type "left pane"

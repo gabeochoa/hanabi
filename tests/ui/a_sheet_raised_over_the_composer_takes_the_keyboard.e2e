@@ -21,7 +21,7 @@
 # arrives on (ecs/focus_routing.h) -- the same assertion
 # typing_at_a_transcript_starts_a_message.e2e makes.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t9","t2"],"active_tab":"t2","theme":"dark"}
 
 require_thread t2
 wait_frames 20
@@ -50,12 +50,12 @@ wait_frames 14
 expect_input_text composer_reply_input "mine again"
 
 # The claim is the composer's own, not the pane's. Split, and the sheet still
-# outranks the focused pane's composer -- and the draft the left pane was
-# holding is still there afterwards, so nothing was routed to the wrong half.
+# outranks the focused pane's composer -- and the draft t2 was holding moved
+# with it to the right pane, so nothing was routed to the wrong half.
 key CTRL+BACKSLASH
 wait_frames 20
 assert_ui split_right hidden=false
-assert_ui split_focus_edge x=280
+assert_ui split_focus_edge x=693
 
 click_ui composer_reply_input
 wait_frames 10
@@ -72,5 +72,5 @@ expect_input_text composer_reply_input "mine again"
 key ESCAPE
 wait_frames 16
 expect_no_text "Keyboard shortcuts"
-assert_ui split_focus_edge x=280
+assert_ui split_focus_edge x=693
 expect_input_text composer_reply_input "mine again"
