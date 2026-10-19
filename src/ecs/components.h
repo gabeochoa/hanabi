@@ -461,8 +461,8 @@ struct AppComponent : public afterhours::BaseComponent {
             if (p.findOpen) return true;
         return false;
     }
-    // How many panes are actually showing: one, or two when split.
-    size_t active_pane_count() const { return splitOpen ? 2u : 1u; }
+    // How many panes are actually showing: one, or all of them when split.
+    size_t active_pane_count() const { return splitOpen ? panes.size() : 1u; }
 
     // Which main-pane view is showing.
     SmartView view = SmartView::Home;

@@ -55,6 +55,7 @@
 #include "digest_layout.h"
 #include "home_buckets.h"
 #include "background_pane.h"
+#include "pane_layout.h"
 #include "pane_state.h"
 #include "thread_model.h"
 #include "../util/prof.h"
@@ -286,12 +287,18 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         app->lastPaneContentH = layout->main.height + layout->composer.height;
         // The composer row is one height for both split panes: the taller of
         // the two attachment strips, so neither pane's chips are clipped.
+        const int paneCount = static_cast<int>(app->active_pane_count());
         float attachH = attachments_h(*app);
-        if (splitView)
-            attachH = std::max(attachments_h(*app, app->composer_target_for(0)),
-                               attachments_h(*app, app->composer_target_for(1)));
+        size_t splitRows = 1;
+        if (splitView) {
+            attachH = 0.0f;
+            for (int i = 0; i < paneCount; ++i) {
+                attachH = std::max(attachH, attachments_h(*app, app->composer_target_for(i)));
+                splitRows = std::max(splitRows, composerRows_[static_cast<size_t>(i)]);
+            }
+        }
         const size_t rows = splitView
-                                ? std::max(composerRows_[0], composerRows_[1])
+                                ? splitRows
                                 : composerRows_[static_cast<size_t>(
                                       app->clamp_pane(app->focusedPane))];
         app->lastComposerChromeH = kComposerBaseH + attachH +
@@ -305,7 +312,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         const int settingsPane = [&]() -> int {
             if (app->view != SmartView::Chat) return -1;
             if (splitView) {
-                for (int i = 0; i < 2; ++i)
+                for (int i = 0; i < paneCount; ++i)
                     if (model::is_settings_tab(app->panes[static_cast<std::size_t>(i)].selectedId))
                         return i;
                 return -1;
@@ -436,8 +443,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             yieldIn.focusedPane = app->clamp_pane(app->focusedPane);
             yieldIn.focusIdAtStart = static_cast<long long>(ctx.focus_id);
             yieldIn.composerOwnsInput = model::composer_holds_keyboard(app->keyboardClaim);
-            yieldIn.ids[0] = composerIdsLast_[0];
-            yieldIn.ids[1] = composerIdsLast_[1];
+            yieldIn.paneCount = static_cast<int>(app->panes.size());
+            for (int i = 0; i < yieldIn.paneCount; ++i)
+                yieldIn.ids[static_cast<size_t>(i)] = composerIdsLast_[static_cast<size_t>(i)];
             composerYield_.reconcile(yieldIn);
             // In split view the composer belongs to the FOCUSED pane, and it
             // sits UNDER that pane: full-width under two panes gave no clue
@@ -452,7 +460,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 // that much shorter and sits at the bottom, not floating at
                 // the row's top with the card's space empty beneath it.
                 const float askH = ask_card_h(*app);
-                for (int i = 0; i < 2; ++i) {
+                for (int i = 0; i < paneCount; ++i) {
                     // No composer over a surface: there is nothing to write
                     // to, and its pane gives the row's height back.
                     if (i == settingsPane) continue;
@@ -1740,7 +1748,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // Last frame's wrapped row count of each pane's field, for next frame's
     // box; one per pane, because two composers with one count grew each
     // other's field.
-    std::array<size_t, 2> composerRows_ = {1, 1};
+    std::array<size_t, model::kMaxPanes> composerRows_ = [] {
+        std::array<size_t, model::kMaxPanes> rows;
+        rows.fill(1);
+        return rows;
+    }();
     double lastTextZoom_ = 1.0;
     bool liveBody_ = false;
     std::string renderSessionId_;
@@ -1748,8 +1760,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     int lastLineSpacing_ = hanabi::line_spacing::kDefault;
     // Whether each pane's field had the caret last frame (the caret-follow
     // rule acts on the rising edge).
-    std::array<bool, 2> composerFocusedLast_ = {false, false};
-    std::array<model::ComposerIds, 2> composerIdsLast_ = {};
+    std::array<bool, model::kMaxPanes> composerFocusedLast_ = {};
+    std::array<model::ComposerIds, model::kMaxPanes> composerIdsLast_ = {};
     float listY_ = 0.0f;
     float listCursorY_ = -1.0f;
     float listCursorH_ = 0.0f;
