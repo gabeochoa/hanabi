@@ -417,11 +417,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // `focusedPane` is the one the keyboard, the composer and the tab strip act
     // on -- exactly one, always a valid index.
     //
-    // An ARRAY rather than two named members, so every site that services a
+    // A SEQUENCE rather than two named members, so every site that services a
     // pane is a loop and cannot service one and forget the other. That
     // asymmetry is exactly what the old split block was: a second, simpler,
     // subtly different copy of the first pane's plumbing.
-    std::array<Pane, 2> panes;
+    std::vector<Pane> panes = std::vector<Pane>(2);
     int focusedPane = 0;
     // Is the second pane showing? Closed == single pane, and `panes[1]` is left
     // alone -- its thread is remembered, so reopening the split is free and it
