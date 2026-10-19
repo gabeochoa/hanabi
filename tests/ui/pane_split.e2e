@@ -1,16 +1,16 @@
 # Two panes, side by side, and only one of them has the keyboard.
 #
-# The split is Cmd+\ (main_pane_system.h). The harness cannot hold Super at
-# all and turns its CMD+ prefix into Ctrl (afterhours_gaps.md #49, #256), which
+# The split is Cmd+\ (command_system.h): it moves the focused tab into a pane
+# of its own on the right, so it needs a second tab to leave behind. The
+# harness cannot hold Super at all and turns its CMD+ prefix into Ctrl (afterhours_gaps.md #49, #256), which
 # is why the chord reads cmd_or_ctrl_down() and why this presses CTRL+.
 #
 # What is asserted here is GEOMETRY, by widget name, because that is what a
-# split IS: two transcript columns and a divider between them. The text in
-# them is the same text one pane was showing a moment ago -- splitting opens
-# the same thread in both panes -- so an assertion on words could not tell a
-# split from a pane that never split.
+# split IS: two transcript columns and a divider between them. The words in
+# them are two threads' words that shared one pane's strip a moment ago, so an
+# assertion on words could not tell a split from a window that never split.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
 
 require_thread t2
 
@@ -46,22 +46,22 @@ assert_ui split_right x=693 w=407 h=595
 assert_ui transcript_scroll w=408
 assert_ui transcript_scroll_2 w=407
 
-# The keyboard is in the left pane, and the marker says which.
-assert_ui split_focus_edge x=280
+# The tab that was split out has the keyboard, and the marker says which.
+assert_ui split_focus_edge x=693
 
-# Clicking into the right pane's COMPOSER moves focus there: the caret's
+# Clicking into the left pane's COMPOSER moves focus there: the caret's
 # pane is the focused pane, and both panes keep their height (each has a
 # composer of its own now, the reference's shape).
-click 900 700
-wait_frames 10
-assert_ui split_focus_edge x=693
-assert_ui split_left h=595
-assert_ui split_right h=595
-
-# The same on the left moves focus back.
 click 400 700
 wait_frames 10
 assert_ui split_focus_edge x=280
+assert_ui split_left h=595
+assert_ui split_right h=595
+
+# The same on the right moves focus back.
+click 900 700
+wait_frames 10
+assert_ui split_focus_edge x=693
 assert_ui split_left h=595
 assert_ui split_right h=595
 
