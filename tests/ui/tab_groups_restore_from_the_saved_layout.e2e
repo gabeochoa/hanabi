@@ -1,0 +1,8 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3"],"active_tab":"t3","tab_layout":{"groups":[{"tabs":["t1"],"kept":[],"selected":"t1"},{"tabs":["t2","t3"],"kept":[],"selected":"t3"}],"active":"t3","axis":"horizontal"},"theme":"dark"}
+
+require_thread t1
+require_thread t3
+expect_groups "t1|t2,t3" 1 "t1,t3"
+assert_ui tab_strip x=280 w=408
+assert_ui tab_strip_2 x=693 w=407
+assert_ui split_focus_edge x=693

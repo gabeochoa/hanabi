@@ -1,0 +1,11 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3","t4"],"active_tab":"t1","theme":"dark"}
+
+require_thread t1
+split_tab t2 right
+wait_frames 30
+split_tab t3 right
+wait_frames 60
+expect_groups "t1,t4|t3|t2" 1 "t1,t3,t2"
+assert_ui split_left w=480
+assert_ui split_right w=480
+assert_ui split_pane_2 w=480
