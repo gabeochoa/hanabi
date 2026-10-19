@@ -31,7 +31,8 @@ scroll_wheel 0 -600
 wait_frames 8
 click_ui settings_compress_runs
 wait_frames 10
-key ESCAPE
-wait_frames 12
-expect_no_ui stretch_tks-w1
+open_thread rtools
+wait_frames 20
+expect_open rtools
 expect_text "delivered"
+expect_no_ui stretch_tks-w1
