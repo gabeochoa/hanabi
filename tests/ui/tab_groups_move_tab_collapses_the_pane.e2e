@@ -1,0 +1,14 @@
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t1","t2","t3"],"active_tab":"t1","theme":"dark"}
+
+require_thread t1
+split_tab t3 right
+wait_frames 30
+expect_groups "t1,t2|t3" 1 "t1,t3"
+move_tab t3 0
+wait_frames 30
+expect_groups "t1,t2,t3" 0 "t3"
+require_thread t3
+assert_ui transcript_scroll w=820
+move_tab t1 1
+wait_frames 30
+expect_groups "t2,t3|t1" 1 "t3,t1"

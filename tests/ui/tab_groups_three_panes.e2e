@@ -1,0 +1,18 @@
+# settings: {"window_width":1500,"window_height":760,"open_tabs":["t1","t2","t3","t4"],"active_tab":"t1","theme":"dark"}
+
+require_thread t1
+split_tab t2 right
+wait_frames 30
+split_tab t3 right
+wait_frames 30
+expect_groups "t1,t4|t3|t2" 1 "t1,t3,t2"
+require_thread t3
+require_thread t2
+assert_ui split_left hidden=false
+assert_ui split_right hidden=false
+assert_ui split_pane_2 hidden=false
+assert_ui split_divider hidden=false
+assert_ui split_divider_2 hidden=false
+move_tab t2 0
+wait_frames 30
+expect_groups "t1,t4,t2|t3" 0 "t2,t3"

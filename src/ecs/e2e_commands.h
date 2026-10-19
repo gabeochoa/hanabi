@@ -82,6 +82,7 @@
 #include "../native_snooze_prompt.h"
 #include "snooze_store_expect.h"
 #include "tab_keep_flash.h"
+#include "tab_model.h"
 #include "ui_clock.h"
 #include "../resize_drive.h"
 #include "../test_hooks.h"
@@ -306,6 +307,129 @@ inline std::uint64_t fingerprint(std::string_view value) {
     }
     return hash;
 }
+
+struct HandleSplitTabCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("split_tab")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("split_tab requires <session> <right|left|down|up>");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        auto* strip = ecs::find_singleton<ecs::TabStripComponent>();
+        if (app == nullptr || strip == nullptr) {
+            cmd.fail("split_tab: no app");
+            return;
+        }
+        const std::string& dir = cmd.arg(1);
+        const bool vertical = dir == "down" || dir == "up";
+        const bool after = dir == "right" || dir == "down";
+        if (!vertical && !after && dir != "left") {
+            cmd.fail("split_tab: direction is right, left, down or up");
+            return;
+        }
+        for (const auto id : strip->tabOrder) {
+            auto opt = afterhours::EntityHelper::getEntityForID(id);
+            if (!opt.valid() || !opt->has<ecs::Tab>() || opt->get<ecs::Tab>().sessionId != cmd.arg(0))
+                continue;
+            const int group = opt->get<ecs::Tab>().group;
+            const bool split = ecs::model::split_tab(
+                *strip, *app, id, after ? group + 1 : group,
+                vertical ? ecs::model::SplitAxis::Vertical : ecs::model::SplitAxis::Horizontal);
+            if (!split) cmd.fail("split_tab: " + cmd.arg(0) + " cannot split that way (alone in its pane?)");
+            else cmd.consume();
+            return;
+        }
+        cmd.fail("split_tab: no open tab for " + cmd.arg(0));
+    }
+};
+
+struct HandleMoveTabCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("move_tab")) return;
+        if (!cmd.has_args(2)) {
+            cmd.fail("move_tab requires <session> <group>");
+            return;
+        }
+        ecs::AppComponent* app = app_component();
+        auto* strip = ecs::find_singleton<ecs::TabStripComponent>();
+        if (app == nullptr || strip == nullptr) {
+            cmd.fail("move_tab: no app");
+            return;
+        }
+        for (const auto id : strip->tabOrder) {
+            auto opt = afterhours::EntityHelper::getEntityForID(id);
+            if (!opt.valid() || !opt->has<ecs::Tab>() || opt->get<ecs::Tab>().sessionId != cmd.arg(0))
+                continue;
+            ecs::model::move_tab_to_group(*strip, *app, id, cmd.arg_as<int>(1));
+            cmd.consume();
+            return;
+        }
+        cmd.fail("move_tab: no open tab for " + cmd.arg(0));
+    }
+};
+
+struct HandleExpectGroupsCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    static std::string layout() {
+        auto* strip = ecs::find_singleton<ecs::TabStripComponent>();
+        if (strip == nullptr) return "(no strip)";
+        std::map<int, std::string> rows;
+        for (const auto id : strip->tabOrder) {
+            auto opt = afterhours::EntityHelper::getEntityForID(id);
+            if (!opt.valid() || !opt->has<ecs::Tab>()) continue;
+            std::string& row = rows[opt->get<ecs::Tab>().group];
+            if (!row.empty()) row += ",";
+            row += opt->get<ecs::Tab>().sessionId;
+        }
+        std::string out;
+        for (const auto& [group, row] : rows) {
+            (void)group;
+            if (!out.empty()) out += "|";
+            out += row;
+        }
+        return out;
+    }
+
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_groups")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_groups requires <a,b|c> [focused_pane] [shown,per,pane]");
+            return;
+        }
+        const ecs::AppComponent* app = app_component();
+        const std::string have = layout();
+        bool ok = app != nullptr && have == cmd.arg(0);
+        if (ok && cmd.has_args(2)) ok = app->focusedPane == cmd.arg_as<int>(1);
+        if (ok && cmd.has_args(3)) {
+            std::string shown;
+            for (std::size_t i = 0; i < app->active_pane_count(); ++i) {
+                if (i > 0) shown += ",";
+                shown += app->panes[i].selectedId;
+            }
+            ok = shown == cmd.arg(2);
+        }
+        if (ok) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::format("groups mismatch: have '{}' want '{}' focused={} groupCount={}", have,
+                             cmd.arg(0), app != nullptr ? app->focusedPane : -1,
+                             app != nullptr ? app->groupCount : -1));
+    }
+};
 
 struct HandleResetClipboardCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
@@ -5357,6 +5481,9 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
         std::make_unique<HandleExpectNotFocusedCommand>());
     sm.register_update_system(std::make_unique<HandleClickLinkCommand>());
     sm.register_update_system(std::make_unique<HandleExpectPanesCommand>());
+    sm.register_update_system(std::make_unique<HandleSplitTabCommand>());
+    sm.register_update_system(std::make_unique<HandleMoveTabCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectGroupsCommand>());
     sm.register_update_system(std::make_unique<HandleResetClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleSetClipboardCommand>());
     sm.register_update_system(std::make_unique<HandleExpectClipboardCommand>());
