@@ -15,6 +15,6 @@ expect_text "CUSTOMIZABLE COMMANDS"
 # Archive Current Conversation 34pt, Report a Bug 34pt, Focus Previous and
 # Next Pane 68pt, Split Right and Down, Move Pane Left and Right 136pt.
 mouse_move 300 300
-scroll_wheel 0 -80
+scroll_wheel 0 -60
 wait_frames 12
 expect_text "EDITING TEXT"
