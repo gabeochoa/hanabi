@@ -37,7 +37,7 @@ expect_link_opened ""
 native_right_click_text "SKU backfill — my name for it"
 wait_frames 6
 native_menu_expect busy session:t6
-native_menu_inject export_clipboard
+native_menu_inject open_web
 wait_frames 10
 native_menu_expect idle
 expect_link_opened ""

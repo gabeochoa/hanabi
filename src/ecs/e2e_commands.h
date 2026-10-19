@@ -1208,6 +1208,17 @@ struct HandleNativeDragResizeCommand
     }
 };
 
+// The arrow presses a native menu walk still owes, posted one every other
+// frame from the walk system's own tick: a menu swallows presses that land
+// faster than its tracking loop reads them, and a command's frame budget is
+// shorter than a long walk. A later native_key or native_menu_expect waits
+// for the queue to drain before it acts.
+inline std::vector<unsigned short>& native_walk_queue() {
+    static std::vector<unsigned short> q;
+    return q;
+}
+inline bool native_walk_draining() { return !native_walk_queue().empty(); }
+
 struct HandleNativeKeyCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
     void for_each_with(afterhours::Entity&,
@@ -1216,6 +1227,11 @@ struct HandleNativeKeyCommand
         if (cmd.is_consumed() || !cmd.is("native_key")) return;
         if (!cmd.has_args(1)) {
             cmd.fail("native_key requires <keycode> [chars] [shift|ctrl|alt|cmd...]");
+            return;
+        }
+        if (native_walk_draining()) {
+            cmd.frames_alive = 0;  // the budget starts when the walk has landed
+            cmd.retry();
             return;
         }
         if (!hanabi_native_has_window() || !native_mode_on()) {
@@ -1852,9 +1868,15 @@ struct HandleCaptureReceiptCommand
 // whenever a row moved; this one names what it wants.
 struct HandleNativeMenuWalkCommand
     : afterhours::System<afterhours::testing::PendingE2ECommand> {
-    std::vector<unsigned short> plan_;
-    std::size_t sent_ = 0;
-    int planned_for_ = -1;
+    int tick_ = 0;
+
+    void once(float) override {
+        auto& q = native_walk_queue();
+        if (q.empty()) return;
+        if (++tick_ % 2 != 0) return;
+        hanabi_native_key(q.front(), "", 0);
+        q.erase(q.begin());
+    }
 
     static const hanabi::native_menu::Open* open_state() {
         if (const ecs::AppComponent* app = app_component()) {
@@ -1878,7 +1900,7 @@ struct HandleNativeMenuWalkCommand
             cmd.fail("native_menu_walk needs `native_mode on` in a windowed run");
             return;
         }
-        if (planned_for_ != cmd.line_number) {
+        {
             const hanabi::native_menu::Open* open = open_state();
             if (open == nullptr || !hanabi::native_menu::tracking()) {
                 if (cmd.frames_alive < kGiveUpFrame) {
@@ -1888,8 +1910,7 @@ struct HandleNativeMenuWalkCommand
                 cmd.fail("native_menu_walk: no native menu is open");
                 return;
             }
-            plan_.clear();
-            sent_ = 0;
+            std::vector<unsigned short> plan_;
             std::size_t row = hanabi::native_menu::kNoRow;
             for (std::size_t i = 0; i < open->action_ids.size(); ++i)
                 if (open->action_ids[i] == cmd.arg(0)) { row = i; break; }
@@ -1919,18 +1940,10 @@ struct HandleNativeMenuWalkCommand
                 for (std::size_t i = 0; i < child; ++i)
                     if (i >= off.size() || !off[i]) plan_.push_back(125);
             }
-            planned_for_ = cmd.line_number;
-            cmd.retry();
-            return;
+            native_walk_queue() = std::move(plan_);
+            tick_ = 0;
+            cmd.consume();
         }
-        if (sent_ < plan_.size()) {
-            hanabi_native_key(plan_[sent_], "", 0);
-            ++sent_;
-            cmd.retry();
-            return;
-        }
-        planned_for_ = -1;
-        cmd.consume();
     }
 };
 

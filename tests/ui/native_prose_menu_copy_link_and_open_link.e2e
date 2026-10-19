@@ -17,7 +17,7 @@ native_right_click_link D948120
 wait_frames 6
 native_menu_expect open message:t1/m2
 dump_message_menu
-native_menu_expect items=5
+native_menu_expect items=8
 native_menu_expect action open_link
 native_menu_expect action copy_link
 native_menu_expect action copy_message

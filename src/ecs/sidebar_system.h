@@ -1378,6 +1378,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         {
             const int soundNow = Settings::get().get_sound_override(target->id);
             hanabi::surface::MenuItem m{"Notifications", "row_menu_notifications", false, false};
+            m.action_id = "notifications";
             const auto leaf = [&](const char* label, const char* dbg, const char* id, bool off) {
                 hanabi::surface::MenuLeaf l;
                 l.label = label;
@@ -1404,6 +1405,7 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
             const hanabi::session_theme::Choice now =
                 hanabi::session_theme::parse(Settings::get().get_session_theme(target->id));
             hanabi::surface::MenuItem m{"Theme", "row_menu_theme", false, false};
+            m.action_id = "theme";
             const auto leaf = [&](const std::string& label, const std::string& dbg, const std::string& key,
                                   bool off) {
                 hanabi::surface::MenuLeaf l;

@@ -25,7 +25,7 @@ wait_frames 6
 native_menu_expect open session:t6
 native_menu_expect frames_driven>=4
 # Down arrow = key code 125, Return = 36.
-native_menu_walk mute
+native_menu_walk notifications mute
 # Heartbeat while AppKit tracks, BRACKETED: the menu is open before the wait
 # and still open after it, so an early close cannot pass as frames running.
 native_menu_expect open session:t6
