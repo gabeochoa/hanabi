@@ -24,11 +24,12 @@ expect_no_ui tab_split_drop_zone
 assert_ui split_close hidden=false
 expect_groups "t2|t6" 1 "t2,t6"
 
-# Close the split, then drop on the LEFT half: the tab splits to the left.
+# Close the split (the pane that had the keyboard keeps its tab, t6), then
+# drop on the LEFT half: the tab splits to the left.
 click_ui split_close
 wait_frames 20
 expect_no_ui split_close
-expect_groups "t2,t6" 0 "t2"
+expect_groups "t2,t6" 0 "t6"
 mouse_down 560 48
 wait_frames 2
 mouse_move 520 200

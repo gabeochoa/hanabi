@@ -1,7 +1,7 @@
 # The wheel drives the pane the pointer is over, and only that one.
 #
 # Splitting shows two transcripts at once, each with its own scroll view and its
-# own follow-latch (PaneState is keyed by pane index as well as thread id). The
+# own follow-latch (PaneState is keyed by thread, and each pane holds its own). The
 # thing that goes wrong when a second pane arrives is that a gesture keeps
 # addressing the first one -- the scroll views used to share a debug name, and
 # the follow-latch used to share a map key -- so the claim worth holding is not
