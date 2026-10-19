@@ -392,4 +392,18 @@ float measure_advance_in(const char* font_name, const char* text, float size) {
     return advance_in_registered(font_name, text, size);
 }
 
+bool face_has_glyph(const char* font_name, std::uint32_t codepoint) {
+    auto* manager = afterhours::EntityHelper::get_singleton_cmp<
+        afterhours::ui::FontManager>();
+    if (manager == nullptr) return false;
+    const std::string name =
+        (font_name == nullptr || *font_name == '\0')
+            ? manager->resolve_weighted(afterhours::ui::UIComponent::DEFAULT_FONT,
+                                        afterhours::colors::FontWeight::Regular)
+            : std::string(font_name);
+    const auto it = manager->fonts.find(name);
+    if (it == manager->fonts.end() || !afterhours::is_font_loaded(it->second)) return false;
+    return afterhours::font_has_glyph(it->second, static_cast<int>(codepoint));
+}
+
 }  // namespace hanabi::fonts

@@ -4217,6 +4217,21 @@ class MockClient : public Client {
                  hrs_ago(2), ""},
             };
             v.push_back(std::move(s));
+            if (std::string(md) == "math") {
+                Session m;
+                m.summary = calm("rmath", "the area under the curve", hrs_ago(1), "active",
+                                 ThreadState::Unknown, "inline math fixture");
+                m.messages = {
+                    {"mm1", Role::User, "what does the integral come to", hrs_ago(1), ""},
+                    {"mm2", Role::Assistant,
+                     "For a disc of radius $r$ the area is $\\pi r^2$, so at $r = 2$ it is $4\\pi$.\n"
+                     "\n"
+                     "The budget was $5 and $10 a seat; `echo $HOME` prints the path and $x \\to y$ "
+                     "stays as typed where the face has no arrow.",
+                     hrs_ago(1), ""},
+                };
+                v.push_back(std::move(m));
+            }
         }
 
         // THINKING FIXTURE: a reply whose reasoning arrives as its own block,

@@ -3,6 +3,7 @@
 #include <afterhours/src/plugins/color.h>
 #include "font_plan.h"
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -51,5 +52,6 @@ float measure_advance(const char* text, float size,
 // app face -- for a chip sized around glyphs it draws in that face. 0 when the
 // face is not registered or not loaded.
 float measure_advance_in(const char* font_name, const char* text, float size);
+bool face_has_glyph(const char* font_name, std::uint32_t codepoint);
 
 }  // namespace hanabi::fonts

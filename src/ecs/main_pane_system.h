@@ -75,6 +75,7 @@
 #include "../ui/find_highlight.h"
 #include "../ui/find_nav.h"
 #include "../ui/link_detect.h"
+#include "../ui/inline_math.h"
 #include "../ui/md_spans.h"
 #include "../ui/minimap.h"
 #include "../ui/find_operators.h"
@@ -1497,9 +1498,31 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static InlineParse md_to_spans(const std::string& line) {
         hanabi::prof::tick("text.md_spans");
         hanabi::prof::tick("text.md_bytes", line.size());
-        return hanabi::md::inline_spans(
-            line, hanabi::md::Palette{theme::text_primary(), theme::accent(),
-                                      theme::text_primary()});
+        const hanabi::md::Palette palette{theme::text_primary(), theme::accent(), theme::text_primary()};
+        if (line.find('$') != std::string::npos)
+            return hanabi::md::inline_spans(hanabi::inline_math::rewrite_line(line, prose_glyph_check()),
+                                            palette);
+        return hanabi::md::inline_spans(line, palette);
+    }
+    static const hanabi::inline_math::GlyphCheck& prose_glyph_check() {
+        static std::string facesKey;
+        static std::unordered_map<std::uint32_t, bool> memo;
+        static const hanabi::inline_math::GlyphCheck check = [](std::uint32_t cp) {
+            const auto it = memo.find(cp);
+            if (it != memo.end()) return it->second;
+            const std::string user = side_face(true);
+            const std::string assistant = side_face(false);
+            const bool ok = hanabi::fonts::face_has_glyph(user.c_str(), cp) &&
+                            hanabi::fonts::face_has_glyph(assistant.c_str(), cp);
+            memo.emplace(cp, ok);
+            return ok;
+        };
+        const std::string key = side_face(true) + "|" + side_face(false);
+        if (key != facesKey) {
+            facesKey = key;
+            memo.clear();
+        }
+        return check;
     }
     // Visible (marker-free) length of a line, for wrap/height math. MUST match
     // md_to_spans(line).visible.size() so measure and render agree.
