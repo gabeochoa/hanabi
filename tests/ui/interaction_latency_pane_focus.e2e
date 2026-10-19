@@ -9,13 +9,11 @@
 # Its own script because the arm needs an unfocused field to watch focus be
 # gained, and that is only true before anything else in a session has typed.
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","tab_layout":{"groups":[{"tabs":["t2"],"kept":[],"selected":"t2"},{"tabs":["t9"],"kept":[],"selected":"t9"}],"active":"t2","axis":"horizontal"},"theme":"dark"}
 
 require_thread t2
 wait_frames 20
 
-key CTRL+BACKSLASH
-wait_frames 20
 assert_ui split_right hidden=false
 assert_ui split_focus_edge x=280
 

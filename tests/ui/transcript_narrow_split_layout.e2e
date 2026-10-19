@@ -1,9 +1,8 @@
 # Narrow split panes keep transcript and composer controls inside the window.
-# settings: {"window_width":760,"window_height":760,"open_tabs":["r8"],"active_tab":"r8","theme":"dark","sidebar_collapsed":true}
+# settings: {"window_width":760,"window_height":760,"open_tabs":["r8","t2"],"active_tab":"r8","tab_layout":{"groups":[{"tabs":["r8"],"kept":[],"selected":"r8"},{"tabs":["t2"],"kept":[],"selected":"t2"}],"active":"r8","axis":"horizontal"},"theme":"dark","sidebar_collapsed":true}
 # env: HANABI_WIN_W=760 HANABI_WIN_H=760
 
 require_thread r8
-key CTRL+BACKSLASH
 wait_frames 24
 assert_ui split_right x=409 w=351
 assert_ui composer_row x=52 w=352

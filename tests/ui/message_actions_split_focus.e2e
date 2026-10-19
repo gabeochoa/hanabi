@@ -1,8 +1,8 @@
 # A focused action remains in its pane while pointer hover reveals the other pane's independent action bar.
-# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2"],"active_tab":"t2","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t9"],"active_tab":"t2","tab_layout":{"groups":[{"tabs":["t2"],"kept":[],"selected":"t2"},{"tabs":["t9"],"kept":[],"selected":"t9"}],"active":"t2","axis":"horizontal"},"theme":"dark"}
 
 require_thread t2
-key CTRL+BACKSLASH
+require_thread t9
 wait_frames 20
 
 mouse_move 600 160
