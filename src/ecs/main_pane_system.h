@@ -3050,9 +3050,8 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_split(UIContext<InputAction>& ctx, Entity& parent,
                       AppComponent& app, float paneW, float paneH,
                       float composerH) {
-        const float usable = paneW - kDividerW;
-        const float leftW = split_left_width(app, paneW);
-        const float rightW = usable - leftW;
+        const int panes = static_cast<int>(app.active_pane_count());
+        const std::vector<float> widths = pane_widths(app, paneW);
 
         auto rowWrap = div(ctx, mk(parent, 4100),
             ComponentConfig{}
@@ -3068,11 +3067,11 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // rides only the focused pane's composer, so the other pane keeps
         // the card's share of the row for its transcript.
         const float askH = ask_card_h(app);
-        const float leftH = paneH - composerH + (app.focusedPane == 0 ? 0.0f : askH);
-        const float rightH = paneH - composerH + (app.focusedPane == 1 ? 0.0f : askH);
-        pane_column(ctx, rowWrap.ent(), app, 0, leftW, leftH);
-        divider_bar(ctx, rowWrap.ent(), app, paneW);
-        pane_column(ctx, rowWrap.ent(), app, 1, rightW, rightH);
+        for (int i = 0; i < panes; ++i) {
+            if (i > 0) divider_bar(ctx, rowWrap.ent(), app, paneW, i - 1);
+            const float h = paneH - composerH + (app.focusedPane == i ? 0.0f : askH);
+            pane_column(ctx, rowWrap.ent(), app, i, widths[static_cast<std::size_t>(i)], h);
+        }
         close_split_button(ctx, parent, app, paneW);
     }
 
@@ -3127,6 +3126,19 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                   usable);
     }
 
+    static std::vector<float> pane_widths(const AppComponent& app, float paneW) {
+        const int panes = static_cast<int>(app.active_pane_count());
+        if (panes <= 2) {
+            const float leftW = split_left_width(app, paneW);
+            return panes == 2 ? std::vector<float>{leftW, paneW - kDividerW - leftW}
+                              : std::vector<float>{paneW};
+        }
+        const float usable = paneW - kDividerW * static_cast<float>(panes - 1);
+        return model::pane_widths_for(model::normalized_shares(app.paneShares, panes), usable,
+                                      kMinimumPaneW)
+            .widths;
+    }
+
     // ONE pane of the split. The debug name carries the pane index, and that
     // is not cosmetic: a scroll view is reachable from outside this app only
     // by its debug name (afterhours_gaps.md #147), so with two of them on
@@ -3148,7 +3160,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_flex_wrap(FlexWrap::NoWrap)
                 .with_transparent_bg()
                 .with_roundness(0.0f)
-                .with_debug_name(index == 0 ? "split_left" : "split_right"));
+                .with_debug_name(index == 0   ? std::string("split_left")
+                                 : index == 1 ? std::string("split_right")
+                                              : "split_pane_" + std::to_string(index)));
 
         // Clicking anywhere in a pane focuses it. A press rather than a
         // release, and read BEFORE the pane builds, so the click that focuses
@@ -3206,6 +3220,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
         // composer is a click in that pane (each pane has its own now).
         (void)index;
         const float paneH = r.height + layout->composer.height;
+        if (app.active_pane_count() > 2) {
+            const std::vector<float> widths = pane_widths(app, r.width);
+            const std::size_t at = static_cast<std::size_t>(std::clamp(index, 0, static_cast<int>(widths.size()) - 1));
+            float x = r.x;
+            for (std::size_t j = 0; j < at; ++j) x += widths[j] + kDividerW;
+            return RectangleType{x, r.y, widths[at], paneH};
+        }
         const float leftW = split_left_width(app, r.width);
         if (index == 0) return RectangleType{r.x, r.y, leftW, paneH};
         return RectangleType{r.x + leftW + kDividerW, r.y,
@@ -3227,9 +3248,9 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     // would have caught it; the widget being wider than its ink is the way to
     // have both.
     void divider_bar(UIContext<InputAction>& ctx, Entity& parent,
-                     AppComponent& app, float paneW) {
+                     AppComponent& app, float paneW, int which = 0) {
         const bool dragging = app.splitDragging;
-        auto d = divider(ctx, mk(parent, 2), Axis::X,
+        auto d = divider(ctx, mk(parent, which == 0 ? 2 : 4200 + which), Axis::X,
             ComponentConfig{}
                 .with_size(ComponentSize{pixels(kDividerW), percent(1.0f)})
                 .with_transparent_bg()
@@ -3240,14 +3261,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         RectangleType{x, r.y, 1.0f, r.height},
                         dragging ? theme::accent() : theme::border());
                 })
-                .with_debug_name("split_divider"));
+                .with_debug_name(which == 0 ? std::string("split_divider")
+                                            : "split_divider_" + std::to_string(which + 1)));
         // `down` on the element is the gesture; the app keeps the flag only so
         // the line can say it is being dragged. The library owns the gesture's
         // lifetime, which is what the old bool on the app was standing in for.
-        app.splitDragging =
+        const bool down =
             d.ent().template has<afterhours::ui::HasDragListener>() &&
             d.ent().template get<afterhours::ui::HasDragListener>().down;
+        app.splitDragging = (which == 0 ? false : app.splitDragging) || down;
         if (!d) return;
+        const int panes = static_cast<int>(app.active_pane_count());
+        if (panes > 2) {
+            const float usable = paneW - kDividerW * static_cast<float>(panes - 1);
+            if (usable <= 1.0f) return;
+            app.paneShares = model::shares_after_drag(model::normalized_shares(app.paneShares, panes),
+                                                      which, d.template as<float>(), usable,
+                                                      kMinimumPaneW);
+            return;
+        }
         const float usable = paneW - kDividerW;
         if (usable <= 1.0f) return;
         const float delta = d.template as<float>();

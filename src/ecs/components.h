@@ -431,6 +431,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // Where the divider sits, as the LEFT pane's share of the pane width.
     // Clamped to [kSplitMinRatio, kSplitMaxRatio] wherever it is written.
     float splitRatio = 0.5f;
+    std::vector<float> paneShares;
     // A divider drag in flight. On the app rather than in a render-local static
     // for the reason every gesture in this app is: the widget is rebuilt every
     // frame, so the gesture cannot live in it.
