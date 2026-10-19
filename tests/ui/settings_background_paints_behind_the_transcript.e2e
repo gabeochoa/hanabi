@@ -23,7 +23,9 @@ expect_text "Background   ·   Mouse Glow"
 expect_background glow vivid
 key ESCAPE
 wait_frames 12
-require_thread t2
+open_thread t2
+wait_frames 30
+expect_open t2
 assert_ui main_pane hidden=false
 expect_background glow vivid
 click_ui sb_settings

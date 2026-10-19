@@ -147,14 +147,11 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         if (app->settingsState == ecs::LoadState::Idle && !app->requestSettings)
             app->requestSettings = true;
 
-        // Keep themeChoice in sync with the palette the app booted with
-        // (main.cpp applies the persisted theme via theme::set_mode at startup
-        // but doesn't touch themeChoice). Only reconcile the light/dark case;
-        // leave an explicit "system" choice intact.
-        if (app->themeChoice != "system") {
-            app->themeChoice =
-                (theme::mode() == theme::Mode::Light) ? "light" : "dark";
-        }
+        // Keep themeChoice in sync with the look the app booted with
+        // (main.cpp applies the persisted theme via theme::set_look at startup
+        // but doesn't touch themeChoice). Reconcile to the look's own name
+        // (light / dark / classic / win95); leave an explicit "system" intact.
+        if (app->themeChoice != "system") app->themeChoice = theme::choice_for_look(theme::look());
 
         if (!wasOpen_) adopt_open_state(ctx, *app);
         else if (!app->settingsRoute.empty()) follow_route(*app);

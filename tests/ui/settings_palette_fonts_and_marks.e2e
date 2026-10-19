@@ -9,7 +9,7 @@ click_ui settings_user_font_1
 wait_frames 10
 hover_ui settings_pane_scroll
 wait_frames 2
-scroll_wheel 0 -120
+scroll_wheel 0 -4
 wait_frames 8
 expect_text "Replies"
 click_ui settings_assistant_font_1
