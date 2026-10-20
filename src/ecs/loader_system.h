@@ -1044,7 +1044,7 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                     app.liveListSeen = true;
                     // Persist the fresh list for the next launch's instant paint.
                     if (disk_cache_enabled(app))
-                        api::disk_cache::save_sessions(
+                        api::disk_cache::save_sessions_async(
                             app.attachRefusals.empty()
                                 ? app.sessions
                                 : app.catalog_without_refusals());

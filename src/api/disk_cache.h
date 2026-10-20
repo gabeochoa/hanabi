@@ -53,6 +53,12 @@ std::optional<std::vector<SessionSummary>> load_sessions();
 // The sidebar's Oldest-first order learns these one session at a time; they
 // never change, so they are kept across launches. Best effort like the rest.
 void save_created_at(const std::unordered_map<std::string, std::int64_t>& times);
+// The catalog written off the frame thread: the JSON build, the dump and the
+// write run on one background writer, latest snapshot wins. load_sessions
+// answers from a queued or in-flight snapshot first, wipe_all drops the queue,
+// set_namespace and the quit flush it (bounded).
+void save_sessions_async(std::vector<SessionSummary> sessions);
+bool flush_session_writes(std::chrono::milliseconds limit = std::chrono::milliseconds(3000));
 std::unordered_map<std::string, std::int64_t> load_created_at();
 
 // --- Transcripts (one file per session id) ------------------------------

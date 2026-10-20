@@ -73,6 +73,7 @@ void set_namespace(const std::string& key) {
     // Queued snapshots belong to the namespace they were taken in, and the
     // writer reads the namespace when it writes.
     flush_transcript_writes(std::chrono::milliseconds(5000));
+    flush_session_writes(std::chrono::milliseconds(5000));
     invalidate_content_index();  // a different namespace is a different corpus
     g_epoch.fetch_add(1, std::memory_order_relaxed);
     g_namespace = key.empty() ? std::string() : ns_token(key);
@@ -598,6 +599,23 @@ void remove_retained_attachment(const Attachment& attachment) {
 }
 
 // ---- session list --------------------------------------------------------
+namespace {
+struct SessionsWriter {
+    std::mutex mu;
+    std::condition_variable work;
+    std::condition_variable idle;
+    std::optional<std::vector<SessionSummary>> pending;
+    std::optional<std::vector<SessionSummary>> inflight;
+    bool started = false;
+    [[nodiscard]] bool quiet() const { return !pending && !inflight; }
+};
+
+SessionsWriter& sessions_writer() {
+    static auto* w = new SessionsWriter;
+    return *w;
+}
+}  // namespace
+
 void save_sessions(const std::vector<SessionSummary>& sessions) {
     if (!ensure_dir(cache_dir())) return;
     json arr = json::array();
@@ -606,7 +624,55 @@ void save_sessions(const std::vector<SessionSummary>& sessions) {
     write_file(sessions_file(), doc.dump());
 }
 
+namespace {
+void sessions_writer_loop() {
+    SessionsWriter& w = sessions_writer();
+    std::unique_lock<std::mutex> lk(w.mu);
+    for (;;) {
+        w.work.wait(lk, [&] { return w.pending.has_value(); });
+        w.inflight = std::move(w.pending);
+        w.pending.reset();
+        lk.unlock();
+        save_sessions(*w.inflight);
+        lk.lock();
+        w.inflight.reset();
+        if (w.quiet()) w.idle.notify_all();
+    }
+}
+
+void discard_session_writes() {
+    SessionsWriter& w = sessions_writer();
+    std::unique_lock<std::mutex> lk(w.mu);
+    w.pending.reset();
+    w.idle.wait(lk, [&] { return !w.inflight.has_value(); });
+}
+}  // namespace
+
+void save_sessions_async(std::vector<SessionSummary> sessions) {
+    SessionsWriter& w = sessions_writer();
+    std::lock_guard<std::mutex> lk(w.mu);
+    w.pending = std::move(sessions);
+    if (!w.started) {
+        w.started = true;
+        std::thread(sessions_writer_loop).detach();
+    }
+    w.work.notify_one();
+}
+
+bool flush_session_writes(std::chrono::milliseconds limit) {
+    SessionsWriter& w = sessions_writer();
+    std::unique_lock<std::mutex> lk(w.mu);
+    if (!w.started || w.quiet()) return true;
+    return w.idle.wait_for(lk, limit, [&] { return w.quiet(); });
+}
+
 std::optional<std::vector<SessionSummary>> load_sessions() {
+    {
+        SessionsWriter& w = sessions_writer();
+        std::lock_guard<std::mutex> lk(w.mu);
+        if (w.pending) return *w.pending;
+        if (w.inflight) return *w.inflight;
+    }
     const std::string path = sessions_file();
     if (path.empty()) return std::nullopt;
     std::ifstream in(path);
@@ -1152,6 +1218,7 @@ std::uint64_t epoch() {
 
 WipeResult wipe_all_report() {
     discard_transcript_writes();  // a queued write must not resurrect what is cleared
+    discard_session_writes();
     g_epoch.fetch_add(1, std::memory_order_relaxed);
     invalidate_content_index();  // the corpus changed under the search memo
     const std::uint64_t before = total_bytes();

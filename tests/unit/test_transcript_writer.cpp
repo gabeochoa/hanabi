@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <vector>
 #include <unistd.h>
 
 #include "../../src/api/disk_cache.h"
@@ -79,6 +80,30 @@ int main() {
     dc::transcript_writer_pause(false);
     CHECK(dc::flush_transcript_writes());
     CHECK(text_of(dc::load_transcript("d")) == "d1");
+
+    // The catalog: the newest snapshot wins, answers before its file exists,
+    // and a queued write does not resurrect a cleared cache.
+    {
+        std::vector<api::SessionSummary> one(2);
+        one[0].id = "s0";
+        one[1].id = "s1";
+        std::vector<api::SessionSummary> three(3);
+        three[0].id = "n0";
+        three[1].id = "n1";
+        three[2].id = "n2";
+        dc::save_sessions_async(one);
+        dc::save_sessions_async(three);
+        const auto early = dc::load_sessions();
+        CHECK(early && early->size() == 3);
+        CHECK(dc::flush_session_writes());
+        const auto settled = dc::load_sessions();
+        CHECK(settled && settled->size() == 3 && (*settled)[0].id == "n0");
+
+        dc::save_sessions_async(one);
+        dc::wipe_all_report();
+        CHECK(dc::flush_session_writes());
+        CHECK(!dc::load_sessions().has_value());
+    }
 
     std::error_code ec;
     fs::remove_all(dir, ec);

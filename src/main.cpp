@@ -1251,6 +1251,7 @@ static void app_cleanup() {
     // (bounded: a stalled disk must not hang the quit).
     if (!api::disk_cache::flush_transcript_writes(std::chrono::milliseconds(3000)))
         std::fprintf(stderr, "[cache] quit: transcript writes did not finish in 3 s\n");
+    api::disk_cache::flush_session_writes(std::chrono::milliseconds(3000));
 
     // FAST, non-hanging quit. AppComponent holds ~9 std::future<>s from
     // std::async (transcript/list/send/stream/steer/split/settings-sync). A
