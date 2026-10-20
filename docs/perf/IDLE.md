@@ -108,4 +108,20 @@ Both follow-ups from that pass were then fixed (same day):
 
    The worst single persist in a frame went from most of a 16.7 ms frame to under 1.5 ms; persist1's frame-thread CPU 30.7 -> 22.5-23.4 ms/s (persist5's total is dominated by the harness seeding 2,000 files at start). The write volume is unchanged at a 1 s refetch cadence (coalescing only folds bursts). Unit: `test_transcript_writer` (coalescing, read-through, per-thread order, a wipe drops queued writes, bounded flush).
 
-Still open: the Pulse cadence (thinking) and the MM3 deadline wake are the remaining steady costs while a run is visible; sessions.json, created-at times and drafts still write on the frame thread (small files, rare).
+7. **The steady costs left, measured** (2026-10-19; standalone replicas of the shipped code on a Linux devserver, `CLOCK_THREAD_CPUTIME_ID`, JSON as `to_json(SessionSummary)` writes it; the Mac lane's own numbers for the catalog agree with item 2's table in SCALE.md, 17.6 ms at 2,000 rows).
+
+   | cost, on the frame thread | size | per call | how often | verdict |
+   |---|---|---:|---|---|
+   | `sessions.json` (`save_sessions`) | 200 rows | 1.2 ms | each list refresh; about once a second while a run is on screen | too small to matter |
+   | | 2,000 rows | 12.3 ms | | a dropped frame a second during a live run: **fixed** |
+   | | 10,000 rows | 62 ms | | same |
+   | `drafts.json`, read-modify-write on every keystroke | 1-5 drafts of 40-400 B | 0.08-0.10 ms | per keystroke | not worth a writer: 0.5% of a frame |
+   | | 20 drafts of 4 KB (81 KB) | 0.80 ms | | no change |
+   | | 100 drafts of 4 KB (406 KB) | 4.1 ms | | nobody holds 100 unsent drafts; revisit if the file ever reaches that |
+   | `created_at.json` | 2,000 rows | 0.60 ms | once per learned batch, then never | no change |
+   | Pulse cadence (thinking) | | 10.2 ms/s | 30 fps while a thinking turn is visible | the floor item 3 set; its dot period does not need more |
+   | MM3 deadline wake | | 9.6 ms/s | at each face's next change | the floor item 2 set |
+
+   The catalog is the one with a real cost, and it was on the frame thread: `LoaderSystem` called `save_sessions` where a list landed. It now hands a copy to one background writer (`api::disk_cache::save_sessions_async`): the newest snapshot wins, `load_sessions` answers from a queued or in-flight one, `wipe_all` drops the queue and waits out the write in flight, `set_namespace` and the quit flush it (3 s bound). Unit: `test_transcript_writer` (newest wins, read-through, a clear is not resurrected).
+
+Still open: nothing steady is left above 1 ms at the sizes in use; the Pulse and MM3 rows are floors, not costs to remove.
