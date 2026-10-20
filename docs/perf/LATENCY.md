@@ -49,9 +49,20 @@ runs each, frames identical across runs at loads 10–39):
 
 Every close measures 2: the frame that takes the key no longer builds the
 surface, and the frame after presents without it. Every open that measures
-1 builds the surface on the input frame. `palette_open` at 2 is the one
-open left above the floor; where its second frame goes is the next
-question for this table. `HANABI_LATENCY_TRACE=1` prints each probed
+1 builds the surface on the input frame. `palette_open` at 2 is not the app:
+the harness delivers a `key` (and `enter`, `escape`, `tab`) one frame after
+it queues it (`latency_input_effect_lag` in `ecs/e2e_commands.h`), so a
+key-driven arm cannot read below 2 -- the same floor `popup_close`,
+`palette_close`, `row_menu_close` and `tooltip_close` sit on, which are all
+Escape. The probe's first candidate frame for ⌘K is queue + 2, and the
+palette is built in it (`HANABI_LATENCY_TRACE=1`: `palette_open frame +2:
+gained=7124 outcome=1`; no frame +1 is probed). The same palette opened by a
+click, which the harness delivers with no lag, also reads 2: frame +1 changes
+678 px (the footer button's own press feedback) and the panel is there at
++2, because `button()` takes its press from the hot widget of the frame
+before and the injector moves the pointer and presses in one frame. A real
+pointer has hovered the button for frames by then; the row menu avoids it by
+hit-testing the row itself, which is why `row_menu_open` reads 1. `HANABI_LATENCY_TRACE=1` prints each probed
 frame's ink delta per arm, and the row menu says when it was built and
 closed by presented frame, which is how the two row-menu frames were
 placed.
