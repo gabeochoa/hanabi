@@ -135,3 +135,12 @@ streaming, the 2 fps idle pulse), with the clock jumping the gap, the way
 the reference's CoreAnimation keyframes cost no app redraw. Gate:
 `zig build mm3-idle-gate` (mm3 arm ~20 frames, no `animation` IdleWhy
 entry); the mm3 e2e scripts still pin the faces moving when frames flow.
+
+2026-10-24 (kt-s4vb): the thinking Pulse is gone too. A thinking turn no
+longer pulses at 30 fps (294 frames / 10 s, ~19k allocs/s, a
+pending_future entry on every frame): the indicator is wall-clock, so it
+renders correctly on frames drawn for another reason, and the collect
+finishing still wakes a frame at once through async_ready's ready-edge on
+the collect future. The `streamCollecting` bool is no longer a
+per-frame pending_future wake. Gate: `zig build thinking-idle-gate`
+(thinking arm ~20 frames, no thinking/pending_future IdleWhy entry).

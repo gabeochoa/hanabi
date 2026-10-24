@@ -75,14 +75,15 @@ static void active_work_stays_at_sixty_frames_per_second() {
     }
 }
 
-// A thinking turn pulses at 30 fps (its one slow dot does not need 60), and
-// thinking WITH text arriving is streaming, at the display rate.
-static void thinking_pulses_at_thirty_frames_per_second() {
+// A thinking turn wakes NO frames of its own (kt-s4vb): the indicator is
+// wall-clock and renders on frames drawn for another reason. Thinking WITH
+// text arriving is streaming, at the display rate.
+static void thinking_does_not_wake_frames() {
     FrameSignals s;
     s.thinking = true;
     const int frames = run_for_one_second(s);
-    CHECK(frames >= 29);
-    CHECK(frames <= 31);
+    CHECK(frames >= 2);
+    CHECK(frames <= 3);
     s.streaming = true;
     CHECK(run_for_one_second(s) >= 59);
 }
@@ -135,7 +136,7 @@ static void fixed_ten_fps_prototype_adds_visible_input_latency() {
     CHECK(eventDriven.decide(8333, input).render);
 }
 
-static void caret_thinking_scroll_and_stream_keep_their_cadence() {
+static void caret_scroll_and_stream_keep_their_cadence() {
     FrameSignals caret;
     caret.caret = true;
     CHECK(run_for_one_second(caret) >= 10);
@@ -150,7 +151,9 @@ static void caret_thinking_scroll_and_stream_keep_their_cadence() {
     }
     FrameSignals thinking;
     thinking.thinking = true;
-    CHECK(run_for_one_second(thinking) >= 29);
+    const int idleFrames = run_for_one_second(thinking);
+    CHECK(idleFrames >= 2);
+    CHECK(idleFrames <= 3);
 }
 
 static void split_and_native_notification_wake_in_one_callback() {
@@ -383,8 +386,8 @@ int main() {
     periodic_work_stays_at_ten_frames_per_second();
     external_transitions_wake_immediately();
     fixed_ten_fps_prototype_adds_visible_input_latency();
-    caret_thinking_scroll_and_stream_keep_their_cadence();
-    thinking_pulses_at_thirty_frames_per_second();
+    caret_scroll_and_stream_keep_their_cadence();
+    thinking_does_not_wake_frames();
     split_and_native_notification_wake_in_one_callback();
     lazy_cache_and_search_transitions_wake();
     lifecycle_transitions_wake_without_idle_delay();

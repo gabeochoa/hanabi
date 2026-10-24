@@ -629,6 +629,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "alloc-gate", .desc = "Allocation gate", .cmds = &.{&.{ "bash", "scripts/alloc_gate.sh" }}, .after = need_app },
         .{ .name = "idle-gate", .desc = "Idle gate", .cmds = &.{&.{ "bash", "scripts/idle_gate.sh" }}, .after = need_app },
         .{ .name = "mm3-idle-gate", .desc = "MM3 idle gate: the mm3 icon set must not wake the frame loop (kt-47nf)", .cmds = &.{&.{ "bash", "scripts/mm3_idle_gate.sh" }}, .after = need_app },
+        .{ .name = "thinking-idle-gate", .desc = "Thinking idle gate: a thinking turn must not hold the frame loop (kt-s4vb)", .cmds = &.{&.{ "bash", "scripts/thinking_idle_gate.sh" }}, .after = need_app },
         .{ .name = "scaling-gate", .desc = "Scaling gate", .cmds = &.{&.{ "bash", "scripts/scaling_gate.sh" }}, .after = need_app },
         .{ .name = "memory-scaling-gate", .desc = "Memory scaling gate", .cmds = &.{&.{ "bash", "scripts/memory_scaling_gate.sh" }}, .after = need_app },
         .{ .name = "scroll-gate", .desc = "Scroll gate", .cmds = &.{&.{ "bash", "scripts/scroll_gate.sh" }}, .after = need_app },

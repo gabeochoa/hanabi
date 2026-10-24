@@ -60,7 +60,8 @@ struct FrameSignals {
     bool split_change = false;
     bool animation = false;
     bool streaming = false;
-    bool thinking = false;
+    bool thinking = false;  // retained vocabulary; no producer sets it --
+                               // thinking never wakes a frame (kt-s4vb)
     bool scrolling = false;
     bool dragging = false;
     bool caret = false;
@@ -205,13 +206,9 @@ class FrameActivityPolicy {
         if (s.animation || s.streaming || s.scrolling || s.dragging)
             return FrameCadence::Active;
         if (s.tooltip_dwell) return FrameCadence::Active;
-        // A turn that is THINKING draws one slow pulse (a dot breathing on a
-        // 1.4 s period) and a seconds counter; nothing in it moves fast
-        // enough to need the display rate, and a thinking state lasts minutes.
-        // 30 fps halves its cost (cpu_audit `thinking`: 586 -> ~300 full frames
-        // in 10 s) with no visible step in the pulse. Text arriving is
+        // THINKING sets no cadence (kt-s4vb): the indicator is wall-clock
+        // and renders on frames drawn for another reason. Text arriving is
         // `streaming`, and stays at the display rate.
-        if (s.thinking) return FrameCadence::Pulse;
         if (s.caret || s.timer || s.pending_future)
             return FrameCadence::Periodic;
         return FrameCadence::Idle;

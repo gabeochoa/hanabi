@@ -92,12 +92,24 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
     s.dragging = s.dragging || app.splitDragging || app.rowDrag.live;
     s.streaming = app.streamActive;
     s.pending_future = s.pending_future || app.artifactFetchPending;
-    s.thinking = app.streamCollecting ||
-                 app.streamPhase == ecs::AppComponent::StreamPhase::Thinking;
+    // THINKING (kt-s4vb) never wakes a frame: the thinking indicator is a
+    // wall-clock dot + elapsed timer, so it renders correctly on frames
+    // drawn for another reason (input, streaming, the 2 fps idle pulse),
+    // the way MM3 faces do (kt-47nf). Before, a thinking turn pulsed at
+    // 30 fps (294 frames / 10 s, ~19k allocs/s) for a dot breathing on a
+    // 1.4 s period and a seconds counter. The collect finishing still wakes
+    // a frame at once, through async_ready's ready-edge on
+    // streamCollectFuture below; text arriving is `streaming`, at the
+    // display rate.
 
+    // A stream collect IN FLIGHT is not a per-frame wake (kt-s4vb): it lasts
+    // the whole thinking state, and OR-ing the `streamCollecting` bool put a
+    // pending_future entry on every thinking frame (292/292). The collect
+    // finishing wakes a frame at once through async_ready's ready-edge on
+    // streamCollectFuture below.
     s.pending_future =
         s.pending_future || app.listPending || app.kickoffPending ||
-        app.steerPending || app.sendPending || app.streamCollecting ||
+        app.steerPending || app.sendPending ||
         app.authBeginPending || app.renamePending || app.settingsPending ||
         app.createdAtPending;
     s.async_ready = s.async_ready || frame_future_ready(app.listFuture) ||
