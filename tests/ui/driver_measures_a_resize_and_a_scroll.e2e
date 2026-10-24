@@ -1,0 +1,32 @@
+# kt-h26z: the scriptable debug driver, one script -- drive a scroll
+# gesture and MEASURE it, drive a resize and PROVE it moved, switch a
+# tab and prove it landed. The full epic loop (docs/perf/DRIVER.md) in
+# one script, from the harness's existing commands.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_BIG_TRANSCRIPT=1 HANABI_OPEN=rbig
+
+require_thread rbig
+mouse_move 650 400
+wait_frames 12
+
+# SCROLL + MEASURE: a gesture with a frame reading. watch_ink arms the
+# target; scroll_wheel drives; expect_latency fails if the ink never
+# changes -- which is exactly what a dead driver produces, so the
+# measurement IS the control arm (DRIVER.md rule 4).
+watch_ink scroll_away ui jump_to_bottom
+scroll_wheel 0 3
+wait_frames 25
+expect_latency scroll_away 5
+
+# RESIZE + PROOF: the control arm first -- nothing deferred yet.
+expect_resizes_applied 0
+resize 900 620
+wait_frames 24
+# ...and the render target moved exactly once, at a frame boundary.
+expect_resizes_applied 1
+
+# TAB SWITCH + PROOF: the pane's selected session, not a highlight.
+open_thread t2
+wait_frames 24
+expect_open t2
