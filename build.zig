@@ -617,6 +617,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "chime-gate", .desc = "Run-finished cue", .cmds = &.{&.{ "bash", "scripts/chime_gate.sh" }}, .after = need_app },
         .{ .name = "ask-contrast-gate", .desc = "Ask-card contrast", .cmds = &.{&.{ "python3", "scripts/ask_contrast_gate.py" }}, .after = null },
         .{ .name = "measure-launch", .desc = "Launch/RSS perf gate", .cmds = &.{&.{ "bash", "scripts/measure_launch.sh" }}, .after = need_app },
+        .{ .name = "launch-big-catalog-gate", .desc = "Launch at the kt-fqew shape: 9000-session catalog + 9 restored tabs", .cmds = &.{&.{ "bash", "scripts/launch_big_catalog_gate.sh" }}, .after = need_app },
         .{ .name = "perf-transcript-slope", .desc = "Transcript slope gate", .cmds = &.{&.{ "bash", "scripts/perf_transcript_slope.sh" }}, .after = need_app },
         .{ .name = "perf-text-gate", .desc = "Text measurement gate", .cmds = &.{&.{ "bash", "scripts/perf_text_gate.sh" }}, .after = need_app },
         .{ .name = "find-gate", .desc = "Find level gate", .cmds = &.{&.{ "bash", "scripts/find_gate.sh" }}, .after = need_app },

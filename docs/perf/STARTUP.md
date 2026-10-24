@@ -387,7 +387,52 @@ line makes the number mean something.
 
 ---
 
-## Summary — what moved, and what did not
+## 5. kt-fqew: the Puffin 5,023 ms launch, re-timed on Hanabi
+
+kt-fqew is the Puffin launch knot: median 5,023 ms of n=90 real launches
+on the shipped 0.6.8, 98% unexplained after terms 1-3 (catalog tail
+restore, walked-history adopt, grouping rebuild) were measured at ~9-16%
+together. Its acceptance says to re-time on a catalog of ~9,000 sessions
+and 9 restored conversations. Re-timed on Hanabi at exactly that shape
+(`HANABI_STRESS_SESSIONS=9000`, settings `open_tabs` of 9, mock backend,
+headless screenshot path, Boulder, loaded shared box):
+
+| shape | Startup | FirstFrame | max RSS |
+|---|---:|---:|---:|
+| empty catalog | 37-127 ms | 67-152 ms | ~53 MB |
+| 9,000 sessions, no tabs | 39-47 ms | 224-229 ms | ~282 MB |
+| **9,000 sessions + 9 restored tabs** | **38-56 ms** | **266-348 ms** | **~284 MB** |
+
+**There is no 5-second launch on Hanabi to fix.** At the knot's own shape
+Hanabi is ~15-19x under the Puffin bar. The Puffin mechanisms do not
+transfer: no MainActor restore hop queued behind nine pane restores, no
+Spotlight indexing + backfill sweep in the first 5 seconds, no
+duplicate-viewID walked-history adopt, no watchdog stalls from root size
+negotiations. The Hanabi terms:
+
+- Startup (systems ready) stays ~40 ms at every shape: the catalog does
+  not touch it.
+- The 9k catalog adds ~160 ms to FirstFrame, the 9 tabs ~100 ms more.
+  Attribution (`HANABI_STARTUP_PROF=1`, one knot-shape run): Startup 60 ms,
+  settle-wait loop 60 -> 344 ms over 9 frames. Inside that, the mock
+  SEEDS the 9,020 sessions / 302,917 messages for **109 ms** -- a rig
+  artefact, not production code: a real launch reads the catalog from the
+  disk cache, it does not synthesize it. The rest is settle renders of a
+  9k-row list plus the backoff sleeps; the settle loop is headless-
+  capture-only (the windowed app has no settle loop), so shaving it
+  would speed the measurement, not a person's launch.
+- RSS at the knot shape is ~284 MB, ~230 MB of it the mock's synthesized
+  catalog (302,917 messages); the production catalog is the disk cache,
+  not a synthesized transcript set. Read it as a rig number, not a
+  launch budget.
+- The windowed number stays what section 1 measured: 84-89% OS/Metal
+  Gfx init, ~1 ms of Hanabi's own App init on a warm launch.
+
+So this knot closes on Hanabi as **measured, not a defect**, with the
+number pinned: `zig build launch-big-catalog-gate` runs the knot shape
+(best-of-3 FirstFrame, ceiling 1500 ms -- 4x headroom over the 266-348 ms
+measured, still 3.3x under the Puffin bar). Red proof: running the gate
+with `HANABI_LAUNCH_BIG_FIRSTFRAME_CEILING_MS=100` fails it.
 
 **Measured wins**
 
