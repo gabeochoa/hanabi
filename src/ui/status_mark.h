@@ -39,19 +39,10 @@ struct Mm3Motion {
     bool reduceMotion = false;
     bool appActive = true;
     bool windowVisible = true;
-    // A moving face drew in the last rendered frame, and how long until any
-    // face drawn there shows a different frame. The frame loop wakes THEN --
-    // not at the display rate: an angry loop changes ~20 times a second and a
-    // calm blink rests 4.5 s between plays, and a frame between changes would
-    // draw the same pixels (the reference's CoreAnimation keyframes cost no
-    // app redraw at all; this is the nearest a retained-frame loop gets).
-    bool movedLastFrame = false;
-    double nextChangeIn = 1e9;
-    std::uint64_t sinceDrawUs = 0;  // set by the frame loop before admission
+    // A face's clock jumps the gap to the frame that draws it (main.cpp):
+    // faces animate on frames drawn for another reason and never wake the
+    // loop themselves (kt-47nf).
     unsigned long movedDraws = 0;   // every moving draw, for scripted checks
-    [[nodiscard]] bool change_due() const {
-        return movedLastFrame && static_cast<double>(sinceDrawUs) + 1000.0 >= nextChangeIn * 1e6;
-    }
 };
 inline Mm3Motion& mm3_motion() {
     static Mm3Motion m;
@@ -67,13 +58,10 @@ inline std::unordered_map<std::string, RowMarkSeen>& row_marks_seen() {
     static std::unordered_map<std::string, RowMarkSeen> m;
     return m;
 }
-// At the start of a drawn frame: the clock moves, and this frame's faces will
-// say whether anything moves and when it next changes.
+// At the start of a drawn frame: the clock moves.
 inline void mm3_advance(double dt) {
     auto& m = mm3_motion();
     m.clock += dt;
-    m.movedLastFrame = false;
-    m.nextChangeIn = 1e9;
 }
 
 // A face's cells, `h` tall measured on the ROW box (mm3::kRow*: room for
@@ -144,8 +132,6 @@ inline void draw_mm3(const mm3::Mark& m, float cx, float cy, float h, theme::Col
         const MovingFrame f = moving_frame(m, a, mo.clock);
         const auto cells = mm3::frame_cells(a, f.frame);
         draw_cells(cells.data, cells.size, cx, cy, h, c);
-        mo.movedLastFrame = true;
-        mo.nextChangeIn = std::min(mo.nextChangeIn, f.nextChangeIn);
         ++mo.movedDraws;
         return;
     }
@@ -163,8 +149,6 @@ inline void draw_shelf_face(mm3::Face f, float cx, float cy, float h, theme::Col
             const MovingFrame fr = moving_frame(m, a, mo.clock);
             const auto cells = mm3::frame_cells(a, fr.frame);
             draw_cells_in(cells.data, cells.size, a.box, cx, cy, h, c);
-            mo.movedLastFrame = true;
-            mo.nextChangeIn = std::min(mo.nextChangeIn, fr.nextChangeIn);
             ++mo.movedDraws;
             return;
         }

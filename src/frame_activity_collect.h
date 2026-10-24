@@ -147,10 +147,16 @@ inline FrameSignals collect_app_frame_signals(ecs::AppComponent& app) {
         const double next = hanabi::caret::next_toggle_at();
         s.caret = next == 0.0 || hanabi::caret::due(hanabi::caret::wall_seconds());
     }
-    // An MM3 face is due to change (ui/status_mark.h): draw then, and only
-    // then. Only a moving face that actually drew counts -- a row scrolled
-    // away, a still face, or a paused one costs no frames.
-    s.animation = s.animation || hanabi::status_mark::mm3_motion().change_due();
+    // MM3 faces never wake the frame loop (kt-47nf): a face changing is a
+    // few rectangles in a 10pt slot, and waking a full immediate-mode
+    // rebuild for it held idle at ~25 fps (276 frames / 10 s, ~18 ms/s
+    // CPU on Boulder, ~17k allocs/s) for a change nobody asked for. The
+    // faces still animate on frames drawn for another reason -- input,
+    // streaming, the 2 fps idle pulse -- with the clock jumping the gap,
+    // the way the reference's CoreAnimation keyframes cost no app redraw
+    // at all. Only a moving face that actually drew counts for nothing
+    // here: a row scrolled away, a still face, or a paused one costs no
+    // frames, and neither does a visible one.
     s.tooltip_dwell = ecs::pending_reveal();
     return s;
 }

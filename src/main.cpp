@@ -856,8 +856,6 @@ static void app_frame_body() {
             now.time_since_epoch())
             .count());
     hanabi::FrameSignals frameSignals;
-    hanabi::status_mark::mm3_motion().sinceDrawUs =
-        framePolicy.started() ? nowUs - framePolicy.last_frame_us() : 0;
     const unsigned inputActivity = frame_input_activity();
     frameSignals.pointer_input = (inputActivity & 1u) != 0;
     frameSignals.key_input = (inputActivity & 2u) != 0;
@@ -2101,11 +2099,6 @@ static void run_idle_timing(afterhours::SystemManager& sm) {
         if (realtime)
             std::this_thread::sleep_until(wallStart + std::chrono::microseconds(
                                                           static_cast<long long>(i) * kCallbackUs));
-        {
-            const std::uint64_t nowUs = static_cast<std::uint64_t>(i) * kCallbackUs;
-            hanabi::status_mark::mm3_motion().sinceDrawUs =
-                policy.started() ? nowUs - policy.last_frame_us() : 0;
-        }
         auto query = afterhours::EntityQuery({.force_merge = true})
                          .whereHasComponent<ecs::AppComponent>()
                          .gen();

@@ -124,4 +124,14 @@ Both follow-ups from that pass were then fixed (same day):
 
    The catalog is the one with a real cost, and it was on the frame thread: `LoaderSystem` called `save_sessions` where a list landed. It now hands a copy to one background writer (`api::disk_cache::save_sessions_async`): the newest snapshot wins, `load_sessions` answers from a queued or in-flight one, `wipe_all` drops the queue and waits out the write in flight, `set_namespace` and the quit flush it (3 s bound). Unit: `test_transcript_writer` (newest wins, read-through, a clear is not resurrected).
 
-Still open: nothing steady is left above 1 ms at the sizes in use; the Pulse and MM3 rows are floors, not costs to remove.
+Still open: nothing steady is left above 1 ms at the sizes in use; the Pulse
+row is a floor, not a cost to remove.
+
+2026-10-24 (kt-47nf): the MM3 row is gone too. Faces no longer wake the
+frame loop at all -- a face changing is a few rectangles in a 10pt slot, and
+waking a full immediate-mode rebuild for it held mm3 idle at 276 frames /
+10 s. Faces still animate on frames drawn for another reason (input,
+streaming, the 2 fps idle pulse), with the clock jumping the gap, the way
+the reference's CoreAnimation keyframes cost no app redraw. Gate:
+`zig build mm3-idle-gate` (mm3 arm ~20 frames, no `animation` IdleWhy
+entry); the mm3 e2e scripts still pin the faces moving when frames flow.
