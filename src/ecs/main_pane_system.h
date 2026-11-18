@@ -38,6 +38,7 @@
 #include "../api/attachments.h"
 #include "../api/compaction.h"
 #include "../api/tool_kinds.h"
+#include "../api/notice_kinds.h"
 #include "../api/disk_cache.h"
 #include "../test_hooks.h"
 #include "../native_extras.h"
@@ -16614,7 +16615,22 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             case api::EventKind::Status:   return {"status", theme::status_review()};
             case api::EventKind::Plan:     return {"plan", theme::accent()};
             case api::EventKind::Goal:     return {"goal", theme::status_active()};
-            case api::EventKind::Notice:   return {"notice", theme::destructive()};
+            case api::EventKind::Notice: {
+                // The kind says how loudly (api/notice_kinds.h): only an
+                // alert wears the alarm colour, an informational notice is
+                // faint, and the rest take the highlight ink. Drawing every
+                // notice red made a settings note read as a failure.
+                switch (api::notice_kinds::severity(
+                            api::notice_kinds::from_wire(m.subtitle))) {
+                    case api::notice_kinds::Severity::Alert:
+                        return {"notice", theme::destructive()};
+                    case api::notice_kinds::Severity::Informational:
+                        return {"notice", theme::text_faint()};
+                    case api::notice_kinds::Severity::Attention:
+                        return {"notice", theme::role_system()};
+                }
+                return {"notice", theme::role_system()};
+            }
             case api::EventKind::Delivery: return {"delivered", theme::accent()};
             case api::EventKind::Unsupported:
                 return {"unknown", theme::text_faint()};
@@ -16632,6 +16648,10 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 return m.subtitle;
             case api::EventKind::Status:
                 return m.text.empty() ? m.subtitle : m.subtitle + "  " + m.text;
+            case api::EventKind::Notice:
+                // The kind's own heading, then the message (api/notice_kinds.h);
+                // an unruled kind keeps the message alone.
+                return api::notice_kinds::display_line(m.subtitle, m.text);
             default:
                 return m.text.empty() ? m.subtitle : m.text;
         }

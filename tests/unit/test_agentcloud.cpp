@@ -1112,6 +1112,55 @@ static void test_every_event_class_gets_a_row() {
             CHECK(m.role == Role::System);
 }
 
+static void test_the_new_notice_kinds_each_get_a_row() {
+    // The kinds the reference added in 2026-11-16, and the reserve tool:
+    // each notice keeps its wire word and its message, a reserved node is
+    // a node row, and a reserve tool call is a tool row. A kind this build
+    // predates folds the same way, so this also pins the tolerance.
+    static const char* const kNewKindsPage = R"({"frames":[
+      {"seq":80,"created_at_unix_ms":1787711800000,
+       "event":{"type":"notice","kind":"conversation_lost","message":"the earlier conversation is gone"}},
+      {"seq":81,"created_at_unix_ms":1787711801000,
+       "event":{"type":"notice","kind":"ancestor_halted","message":"queued behind a halt"}},
+      {"seq":82,"created_at_unix_ms":1787711802000,
+       "event":{"type":"notice","kind":"mcp_roster_updated","message":"the tool roster changed"}},
+      {"seq":83,"created_at_unix_ms":1787711803000,
+       "event":{"type":"notice","kind":"memory_not_loaded","message":"memory was not loaded"}},
+      {"seq":84,"created_at_unix_ms":1787711804000,
+       "event":{"type":"notice","kind":"settings_switch","message":"skills come from settings"}},
+      {"seq":85,"created_at_unix_ms":1787711805000,
+       "event":{"type":"notice","kind":"plugin_hook","message":"check the path"}},
+      {"seq":86,"created_at_unix_ms":1787711806000,
+       "event":{"type":"notice","kind":"delivery_failures_parked","message":"deliveries are parked"}},
+      {"seq":87,"created_at_unix_ms":1787711807000,
+       "event":{"type":"notice","kind":"directory_context_unavailable","message":"no directory context"}},
+      {"seq":88,"created_at_unix_ms":1787711808000,
+       "event":{"type":"notice","kind":"kind_from_next_quarter","message":"something new happened"}},
+      {"seq":89,"created_at_unix_ms":1787711809000,
+       "event":{"type":"node_reserved","node_id":"mac-RES1"}},
+      {"seq":90,"created_at_unix_ms":1787711810000,
+       "event":{"type":"tool_intent","tool":"node__reserve","input":"{}","call_id":"c-reserve"}}
+    ]})";
+    const auto rows = parse_page_frames(kNewKindsPage);
+    const char* const kinds[] = {
+        "conversation_lost", "ancestor_halted", "mcp_roster_updated",
+        "memory_not_loaded", "settings_switch", "plugin_hook",
+        "delivery_failures_parked", "directory_context_unavailable",
+        "kind_from_next_quarter",
+    };
+    for (const char* k : kinds) {
+        const api::Message* m = row_of(rows, api::EventKind::Notice, k);
+        CHECK(m != nullptr);
+        if (m != nullptr) CHECK(!m->text.empty());
+    }
+    CHECK(row_of(rows, api::EventKind::Node, "mac-RES1") != nullptr);
+    bool reserve_tool = false;
+    for (const auto& m : rows)
+        if (m.kind == api::EventKind::ToolCall && m.subtitle == "node__reserve")
+            reserve_tool = true;
+    CHECK(reserve_tool);
+}
+
 static void test_a_spawn_row_learns_its_title_and_its_outcome() {
     // Three events, one row: the intent carries the prompt, `child_spawned`
     // the title (the only human-readable name a spawn gets), and the
@@ -3062,6 +3111,7 @@ int main() {
     test_unknown_live_frames_are_ignored_not_fatal();
     test_block_delta_append_is_a_true_increment();
     test_every_event_class_gets_a_row();
+    test_the_new_notice_kinds_each_get_a_row();
     test_a_spawn_row_learns_its_title_and_its_outcome();
     test_an_outbound_message_carries_its_receipt();
     test_a_live_turn_is_only_what_the_agent_said();
