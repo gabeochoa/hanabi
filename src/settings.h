@@ -168,6 +168,13 @@ struct Settings {
     void set_background(const std::string& key);
     const std::string& get_background_dim() const;
     void set_background_dim(const std::string& key);
+    // The solid/photo background store (ui/background.h kColours): the solid
+    // preset's colour key, and the photo preset's file. Client-local files and
+    // keys only; no bytes leave this Mac.
+    const std::string& get_background_color() const;
+    void set_background_color(const std::string& key);
+    const std::string& get_background_photo() const;
+    void set_background_photo(const std::string& path);
     const std::string& get_highlight_choice() const;
     void set_highlight_choice(const std::string& key);  // auto-persists
     const std::string& get_settings_pane() const;
@@ -627,6 +634,8 @@ struct Settings {
     std::string accent_choice_ = "default";
     std::string background_ = "off";
     std::string background_dim_ = "balanced";
+    std::string background_color_ = "midnight";
+    std::string background_photo_;
     std::string highlight_choice_ = "default";
     std::string settings_pane_ = "general";
     bool restore_tabs_ = true;

@@ -47,6 +47,8 @@ CLASS = {
     "font_weight": ("settings", "font_weight"),
     "background": ("settings", "background"),
     "background_dim": ("settings", "background_dim"),
+    "background_color": ("settings", "background"),
+    "background_photo": ("settings", "background"),
     "icon_set": ("settings", "icon_set"),
     "user_font": ("settings", "user_font"),
     "assistant_font": ("settings", "assistant_font"),

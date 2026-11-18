@@ -9,7 +9,7 @@
 
 namespace hanabi::background {
 
-enum class Preset : int { Off = 0, Gradient, Glow, Aurora, Lava, Embers };
+enum class Preset : int { Off = 0, Gradient, Glow, Aurora, Lava, Embers, Solid, Photo };
 
 struct Entry {
     Preset preset;
@@ -24,6 +24,8 @@ inline constexpr Entry kPresets[] = {
     {Preset::Aurora, "aurora", "Aurora Veil"},
     {Preset::Lava, "lava", "Lava Lamp"},
     {Preset::Embers, "embers", "Ember Motes"},
+    {Preset::Solid, "solid", "Solid Colour"},
+    {Preset::Photo, "photo", "Photo"},
 };
 inline constexpr std::size_t kPresetCount = sizeof(kPresets) / sizeof(kPresets[0]);
 
@@ -65,6 +67,48 @@ struct Rgba {
     float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
 };
 
+// The solid-colour store (kt-nede, the reference's b405506ecc9d: a background
+// is a photo or a solid colour, kept in one store beside the animated
+// presets). Colours are named, not free hex, so the Settings swatches and the
+// persisted value can never disagree about what a key means.
+struct ColourEntry {
+    const char* key;
+    const char* label;
+    const char* hex;  // #RRGGBB
+};
+inline constexpr ColourEntry kColours[] = {
+    {"midnight", "Midnight", "#16233F"}, {"forest", "Forest", "#1E3D2F"},
+    {"plum", "Plum", "#3A2340"},         {"ember", "Ember", "#4A2A1A"},
+    {"slate", "Slate", "#2E3440"},       {"paper", "Paper", "#E8E2D6"},
+};
+inline constexpr std::size_t kColourCount = sizeof(kColours) / sizeof(kColours[0]);
+
+inline Rgba rgba_from_hex(std::string_view hex, Rgba fallback) {
+    if (!hex.empty() && hex.front() == '#') hex.remove_prefix(1);
+    if (hex.size() != 6) return fallback;
+    const auto nib = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    const auto byte = [&](std::size_t i) -> float {
+        const int hi = nib(hex[i]), lo = nib(hex[i + 1]);
+        return (hi < 0 || lo < 0) ? -1.0f : static_cast<float>(hi * 16 + lo) / 255.0f;
+    };
+    const float r = byte(0), g = byte(2), b = byte(4);
+    if (r < 0.0f || g < 0.0f || b < 0.0f) return fallback;
+    return {r, g, b, 1.0f};
+}
+inline const ColourEntry& colour_from_key(std::string_view key) {
+    for (const ColourEntry& e : kColours)
+        if (key == e.key) return e;
+    return kColours[0];
+}
+inline Rgba solid_rgba(std::string_view colourKey) {
+    return rgba_from_hex(colour_from_key(colourKey).hex, {0.09f, 0.14f, 0.25f, 1.0f});
+}
+
 struct Uniforms {
     float resolution[2] = {1.0f, 1.0f};
     float time = 0.0f;
@@ -88,6 +132,8 @@ struct Uniforms {
     bool light = false;
     std::uint32_t thread_hash = 0;
     float glow = 0.0f;              // 0..1, the pane's attention pulse
+    Rgba solid{0.09f, 0.14f, 0.25f, 1.0f};  // Preset::Solid's colour
+    std::string photo;                      // Preset::Photo's file ("" = none)
 };
 
 struct Quad {
@@ -102,7 +148,8 @@ struct Scene {
     std::vector<Quad> quads;
     std::vector<Blob> blobs;
     bool additive = false;
-    [[nodiscard]] bool empty() const { return quads.empty() && blobs.empty(); }
+    std::string photo;  // Preset::Photo: drawn (fitted, centred) under the scrim
+    [[nodiscard]] bool empty() const { return quads.empty() && blobs.empty() && photo.empty(); }
 };
 
 inline std::uint32_t hash_id(std::string_view id) {
@@ -246,6 +293,11 @@ inline Scene scene_for(Preset p, const Uniforms& u) {
         case Preset::Aurora: aurora(u, out); break;
         case Preset::Lava: lava(u, out); break;
         case Preset::Embers: embers(u, out); break;
+        case Preset::Solid:
+            out.quads.push_back(Quad{0.0f, 0.0f, u.resolution[0], u.resolution[1], u.solid,
+                                     u.solid, u.solid, u.solid});
+            break;
+        case Preset::Photo: out.photo = u.photo; break;
     }
     return out;
 }

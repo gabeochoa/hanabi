@@ -111,6 +111,15 @@ static void test_words() {
           lp::count_label({t}) == "1 task");
 }
 
+// kt-nede (the reference's b75af242561e): cards under session messages -- the
+// reader's own messages as well as replies; tool/system rows never.
+static void test_shows_cards() {
+    CHECK(lp::shows_cards(api::Role::User));
+    CHECK(lp::shows_cards(api::Role::Assistant));
+    CHECK(!lp::shows_cards(api::Role::System));
+    CHECK(!lp::shows_cards(api::Role::Tool));
+}
+
 static void test_cache() {
     lp::Card good;
     good.id = "D1234";
@@ -124,6 +133,7 @@ static void test_cache() {
 }
 
 int main() {
+    test_shows_cards();
     test_refs();
     test_decode();
     test_knot();

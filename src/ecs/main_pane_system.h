@@ -12870,12 +12870,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             // (a real ✓/✓✓ corner mark, gap #28 now fixed); server-loaded
             // messages (sync==None) add nothing. Mirrors render_bubble.
             const float syncH = (m.sync != api::SyncState::None) ? 12.0f : 0.0f;
+            // Link-preview cards under the reader's own message too (kt-nede):
+            // the strip is a child of the bubble, so its height is inside the
+            // bubble's own pads. Mirrors render_bubble's user path.
+            AppComponent* app = app_singleton();
+            const std::string mkey =
+                m.id.empty() ? ("msg" + std::to_string(index)) : m.id;
+            const float stripH =
+                (!isLive && app) ? link_strip_h(*app, m, mkey) : 0.0f;
             // kBubblePadTop/Bot are the bubble's OWN padding, the same two
             // numbers render_bubble hands to with_padding. The old code used a
             // single kUserPadV=14 here while the draw padded 8+9=17, so every
             // user message measured 3px shorter than it drew.
             return kTurnGapTop + 10.0f + kBubblePadTop + mr.height + syncH +
-                   kBubblePadBot + kTurnGapBot;
+                   stripH + kBubblePadBot + kTurnGapBot;
         }
         float textW = asst_text_w(paneWidth);
         const auto& mr = measured(m, textW, isLive, index,
@@ -12914,7 +12922,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
 
     // ---- Link-preview cards (api/link_preview.h; puffin_gaps.md D53) -------
-    // A diff, task or knot named in a reply draws as a card under it: an id row
+    // A diff, task or knot named in a message draws as a card under it: an id row
     // (id, then a task's or knot's priority badge, then the status badge), the
     // title, and a footer (board, type, owner, "Created 3d ago"). The card is
     // PowerTools' layout, capped at its 320px. A message with three or more
@@ -12944,7 +12952,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     }
     static float link_strip_h(const AppComponent& app, const api::Message& m,
                               const std::string& mkey) {
-        if (m.role != api::Role::Assistant) return 0.0f;
+        if (!api::link_preview::shows_cards(m.role)) return 0.0f;
         const auto cards = app.link_cards(m.text);
         if (cards.empty()) return 0.0f;
         const bool run = cards.size() > kStripCollapsed;
@@ -12969,7 +12977,7 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     void render_link_strip(UIContext<InputAction>& ctx, Entity& parent, AppComponent& app,
                            const api::Message& m, const std::string& mkey, float textW) {
         namespace lp = api::link_preview;
-        if (m.role != api::Role::Assistant) return;
+        if (!lp::shows_cards(m.role)) return;
         const auto cards = app.link_cards(m.text);
         if (cards.empty()) return;
         const bool run = cards.size() > kStripCollapsed;
@@ -15515,6 +15523,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         .with_debug_name("sync_check"));
             }
             (void)hasSync;
+            // Link-preview cards under the reader's own message (kt-nede):
+            // inside the bubble, under the text, at the bubble's inner width.
+            if (AppComponent* app = app_singleton(); app && !isLive)
+                render_link_strip(ctx, bub.ent(), *app, m,
+                                  m.id.empty() ? ("msg" + std::to_string(index))
+                                               : m.id,
+                                  bubbleW - 2.0f * kBubbleCfgPadX);
             message_actions(ctx, bub.ent(), uturn.ent(), bubbleW,
                             chat_colors::user_bubble(), index,
                             m.id.empty() ? ("msg" + std::to_string(index))

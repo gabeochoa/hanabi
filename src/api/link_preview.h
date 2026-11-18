@@ -20,6 +20,8 @@
 //
 // Pure: text in, text and JSON out. No fetch runs here.
 
+#include "types.h"
+
 #include <cctype>
 #include <cstdint>
 #include <ctime>
@@ -34,6 +36,15 @@
 namespace api::link_preview {
 
 using json = nlohmann::json;
+
+// Which messages draw cards under them (kt-nede, the reference's b75af242561e:
+// cards under session messages, not only replies). The reader's own messages
+// count -- a diff the reader pasted is the one they most want opened -- while
+// tool and system rows have their own rendering and never carry a strip. The
+// fetch pass (service_link_previews) already scans exactly these two roles.
+inline bool shows_cards(api::Role role) {
+    return role == api::Role::User || role == api::Role::Assistant;
+}
 
 enum class Kind { Diff, Task, Knot };
 

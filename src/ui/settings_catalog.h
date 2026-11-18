@@ -246,7 +246,7 @@ inline constexpr std::array<Row, 70> kRows{{
      "thread colour color sidebar mark accent per-thread theme row",
      Origin::Device, "Theme"},
     {"background", Pane::Appearance, "Background",
-     "background shader window gradient glow aurora lava embers animated preset my shaders",
+     "background shader window gradient glow aurora lava embers animated preset my shaders solid colour color photo image picture wallpaper",
      Origin::Device, "Theme"},
     {"background_dim", Pane::Appearance, "Background strength",
      "background dim scrim legible readable subtle balanced vivid contrast",

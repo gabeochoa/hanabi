@@ -83,6 +83,8 @@ bool Settings::load_save_file() {
         accent_choice_ = j.value("theme_accent", accent_choice_);
         background_ = j.value("background", background_);
         background_dim_ = j.value("background_dim", background_dim_);
+        background_color_ = j.value("background_color", background_color_);
+        background_photo_ = j.value("background_photo", background_photo_);
         highlight_choice_ = j.value("theme_highlight", highlight_choice_);
         settings_pane_ = j.value("settings_pane", settings_pane_);
         restore_tabs_ = j.value("restore_tabs", restore_tabs_);
@@ -390,6 +392,8 @@ void Settings::write_save_file() {
     j["theme_accent"] = accent_choice_;
     j["background"] = background_;
     j["background_dim"] = background_dim_;
+    j["background_color"] = background_color_;
+    j["background_photo"] = background_photo_;
     j["theme_highlight"] = highlight_choice_;
     j["settings_pane"] = settings_pane_;
     j["restore_tabs"] = restore_tabs_;
@@ -663,6 +667,18 @@ const std::string& Settings::get_background_dim() const { return background_dim_
 void Settings::set_background_dim(const std::string& key) {
     if (key == background_dim_) return;
     background_dim_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+const std::string& Settings::get_background_color() const { return background_color_; }
+void Settings::set_background_color(const std::string& key) {
+    if (key == background_color_) return;
+    background_color_ = key;
+    if (auto_save_enabled) write_save_file();
+}
+const std::string& Settings::get_background_photo() const { return background_photo_; }
+void Settings::set_background_photo(const std::string& path) {
+    if (path == background_photo_) return;
+    background_photo_ = path;
     if (auto_save_enabled) write_save_file();
 }
 

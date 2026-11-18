@@ -7,6 +7,7 @@
 #include "../api/types.h"
 #include "../settings.h"
 #include "../ui/background.h"
+#include "../ui/inline_image.h"
 #include "../ui/theme.h"
 #include "ui_clock.h"
 #include "ui_imports.h"
@@ -103,6 +104,8 @@ inline bg::Uniforms uniforms(const LayoutComponent::Rect& r, float mouseX, float
     u.light = theme::mode() == theme::Mode::Light;
     u.thread_hash = bg::hash_id(threadId);
     u.glow = glowPulse;
+    u.solid = bg::solid_rgba(Settings::get().get_background_color());
+    u.photo = Settings::get().get_background_photo();
     return u;
 }
 
@@ -114,6 +117,25 @@ inline void draw(const RectangleType& rect, const bg::Scene& scene, theme::Color
     afterhours::begin_scissor_mode(static_cast<int>(rect.x), static_cast<int>(rect.y),
                                    static_cast<int>(rect.width), static_cast<int>(rect.height));
     {
+        // The photo store's picture, fitted inside the pane and centred (never
+        // upscaled past its own size: inline_image::draw's rule), under
+        // everything else the scene draws and under the same scrim.
+        if (!scene.photo.empty() && hanabi::inline_image::available(scene.photo)) {
+            float natW = 0.0f, natH = 0.0f;
+            hanabi::inline_image::natural_size(scene.photo, natW, natH);
+            if (natW > 0.0f && natH > 0.0f) {
+                float drawW = std::min(rect.width, natW);
+                float drawH = natH * (drawW / natW);
+                if (drawH > rect.height) {
+                    drawH = rect.height;
+                    drawW = natW * (drawH / natH);
+                }
+                hanabi::inline_image::draw(scene.photo,
+                                           rect.x + (rect.width - drawW) * 0.5f,
+                                           rect.y + (rect.height - drawH) * 0.5f,
+                                           drawW, drawH);
+            }
+        }
         afterhours::blend_scope blend(scene.additive ? afterhours::blend::Mode::Additive
                                                      : afterhours::blend::Mode::Alpha);
         for (const bg::Quad& q : scene.quads)

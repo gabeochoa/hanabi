@@ -2749,6 +2749,18 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         return true;
     }
 
+    static bool ask_for_photo(std::string* out) {
+        if (const char* forced = std::getenv("HANABI_PICK_FILE_TEST");
+            forced != nullptr && *forced != 0) {
+            *out = forced;
+            return true;
+        }
+        char buf[1024];
+        if (!native_pick_file("Choose background photo", buf, sizeof(buf))) return false;
+        *out = buf;
+        return true;
+    }
+
     static std::string export_destination() {
         const std::string& chosen = Settings::get().get_export_dir();
         return chosen.empty() ? api::disk_cache::export_dir() : chosen;
@@ -4408,7 +4420,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         row_name_with(ctx, parent, 300, "Background",
                       std::string("   \xc2\xb7   ") + bg::label_of(current), "settings_background");
         constexpr float kGap = 6.0f;
-        constexpr int kPerRow = 3;
+        constexpr int kPerRow = 4;  // eight presets, still two rows
         const float segW = (content_w() - kGap * (kPerRow - 1)) / static_cast<float>(kPerRow);
         const int n = static_cast<int>(bg::kPresetCount);
         int cur = 0;
@@ -4451,6 +4463,117 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
             }
             if (const int stepped = activated_index(cur, n); stepped >= 0)
                 Settings::get().set_background(bg::kPresets[static_cast<size_t>(stepped)].key);
+        }
+        // The store's own controls (kt-nede): the solid preset's colour, the
+        // photo preset's file. Shown only for the preset they belong to.
+        if (current == bg::Preset::Solid) {
+            const std::string curColour = Settings::get().get_background_color();
+            auto row = div(ctx, mk(parent, 310),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
+                    .with_margin(Margin{.top = pixels(kGap)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_background_colour_row"));
+            anchor_control(row.ent());
+            const float swW = (content_w() - kGap * 5.0f) / 6.0f;
+            for (std::size_t i = 0; i < bg::kColourCount; ++i) {
+                const bg::ColourEntry& e = bg::kColours[i];
+                const bg::Rgba c = bg::rgba_from_hex(e.hex, {0, 0, 0, 1});
+                const auto byte = [](float v) {
+                    return static_cast<unsigned char>(
+                        std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f));
+                };
+                const theme::Color fill{byte(c.r), byte(c.g), byte(c.b), 255};
+                const bool light = (0.299f * c.r + 0.587f * c.g + 0.114f * c.b) > 0.6f;
+                const bool sel = curColour == e.key;
+                auto btn = button(ctx, mk(row.ent(), static_cast<int>(i) + 1),
+                    ComponentConfig{}
+                        .with_label(e.label)
+                        .with_size(ComponentSize{pixels(swW), pixels(kSegBtnH)})
+                        .with_margin(Margin{.right = pixels(i + 1 == bg::kColourCount ? 0.0f : kGap)})
+                        .with_custom_background(fill)
+                        .with_custom_hover_bg(fill)
+                        .with_custom_text_color(light ? theme::Color{30, 30, 34, 255}
+                                                      : theme::Color{245, 245, 248, 255})
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Center)
+                        .with_justify_content(JustifyContent::Center)
+                        .with_align_items(AlignItems::Center)
+                        .with_cursor(afterhours::ui::CursorType::Pointer)
+                        .with_click_activation(ClickActivationMode::Press)
+                        .with_border(sel ? theme::accent() : theme::border(), pixels(sel ? 2.0f : 1.0f))
+                        .with_roundness(0.35f)
+                        .with_debug_name(std::string("settings_background_colour_") + e.key));
+                if (btn) Settings::get().set_background_color(e.key);
+            }
+        }
+        if (current == bg::Preset::Photo) {
+            const std::string photo = Settings::get().get_background_photo();
+            auto row = div(ctx, mk(parent, 311),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(content_w()), pixels(kThemeRowH)})
+                    .with_margin(Margin{.top = pixels(kGap)})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_flex_wrap(FlexWrap::NoWrap)
+                    .with_align_items(AlignItems::Center)
+                    .with_transparent_bg()
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_background_photo_row"));
+            anchor_control(row.ent());
+            div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_label(photo.empty() ? std::string("No photo chosen")
+                                              : photo.substr(photo.find_last_of('/') + 1))
+                    .with_size(ComponentSize{pixels(content_w() - 212.0f), pixels(kSegBtnH)})
+                    .with_transparent_bg()
+                    .with_custom_text_color(theme::text_secondary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left)
+                    .with_text_overflow(TextOverflow::Ellipsis)
+                    .with_roundness(0.0f)
+                    .with_debug_name("settings_background_photo_name"));
+            auto choose = button(ctx, mk(row.ent(), 2),
+                ComponentConfig{}
+                    .with_label("Choose\xe2\x80\xa6")
+                    .with_size(ComponentSize{pixels(100), pixels(kSegBtnH)})
+                    .with_margin(Margin{.right = pixels(kGap)})
+                    .with_custom_background(theme::panel_bg_2())
+                    .with_custom_hover_bg(theme::hover_bg())
+                    .with_custom_text_color(theme::text_primary())
+                    .with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Center)
+                    .with_justify_content(JustifyContent::Center)
+                    .with_align_items(AlignItems::Center)
+                    .with_cursor(afterhours::ui::CursorType::Pointer)
+                    .with_click_activation(ClickActivationMode::Press)
+                    .with_roundness(0.35f)
+                    .with_debug_name("settings_background_photo_choose"));
+            if (choose) {
+                std::string picked;
+                if (ask_for_photo(&picked)) Settings::get().set_background_photo(picked);
+            }
+            if (!photo.empty()) {
+                auto clear = button(ctx, mk(row.ent(), 3),
+                    ComponentConfig{}
+                        .with_label("Clear")
+                        .with_size(ComponentSize{pixels(100), pixels(kSegBtnH)})
+                        .with_custom_background(theme::panel_bg_2())
+                        .with_custom_hover_bg(theme::hover_bg())
+                        .with_custom_text_color(theme::text_primary())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Center)
+                        .with_justify_content(JustifyContent::Center)
+                        .with_align_items(AlignItems::Center)
+                        .with_cursor(afterhours::ui::CursorType::Pointer)
+                        .with_click_activation(ClickActivationMode::Press)
+                        .with_roundness(0.35f)
+                        .with_debug_name("settings_background_photo_clear"));
+                if (clear) Settings::get().set_background_photo("");
+            }
         }
         div(ctx, mk(parent, 305),
             ComponentConfig{}

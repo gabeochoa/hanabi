@@ -19,6 +19,8 @@ static bg::Uniforms sample(float t) {
     bg::Uniforms u;
     u.resolution[0] = 900.0f;
     u.resolution[1] = 600.0f;
+    u.solid = {0.2f, 0.3f, 0.4f, 1.0f};
+    u.photo = "wallpaper.png";
     u.time = t;
     u.mouse[0] = 300.0f;
     u.mouse[1] = 200.0f;
@@ -58,7 +60,7 @@ static bool same(const bg::Scene& a, const bg::Scene& b) {
 
 int main() {
     std::printf("=== test_background ===\n");
-    CHECK(bg::kPresetCount == 6);
+    CHECK(bg::kPresetCount == 8);
     for (const auto& e : bg::kPresets) {
         CHECK(bg::preset_from_key(e.key) == e.preset);
         CHECK(std::string(bg::key_of(e.preset)) == e.key);
@@ -128,6 +130,28 @@ int main() {
         bg::Uniforms u = sample(1.0f);
         u.resolution[0] = 0.0f;
         CHECK(bg::scene_for(bg::Preset::Aurora, u).empty());
+    }
+
+    // The photo/solid-colour store (kt-nede, the reference's b405506ecc9d).
+    {
+        CHECK(bg::preset_from_key("solid") == bg::Preset::Solid);
+        CHECK(bg::preset_from_key("photo") == bg::Preset::Photo);
+        CHECK(bg::kColourCount == 6);
+        const bg::Rgba midnight = bg::solid_rgba("midnight");
+        CHECK(midnight.r == bg::rgba_from_hex("#16233F", {0, 0, 0, 1}).r);
+        CHECK(bg::solid_rgba("no-such-colour").r == midnight.r);  // falls back
+        const bg::Rgba bad = bg::rgba_from_hex("#12", {0.5f, 0.5f, 0.5f, 1.0f});
+        CHECK(bad.r == 0.5f && bad.g == 0.5f && bad.b == 0.5f);
+        const bg::Scene solid = bg::scene_for(bg::Preset::Solid, sample(1.0f));
+        CHECK(solid.quads.size() == 1 && solid.blobs.empty() && solid.photo.empty());
+        CHECK(solid.quads[0].w == 900.0f && solid.quads[0].h == 600.0f);
+        CHECK(solid.quads[0].tl.r == 0.2f && solid.quads[0].tl.g == 0.3f &&
+              solid.quads[0].tl.b == 0.4f);
+        const bg::Scene photo = bg::scene_for(bg::Preset::Photo, sample(1.0f));
+        CHECK(photo.photo == "wallpaper.png" && !photo.empty());
+        bg::Uniforms none = sample(1.0f);
+        none.photo.clear();
+        CHECK(bg::scene_for(bg::Preset::Photo, none).empty());
     }
 
     if (failures == 0) std::printf("OK\n");
