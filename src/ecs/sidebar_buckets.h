@@ -278,6 +278,20 @@ class SidebarBuckets {
                 continue;
             }
             if (!parsed.admits(s.updated_at)) continue;
+            {
+                // The reference's typed filters over the facts a list row
+                // carries (ui/sidebar_query.h, kt-lpat). `has:files` has no
+                // fact on a row, so it stays unknown and refuses nothing.
+                hanabi::sidebar_query::Query::Facts facts;
+                facts.updatedAt = s.updated_at;
+                facts.spaceGroup = s.space_group;
+                facts.needsMe = s.tag == api::ThreadTag::Blocked ||
+                                s.tag == api::ThreadTag::Waiting ||
+                                s.tag == api::ThreadTag::Failed ||
+                                s.tag == api::ThreadTag::Review ||
+                                s.state == api::ThreadState::Ready;
+                if (!parsed.admitsRow(facts)) continue;
+            }
             if (!(title_matches(s.title, words) ||
                   (!words.empty() && contentMatch(s.id, words))))
                 continue;
