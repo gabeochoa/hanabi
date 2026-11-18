@@ -560,6 +560,25 @@ static void test_a_table_element_row_shows_its_cells() {
     }
 }
 
+// A std/Chart's rows+encoding ride tree.p through the wire: the row keeps
+// the values as text and carries the fence JSON the plotter draws
+// (kt-672r). Regression: revert element_chart wiring and chart_source is
+// empty while the projection summary still shows.
+static void test_a_chart_element_row_carries_its_plot_data() {
+    const std::string reply = "{\"type\":\"page\",\"frames\":[" +
+        std::string(R"j({"seq":1,"event":{"type":"element_emitted","element":{"instance":"queue","revision":1,)j"
+                    R"j("placement":"inline","element":"std/Chart","run":1,"projection":"Chart: 2 series","title":"Queue",)j"
+                    R"j("tree":{"t":"std/Chart","p":{"title":"Queue","kind":"line","rows":[{"day":"Mon","queue":"del","depth":4},{"day":"Tue","queue":"del","depth":7}],"encoding":{"x":"day","y":"depth","color":"queue"}}}}}})j") +
+        "]}";
+    const auto out = parse_page_frames(reply);
+    CHECK(out.size() == 1);
+    if (out.size() == 1) {
+        CHECK(out[0].text == "Queue (line)\ndel: Mon=4 Tue=7");
+        CHECK(out[0].element().chart_source.find("\"type\":\"line\"") != std::string::npos);
+        CHECK(out[0].element().chart_source.find("\"y\":7") != std::string::npos);
+    }
+}
+
 static void test_an_element_emit_is_one_row_at_its_seq_not_an_unknown_event() {
     const std::string reply = "{\"type\":\"page\",\"frames\":[" +
         std::string(R"({"seq":1,"event":{"type":"user_input","text":"show the table"}},)") +
@@ -3081,6 +3100,7 @@ static void test_hello_access_folds_to_the_reference_read_only_rule() {
 int main() {
     test_the_account_compaction_boundary_is_read_from_synced();
     test_a_table_element_row_shows_its_cells();
+    test_a_chart_element_row_carries_its_plot_data();
     std::printf("== test_agentcloud (transport config, encoding, session mapping) ==\n");
     test_percent_encode_escapes_the_colon();
     test_row_clocks_read_activity_then_event_and_run_complete();

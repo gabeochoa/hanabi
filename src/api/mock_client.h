@@ -3012,7 +3012,7 @@ class MockClient : public Client {
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
         "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_WEB_OVERLAY_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_MOCK_SPACE_ADMIN", "HANABI_MOCK_SPACE_DENY", "HANABI_MOCK_SPACE_SENSITIVE", "HANABI_MOCK_LIVE", "HANABI_MOCK_DISK_CACHE", "HANABI_MOCK_PHOTO_FAIL", "HANABI_TEST_SPACE_SETTINGS", "HANABI_MOCK_STREAM_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
-        "HANABI_ELEMENTS_DEMO", "HANABI_ELEMENTS_KINDS",
+        "HANABI_ELEMENTS_DEMO", "HANABI_ELEMENTS_KINDS", "HANABI_ELEMENTS_CHART",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",    "HANABI_MOCK_JOURNAL",
         "HANABI_MOCK_PAGE_DELAY_MS", "HANABI_MOCK_OPEN_FAIL_ONCE",
@@ -4612,6 +4612,18 @@ class MockClient : public Client {
                 sw.element = "std/Switch"; sw.title = "Prefs"; sw.projection = "toggle";
                 sw.table_text = elements::native_text_from_tree("std/Switch", nlohmann::json{{"p", {{"label", "Alerts"}, {"checked", true}}}}); sw.run = 1;
                 elements::fold_element(s.messages, sw, 13, hrs_ago(1));
+                // std/Chart from rows+encoding (the data layer), only
+                // under HANABI_ELEMENTS_CHART so the kinds rows above keep
+                // their one-screen fixture: built through the real
+                // converter, so reverting it empties the plot and the e2e
+                // goes red (projection deliberately a one-line summary).
+                if (const char* ec = std::getenv("HANABI_ELEMENTS_CHART"); ec != nullptr && *ec == '1') {
+                    ElementFacts chart; chart.instance = "queue-chart"; chart.revision = 1; chart.placement = "inline";
+                    chart.element = "std/Chart"; chart.title = "Queue depth by region"; chart.projection = "Chart: 2 series";
+                    auto chartNative = elements::native_from_tree("std/Chart", nlohmann::json{{"t", "std/Chart"}, {"p", {{"title", "Queue depth by region"}, {"kind", "line"}, {"yLabel", "jobs"}, {"rows", nlohmann::json::array({nlohmann::json{{"day", "Mon"}, {"queue", "deletions"}, {"depth", 4}}, nlohmann::json{{"day", "Mon"}, {"queue", "exports"}, {"depth", 1}}, nlohmann::json{{"day", "Tue"}, {"queue", "deletions"}, {"depth", 7}}, nlohmann::json{{"day", "Tue"}, {"queue", "exports"}, {"depth", 3}}})}, {"encoding", {{"x", "day"}, {"y", "depth"}, {"color", "queue"}}}}}});
+                    chart.table_text = chartNative.text; chart.chart_source = chartNative.chart_source; chart.run = 1;
+                    elements::fold_element(s.messages, chart, 14, hrs_ago(1));
+                }
             }
 
             ElementFacts card;

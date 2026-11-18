@@ -1274,7 +1274,12 @@ bool element_facts_from_value(const json& value, ElementFacts* out) {
         auto native = elements::native_from_tree(f.element, obj_at(value, "tree"));
         f.table_text = native.text;
         f.native_tone = native.tone;
+        f.chart_source = native.chart_source;
     }
+    // A Chart nested in a container (Card, a Query's stamped template):
+    // its plot rides along even when the container drew text lines.
+    if (f.chart_source.empty())
+        f.chart_source = elements::chart_source_from_tree(f.element, obj_at(value, "tree"));
     if (!elements::facts_are_readable(f)) return false;
     *out = std::move(f);
     return true;

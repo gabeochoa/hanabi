@@ -1,0 +1,12 @@
+# A std/Chart element carrying rows+encoding (the data layer, kt-672r)
+# draws a native plot with the fence chart plotter, not only its text
+# lines or the server's one-line projection. Regression: revert the
+# element_chart conversion (or its ElementFacts wiring) and the plot is
+# gone; the row falls back to "Chart: 2 series".
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ELEMENTS_DEMO=1 HANABI_ELEMENTS_KINDS=1 HANABI_ELEMENTS_CHART=1 HANABI_OPEN=relements
+require_thread relements
+expect_text "Queue depth by region"
+expect_a11y "Line chart, Queue depth by region: deletions, Mon 4, Tue 7; exports, Mon 1, Tue 3"
+assert_ui chart_plot h=220
+expect_no_text "Chart: 2 series"

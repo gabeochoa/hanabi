@@ -24,6 +24,23 @@ int main(){
  CHECK(el::native_from_tree("std/Timer", json{{"p",{{"label","Deploy"},{"seconds",60}}}}).text=="\xe2\x8f\xb1 Deploy \xe2\x80\x94 60");
  auto ch=el::native_from_tree("std/Chart", json{{"p",{{"title","DAU"},{"kind","line"},{"categories",json::array({"Mon"})},{"series",json::array({json{{"name","A"},{"values",json::array({1})}}})}}}});
  CHECK(ch.text=="DAU (line)\nA: Mon=1");
+ CHECK(ch.chart_source==R"({"series":[{"name":"A","points":[{"x":"Mon","y":1}]}],"title":"DAU","type":"line"})");
+ std::printf("test_chart_rows_encoding_color_split_and_y_list\n");
+ auto rc=el::native_from_tree("std/Chart", json{{"p",{{"title","Queue"},{"kind","line"},{"rows",json::array({json{{"day","Mon"},{"queue","del"},{"depth",4}},json{{"day","Mon"},{"queue","exp"},{"depth",1}},json{{"day","Tue"},{"queue","del"},{"depth",7}}})},{"encoding",json{{"x","day"},{"y","depth"},{"color","queue"}}}}}});
+ CHECK(rc.text=="Queue (line)\ndel: Mon=4 Tue=7\nexp: Mon=1 Tue=-");
+ CHECK(rc.chart_source.find("\"name\":\"del\"")!=std::string::npos);
+ CHECK(rc.chart_source.find("\"x\":\"Tue\",\"y\":7")!=std::string::npos);
+ auto yl=el::native_from_tree("std/Chart", json{{"p",{{"title","Sizes"},{"kind","bar"},{"rows",json::array({json{{"n",2},{"add",3},{"del",1}},json{{"n",1},{"add",5},{"del",2}}})},{"encoding",json{{"x","n"},{"y",json::array({"add","del"})}}}}}});
+ // numeric categories sort, so n=1 leads despite row order
+ CHECK(yl.chart_source.find("\"type\":\"bar\"")!=std::string::npos);
+ CHECK(yl.chart_source.find("\"x\":\"1\",\"y\":5")!=std::string::npos);
+ std::printf("test_chart_segments_pie_as_bars_and_query_seam\n");
+ auto pie=el::native_from_tree("std/Chart", json{{"p",{{"title","States"},{"kind","pie"},{"segments",json::array({json{{"label","Landed"},{"value",51}},json{{"label","Open"},{"value","2"}}})}}}});
+ CHECK(pie.text=="States (pie)\nStates: Landed=51 Open=2");
+ CHECK(pie.chart_source.find("\"type\":\"bar\"")!=std::string::npos);
+ CHECK(el::native_from_tree("std/Chart", json{{"p",{{"title","S"},{"kind","scatter"},{"points",json::array({json{{"x",1},{"y",2}}})}}}}).chart_source.empty());
+ auto q=el::native_from_tree("std/Query", json{{"p",{{"data",json{{"engine","scuba"},{"scuba",json{{"dataset","agentcloud_metrics"}}}}},{"each","rows"},{"key","route"}}}});
+ CHECK(q.text.rfind("Live query \xe2\x80\x94 scuba: agentcloud_metrics",0)==0);
  std::printf("test_blitz_emptystate_quote_kbd_facts\n");
  CHECK(el::native_from_tree("std/EmptyState", json{{"p",{{"title","No results"},{"message","Try again"}}}}).text=="No results\nTry again");
  CHECK(el::native_from_tree("std/EmptyState", json{{"p",json::object()}}).text.empty());

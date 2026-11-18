@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include "../../vendor/nlohmann/json.hpp"
+#include "element_chart.h"
 namespace api::elements {
 inline std::string kind_str(const nlohmann::json& v) {
     if (v.is_string()) return v.get<std::string>();
@@ -51,7 +52,7 @@ inline std::vector<std::string> kind_children_text(const nlohmann::json& tree) {
         for (auto& c: tree["c"]) { auto s=kind_child_text(c); if(!s.empty()) out.push_back(s); if(out.size()>=50) break; }
     return out;
 }
-struct NativeKind { std::string text; std::string tone; };
+struct NativeKind { std::string text; std::string tone; std::string chart_source; };
 inline NativeKind native_from_tree(const std::string& el, const nlohmann::json& tree) {
     NativeKind r; if (!tree.is_object()) return r;
     const auto& p = tree.contains("p") ? tree["p"] : nlohmann::json::object();
@@ -103,11 +104,36 @@ inline NativeKind native_from_tree(const std::string& el, const nlohmann::json& 
         if(label.empty()&&val.empty()) return r; r.text="\xe2\x8f\xb1 "+label+(val.empty()?"":" \xe2\x80\x94 "+val); return r;
     }
     if (el=="std/Chart") {
-        // Data as lines (values readable); plot drawing is the fence chart's job - see README divergence.
-        auto title=kind_prop(p,"title"); auto kind=kind_prop(p,"kind","type"); if(!p.is_object()||!p.contains("series")||!p["series"].is_array()) return r;
-        r.text=(title.empty()?"Chart":title)+(kind.empty()?"":" ("+kind+")");
-        std::vector<std::string> cats; if(p.contains("categories")&&p["categories"].is_array()) for(auto& c:p["categories"]) cats.push_back(kind_str(c));
-        for(auto& s: p["series"]) { std::string name=kind_prop(s,"name"); r.text+="\n"+(name.empty()?"Series":name)+":"; if(s.is_object()&&s.contains("values")&&s["values"].is_array()) { size_t i=0; for(auto& v:s["values"]){ r.text+=" "; if(i<cats.size()) r.text+=cats[i]+"="; r.text+=v.is_null()?"-":kind_str(v); if(++i>=200) break; } } }
+        // Data as lines (values readable) AND a plot: the converter
+        // (element_chart.h) reads inline series, rows+encoding and
+        // segments; chart_source is the fence JSON the transcript's
+        // fence plotter draws. Kinds it cannot mark keep the lines only.
+        auto chart=element_chart_from_props(p); if(!chart) return r;
+        r.text=(chart->title.empty()?"Chart":chart->title)+(chart->kind.empty()?"":" ("+chart->kind+")");
+        for(auto& s: chart->series) { r.text+="\n"+s.name+":"; size_t i=0; for(auto& pt: s.points){ std::string v="-"; if(pt.second) v=(*pt.second==std::trunc(*pt.second)&&std::fabs(*pt.second)<9e15)?std::to_string((long long)*pt.second):nlohmann::json(*pt.second).dump(); r.text+=" "+pt.first+"="+v; if(++i>=200) break; } }
+        r.chart_source=element_chart_source(*chart);
+        return r;
+    }
+    if (el=="std/Query") {
+        // Live rows (std.data / GraphQL, b7d2981d): the host that runs the
+        // query stamps one child per row into this tree (or re-emits the
+        // children as their own elements); Hanabi has no client query
+        // channel to run graphql/data itself -- see the bank README for
+        // the seam. What draws here is the query's own description plus
+        // any stamped children the tree already carries.
+        std::string src=kind_prop(p,"declared");
+        if(src.empty()&&p.is_object()&&p.contains("data")&&p["data"].is_object()) {
+            auto eng=kind_prop(p["data"],"engine"); src=eng;
+            auto ds=kind_prop(p["data"].contains("scuba")?p["data"]["scuba"]:nlohmann::json::object(),"dataset");
+            auto ent=kind_prop(p["data"].contains("ods")?p["data"]["ods"]:nlohmann::json::object(),"entity");
+            if(!ds.empty()) src+=": "+ds; if(!ent.empty()) src+=": "+ent;
+        }
+        if(src.empty()&&p.is_object()&&p.contains("graphql")) src="GraphQL";
+        if(src.empty()) return r;
+        r.text="Live query \xe2\x80\x94 "+src;
+        auto each=kind_prop(p,"each"); auto key=kind_prop(p,"key"); auto refresh=kind_prop(p,"refreshMs");
+        if(!each.empty()) r.text+="\neach "+each+(key.empty()?"":" \xc2\xb7 key "+key)+(refresh.empty()?"":" \xc2\xb7 refresh "+refresh+"ms");
+        for(auto& k: kids) r.text+="\n"+k;
         return r;
     }
     // W45 blitz (the reference, 4b34c545 cluster): smallest kinds first.

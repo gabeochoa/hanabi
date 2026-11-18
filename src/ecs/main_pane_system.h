@@ -17097,12 +17097,20 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
     static std::string element_body(const api::Message& m) {
         return m.text.empty() ? api::elements::heading(m.element()) : m.text;
     }
+    // The fence chart entry for an element Chart's plot, when its data
+    // parsed (api/element_chart.h carried it as fence JSON).
+    static std::shared_ptr<const ChartEntry> element_chart_entry(const api::Message& m) {
+        if (m.element().chart_source.empty()) return nullptr;
+        auto e = chart_entry(m.element().chart_source);
+        return e && e->parse.ok() ? e : nullptr;
+    }
     static float element_height(const api::Message& m, float colW) {
         const std::string prov = api::elements::provenance(m.element());
+        float h = event_row_height() + (prov.empty() ? 0.0f : kElementProvenanceH) +
+                  kElementBodyGap + kThinkingPadBot;
+        if (const auto ce = element_chart_entry(m)) return h + chart_block_h(*ce->parse.spec);
         const int lines = ask_wrap_lines(element_body(m), element_text_w(colW));
-        return event_row_height() + (prov.empty() ? 0.0f : kElementProvenanceH) +
-               kElementBodyGap + (lines > 0 ? prose_h(lines) : 0.0f) +
-               kThinkingPadBot;
+        return h + (lines > 0 ? prose_h(lines) : 0.0f);
     }
 
     void render_element_row(UIContext<InputAction>& ctx, Entity& parent,
@@ -17167,6 +17175,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("element_body"));
+        // std/Chart with drawable data: the fence chart plotter draws it
+        // (same marks, legend and a11y summary as a ```chart fence); the
+        // text lines stay what search/copy/export read via the row text.
+        if (const auto ce = element_chart_entry(m)) {
+            render_chart_block(ctx, body.ent(), 5, ce, "chart", m.element().chart_source, textW);
+            return;
+        }
         // std/StatusDot (the reference): a drawn coloured dot beside its
         // label, not the word for the tone. Other native kinds draw their
         // parsed lines (element_kinds.h) as the body below.

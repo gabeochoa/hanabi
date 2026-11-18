@@ -102,6 +102,10 @@ struct ElementFacts {
     // Native-kind tone (std/StatusDot: neutral/info/success/warning/danger);
     // empty for other kinds. See api/element_kinds.h ('the reference').
     std::string native_tone;
+    // A std/Chart's plot as fence-chart JSON (api/element_chart.h), from
+    // inline series, rows+encoding, or segments; empty when the emit
+    // carried no drawable chart and the text lines are all there is.
+    std::string chart_source;
 
     [[nodiscard]] bool present() const { return !instance.empty(); }
     bool operator==(const ElementFacts&) const = default;
