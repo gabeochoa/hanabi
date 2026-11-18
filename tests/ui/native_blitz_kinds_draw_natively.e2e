@@ -1,0 +1,13 @@
+# W45 blitz native kinds (the reference, 4b34c545): std/EmptyState,
+# std/Breadcrumbs and std/Switch draw their parsed native lines, not the
+# server projection. Regression: revert element_kinds blitz branches (or the
+# mock parser wiring) and this goes red.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ELEMENTS_DEMO=1 HANABI_ELEMENTS_KINDS=1 HANABI_OPEN=relements
+require_thread relements
+expect_text "All caught up"
+expect_text "No new items"
+expect_text "Home"
+expect_text "Detail"
+expect_text "Alerts [on]"
+expect_no_text "3 crumbs"

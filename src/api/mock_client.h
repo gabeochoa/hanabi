@@ -1,5 +1,6 @@
 #pragma once
 #include "element_table.h"
+#include "element_kinds.h"
 #include "create_title.h"
 #include "mock_faults.h"
 #include "mock_journal.h"
@@ -4596,6 +4597,21 @@ class MockClient : public Client {
                 list.element = "std/ItemList"; list.title = "Queue";
                 list.projection = "2 items"; list.table_text = "Queue\n\xe2\x80\xa2 First item\n\xe2\x80\xa2 Second item"; list.run = 1;
                 elements::fold_element(s.messages, list, 10, hrs_ago(1));
+                // W45 blitz (the reference): rows built through the real
+                // parser, so reverting element_kinds.h empties them and the
+                // e2e goes red (projection below deliberately differs).
+                ElementFacts empty; empty.instance = "blitz-empty"; empty.revision = 1; empty.placement = "inline";
+                empty.element = "std/EmptyState"; empty.title = "Inbox zero"; empty.projection = "nothing here";
+                empty.table_text = elements::native_text_from_tree("std/EmptyState", nlohmann::json{{"p", {{"title", "All caught up"}, {"message", "No new items"}}}}); empty.run = 1;
+                elements::fold_element(s.messages, empty, 11, hrs_ago(1));
+                ElementFacts crumbs; crumbs.instance = "blitz-crumbs"; crumbs.revision = 1; crumbs.placement = "inline";
+                crumbs.element = "std/Breadcrumbs"; crumbs.title = "Trail"; crumbs.projection = "3 crumbs";
+                crumbs.table_text = elements::native_text_from_tree("std/Breadcrumbs", nlohmann::json{{"p", {{"items", nlohmann::json::array({nlohmann::json{{"label", "Home"}}, nlohmann::json{{"label", "Queue"}}, nlohmann::json{{"label", "Detail"}}})}}}}); crumbs.run = 1;
+                elements::fold_element(s.messages, crumbs, 12, hrs_ago(1));
+                ElementFacts sw; sw.instance = "blitz-switch"; sw.revision = 1; sw.placement = "inline";
+                sw.element = "std/Switch"; sw.title = "Prefs"; sw.projection = "toggle";
+                sw.table_text = elements::native_text_from_tree("std/Switch", nlohmann::json{{"p", {{"label", "Alerts"}, {"checked", true}}}}); sw.run = 1;
+                elements::fold_element(s.messages, sw, 13, hrs_ago(1));
             }
 
             ElementFacts card;

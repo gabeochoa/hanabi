@@ -110,6 +110,75 @@ inline NativeKind native_from_tree(const std::string& el, const nlohmann::json& 
         for(auto& s: p["series"]) { std::string name=kind_prop(s,"name"); r.text+="\n"+(name.empty()?"Series":name)+":"; if(s.is_object()&&s.contains("values")&&s["values"].is_array()) { size_t i=0; for(auto& v:s["values"]){ r.text+=" "; if(i<cats.size()) r.text+=cats[i]+"="; r.text+=v.is_null()?"-":kind_str(v); if(++i>=200) break; } } }
         return r;
     }
+    // W45 blitz (the reference, 4b34c545 cluster): smallest kinds first.
+    // All are pure text; kinds needing new layout engines (Calendar, Tree,
+    // Diff, NestApp, Carousel, Pagination, ScrollArea, TabbedPage, PageTab,
+    // Dialog, SelectableCards, ClickableCard, Toolbar, Menu, Popover, Delta)
+    // are documented divergences in the bank README, not built here.
+    if (el=="std/EmptyState") {
+        auto title=kind_prop(p,"title","heading"); auto msg=kind_prop(p,"message","description"); if(title.empty()) title=msg, msg="";
+        if(title.empty()&&!kids.empty()) title=kids[0];
+        if(title.empty()) return r; r.text=title; if(!msg.empty()) r.text+="\n"+msg;
+        for(auto& k: kids) if(k!=title) r.text+="\n"+k; return r;
+    }
+    if (el=="std/Quote") {
+        auto text=kind_prop(p,"text","quote"); auto by=kind_prop(p,"author","source"); auto cite=kind_prop(p,"citation");
+        if(text.empty()&&!kids.empty()) text=kids[0]; if(text.empty()) return r;
+        r.text="\xe2\x80\x9c"+text+"\xe2\x80\x9d"; if(!by.empty()) r.text+="\n\xe2\x80\x94 "+by+(cite.empty()?"":" ("+cite+")"); return r;
+    }
+    if (el=="std/Kbd") {
+        std::vector<std::string> keys;
+        if(p.is_object()&&p.contains("keys")) keys=kind_tags(p["keys"]);
+        if(keys.empty()&&p.is_object()&&p.contains("shortcuts")&&p["shortcuts"].is_array()) for(auto& s:p["shortcuts"]) { auto k=kind_prop(s,"keys","key"); if(!k.empty()) keys.push_back(k); }
+        auto single=kind_prop(p,"key","shortcut"); if(single.empty()) single=kind_prop(p,"label"); if(keys.empty()&&!single.empty()) keys.push_back(single);
+        if(keys.empty()) return r; r.text="["+keys[0]+"]"; for(size_t i=1;i<keys.size();++i) r.text+=" + ["+keys[i]+"]"; return r;
+    }
+    if (el=="std/Facts"||el=="std/Tokens") {
+        std::string out=kind_prop(p,"title"); bool any=false;
+        auto add=[&](const std::string& l,const std::string& v){ if(l.empty()||v.empty()) return; if(!out.empty()) out+="\n"; out+=l+": "+v; any=true; };
+        const char* arrKey = el=="std/Facts"?"facts":"tokens";
+        if(p.is_object()&&p.contains(arrKey)&&p[arrKey].is_array()) for(auto& f:p[arrKey]) add(kind_prop(f,"label","name"),kind_prop(f,"value","text"));
+        else if(p.is_object()&&p.contains(arrKey)&&p[arrKey].is_object()) for(auto& [k,v]:p[arrKey].items()) add(k,kind_str(v));
+        else if(p.is_object()&&p.contains("items")&&p["items"].is_array()) for(auto& f:p["items"]) add(kind_prop(f,"label","name"),kind_prop(f,"value","text"));
+        if(!any) return r; r.text=out; return r;
+    }
+    if (el=="std/Spinner") { auto l=kind_prop(p,"label","text"); r.text="\xe2\x97\x8c "+(l.empty()?"Loading\xe2\x80\xa6":l); return r; }
+    if (el=="std/Skeleton") {
+        int lines=3; if(p.is_object()&&p.contains("lines")&&p["lines"].is_number_integer()) lines=(int)p["lines"].get<long long>(); if(p.is_object()&&p.contains("rows")&&p["rows"].is_number_integer()) lines=(int)p["rows"].get<long long>(); if(lines<1)lines=1; if(lines>12)lines=12;
+        for(int i=0;i<lines;++i){ if(i) r.text+="\n"; r.text+= i%3==2?"\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88":"\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88"; } return r;
+    }
+    if (el=="std/AvatarGroup") {
+        std::vector<std::string> names;
+        const char* keysArr[3]={"people","members","items"};
+        if(p.is_object()) for(auto* kk:keysArr) if(p.contains(kk)&&p[kk].is_array()) for(auto& a:p[kk]) { auto n=kind_prop(a,"name","label"); if(n.empty()) n=kind_str(a); if(!n.empty()) names.push_back(n); }
+        if(names.empty()) names=kids; if(names.empty()) return r;
+        int maxShow=5; if(p.is_object()&&p.contains("max")&&p["max"].is_number_integer()) maxShow=(int)p["max"].get<long long>(); if(maxShow<1)maxShow=1;
+        for(size_t i=0;i<names.size()&&i<(size_t)maxShow;++i){ if(i) r.text+=" "; std::string ini; { std::string w; for(char c:names[i]){ if(c==' '){ if(!w.empty()) ini+=w[0]; w.clear(); } else w+=c; } if(!w.empty()) ini+=w[0]; if(ini.size()>2) ini.resize(2); for(auto& ch:ini) if(ch>='a'&&ch<='z') ch-=32; } r.text+="("+ini+")"; }
+        if(names.size()>(size_t)maxShow) r.text+=" +"+std::to_string(names.size()-maxShow); return r;
+    }
+    if (el=="std/Breadcrumbs") {
+        std::vector<std::string> crumbs;
+        if(p.is_object()&&p.contains("items")&&p["items"].is_array()) for(auto& b:p["items"]) { auto l=kind_prop(b,"label","title"); if(l.empty()) l=kind_str(b); if(!l.empty()) crumbs.push_back(l); }
+        if(crumbs.empty()) crumbs=kids; if(crumbs.empty()) return r;
+        r.text=crumbs[0]; for(size_t i=1;i<crumbs.size();++i) r.text+=" \xe2\x80\xba "+crumbs[i]; return r;
+    }
+    if (el=="std/Switch") {
+        auto label=kind_prop(p,"label","title"); if(label.empty()) return r;
+        bool on=false; bool has=false; if(p.is_object()) for(const char* k:{"checked","on","enabled","value"}) if(p.contains(k)&&p[k].is_boolean()){ on=p[k].get<bool>(); has=true; break; }
+        r.text=label+(has?(on?" [on]":" [off]"):""); auto d=kind_prop(p,"description"); if(!d.empty()) r.text+=" \xe2\x80\x94 "+d; return r;
+    }
+    if (el=="std/Person") {
+        auto name=kind_prop(p,"name","label"); if(name.empty()&&!kids.empty()) name=kids[0]; if(name.empty()) return r;
+        auto sub=kind_prop(p,"subtitle","role"); auto mail=kind_prop(p,"email","meta"); r.text=name; if(!sub.empty()) r.text+=" \xe2\x80\x94 "+sub; if(!mail.empty()) r.text+=" ("+mail+")"; return r;
+    }
+    if (el=="std/Sources") {
+        if(!p.is_object()||!p.contains("items")||!p["items"].is_array()) { if(kids.empty()) return r; r.text=kids[0]; for(size_t i=1;i<kids.size();++i) r.text+="\n"+kids[i]; return r; }
+        int n=0; for(auto& s:p["items"]){ if(n>=20) break; auto t=kind_prop(s,"title","label"); auto u=kind_prop(s,"url","domain"); if(t.empty()) t=u; if(t.empty()) continue; if(n) r.text+="\n"; r.text+="["+std::to_string(++n)+"] "+t; if(!u.empty()&&u!=t) r.text+=" \xe2\x80\x94 "+u; } if(n==0) return r; return r;
+    }
+    if (el=="std/Icon") { auto n=kind_prop(p,"name","icon"); if(n.empty()) return r; auto l=kind_prop(p,"label"); r.text="\xe2\x97\x86 "+n+(l.empty()?"":" \xe2\x80\x94 "+l); return r; }
+    if (el=="std/Code") {
+        auto code=kind_prop(p,"code","text"); auto lang=kind_prop(p,"language","lang"); if(code.empty()) return r; r.text=(lang.empty()?"":lang+"\n")+code; return r;
+    }
     if (el=="std/Artifact") {
         auto name=kind_prop(p,"title","name"); auto file=kind_prop(p,"file","filename"); if(name.empty()&&file.empty()) return r; r.text=name+(file.empty()?"":" \xe2\x80\x94 "+file); return r;
     }
