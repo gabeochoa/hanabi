@@ -753,12 +753,50 @@ void native_play_tone(const char* name, const double* hz, const double* seconds,
         g_tone_engine = [[AVAudioEngine alloc] init];
         g_tone_node = [[AVAudioPlayerNode alloc] init];
         [g_tone_engine attachNode:g_tone_node];
+        // connect:to:format:error: and playAndReturnError: are macOS 27-only
+        // (API_AVAILABLE(macos(27.0)) in the 27 SDK, absent from the 26.5 SDK),
+        // while LSMinimumSystemVersion is 12.0 and build.zig sets no higher
+        // deployment target. Guard on both SDK and OS so this compiles against
+        // the 26.5 SDK and still runs pre-27; on 27 a failure returns silently,
+        // matching startAndReturnError below.
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 270000
+        if (@available(macOS 27.0, *)) {
+            NSError* connect_err = nil;
+            if (![g_tone_engine connect:g_tone_node
+                                     to:g_tone_engine.mainMixerNode
+                                 format:format
+                                  error:&connect_err])
+                return;
+        } else {
+            // Pre-27 fallback: the old selector is the only one present there,
+            // so its deprecation in the 27 SDK does not apply to this branch.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            [g_tone_engine connect:g_tone_node to:g_tone_engine.mainMixerNode format:format];
+#pragma clang diagnostic pop
+        }
+#else
         [g_tone_engine connect:g_tone_node to:g_tone_engine.mainMixerNode format:format];
+#endif
     }
     NSError* err = nil;
     if (!g_tone_engine.isRunning && ![g_tone_engine startAndReturnError:&err]) return;
     [g_tone_node scheduleBuffer:buffer completionHandler:nil];
-    if (!g_tone_node.isPlaying) [g_tone_node play];
+    if (!g_tone_node.isPlaying) {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 270000
+        if (@available(macOS 27.0, *)) {
+            NSError* play_err = nil;
+            if (![g_tone_node playAndReturnError:&play_err]) return;
+        } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            [g_tone_node play];
+#pragma clang diagnostic pop
+        }
+#else
+        [g_tone_node play];
+#endif
+    }
 }
 
 void native_play_chime(void) {
