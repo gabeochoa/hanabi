@@ -809,6 +809,10 @@ struct AppComponent : public afterhours::BaseComponent {
     bool sensitiveGateAsked = false;
     std::future<api::Result<nlohmann::json>> sensitiveGateFuture;
     bool newThreadSensitiveAsk = false;
+    // The New Thread choice to be born Sensitive (the reference's
+    // pendingSensitiveBirth): the first message runs under the policy.
+    // Exclusive with the reserve above -- a born thread has nothing to add.
+    bool newThreadBornSensitive = false;
     // The New Thread page's optional "Thread name" (Knots kt-2guz). It rides
     // the next create and is cleared only when that create made a thread, so
     // a refused create keeps what was typed for the retry.
@@ -1263,9 +1267,14 @@ struct AppComponent : public afterhours::BaseComponent {
         if (message.launch.autocompactPct == 0) message.launch.autocompactPct = s.get_account_autocompact();
         // The New Thread's Sensitive choice rides this create only, and only
         // while the gate admits; the next New Thread starts Standard again.
-        if (newThreadSensitiveAsk && sensitiveGate == Gate::Admitted)
+        // Born Sensitive wins over the reserve (the reference's
+        // createTimeControl): a born thread has nothing left to reserve.
+        if (newThreadBornSensitive && sensitiveGate == Gate::Admitted)
+            message.launch.bornSensitive = true;
+        else if (newThreadSensitiveAsk && sensitiveGate == Gate::Admitted)
             message.launch.allowSensitiveSwitch = true;
         newThreadSensitiveAsk = false;
+        newThreadBornSensitive = false;
         message.title = api::create_title::explicit_title(newThreadName);
         // The automatic-naming choice, stamped here with the other launch
         // defaults so a change mid-flight cannot retune a create already

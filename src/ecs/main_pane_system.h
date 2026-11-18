@@ -9845,23 +9845,40 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                         kStripChipTextX - kLabelInset;
             }
         }
-        // New Thread, where the viewer's gate admits: let the agent ASK to
-        // switch this thread to the sensitive policy (the reference's 0.8.3).
-        // Ticking permits the ask, not the switch -- a person still approves,
-        // and an approved switch is permanent (the tooltip says so).
+        // New Thread, where the viewer's gate admits: the Sensitive choice
+        // (the reference's three-value mode). Off is Standard; "may ask"
+        // reserves the transition and a person still approves (0.8.3);
+        // "start" is born Sensitive -- the first message already runs under
+        // the policy, permanently (the reference's bornSensitiveLabel).
+        // The chip cycles off -> may ask -> start -> off.
         if (targetKickoff && app.sensitiveGate == AppComponent::Gate::Admitted) {
-            const bool on = app.newThreadSensitiveAsk;
+            const bool born = app.newThreadBornSensitive;
+            const bool ask = !born && app.newThreadSensitiveAsk;
+            const bool on = born || ask;
             auto sens = button(ctx, mk(leftMeta.ent(), 24),
-                strip_chip_cfg(on ? "Sensitive: may ask" : "Sensitive: off", "hand",
+                strip_chip_cfg(born ? "Sensitive: start" : ask ? "Sensitive: may ask"
+                                                               : "Sensitive: off",
+                               "hand",
                                on ? theme::text_primary() : theme::text_secondary(),
                                cname("composer_sensitive")));
             if (sens.ent().has<afterhours::ui::HasLabel>())
                 sens.ent().get<afterhours::ui::HasLabel>().text_x_offset =
                     kStripChipTextX - kLabelInset;
             hanabi::a11y::set_name(sens.ent(),
-                                   on ? "The agent may ask to switch this thread to sensitive mode"
-                                      : "Standard thread; the agent may not ask for sensitive mode");
-            if (sens) app.newThreadSensitiveAsk = !app.newThreadSensitiveAsk;
+                                   born ? "Start in sensitive mode"
+                                        : ask ? "The agent may ask to switch this thread to sensitive mode"
+                                              : "Standard thread; the agent may not ask for sensitive mode");
+            if (sens) {
+                if (born) {
+                    app.newThreadBornSensitive = false;
+                    app.newThreadSensitiveAsk = false;
+                } else if (ask) {
+                    app.newThreadBornSensitive = true;
+                    app.newThreadSensitiveAsk = false;
+                } else {
+                    app.newThreadSensitiveAsk = true;
+                }
+            }
         }
         // The files this conversation changed: a chip beside the skills, and
         // the panel it opens (the reference's 0.8.9).
@@ -10627,6 +10644,52 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
             if (cmd->name == "model" || cmd->name == "effort") {
                 app.modelPopoverOpen = true;
                 app.composerPopoverPane = target.pane_index;
+                app.slashNotice.clear();
+                set_target_field(target, "");
+                return;
+            }
+            if (cmd->name == "sensitive-experimental") {
+                // The reference's verb (kt-57m3): on New Thread it starts a
+                // thread born Sensitive with the typed first message. Inside
+                // a thread the switch is a server control-mode change this
+                // client has no call for, so it says so and points at the
+                // start instead of pretending to switch.
+                if (p.args.empty()) {
+                    app.slashNotice = "Usage: /sensitive-experimental <first message>";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (!target.session_id.empty()) {
+                    app.slashNotice =
+                        "This thread can't be switched to sensitive mode from here. "
+                        "Start a new thread in sensitive mode instead.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (app.sensitiveGate != AppComponent::Gate::Admitted) {
+                    app.slashNotice =
+                        "Starting a thread in sensitive mode needs the sensitive-mode rollout.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (app.kickoffPending) {
+                    app.slashNotice = "Still starting this conversation.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                api::OutgoingMessage message =
+                    captured != nullptr ? *captured
+                                        : snapshot_composer_message(app, p.args, target);
+                message.text = p.args;
+                remember_composer_snapshot(message);
+                consume_composer_snapshot(message);
+                app.newThreadBornSensitive = true;
+                app.newThreadSensitiveAsk = false;
+                app.request_kickoff(std::move(message));
                 app.slashNotice.clear();
                 set_target_field(target, "");
                 return;

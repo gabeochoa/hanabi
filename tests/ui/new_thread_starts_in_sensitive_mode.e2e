@@ -1,0 +1,24 @@
+# New Thread can start in sensitive mode where the account allows (the
+# reference's "Start in sensitive mode"). The Sensitive chip cycles
+# off -> may ask -> start; a start create is born Sensitive
+# (options.control.initial_modes = ["sensitive"], may_add = []) -- the first
+# message already runs under the policy, permanently. No reserve is sent.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SENSITIVE=1
+
+wait_frames 20
+assert_ui composer_sensitive text="Sensitive: off"
+click_ui composer_sensitive
+wait_frames 6
+assert_ui composer_sensitive text="Sensitive: may ask"
+click_ui composer_sensitive
+wait_frames 6
+assert_ui composer_sensitive text="Sensitive: start"
+
+click_ui composer_reply_input
+type "a sensitive look at the payroll export"
+key ENTER
+wait_frames 40
+expect_mock_create_born_sensitive yes
+expect_mock_create_sensitive no

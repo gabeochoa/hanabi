@@ -92,6 +92,7 @@ inline const std::vector<Command>& all() {
         {"draft", "", "your saved drafts from the web app; pick one to compose it", true, ""},
         {"autocompact", "<25-90 | default>", "this thread's compaction boundary; with no thread, the next one's",
          true, ""},
+        {"sensitive-experimental", "<first message>", "start a new thread in sensitive mode", true, ""},
         {"compact", "", "compact the context now", false,
          std::string(product_branding::kAppName) + " has no compact call yet"},
     };

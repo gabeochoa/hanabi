@@ -3590,6 +3590,7 @@ inline void register_hanabi_pre_handlers(afterhours::SystemManager& sm) {
 //   open_bug_report                           Help > Report a Bug
 //   expect_overlay_write pin|archive id t|f   a server-side pin/archive write
 //   expect_mock_create_sensitive yes|no       the last create's Sensitive reserve
+//   expect_mock_create_born_sensitive yes|no  the last create was born Sensitive
 //   open_companion D123|T456                  the Companion on that entity
 //   expect_scroll_y <name> <y>                a scroll view's offset (±1)
 //   release_modifier ctrl|shift|alt           let it go
@@ -3910,6 +3911,33 @@ struct HandleExpectMockCreateSensitiveCommand
         }
         cmd.fail(std::string("expect_mock_create_sensitive: last create ") +
                  (got ? "reserved" : "did not reserve") + " the Sensitive transition");
+    }
+};
+
+// expect_mock_create_born_sensitive <yes|no>: whether the last create was
+// born Sensitive (options.control.initial_modes).
+struct HandleExpectMockCreateBornSensitiveCommand
+    : afterhours::System<afterhours::testing::PendingE2ECommand> {
+    void for_each_with(afterhours::Entity&,
+                       afterhours::testing::PendingE2ECommand& cmd,
+                       float) override {
+        if (cmd.is_consumed() || !cmd.is("expect_mock_create_born_sensitive")) return;
+        if (!cmd.has_args(1)) {
+            cmd.fail("expect_mock_create_born_sensitive requires yes|no");
+            return;
+        }
+        const bool want = cmd.arg(0) == "yes";
+        const bool got = api::MockClient::last_create_born_sensitive().load();
+        if (got == want) {
+            cmd.consume();
+            return;
+        }
+        if (cmd.frames_alive < hanabi::e2e::kGiveUpFrame) {
+            cmd.retry();
+            return;
+        }
+        cmd.fail(std::string("expect_mock_create_born_sensitive: last create ") +
+                 (got ? "was" : "was not") + " born Sensitive");
     }
 };
 
@@ -5549,6 +5577,7 @@ inline void register_hanabi_commands(afterhours::SystemManager& sm) {
     sm.register_update_system(std::make_unique<HandleMockLiveCommands>());
     sm.register_update_system(std::make_unique<HandleRowMm3Commands>());
     sm.register_update_system(std::make_unique<HandleExpectMockCreateSensitiveCommand>());
+    sm.register_update_system(std::make_unique<HandleExpectMockCreateBornSensitiveCommand>());
     sm.register_update_system(std::make_unique<HandleOpenCompanionCommand>());
     sm.register_update_system(std::make_unique<HandleExpectScrollYCommand>());
     sm.register_update_system(std::make_unique<HandleExpectCacheWipedCommand>());

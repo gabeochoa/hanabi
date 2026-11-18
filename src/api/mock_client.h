@@ -381,6 +381,11 @@ class MockClient : public Client {
         static std::atomic<bool> v{false};
         return v;
     }
+    // Whether the last create was born Sensitive (initial_modes), for scripts.
+    static std::atomic<bool>& last_create_born_sensitive() {
+        static std::atomic<bool> v{false};
+        return v;
+    }
     static std::atomic<int>& list_polls() {
         static std::atomic<int> n{0};
         return n;
@@ -924,6 +929,7 @@ class MockClient : public Client {
             fresh->model.requested_effort = message.launch.effort;
         }
         last_create_allowed_sensitive() = message.launch.allowSensitiveSwitch;
+        last_create_born_sensitive() = message.launch.bornSensitive;
         last_create_autocompact() = pins::admits_autocompact(message.launch.autocompactPct)
                                         ? message.launch.autocompactPct
                                         : 0;

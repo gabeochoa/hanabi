@@ -1,0 +1,14 @@
+# /sensitive-experimental <first message> on New Thread (the reference's
+# verb) starts a thread born Sensitive with that message as its first input
+# (options.control.initial_modes = ["sensitive"]).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_MOCK_SENSITIVE=1
+
+wait_frames 20
+click_ui composer_reply_input
+type "/sensitive-experimental a sensitive look at the payroll export"
+key ENTER
+wait_frames 40
+expect_mock_create_born_sensitive yes
+expect_mock_create_sensitive no

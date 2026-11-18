@@ -2644,6 +2644,18 @@ static void test_create_carries_the_launch_tuning_as_options_llm() {
         CHECK(!sensitive.empty());
     }
     {
+        // Born Sensitive (the reference's bornSensitiveControl): in the set
+        // from the first message, nothing left to add -- and it wins over a
+        // reserve asked for at the same time.
+        LaunchTuning born;
+        born.bornSensitive = true;
+        born.allowSensitiveSwitch = true;
+        const auto j = json::parse(create_command_json("t", "", born));
+        CHECK(j["options"]["control"]["initial_modes"] == json::array({"sensitive"}));
+        CHECK(j["options"]["control"]["may_add"] == json::array());
+        CHECK(!born.empty());
+    }
+    {
         const auto j = json::parse(create_command_json("t", "od-1", LaunchTuning{}));
         CHECK(!j.contains("options"));
         CHECK(j["title"] == "t" && j["node"]["existing"]["node_id"] == "od-1");

@@ -1414,8 +1414,13 @@ std::string create_command_json(const std::string& title,
     if (!llm.empty()) command["options"] = {{"llm", llm}};
     // `options.control` (spec 130): transition authority is fixed at birth.
     // Sent only when asked for -- an omitted key and an empty `may_add` both
-    // leave a Standard session with no switch later.
-    if (launch.allowSensitiveSwitch)
+    // leave a Standard session with no switch later. Born Sensitive (the
+    // reference's createTimeControl with bornSensitive) wins: in the set
+    // from the first message, with nothing left to add.
+    if (launch.bornSensitive)
+        command["options"]["control"] = {{"initial_modes", json::array({"sensitive"})},
+                                         {"may_add", json::array()}};
+    else if (launch.allowSensitiveSwitch)
         command["options"]["control"] = {{"may_add", json::array({"sensitive"})}};
     return command.dump();
 }

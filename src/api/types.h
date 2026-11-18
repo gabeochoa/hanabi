@@ -267,13 +267,19 @@ struct LaunchTuning {
     // sensitive company policy; a person still approves, and an approved
     // switch is permanent. Set only when the viewer's rollout gate admitted.
     bool allowSensitiveSwitch = false;
+    // Born Sensitive (`options.control.initial_modes`, the reference's
+    // bornSensitiveControl): the first message already runs under the
+    // sensitive company policy. Permanent once selected. Wins over the
+    // reserve above -- a thread born Sensitive has nothing left to add.
+    bool bornSensitive = false;
     // The compaction boundary to ask for (`options.llm.autocompact_pct`):
     // the one the person set in agentcloud (synced `autocompactPct`), so a new
     // thread compacts where theirs do on the web (the reference's kt-ltvd).
     // 0 = omitted: the harness's own rule applies.
     int autocompactPct = 0;
     [[nodiscard]] bool empty() const {
-        return model.empty() && effort.empty() && !allowSensitiveSwitch && autocompactPct == 0;
+        return model.empty() && effort.empty() && !allowSensitiveSwitch && !bornSensitive &&
+               autocompactPct == 0;
     }
     bool operator==(const LaunchTuning&) const = default;
 };
