@@ -79,6 +79,7 @@
 #include "../ui/find_nav.h"
 #include "../ui/link_detect.h"
 #include "../ui/inline_math.h"
+#include "../ui/display_math.h"
 #include "../ui/md_spans.h"
 #include "../ui/minimap.h"
 #include "../ui/find_operators.h"
@@ -3906,6 +3907,13 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     p = n2 + 1;
                 }
                 start = p;
+                continue;
+            }
+            // Display math is painted as its typeset (or preserved) lines.
+            if (const auto math = hanabi::display_math::block_at(body, start)) {
+                for (const std::string& drawn : display_math_drawn(math->source))
+                    out.push_back(drawn);
+                start = math->after;
                 continue;
             }
             // A markdown image line is drawn as a picture or a chip, never
@@ -12053,6 +12061,74 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                kCodeVMarginBot;
     }
 
+    // ---- Display math (kt-heop, ui/display_math.h) -----------------------
+    // One atomic segment, measured and drawn by the same count of typeset
+    // (or preserved-source) lines so the virtualisation mirror stays exact.
+    static constexpr float kMathPadTop = 6.0f;
+    static constexpr float kMathPadBot = 6.0f;
+    static float display_math_h(int nLines) {
+        if (nLines < 1) nLines = 1;
+        return kMathPadTop + prose_h(nLines) + kMathPadBot;
+    }
+    static std::vector<std::string> display_math_drawn(const std::string& source,
+                                                       bool* typeset = nullptr) {
+        return hanabi::display_math::rendered_lines(source, prose_glyph_check(), typeset);
+    }
+    void render_display_math(UIContext<InputAction>& ctx, Entity& parent, int seg,
+                             const std::vector<std::string>& lines, bool typeset,
+                             const std::string& findQuery, int messageIndex,
+                             std::size_t findLine) {
+        div(ctx, mk(parent, 51000 + seg),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kMathPadTop)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("display_math_pad"));
+        int li = 0;
+        for (const std::string& raw : lines) {
+            const std::string shown = raw.empty() ? " " : raw;
+            auto cfg = ComponentConfig{}
+                           .with_label(shown)
+                           .with_size(ComponentSize{percent(1.0f), pixels(line_pitch())})
+                           .with_transparent_bg()
+                           .with_custom_text_color(theme::text_primary())
+                           .with_font_size(typeset ? theme::type::BODY : theme::type::MD)
+                           .with_text_overflow(TextOverflow::Wrap)
+                           .with_alignment(TextAlignment::Center)
+                           .with_roundness(0.0f)
+                           .with_debug_name("display_math");
+            if (!typeset) cfg = cfg.with_font("mono", theme::type::MD);
+            const auto ep = mk(parent, 50000 + seg * 64 + li);
+            Entity& ent = ep.first.get();
+            hanabi::control::mark_text_surface(ent);
+            auto& ld = ent.addComponentIfMissing<ecs::LineDrawState>();
+            ld.text = raw;
+            ld.query = findQuery;
+            if (const auto* hits = paint_offsets_for(messageIndex, findLine + static_cast<std::size_t>(li)))
+                ld.findOffsets = *hits;
+            else
+                ld.findOffsets.clear();
+            ld.id = ent.id;
+            ecs::LineDrawState* ldp = &ld;
+            const float fontPx = typeset ? theme::type::BODY : theme::type::MD;
+            cfg = cfg.with_on_draw_bg([ldp, fontPx](RectangleType r) {
+                hanabi::text_select::draw(ldp->id, r, ldp->text, fontPx);
+                if (!ldp->query.empty())
+                    hanabi::find_highlight::draw(r, ldp->text, ldp->query, fontPx,
+                                                 &ldp->findOffsets);
+            });
+            auto el = div(ctx, ep, cfg);
+            selectable_text(ctx, el.ent(), raw, fontPx);
+            ++li;
+        }
+        div(ctx, mk(parent, 51001 + seg),
+            ComponentConfig{}
+                .with_size(ComponentSize{percent(1.0f), pixels(kMathPadBot)})
+                .with_transparent_bg()
+                .with_roundness(0.0f)
+                .with_debug_name("display_math_pad"));
+    }
+
     // ---- Markdown pipe-tables -------------------------------------------
     // A GitHub-style table is a header row of "| a | b |", a separator row of
     // "|---|:--:|---|", then N body rows. We render it as a real grid (header
@@ -12292,6 +12368,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 start = scan_table(body, start, &rows);
                 continue;
             }
+            if (!is_code_fence(line)) {
+                if (const auto math = hanabi::display_math::block_at(body, start)) {
+                    for (const std::string& drawn : display_math_drawn(math->source))
+                        widest = std::max(widest, line_advance(drawn, theme::type::BODY));
+                    start = math->after;
+                    continue;
+                }
+            }
             if (is_code_fence(line)) {
                 std::size_t p = (nl == std::string::npos) ? body.size() : nl + 1;
                 while (p <= body.size()) {
@@ -12366,6 +12450,14 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ++tableSeg;
                 start = p;
                 continue;
+            }
+            // ---- Display math: ONE atomic segment (mirror render) ---------
+            if (!is_code_fence(line)) {
+                if (const auto math = hanabi::display_math::block_at(body, start)) {
+                    h += display_math_h(static_cast<int>(display_math_drawn(math->source).size()));
+                    start = math->after;
+                    continue;
+                }
             }
             if (is_code_fence(line)) {
                 // A closed ```chart fence that parses is a chart; one that
@@ -14344,6 +14436,30 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 ++seg;
                 start = p;
                 continue;
+            }
+
+            // ---- Display math: ONE atomic segment (centred block) ---------
+            if (!is_code_fence(line)) {
+                if (const auto math = hanabi::display_math::block_at(shown, start)) {
+                    bool typeset = false;
+                    const std::vector<std::string> drawn = display_math_drawn(math->source, &typeset);
+                    const float blockH = display_math_h(static_cast<int>(drawn.size()));
+                    const float segTop = y;
+                    const float segBot = y + blockH;
+                    y = segBot;
+                    const bool visible = !cull || (segBot >= winTop && segTop <= winBot);
+                    if (!visible) {
+                        pending += blockH;
+                    } else {
+                        flush(9000 + seg);
+                        render_display_math(ctx, parent, seg, drawn, typeset, findQuery,
+                                            messageIndex, findLine);
+                    }
+                    findLine += drawn.size();
+                    ++seg;
+                    start = math->after;
+                    continue;
+                }
             }
 
             // ---- Fenced code block: ONE atomic segment (container) ----------

@@ -1,0 +1,17 @@
+# Display math in an assistant reply (kt-heop, the reference 2026-10-14):
+# $$...$$ and \[...\] blocks draw as centred typeset equations, not as
+# raw dollar signs between the prose lines around them. An equation the
+# typeset table cannot set keeps its source, still without delimiters.
+# HANABI_MATH_DEMO's thread: a fraction, an aligned pair of fractions,
+# and an unsupported \foo{bar}. Fractions set to ASCII, so the fixture
+# does not stand on which face the headless host happens to load.
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["rmath"],"active_tab":"rmath","theme":"dark"}
+# env: HANABI_MATH_DEMO=1 HANABI_ALLOW_SYSTEM_FONTS_HEADLESS=1
+require_thread rmath
+wait_frames 30
+expect_text "The average is:"
+expect_text "E = (a + b)/2"
+expect_no_text "$$"
+expect_text "J = p/q"
+expect_text "= r/s"
+expect_text "\\foo{bar}"

@@ -2992,7 +2992,7 @@ class MockClient : public Client {
     // here too. That coupling is the price of the cache; the alternative was
     // rebuilding a 2000-row catalog on every get_session().
     static constexpr const char* kFixtureEnv[] = {
-        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_ELEMENTS_CARD_TABLE", "HANABI_CODE_WRAP_DEMO", "HANABI_CHART_DEMO", "HANABI_MD_IMAGE_DEMO",
+        "HANABI_ASK_NO_RESOLVE",    "HANABI_ELEMENTS_TABLE", "HANABI_ELEMENTS_CARD_TABLE", "HANABI_CODE_WRAP_DEMO", "HANABI_CHART_DEMO", "HANABI_MD_IMAGE_DEMO", "HANABI_MATH_DEMO",
         "HANABI_STRESS_SESSIONS", "HANABI_MD_DEMO",   "HANABI_THINKING_DEMO",
         "HANABI_STOPPED_DEMO",
         "HANABI_FOLD_DEMO",       "HANABI_CODE_DEMO", "HANABI_DATES_DEMO",
@@ -4710,6 +4710,23 @@ class MockClient : public Client {
                  "{\"x\":2,\"y\":118},{\"x\":3,\"y\":127.4}]}]}\n"
                  "```\n\n"
                  "And one I got wrong:\n\n```chart\n{\"type\":\"pie\",\"series\":[]}\n```",
+                 hrs_ago(1), ""},
+            };
+            v.push_back(std::move(s));
+        }
+        // Display math (kt-heop): a typeset equation between prose lines
+        // and one this typeset table cannot set. Only under HANABI_MATH_DEMO.
+        if (const char* mh = std::getenv("HANABI_MATH_DEMO"); mh && *mh == '1') {
+            Session s;
+            s.summary = calm("rmath", "show the display math", hrs_ago(1), "active",
+                             ThreadState::Unknown, "display math fixture");
+            s.messages = {
+                {"mh1", Role::User, "show me the equation", hrs_ago(2), ""},
+                {"mh2", Role::Assistant,
+                 "The average is:\n\n$$\nE = \\frac{a + b}{2}\n$$\n\n"
+                 "And an aligned pair:\n\n\\[\n\\begin{aligned}\n"
+                 "J &= \\frac{p}{q} \\\\\n&= \\frac{r}{s}\n\\end{aligned}\n\\]\n\n"
+                 "One I cannot set:\n\n$$\n\\foo{bar}\n$$",
                  hrs_ago(1), ""},
             };
             v.push_back(std::move(s));
