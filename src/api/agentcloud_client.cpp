@@ -281,9 +281,19 @@ SessionSummary summary_from_row(const json& s) {
     SessionSummary sum;
     sum.id = str_or(s, "session_id", "");
     if (sum.id.empty()) return sum;
-    sum.title = str_or(s, "title", "");
-    if (sum.title.empty())
-        sum.title = str_or(obj_at(s, "status"), "subject", "");
+    sum.title_is_human = s.contains("title_is_human") && s["title_is_human"].is_boolean() &&
+                         s["title_is_human"].get<bool>();
+    // The reference's ThreadTitle.named ladder (kt-jko9): a human title,
+    // then a stored title that is not the create-time placeholder, then
+    // the agent's subject, then its headline. Before this the stored title
+    // was taken as-is, so a row the web created untitled drew the literal
+    // placeholder "agentcloud session" here, and a server-generated title
+    // arriving in `title` was adopted only because nothing filtered it --
+    // the ladder is what makes that adoption the rule rather than luck.
+    sum.title = api::create_title::named_title(
+        str_or(s, "title", ""), sum.title_is_human,
+        str_or(obj_at(s, "status"), "subject", ""),
+        str_or(obj_at(s, "status"), "headline", ""));
     if (sum.title.empty()) sum.title = "(untitled)";
     const std::string workspace = str_or(s, "workspace", "");
     sum.folder = workspace.find(sum.id) == std::string::npos ? workspace : "";
@@ -294,8 +304,6 @@ SessionSummary summary_from_row(const json& s) {
     if (s.contains("attached_nodes") && s["attached_nodes"].is_array())
         for (const json& n : s["attached_nodes"])
             if (n.is_string()) sum.attached_nodes.push_back(n.get<std::string>());
-    sum.title_is_human = s.contains("title_is_human") && s["title_is_human"].is_boolean() &&
-                         s["title_is_human"].get<bool>();
     // `frozen` and `archived_at_unix_ms` are summary-row keys
     // (`WireSessionSummary`), which is what lets the list mark them without
     // attaching.
@@ -1004,8 +1012,13 @@ Result<std::vector<SessionSummary>> AgentcloudClient::list_subagents(
 
 Result<CreateOutcome> AgentcloudClient::create_with_message(
     const OutgoingMessage& message, const StreamSink& sink) {
-    // The typed name when there is one, else the prompt's first line.
-    const std::string title = api::create_title::for_create(message.title, message.text);
+    // The typed name when there is one; else, with automatic naming on, no
+    // title at all -- an empty title is omitted by create_command_json, and
+    // that omission is what lets the server name the thread (kt-jko9; the
+    // reference's ThreadTitle.createTitle). Off, the prompt's first line.
+    const std::string title = api::create_title::for_create(
+        message.title, message.text, message.auto_name_threads,
+        !message.attachments.empty());
     std::string error;
     const std::string reply = round_trip(
         agentcloud::create_command_json(title, message.node_id, message.launch),
@@ -2607,7 +2620,13 @@ std::string AgentcloudClient::attach_and_page(const std::string& id, int limit,
     // the token accounting behind a context meter.
     const json& state = obj_at(hello, "state");
     const std::string title = str_or(state, "title", "");
-    if (!title.empty()) out->summary.title = title;
+    // Adopt the server's title unless it is the create-time placeholder a
+    // human never typed: that placeholder would bury the subject the list
+    // row already resolved (kt-jko9; ThreadTitle.named's second rung).
+    if (!title.empty() &&
+        (out->summary.title_is_human ||
+         !api::create_title::is_placeholder(title)))
+        out->summary.title = title;
     apply_state(state, out->summary);
     out->context = context_usage_from_state(state);
     apply_brakes_from_state(state, *out);

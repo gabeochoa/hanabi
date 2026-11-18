@@ -930,6 +930,13 @@ class MockClient : public Client {
         last_create_title() = create_title::explicit_title(message.title);
         if (Session* named = find_mutable(created.value); named != nullptr && !last_create_title().empty())
             named->summary.title = last_create_title();
+        // The mock stands in for the server, so it carries what the wire
+        // would: with automatic naming on and no typed name the create
+        // carried no title, and the row is untitled until a name lands
+        // (the mock never generates one) (kt-jko9).
+        if (Session* fresh = find_mutable(created.value);
+            fresh != nullptr && last_create_title().empty() && message.auto_name_threads)
+            fresh->summary.title = "(untitled)";
         Session* session = find_mutable(created.value);
         if (session != nullptr && !session->messages.empty())
             session->messages.back().attachments = accepted_attachments(message);

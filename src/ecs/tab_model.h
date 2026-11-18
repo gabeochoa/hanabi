@@ -14,6 +14,7 @@
 //            tabs remain, drop back to the Home digest.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cctype>
@@ -82,8 +83,18 @@ inline std::string_view tab_label_view_for(const AppComponent& app,
     if (const auto surface = surface_of(id))
         return surface_title(*surface);
     const auto* sum = app.find_summary(id);
-    if (sum && !sum->title.empty())
+    if (sum && !sum->title.empty()) {
+        // A thread this client created untitled, while the server may
+        // still be naming it, draws the pending label instead of the
+        // untitled fallback (kt-jko9; the reference's GeneratedTitleWait).
+        if (app.generatedTitleWait.is_pending(
+                id, sum->title,
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count()))
+            return api::generated_title_wait::kPendingLabel;
         return fmtutil::display_title_view(sum->title);
+    }
     for (const auto& pane : app.panes) {
         if (pane.openSession && pane.openSession->summary.id == id &&
             !pane.openSession->summary.title.empty())

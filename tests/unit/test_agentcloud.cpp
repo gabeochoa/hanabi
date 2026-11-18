@@ -135,6 +135,30 @@ static void test_null_title_falls_back_and_does_not_throw() {
     CHECK(out[1].title == "(untitled)");
 }
 
+// kt-jko9: the reference's ThreadTitle.named ladder on the wire. A stored
+// title that is the create-time placeholder must not bury the subject; a
+// server-generated title in `title` is adopted; a human title wins even
+// when it reads as the placeholder; the headline is the last rung.
+static void test_title_ladder_adopts_server_title() {
+    const std::string reply = R"({"type":"sessions","sessions":[
+      {"session_id":"ph","title":"agentcloud session","last_seq":9,
+       "status":{"state":"working","subject":"Counting invoices","headline":""}},
+      {"session_id":"gen","title":"Invoice count for March","last_seq":8,
+       "status":{"state":"working","subject":"Counting invoices","headline":""}},
+      {"session_id":"hum","title":"agentcloud session","title_is_human":true,"last_seq":7,
+       "status":{"state":"working","subject":"Counting invoices","headline":""}},
+      {"session_id":"hl","title":null,"last_seq":6,
+       "status":{"state":"working","subject":"","headline":"Working on it"}}
+    ]})";
+    const auto out = parse_sessions_reply(reply);
+    CHECK(out.size() == 4);
+    CHECK(out[0].title == "Counting invoices");
+    CHECK(out[1].title == "Invoice count for March");
+    CHECK(out[2].title == "agentcloud session");
+    CHECK(out[2].title_is_human);
+    CHECK(out[3].title == "Working on it");
+}
+
 static void test_rows_sort_newest_first_by_seq() {
     const std::string reply = R"({"type":"sessions","sessions":[
       {"session_id":"old","last_seq":1},
@@ -3065,6 +3089,7 @@ int main() {
     test_bad_numbers_keep_the_default();
     test_empty_env_reads_as_unset();
     test_null_title_falls_back_and_does_not_throw();
+    test_title_ladder_adopts_server_title();
     test_rows_sort_newest_first_by_seq();
     test_no_timestamp_on_this_wire();
     test_children_fold_into_a_count_and_leave_the_list();

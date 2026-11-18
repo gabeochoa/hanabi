@@ -1,0 +1,16 @@
+# With automatic naming on (the default), an unnamed create sends no title
+# and the new thread draws the pending label while the server may still be
+# naming it, instead of the prompt slice or "(untitled)" (kt-jko9; the
+# reference's GeneratedTitleWait). The mock never generates a name, so the
+# label is still up at the end of the wait.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_VIEW=chat
+
+wait_frames 20
+click_ui composer_reply_input
+type "count the open invoices"
+key ENTER
+wait_frames 40
+expect_mock_create_title -
+expect_text "Naming this thread"

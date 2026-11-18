@@ -1,5 +1,6 @@
 #pragma once
 #include "../api/create_title.h"
+#include "../api/generated_title_wait.h"
 
 #include <tuple>
 
@@ -1266,6 +1267,10 @@ struct AppComponent : public afterhours::BaseComponent {
             message.launch.allowSensitiveSwitch = true;
         newThreadSensitiveAsk = false;
         message.title = api::create_title::explicit_title(newThreadName);
+        // The automatic-naming choice, stamped here with the other launch
+        // defaults so a change mid-flight cannot retune a create already
+        // asked for (kt-jko9).
+        message.auto_name_threads = s.get_auto_name_threads();
         requestKickoff = std::move(message);
     }
     std::optional<api::OutgoingMessage> requestSend;
@@ -2312,10 +2317,20 @@ struct AppComponent : public afterhours::BaseComponent {
         }
     }
 
+    // Threads this client created untitled and the server may still be
+    // naming (api/generated_title_wait.h; the reference's
+    // GeneratedTitleWait). Noted by the loader when an unnamed create
+    // lands, settled here when a catalog row arrives with a real name.
+    api::generated_title_wait::Tracker generatedTitleWait;
+
     void replace_sessions(std::vector<api::SessionSummary> replacement) {
         // One conversation, one row, in the sidebar and in search alike
         // (api/session_catalog.h): every list surface reads this catalogue.
         api::catalog::keep_one_row_per_id(replacement);
+        for (const auto& s : replacement)
+            if (!s.title.empty() && s.title != "(untitled)" &&
+                !api::create_title::is_placeholder(s.title))
+                generatedTitleWait.settle(s.id);
         carry_held_clocks(replacement, sessions);
         apply_space_filing(replacement);
         apply_web_folders(replacement);
@@ -2333,6 +2348,7 @@ struct AppComponent : public afterhours::BaseComponent {
     // rows) and the open transcript. Tab captions are derived from the summary
     // every frame, so they follow with no work here.
     void apply_renamed_title(const std::string& id, const std::string& title) {
+        generatedTitleWait.settle(id);
         bool changed = false;
         bool subagentChanged = false;
         for (auto& s : sessions)

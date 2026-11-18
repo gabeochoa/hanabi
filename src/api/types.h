@@ -291,6 +291,14 @@ struct OutgoingMessage {
     // keeps the old naming (the first line of the prompt). Read only by the
     // create path.
     std::string title;
+    // Whether an unnamed create leaves the naming to the server (Knots
+    // kt-jko9; the reference's ThreadTitle.createTitle with automatic naming
+    // on). Stamped from Settings at the kickoff boundary
+    // (AppComponent::request_kickoff), like the launch defaults; the create
+    // path reads it and sends no title when it is set and no name was typed.
+    // Defaults to the reference's default (on) so a message built away from
+    // that boundary behaves as a fresh install does.
+    bool auto_name_threads = true;
     bool auto_retry = true;
     bool interrupt = false;
     bool attachment_delivery_started = false;

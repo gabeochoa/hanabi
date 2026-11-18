@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cctype>
 #include <cstdint>
@@ -5523,9 +5524,20 @@ struct SidebarSystem : afterhours::System<UIContext<InputAction>> {
         // proportional glyph is ~6.0px; budget at /6.1. The label widget also
         // hard-clips at its pixel width, so a hair-generous char budget just
         // lets the text use the full column instead of ellipsizing early.
+        // A thread this client created untitled, while the server may still
+        // be naming it, draws the pending label instead of the untitled
+        // fallback (kt-jko9; the reference's GeneratedTitleWait).
+        const std::string_view rowTitle =
+            app.generatedTitleWait.is_pending(
+                s.id, s.title,
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count())
+                ? std::string_view(api::generated_title_wait::kPendingLabel)
+                : display_title_view(s.title);
         div(ctx, mk(row.ent(), 2),
             ComponentConfig{}
-                .with_label(fit_to_width(display_title_view(s.title),
+                .with_label(fit_to_width(rowTitle,
                                          theme::type::LIST_ROW,
                                          rowTitleW - kRowTitlePad -
                                              (showCount ? kCountTextPad : 0.0f)))

@@ -1294,6 +1294,16 @@ struct LoaderSystem : afterhours::System<AppComponent> {
                 if (sessionExists) {
                     // The name was spent by the create that made a thread.
                     if (!message.title.empty()) app.newThreadName.clear();
+                    // An unnamed create under automatic naming sent no
+                    // title, so the server may still be naming this thread:
+                    // surfaces draw the pending label until a name lands
+                    // or the budget runs out (kt-jko9).
+                    if (message.title.empty() && message.auto_name_threads)
+                        app.generatedTitleWait.note(
+                            verdict.session_id,
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count());
                     app.requestListRefresh = true;
                     app.requestOpenTab = verdict.session_id;
                     app.requestOpenTabPane = app.kickoffPaneIndex;

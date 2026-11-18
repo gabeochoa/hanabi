@@ -1316,6 +1316,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "yap") render_yap_row(ctx, parent, app);
         else if (id == "jump_latest") render_jump_latest_row(ctx, parent, app);
         else if (id == "find_newest") render_find_newest_row(ctx, parent, app);
+        else if (id == "auto_name_threads") render_auto_name_threads_row(ctx, parent, app);
         else if (id == "send_chords") render_send_chords_row(ctx, parent, app);
         else if (id == "changed_file_rows") render_changed_file_rows_row(ctx, parent, app);
         else if (id == "diff_cards") render_diff_cards_row(ctx, parent, app);
@@ -3663,6 +3664,16 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         const bool on = Settings::get().get_find_newest_first();
         real_switch(ctx, parent, 601, on, "settings_find_newest",
                     [](bool v) { Settings::get().set_find_newest_first(v); });
+    }
+
+    void render_auto_name_threads_row(UIContext<InputAction>& ctx, Entity& parent,
+                                      AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 602, "Name new threads automatically",
+                 "settings_auto_name_threads_label");
+        const bool on = Settings::get().get_auto_name_threads();
+        real_switch(ctx, parent, 603, on, "settings_auto_name_threads",
+                    [](bool v) { Settings::get().set_auto_name_threads(v); });
     }
 
     void render_timestamps_row(UIContext<InputAction>& ctx, Entity& parent,

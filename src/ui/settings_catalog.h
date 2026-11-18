@@ -159,7 +159,7 @@ struct Row {
     const char* section = "";
 };
 
-inline constexpr std::array<Row, 69> kRows{{
+inline constexpr std::array<Row, 70> kRows{{
     {"send_key", Pane::General, "Send message with",
      "return enter submit send keyboard chord newline", Origin::Device},
     {"new_line", Pane::General, "New line with",
@@ -272,6 +272,9 @@ inline constexpr std::array<Row, 69> kRows{{
      Origin::Device},
     {"find_newest", Pane::Chat, "Start from the newest match",
      "find search cmd f newest latest match first order older", Origin::Device},
+    {"auto_name_threads", Pane::Chat, "Name new threads automatically",
+     "name title automatic server generated thread naming untitled create",
+     Origin::Device},
     {"minimap", Pane::Chat, "Chat minimap",
      "minimap overview map scrollbar marks miniature", Origin::Device},
     {"minimap_marks", Pane::Chat, "Marks on the minimap",

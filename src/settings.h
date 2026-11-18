@@ -434,6 +434,15 @@ struct Settings {
     bool get_find_newest_first() const;
     void set_find_newest_first(bool on);
 
+    // Chat · Thread names: whether a create the person did not name leaves
+    // the naming to the server (Knots kt-jko9; the reference's "Name new
+    // threads automatically", default on). On, an unnamed create sends no
+    // title and the server names the thread; off, the first line of the
+    // prompt is stamped. A typed name or a rename always wins. This Mac
+    // only. Auto-persists.
+    bool get_auto_name_threads() const;
+    void set_auto_name_threads(bool on);
+
     // The order inside every sidebar section (the reference's Sort by,
     // the reference's 0.8.9): "activity" = recent activity, the order the list
     // always had; "oldest" = oldest CREATED first; "newest" = newest CREATED
@@ -680,6 +689,7 @@ struct Settings {
     bool notification_sound_ = true;
     bool show_timestamps_ = true;
     bool find_newest_first_ = false;
+    bool auto_name_threads_ = true;
     std::string sort_order_ = "activity";
     int pins_migrated_version_ = 0;
     int account_autocompact_ = 0;

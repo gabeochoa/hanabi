@@ -126,6 +126,7 @@ bool Settings::load_save_file() {
             j.value("notification_sound", notification_sound_);
         show_timestamps_ = j.value("show_timestamps", show_timestamps_);
         find_newest_first_ = j.value("find_newest_first", find_newest_first_);
+        auto_name_threads_ = j.value("auto_name_threads", auto_name_threads_);
         sort_order_ = j.value("session_sort_order", std::string("activity"));
         if (sort_order_ != "oldest" && sort_order_ != "newest") sort_order_ = "activity";
         pins_migrated_version_ = j.value("pins_migrated_to_web", pins_migrated_version_);
@@ -424,6 +425,7 @@ void Settings::write_save_file() {
     j["notification_sound"] = notification_sound_;
     j["show_timestamps"] = show_timestamps_;
     j["find_newest_first"] = find_newest_first_;
+    j["auto_name_threads"] = auto_name_threads_;
     j["session_sort_order"] = sort_order_;
     j["pins_migrated_to_web"] = pins_migrated_version_;
     if (account_autocompact_ != 0) j["account_autocompact"] = account_autocompact_;
@@ -1221,6 +1223,13 @@ bool Settings::get_find_newest_first() const { return find_newest_first_; }
 void Settings::set_find_newest_first(bool on) {
     if (on == find_newest_first_) return;
     find_newest_first_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+
+bool Settings::get_auto_name_threads() const { return auto_name_threads_; }
+void Settings::set_auto_name_threads(bool on) {
+    if (on == auto_name_threads_) return;
+    auto_name_threads_ = on;
     if (auto_save_enabled) write_save_file();
 }
 

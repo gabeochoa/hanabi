@@ -1,7 +1,8 @@
-# Leaving the optional "Thread name" empty keeps the usual naming: the create
-# carries no name, and the row is titled from the prompt as before (kt-2guz).
+# Leaving the optional "Thread name" empty keeps the usual naming when
+# automatic naming is OFF: the create carries no typed name, and the row is
+# titled from the prompt as before (kt-2guz, kt-jko9).
 #
-# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark","auto_name_threads":false}
 # env: HANABI_VIEW=chat
 
 wait_frames 20

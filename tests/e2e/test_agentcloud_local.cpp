@@ -282,9 +282,12 @@ int main() {
     }
 
     api::StreamSink creation_sink;
-    const auto created = client.create_with_message(
-        api::attachments::outgoing("start with evidence", {markdown.value}),
-        creation_sink);
+    // Automatic naming off for this kickoff: the local server asserts the
+    // prompt-slice title on the create, which is the off path's contract
+    // (kt-jko9); the attachment route this test guards is unchanged.
+    auto kickoff = api::attachments::outgoing("start with evidence", {markdown.value});
+    kickoff.auto_name_threads = false;
+    const auto created = client.create_with_message(kickoff, creation_sink);
     if (!created.ok || created.value.session_id != "created-attachment-local" ||
         !created.value.input_accepted) {
         std::fprintf(stderr, "attachment kickoff failed: %s\n",

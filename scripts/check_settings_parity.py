@@ -81,6 +81,7 @@ CLASS = {
     "show_finished_subagents": ("settings", "subagents"),
     "yap_level": ("settings", "yap"),
     "find_newest_first": ("settings", "find_newest"),
+    "auto_name_threads": ("settings", "auto_name_threads"),
     "notifications_enabled": ("settings", "notify_show"),
     "notify_finished": ("settings", "notify_finished"),
     "notify_blocked": ("settings", "notify_blocked"),
