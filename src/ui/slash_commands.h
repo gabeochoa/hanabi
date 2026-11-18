@@ -26,6 +26,22 @@
 // falls through to a normal input, so an unsupported backend leaves the exact
 // draft in place and reports the limitation. `/compact` remains visible but
 // explicitly unavailable because this client has no compact operation.
+//
+// Per-command verdicts against the reference (kt-ead0, checked at b160365d):
+//   * /title -- already here, runnable (rename_v1); no change.
+//   * /fork -- genuinely missing as a verb, but the underlying action exists:
+//     Client::fork_session (the sidebar's plain Fork) forks server-side with
+//     no seeded prompt. Added below as a no-argument verb; /btw stays the
+//     fork-with-a-question spelling.
+//   * workspace commands/badges -- divergence: hanabi has no workspace picker
+//     and currentWorkspace is never assigned; a saved view's workspace is only
+//     a folder match string. No verb is added for a concept that does not exist.
+//   * /clear (forget chat, keep transcript) -- divergence: hanabi has no
+//     chat/transcript separation; the transcript IS the server session history,
+//     and the client has no forget/clear verb. Clearing locally would re-fetch.
+//   * custom emoji setting -- divergence: hanabi renders no custom emoji at
+//     all (no loaded face has colour glyphs, afterhours_gaps.md #48), so an
+//     off-by-default toggle would gate nothing.
 // ---------------------------------------------------------------------------
 
 #include <branding.h>
@@ -69,6 +85,7 @@ inline const std::vector<Command>& all() {
         {"model", "", "choose the default model", true, ""},
         {"effort", "", "choose the thinking effort", true, ""},
         {"btw", "<question>", "fork this thread", true, ""},
+        {"fork", "", "fork this thread (no prompt; /btw adds one)", true, ""},
         {"knot", "<task>", "file a knot linked to this thread", true, ""},
         {"queue", "<message>", "send this after the running turn finishes", true, ""},
         {"title", "<name>", "rename this conversation", true, ""},

@@ -10660,6 +10660,45 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 set_target_field(target, "");
                 return;
             }
+            if (cmd->name == "fork") {
+                // The reference's /fork: a plain server-side fork with no
+                // seeded prompt -- the sidebar Fork action's exact request
+                // (requestForkMessage stays empty, so the loader calls
+                // Client::fork_session). /btw <question> is the spelling
+                // that seeds the fork with a prompt.
+                if (!p.args.empty()) {
+                    app.slashNotice = "Type just /fork, or /btw <question> to fork with a prompt.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (target.session_id.empty()) {
+                    app.slashNotice = "Open a thread to fork.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (!app.client || !app.client->supports_fork()) {
+                    app.slashNotice = "This backend does not support forks.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                if (app.forkPending || !app.requestForkSourceId.empty()) {
+                    app.slashNotice = "A fork is already being created.";
+                    app.slashNoticePane = target.pane_index;
+                    set_target_field(target, typed);
+                    return;
+                }
+                app.requestForkSourceId = target.session_id;
+                app.requestForkMessage.reset();
+                app.requestForkTitle.clear();
+                app.requestForkPane = target.pane_index;
+                app.slashNotice = "Forking\xe2\x80\xa6";
+                app.slashNoticePane = target.pane_index;
+                set_target_field(target, "");
+                return;
+            }
             if (cmd->name == "btw") {
                 if (p.args.empty()) {
                     app.slashNotice = "Type a question after /btw.";

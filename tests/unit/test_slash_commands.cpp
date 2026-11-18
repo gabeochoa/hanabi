@@ -30,6 +30,19 @@ int main() {
     const sl::Parsed tp = sl::parse("/title  Ship notes ");
     CHECK(tp.known && tp.verb == "title" && tp.args == "Ship notes ");
     CHECK(!sl::sends_as_text("/title x", false));
+    // /fork (the reference, kt-ead0): a no-argument verb backed by the plain
+    // server-side fork (Client::fork_session, the sidebar Fork request).
+    const sl::Command* fk = sl::find("fork");
+    CHECK(fk != nullptr && fk->runnable && fk->arg.empty() && !fk->sends_as_text);
+    CHECK(sl::find("FORK") == fk);
+    const sl::Parsed fp = sl::parse("/fork");
+    CHECK(fp.matched && fp.known && fp.verb == "fork" && fp.args.empty());
+    CHECK(fk != nullptr && sl::completion(*fk) == "/fork");
+    CHECK(!sl::sends_as_text("/fork", false));
+    bool forkInFilter = false;
+    for (const sl::Command* c : sl::filter("/fo"))
+        if (c->name == "fork") forkInFilter = true;
+    CHECK(forkInFilter);
     if (failures == 0) {
         std::printf("OK\n");
         return 0;

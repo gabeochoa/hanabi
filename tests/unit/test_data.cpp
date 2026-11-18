@@ -816,7 +816,7 @@ static void test_slash_parsing() {
                              c.name == "knot" || c.name == "goal" ||
                              c.name == "plan" || c.name == "queue" ||
                              c.name == "draft" || c.name == "autocompact" ||
-                             c.name == "title"));
+                             c.name == "fork" || c.name == "title"));
 
     CHECK(sl::btw_title("why?") == "BTW: why?");
     CHECK(sl::btw_title("  why   now?  ") == "BTW: why now?");
