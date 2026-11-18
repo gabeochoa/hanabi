@@ -1,0 +1,40 @@
+# The Station Appearance switch (kt-4m8b): Classic has no workspace bar and
+# Cmd+1-9 selects tabs; choosing Station in Settings > Appearance grows the
+# tab strip, shows the workspace bar and session chips, and remaps Cmd+1-9
+# to workspaces (Alt+Cmd+1-9 keeps tabs).
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark"}
+
+require_thread t2
+wait_frames 12
+expect_no_ui workspace_active
+
+# Classic: Cmd+2 is the second tab.
+key CMD+2
+wait_frames 12
+expect_open t6
+key CMD+1
+wait_frames 12
+expect_open t2
+
+click_ui sb_settings
+wait_frames 10
+click_ui sb_settings_nav_appearance
+wait_frames 10
+mouse_move 700 500
+scroll_wheel 0 -60
+wait_frames 10
+assert_ui settings_station_layout_1 hidden=false
+click_ui settings_station_layout_1
+wait_frames 12
+assert_ui workspace_active hidden=false
+assert_ui session_chip_t6 hidden=false
+
+# Back on the chat, Cmd+1-9 now names workspaces: the only workspace holds
+# both chats, so Cmd+1 lands on its first chat.
+click_ui tab_t2
+wait_frames 12
+expect_open t2
+key ALT+CMD+2
+wait_frames 12
+expect_open t6

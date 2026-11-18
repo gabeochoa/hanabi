@@ -604,6 +604,10 @@ capture 80_artifact_rows_dark  "$ARTIFACT_DARK"  HANABI_ARTIFACT_DEMO=1
 capture 81_artifact_rows_light "$ARTIFACT_LIGHT" HANABI_ARTIFACT_DEMO=1
 capture 82_artifact_viewer_open_dark "$ARTIFACT_DARK" HANABI_ARTIFACT_DEMO=open
 
+# Station layout (kt-4m8b): workspace bar + session chips above the tabs.
+STATION_DARK='{"window_width":1100,"window_height":760,"open_tabs":["t2","t6","t1"],"active_tab":"t2","theme":"dark","station_layout":true,"workspaces_json":"{\"active\":0,\"workspaces\":[{\"name\":\"Reviews\",\"sessions\":[\"t2\",\"t6\"]},{\"name\":\"THWWW\",\"sessions\":[\"t1\"]}]}"}'
+capture 83_station_workspace_dark "$STATION_DARK"
+
 listing && exit 0
 
 echo

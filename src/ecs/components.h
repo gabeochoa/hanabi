@@ -52,6 +52,7 @@
 #include "transcript_ledger.h"
 
 #include "surface_tabs.h"
+#include "workspace_switcher.h"
 #include "model_menu_cache.h"
 
 namespace ecs {
@@ -1212,6 +1213,11 @@ struct AppComponent : public afterhours::BaseComponent {
     // otherwise. Resolved by TabBarSystem, which is the only thing that knows
     // the tab order.
     int requestSelectTabSlot = 0;
+    int requestSelectWorkspaceSlot = 0;
+    // Named workspaces (kt-4m8b Station layout). Synced with the tab strip
+    // by TabBarSystem; persisted as opaque JSON via Settings.
+    model::WorkspaceSwitcher workspaces;
+    bool workspacesSeeded = false;
     // A relative tab move waiting for the strip: -1 / +1, 0 when none.
     // Wraps for the two Cycle pairs, stops at the ends for Show Previous /
     // Show Next. Resolved by TabBarSystem beside the slot above.
@@ -2715,6 +2721,11 @@ struct LayoutComponent : public afterhours::BaseComponent {
     // itself; the difference is the clear band.
     float tabStripHeight = 67.0f;
     float tabStripTabHeight = 34.0f;
+    // Station layout (kt-4m8b): two extra rows above the tabs.
+    static constexpr float kStationWorkspaceRowH = 26.0f;
+    static constexpr float kStationChipRowH = 26.0f;
+    static constexpr float kStationExtraH = kStationWorkspaceRowH + kStationChipRowH;
+    bool stationLayout = false;
     float composerHeight = 98.0f;  // chat input strip height (0 hides it)
 };
 

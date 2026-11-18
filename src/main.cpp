@@ -1229,6 +1229,18 @@ static void persist_app_state() {
         Settings::get().set_split(app.splitOpen, app.splitRatio,
                                   app.panes[0].selectedId,
                                   app.panes[1].selectedId, app.focusedPane);
+        {
+            nlohmann::json wj;
+            wj["active"] = app.workspaces.activeIndex;
+            wj["workspaces"] = nlohmann::json::array();
+            for (const auto& w : app.workspaces.workspaces) {
+                nlohmann::json entry;
+                entry["name"] = w.name;
+                entry["sessions"] = w.sessionIds;
+                wj["workspaces"].push_back(std::move(entry));
+            }
+            Settings::get().set_workspaces_json(wj.dump());
+        }
         const auto* layoutStrip = ecs::find_singleton<ecs::TabStripComponent>();
         Settings::get().set_tab_layout(
             layoutStrip != nullptr && app.groupCount > 1

@@ -69,6 +69,7 @@ inline constexpr std::string_view kSurfacePrefix = "hanabi:surface/";
 // The reserved id the rename prompt carries when it is asking for a SAVED
 // VIEW's name rather than a conversation's new title. A scheme, not a
 // session, in the same family as the surface ids.
+inline constexpr std::string_view kRenameWorkspacePrefix = "hanabi:workspace/rename/";
 inline constexpr const char* kSaveViewPrompt = "hanabi:view/new";
 // ... and the prefix it carries when RENAMING a saved view the reader made:
 // the view's store id follows. Never a built-in -- the store refuses those,

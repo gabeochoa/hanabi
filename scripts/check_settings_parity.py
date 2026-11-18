@@ -110,6 +110,8 @@ CLASS = {
     "capture_hotkey": ("settings", "global_chords"),
     "show_timestamps": ("settings", "timestamps"),
     "thread_colours": ("settings", "thread_colours"),
+    "station_layout": ("settings", "station_layout"),
+    "workspaces_json": ("ui_state", "workspace bar chips"),
     # --- ui_state: remembered UI state, toggled from the chrome itself ---
     "window_width": ("ui_state", "window frame"),
     "window_height": ("ui_state", "window frame"),

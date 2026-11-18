@@ -1,0 +1,59 @@
+# Station layout (kt-4m8b, the reference 834d2fafb283): the workspace bar
+# names workspaces, the chip row lists every open chat once, Cmd+1-9 selects
+# a workspace and Alt+Cmd+1-9 selects a tab. In e2e, CMD is held as Ctrl and
+# ALT is held natively (src/keys.h), so ALT+CMD+2 is the Alt+Cmd tab chord.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["t2","t6"],"active_tab":"t2","theme":"dark","station_layout":true,"workspaces_json":"{\"active\":0,\"workspaces\":[{\"name\":\"Reviews\",\"sessions\":[\"t2\"]},{\"name\":\"THWWW\",\"sessions\":[\"t6\"]}]}"}
+
+require_thread t2
+wait_frames 24
+assert_ui workspace_active hidden=false
+assert_ui session_chip_active hidden=false
+assert_ui session_chip_t6 hidden=false
+expect_text "Reviews"
+expect_text "THWWW"
+
+# A session chip reveals its chat and makes its workspace active.
+click_ui session_chip_t6
+wait_frames 24
+expect_open t6
+expect_text "THWWW"
+
+# Cmd+1 goes back to the first workspace and its first chat.
+key CMD+1
+wait_frames 24
+expect_open t2
+
+# Alt+Cmd+2 is the tab chord: second tab on the strip, whatever workspace.
+key ALT+CMD+2
+wait_frames 24
+expect_open t6
+
+# Cmd+2 selects the second workspace (its first chat is already open).
+key CMD+2
+wait_frames 24
+expect_open t6
+
+# New, duplicate, rename, close, close-others on the workspace bar.
+click_ui workspace_new
+wait_frames 8
+assert_ui workspace_active hidden=false
+expect_text "Workspace 3"
+click_ui workspace_duplicate
+wait_frames 8
+expect_text "Workspace 3 copy"
+click_ui workspace_rename
+wait_frames 8
+expect_text "Rename workspace"
+type "Fieldwork"
+wait_frames 2
+key ENTER
+wait_frames 8
+expect_text "Fieldwork"
+click_ui workspace_close
+wait_frames 8
+expect_no_text "Fieldwork"
+click_ui workspace_close_others
+wait_frames 8
+assert_ui workspace_active hidden=false
+expect_no_text "THWWW"

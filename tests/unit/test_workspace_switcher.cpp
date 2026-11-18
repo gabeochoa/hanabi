@@ -48,10 +48,25 @@ static void test_chip_chords_only_under_station() {
     CHECK(chip_help("Reviews", 0, true) == "Reviews  \xE2\x8C\x98" "1");
     CHECK(chip_help("Android", 9, true) == "Android");
 }
+static void test_sync_chats_keeps_assignments() {
+    std::printf("test_sync_chats_keeps_assignments\n");
+    auto s = trio();
+    s.syncChats({"Reviews-a", "THWWW-a", "New-x"});
+    CHECK(s.count() == 3);
+    CHECK(s.workspaceFor("Reviews-a") == 0);
+    CHECK(s.workspaceFor("THWWW-a") == 1);
+    // New chats join the ACTIVE workspace (THWWW, index 1); closed ones leave.
+    CHECK(s.workspaceFor("New-x") == 1);
+    CHECK(s.workspaceFor("Reviews-b") == -1);
+    s.removeChat("THWWW-a");
+    CHECK(s.workspaceFor("THWWW-a") == -1);
+}
+
 int main() {
     test_chips_list_every_chat_once();
     test_chip_actions_follow_the_reference();
     test_chip_chords_only_under_station();
+    test_sync_chats_keeps_assignments();
     std::printf(failures ? "FAILED %d\n" : "ALL PASS\n", failures);
     return failures ? 1 : 0;
 }

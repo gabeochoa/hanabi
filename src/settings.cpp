@@ -50,6 +50,8 @@ bool Settings::load_save_file() {
         last_session_ = j.value("last_session", last_session_);
         active_tab_ = j.value("active_tab", active_tab_);
         theme_ = j.value("theme", theme_);
+        station_layout_ = j.value("station_layout", station_layout_);
+        workspaces_json_ = j.value("workspaces_json", workspaces_json_);
         split_open_ = j.value("split_open", split_open_);
         split_ratio_ =
             hanabi::clamp_split_ratio(j.value("split_ratio", split_ratio_));
@@ -387,6 +389,8 @@ void Settings::write_save_file() {
         if (layout.is_object()) j["tab_layout"] = std::move(layout);
     }
     j["theme"] = theme_;
+    j["station_layout"] = station_layout_;
+    if (!workspaces_json_.empty()) j["workspaces_json"] = workspaces_json_;
     j["font"] = font_choice_;
     j["font_weight"] = font_weight_;
     j["theme_accent"] = accent_choice_;
@@ -610,6 +614,14 @@ const std::vector<std::string>& Settings::get_open_tabs() const {
 }
 const std::string& Settings::get_active_tab() const { return active_tab_; }
 const std::string& Settings::get_tab_layout() const { return tab_layout_; }
+bool Settings::get_station_layout() const { return station_layout_; }
+void Settings::set_station_layout(bool on) {
+    if (on == station_layout_) return;
+    station_layout_ = on;
+    if (auto_save_enabled) write_save_file();
+}
+const std::string& Settings::get_workspaces_json() const { return workspaces_json_; }
+void Settings::set_workspaces_json(std::string json) { workspaces_json_ = std::move(json); }
 void Settings::set_tab_layout(std::string layoutJson) {
     tab_layout_ = std::move(layoutJson);
 }

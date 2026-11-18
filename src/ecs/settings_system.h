@@ -1281,6 +1281,7 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
         else if (id == "sort_order") render_sort_order_row(ctx, parent, app);
         else if (id == "group_by") render_group_by_row(ctx, parent, app);
         else if (id == "only_ungrouped") render_only_ungrouped_row(ctx, parent, app);
+        else if (id == "station_layout") render_station_layout_row(ctx, parent, app);
         else if (id == "theme_rotate") render_theme_rotate_row(ctx, parent, app);
         else if (id == "transcript_width") render_transcript_width_row(ctx, parent, app);
         else if (id == "context_detail") render_context_detail_row(ctx, parent, app);
@@ -2071,6 +2072,27 @@ struct SettingsSystem : afterhours::System<UIContext<InputAction>> {
     // The reference's Reading width section: Comfortable / Wide / Full width,
     // with the help line under it. The transcript and the composer both
     // centre on the chosen column (main_pane_system::read_column).
+    // Appearance -> Station layout (kt-4m8b, the reference 834d2fafb283):
+    // Classic keeps the single tab strip; Station adds the workspace bar and
+    // the session-chip row above the tabs and remaps Cmd+1-9 to workspaces
+    // (Alt+Cmd+1-9 keeps selecting tabs). This is the real switch point:
+    // LayoutSystem grows tabStripHeight from this flag, TabBarSystem draws
+    // the two rows only when it is on.
+    void render_station_layout_row(UIContext<InputAction>& ctx, Entity& parent,
+                                   AppComponent& app) {
+        (void)app;
+        row_name(ctx, parent, 138, "Station layout", "settings_station_layout_label");
+        const bool station = Settings::get().get_station_layout();
+        real_segmented(ctx, parent, 139, {"Classic", "Station"}, station ? 1 : 0,
+                       "settings_station_layout",
+                       [](int idx) { Settings::get().set_station_layout(idx == 1); });
+        help_line(ctx, parent, 143,
+                  "Station shows named workspaces and every open chat as chips above "
+                  "the tabs. Cmd+1-9 selects a workspace there; Alt+Cmd+1-9 still "
+                  "selects a tab. Classic keeps Cmd+1-9 on tabs.",
+                  "settings_station_layout_help");
+    }
+
     void render_transcript_width_row(UIContext<InputAction>& ctx, Entity& parent,
                                      AppComponent& app) {
         (void)app;

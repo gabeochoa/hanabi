@@ -21,7 +21,7 @@ click_ui settings_chord_switch_open_palette
 wait_frames 10
 
 mouse_move 700 500
-scroll_wheel 0 -40
+scroll_wheel 0 -100
 wait_frames 12
 expect_text "Reset all to defaults"
 

@@ -73,6 +73,33 @@ struct WorkspaceSwitcher {
         auto& ids = workspaces[static_cast<std::size_t>(i)].sessionIds;
         if (std::find(ids.begin(), ids.end(), sessionId) == ids.end()) ids.push_back(sessionId);
     }
+    void removeChat(const std::string& sessionId) {
+        for (auto& w : workspaces)
+            std::erase(w.sessionIds, sessionId);
+    }
+    int workspaceFor(const std::string& sessionId) const {
+        for (int i = 0; i < count(); ++i)
+            for (const auto& id : workspaces[static_cast<std::size_t>(i)].sessionIds)
+                if (id == sessionId) return i;
+        return -1;
+    }
+    // Reconcile with the tab strip's live open set: closed chats leave every
+    // workspace, newly opened chats join the ACTIVE workspace, and a chat
+    // already assigned keeps its workspace (duplicates keep both copies).
+    void syncChats(const std::vector<std::string>& openIds) {
+        for (auto& w : workspaces) {
+            std::vector<std::string> kept;
+            for (const auto& id : w.sessionIds)
+                if (std::find(openIds.begin(), openIds.end(), id) != openIds.end() &&
+                    std::find(kept.begin(), kept.end(), id) == kept.end())
+                    kept.push_back(id);
+            w.sessionIds = std::move(kept);
+        }
+        if (workspaces.empty()) workspaces.push_back(Workspace{"Workspace", {}});
+        activeIndex = std::clamp(activeIndex, 0, count() - 1);
+        for (const auto& id : openIds)
+            if (workspaceFor(id) < 0) openChat(activeIndex, id);
+    }
 
     // Every chat once, workspace by workspace. A chat shared by duplicates
     // is listed under the ACTIVE workspace's copy (the reference's rule).

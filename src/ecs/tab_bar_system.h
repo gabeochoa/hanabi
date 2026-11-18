@@ -153,6 +153,79 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
             }
         }
 
+        // ---- Workspaces (kt-4m8b Station layout) -------------------------
+        // Seed once from Settings, then keep the model in sync with the
+        // strip: open chats join the active workspace, closed chats leave.
+        if (!app.workspacesSeeded) {
+            app.workspacesSeeded = true;
+            const std::string saved = Settings::get().get_workspaces_json();
+            if (!saved.empty()) {
+                const auto j = nlohmann::json::parse(saved, nullptr, false);
+                if (j.is_object() && j.contains("workspaces") && j["workspaces"].is_array()) {
+                    model::WorkspaceSwitcher loaded;
+                    loaded.workspaces.clear();
+                    for (const auto& w : j["workspaces"]) {
+                        model::Workspace ws;
+                        ws.name = w.value("name", std::string("Workspace"));
+                        if (w.contains("sessions") && w["sessions"].is_array())
+                            for (const auto& s : w["sessions"])
+                                if (s.is_string()) ws.sessionIds.push_back(s.get<std::string>());
+                        loaded.workspaces.push_back(std::move(ws));
+                    }
+                    if (!loaded.workspaces.empty()) {
+                        loaded.activeIndex = std::clamp(j.value("active", 0), 0, loaded.count() - 1);
+                        app.workspaces = std::move(loaded);
+                    }
+                }
+            }
+        }
+        if (app.restoreDone) {
+            std::vector<std::string> openIds;
+            for (auto id : strip.tabOrder) {
+                auto o = EntityHelper::getEntityForID(id);
+                if (o.valid() && o->has<Tab>() && !model::is_surface_tab(o->get<Tab>().sessionId))
+                    openIds.push_back(o->get<Tab>().sessionId);
+            }
+            app.workspaces.syncChats(openIds);
+        }
+        auto switch_to_session = [&](const std::string& sessionId) {
+            for (auto id : strip.tabOrder) {
+                auto o = EntityHelper::getEntityForID(id);
+                if (o.valid() && o->has<Tab>() && o->get<Tab>().sessionId == sessionId) {
+                    if (o->has<ActiveTab>()) model::keep_tab(o.asE());
+                    switch_to_tab(app, o.asE());
+                    return;
+                }
+            }
+        };
+        auto select_workspace = [&](int idx) {
+            if (!app.workspaces.valid(idx)) return;
+            app.workspaces.select(idx);
+            const auto& ws = app.workspaces.workspaces[static_cast<std::size_t>(idx)];
+            const std::string current = app.pane().selectedId;
+            if (std::find(ws.sessionIds.begin(), ws.sessionIds.end(), current) != ws.sessionIds.end())
+                return;
+            if (!ws.sessionIds.empty()) switch_to_session(ws.sessionIds.front());
+        };
+        auto persist_workspaces = [&]() {
+            nlohmann::json j;
+            j["active"] = app.workspaces.activeIndex;
+            j["workspaces"] = nlohmann::json::array();
+            for (const auto& w : app.workspaces.workspaces) {
+                nlohmann::json entry;
+                entry["name"] = w.name;
+                entry["sessions"] = w.sessionIds;
+                j["workspaces"].push_back(std::move(entry));
+            }
+            Settings::get().set_workspaces_json(j.dump());
+        };
+        if (app.requestSelectWorkspaceSlot != 0) {
+            const int slot = app.requestSelectWorkspaceSlot;
+            app.requestSelectWorkspaceSlot = 0;
+            const int at = hanabi::shortcuts::tab_index_for_slot(slot, app.workspaces.count());
+            if (at >= 0) select_workspace(at);
+        }
+
         // Cmd 1..9. The slot is resolved against the ORDER the strip renders,
         // so a pinned tab counts where it sits and a tab scrolled out of the
         // strip is still the nth one. What the chord then does is exactly what
@@ -234,6 +307,139 @@ struct TabBarSystem : afterhours::System<UIContext<InputAction>> {
                     .with_render_layer(6)
                     .with_debug_name(runIndex == 0 ? std::string("tab_strip")
                                          : "tab_strip_" + std::to_string(runIndex + 1)));
+
+            // Station rows (run 0 only): workspace bar, then session chips.
+            // Additive over the Classic strip -- the tabs below are unchanged;
+            // Station only grows the strip (LayoutSystem) and fills the two
+            // new rows. Closing a workspace never closes a tab: its chats
+            // fall into the active workspace on the next sync.
+            if (runIndex == 0 && layout.stationLayout) {
+                const float wsY = r.y + 3.0f;
+                const float wsH = 22.0f;
+                float wx = r.x + 4.0f;
+                for (int wi = 0; wi < app.workspaces.count(); ++wi) {
+                    const auto& ws = app.workspaces.workspaces[static_cast<std::size_t>(wi)];
+                    const std::string label = model::chip_help(ws.name, wi, true);
+                    const float ww = std::clamp(static_cast<float>(label.size()) * 7.0f + 20.0f, 76.0f, 190.0f);
+                    const bool activeWs = wi == app.workspaces.activeIndex;
+                    auto chip = button(
+                        ctx, mk(uiRoot, 7000 + wi),
+                        ComponentConfig{}
+                            .with_label(label)
+                            .with_size(ComponentSize{pixels(ww), pixels(wsH)})
+                            .with_absolute_position()
+                            .with_translate(wx, wsY)
+                            .with_custom_background(activeWs ? tab_colors::tab_active() : tab_colors::tab_inactive())
+                            .with_custom_text_color(activeWs ? tab_colors::tab_text_act() : tab_colors::tab_text())
+                            .with_font_size(theme::type::SM)
+                            .with_alignment(TextAlignment::Center)
+                            .with_justify_content(JustifyContent::Center)
+                            .with_align_items(AlignItems::Center)
+                            .with_click_activation(ClickActivationMode::Press)
+                            .with_corner_radius(5.0f)
+                            .with_render_layer(7)
+                            .with_debug_name(activeWs ? std::string("workspace_active")
+                                                      : "workspace_" + std::to_string(wi)));
+                    hanabi::a11y::set_name(chip.ent(), "Workspace: " + ws.name + (activeWs ? ", active" : ""));
+                    if (chip) { select_workspace(wi); persist_workspaces(); }
+                    wx += ww + 4.0f;
+                }
+                auto addBtn = button(
+                    ctx, mk(uiRoot, 7010),
+                    ComponentConfig{}
+                        .with_label("+")
+                        .with_size(ComponentSize{pixels(26), pixels(wsH)})
+                        .with_absolute_position()
+                        .with_translate(wx, wsY)
+                        .with_custom_background(tab_colors::tab_inactive())
+                        .with_custom_text_color(tab_colors::tab_text())
+                        .with_font_size(theme::type::SM)
+                        .with_alignment(TextAlignment::Center)
+                        .with_justify_content(JustifyContent::Center)
+                        .with_align_items(AlignItems::Center)
+                        .with_click_activation(ClickActivationMode::Press)
+                        .with_corner_radius(5.0f)
+                        .with_render_layer(7)
+                        .with_debug_name("workspace_new"));
+                hanabi::a11y::set_name(addBtn.ent(), "New workspace");
+                if (addBtn) { app.workspaces.add(); persist_workspaces(); }
+                // Active-workspace actions, at the bar's right edge.
+                const std::array<std::pair<const char*, const char*>, 4> acts{{
+                    {"Rename", "workspace_rename"}, {"Duplicate", "workspace_duplicate"},
+                    {"Close", "workspace_close"}, {"Close others", "workspace_close_others"}}};
+                float ax = r.x + r.width - 4.0f;
+                for (int ai = 3; ai >= 0; --ai) {
+                    const float aw = ai == 3 ? 92.0f : 76.0f;
+                    ax -= aw;
+                    auto act = button(
+                        ctx, mk(uiRoot, 7020 + ai),
+                        ComponentConfig{}
+                            .with_label(acts[static_cast<std::size_t>(ai)].first)
+                            .with_size(ComponentSize{pixels(aw - 4.0f), pixels(wsH)})
+                            .with_absolute_position()
+                            .with_translate(ax, wsY)
+                            .with_custom_background(tab_colors::tab_inactive())
+                            .with_custom_text_color(tab_colors::tab_text())
+                            .with_font_size(theme::type::SM)
+                            .with_alignment(TextAlignment::Center)
+                            .with_justify_content(JustifyContent::Center)
+                            .with_align_items(AlignItems::Center)
+                            .with_click_activation(ClickActivationMode::Press)
+                            .with_corner_radius(5.0f)
+                            .with_render_layer(7)
+                            .with_debug_name(acts[static_cast<std::size_t>(ai)].second));
+                    if (act) {
+                        const int cur = app.workspaces.activeIndex;
+                        if (ai == 0) {
+                            app.renameOpen = true;
+                            app.renameSessionId = std::string(model::kRenameWorkspacePrefix) + std::to_string(cur);
+                            app.renameDraft = app.workspaces.workspaces[static_cast<std::size_t>(cur)].name;
+                            app.renameError.clear();
+                            app.renameSubmit = false;
+                        } else if (ai == 1) { app.workspaces.duplicate(cur); persist_workspaces(); }
+                        else if (ai == 2) { app.workspaces.close(cur); persist_workspaces(); }
+                        else { app.workspaces.closeOthers(cur); persist_workspaces(); }
+                    }
+                    ax -= 4.0f;
+                }
+                // Session chips: every open chat once, under its workspace.
+                const float chipY = wsY + wsH + 4.0f;
+                float cx = r.x + 4.0f;
+                const auto chips = app.workspaces.sessionChips(true, app.pane().selectedId);
+                for (std::size_t ci = 0; ci < chips.size(); ++ci) {
+                    const auto& chipInfo = chips[ci];
+                    const std::string title = model::tab_label_for(app, chipInfo.sessionId);
+                    const std::string hint = model::chip_hint(static_cast<int>(ci), true);
+                    const std::string label = hint.empty() ? title : title + "  " + hint;
+                    const float cw = std::clamp(static_cast<float>(label.size()) * 7.0f + 18.0f, 70.0f, 190.0f);
+                    if (cx + cw > r.x + r.width - 4.0f) break;
+                    auto chipBtn = button(
+                        ctx, mk(uiRoot, 7100 + static_cast<int>(ci)),
+                        ComponentConfig{}
+                            .with_label(label)
+                            .with_size(ComponentSize{pixels(cw), pixels(wsH)})
+                            .with_absolute_position()
+                            .with_translate(cx, chipY)
+                            .with_custom_background(chipInfo.isSelected ? tab_colors::tab_active() : tab_colors::tab_inactive())
+                            .with_custom_text_color(chipInfo.isSelected ? tab_colors::tab_text_act() : tab_colors::tab_text())
+                            .with_font_size(theme::type::SM)
+                            .with_alignment(TextAlignment::Center)
+                            .with_justify_content(JustifyContent::Center)
+                            .with_align_items(AlignItems::Center)
+                            .with_click_activation(ClickActivationMode::Press)
+                            .with_corner_radius(5.0f)
+                            .with_render_layer(7)
+                            .with_debug_name(chipInfo.isSelected ? std::string("session_chip_active")
+                                                                 : "session_chip_" + chipInfo.sessionId));
+                    hanabi::a11y::set_name(chipBtn.ent(), "Chat: " + title);
+                    if (chipBtn) {
+                        app.workspaces.select(chipInfo.workspace);
+                        switch_to_session(chipInfo.sessionId);
+                        persist_workspaces();
+                    }
+                    cx += cw + 4.0f;
+                }
+            }
 
             float tabX = r.x;
             // The tabs occupy the BOTTOM band of the strip; the band above them is

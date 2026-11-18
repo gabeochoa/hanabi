@@ -5,6 +5,7 @@
 
 #include "ui_imports.h"
 #include "composer_capsule.h"
+#include "../settings.h"
 
 namespace ecs {
 
@@ -66,6 +67,13 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
         // and its information lives in the sidebar footer now
         // (`sidebar_footer_status.h`); the composer runs to the window's floor,
         // as Puffin's does.
+        // The Station Appearance switch's real switch point: Classic is the
+        // 67px strip; Station grows it by the workspace + chip rows, and
+        // `main` below starts after the grown strip.
+        layout.stationLayout = Settings::get().get_station_layout();
+        layout.tabStripHeight = layout.stationLayout
+                                    ? 67.0f + LayoutComponent::kStationExtraH
+                                    : 67.0f;
         float tabH = layout.tabStripHeight;
         float contentH = h;
 

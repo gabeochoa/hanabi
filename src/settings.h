@@ -113,6 +113,13 @@ struct Settings {
                        std::vector<std::string> pinnedIds = {});
     const std::string& get_tab_layout() const;
     void set_tab_layout(std::string layoutJson);
+    // Station layout (kt-4m8b, the reference 834d2fafb283): false = Classic
+    // (tab strip only), true = Station (workspace bar + session chips above
+    // the tabs, Cmd+1-9 selects workspaces). Client-local, auto-persists.
+    bool get_station_layout() const;
+    void set_station_layout(bool on);
+    const std::string& get_workspaces_json() const;
+    void set_workspaces_json(std::string json);
 
     // ── Split view ──────────────────────────────────────────────────────
     // Whether the main pane is split, where the divider sits, and which
@@ -615,6 +622,8 @@ struct Settings {
     std::vector<std::string> open_tabs_;
     std::vector<std::string> pinned_tabs_;
     std::string tab_layout_;
+    bool station_layout_ = false;
+    std::string workspaces_json_;
     std::string active_tab_;
     std::string theme_ = "dark";
     bool split_open_ = false;

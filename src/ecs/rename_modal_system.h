@@ -76,7 +76,8 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                 .with_debug_name("rename_header"));
         div(ctx, mk(header.ent(), 1),
             ComponentConfig{}
-                .with_label(saving_view(*app)    ? "Save this filter as a view"
+                .with_label(renaming_workspace(*app) ? "Rename workspace"
+                            : saving_view(*app)    ? "Save this filter as a view"
                             : renaming_view(*app) ? "Rename this view"
                             : model::prompt_arg(app->renameSessionId, model::kNewFolderPrefix)
                                 ? "New folder"
@@ -230,6 +231,10 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
     // name of a view saved from the current filter (the reference's "Save
     // this filter as a view", SidebarColumn.saveCurrentAsView). The second
     // is marked by a reserved id in the slot the first uses for its session.
+    static bool renaming_workspace(const AppComponent& app) {
+        return model::prompt_arg(app.renameSessionId, model::kRenameWorkspacePrefix).has_value();
+    }
+
     static bool saving_view(const AppComponent& app) {
         return app.renameSessionId == model::kSaveViewPrompt;
     }
@@ -257,6 +262,21 @@ struct RenameModalSystem : afterhours::System<UIContext<InputAction>> {
                 return;
             }
             app.searchQuery = hanabi::sidebar_query::with_last_active(app.searchQuery, day);
+            close(app);
+            return;
+        }
+        if (const auto ws = model::prompt_arg(app.renameSessionId, model::kRenameWorkspacePrefix)) {
+            std::string name = app.renameDraft;
+            while (!name.empty() && name.back() == ' ') name.pop_back();
+            while (!name.empty() && name.front() == ' ') name.erase(name.begin());
+            if (name.empty()) {
+                app.renameError = "That name cannot be used.";
+                ++app.renameRefusals;
+                return;
+            }
+            int idx = -1;
+            try { idx = std::stoi(std::string(*ws)); } catch (...) { idx = -1; }
+            app.workspaces.rename(idx, name);
             close(app);
             return;
         }

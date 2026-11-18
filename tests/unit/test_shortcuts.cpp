@@ -96,7 +96,7 @@ static void test_tab_slots_name_their_position() {
         const Command command = command_for_tab_slot(slot);
         CHECK(tab_slot_for(command) == slot);
         const Definition& def = definition(command);
-        CHECK(def.shortcut.modifiers == CommandModifier);
+        CHECK(def.shortcut.modifiers == static_cast<std::uint8_t>(CommandModifier | OptionModifier));
         CHECK(def.shortcut.key == ZERO + slot);
         CHECK(def.section == "Window");
     }
@@ -255,6 +255,24 @@ static void test_archive_current_conversation_ships_without_a_key() {
     CHECK(unassigned_by_default(Command::ReportBug));
 }
 
+static void test_workspace_slots_name_their_position() {
+    using namespace hanabi::shortcuts;
+    using namespace afterhours::keys;
+    CHECK(workspace_slot_for(Command::SelectTab1) == 0);
+    CHECK(workspace_slot_for(Command::SelectWorkspace1) == 1);
+    CHECK(workspace_slot_for(Command::SelectWorkspace9) == kTabSlots);
+    for (int slot = 1; slot <= kTabSlots; ++slot) {
+        const Command command = command_for_workspace_slot(slot);
+        CHECK(workspace_slot_for(command) == slot);
+        const Definition& def = definition(command);
+        CHECK(def.shortcut.modifiers == CommandModifier);
+        CHECK(def.shortcut.key == ZERO + slot);
+        CHECK(def.section == "Window");
+        auto bindings = defaults();
+        CHECK(validate(command, def.shortcut, bindings).ok);
+    }
+}
+
 int main() {
     test_defaults_are_unique_and_valid();
     test_serialization_round_trips();
@@ -262,6 +280,7 @@ int main() {
     test_reserved_chords_explain_why();
     test_safe_custom_chord_is_accepted();
     test_tab_slots_name_their_position();
+    test_workspace_slots_name_their_position();
     test_tab_index_for_slot_covers_short_strips();
     test_tab_chords_clear_the_reserved_list();
     test_zoom_in_alone_takes_a_shifted_alias_on_its_default_binding();

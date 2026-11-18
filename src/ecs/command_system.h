@@ -142,6 +142,25 @@ inline void dispatch(hanabi::shortcuts::Command command, AppComponent& app,
         case Command::SelectTab9:
             app.requestSelectTabSlot = hanabi::shortcuts::tab_slot_for(command);
             break;
+        case Command::SelectWorkspace1:
+        case Command::SelectWorkspace2:
+        case Command::SelectWorkspace3:
+        case Command::SelectWorkspace4:
+        case Command::SelectWorkspace5:
+        case Command::SelectWorkspace6:
+        case Command::SelectWorkspace7:
+        case Command::SelectWorkspace8:
+        case Command::SelectWorkspace9:
+            // Cmd+1-9 is the workspace chord under Station; in Classic it
+            // keeps its long-standing tab meaning (the Settings help says
+            // so), so the same command falls back to the tab slot there.
+            if (Settings::get().get_station_layout())
+                app.requestSelectWorkspaceSlot =
+                    hanabi::shortcuts::workspace_slot_for(command);
+            else
+                app.requestSelectTabSlot =
+                    hanabi::shortcuts::workspace_slot_for(command);
+            break;
         case Command::ShowPreviousTab:
         case Command::ShowNextTab:
         case Command::CycleTabsBackward:
