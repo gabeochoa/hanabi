@@ -1,0 +1,25 @@
+# Select a line of a code block and add it to the chat (kt-pgws, following
+# a_selection_is_added_to_the_chat.e2e / kt-tlnb). Code lines in a fenced
+# block were drawn as plain divs, so the drag-select machinery never saw
+# them and the composer's Add to chat chip could not quote code. Now a
+# code-block line is selectable through the same text_select state, and
+# pressing the chip puts the run into this thread's draft as a fenced
+# block (selection_quote) and spends the selection.
+#
+# The HANABI_SELECT_DEMO run "fn a() {}" is the plain rust fence in the
+# rdiff fixture ("And a plain block for comparison"), adopted by the
+# first selectable element that contains it -- which, with this change,
+# is the code-block line itself. On the pre-fix tree no code line adopts
+# it, the chip never appears, and this script fails.
+#
+# settings: {"window_width":1100,"window_height":760,"open_tabs":["rdiff"],"active_tab":"rdiff","theme":"dark"}
+# env: HANABI_DIFF_DEMO=1 HANABI_OPEN=rdiff HANABI_SELECT_DEMO="fn a() {}"
+
+require_thread rdiff
+wait_frames 20
+assert_ui composer_add_selection text="Add to chat"
+click_ui composer_add_selection
+wait_frames 6
+expect_draft_contains ```\nfn a() {}\n```\n\n
+wait_frames 20
+expect_no_ui composer_add_selection

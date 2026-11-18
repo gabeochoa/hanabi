@@ -8328,9 +8328,25 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                          : (l.side == api::changes::Side::Added ? theme::status_review()
                             : (l.side == api::changes::Side::Removed ? theme::status_blocked()
                                                                      : theme::text_primary()));
-            div(ctx, mk(pop.ent(), 100 + i),
+            // A files-changed line is selectable like a prose line
+            // (kt-pgws, the reference's quote-code-into-chat): drag-select a diff/whole-file line here and the
+            // composer chip quotes it into the draft. The fill is
+            // transparent, so the band paints in on_draw_bg behind the
+            // glyphs exactly as on a transcript line.
+            const std::string shownLine =
+                std::string(sign) + (l.text.empty() ? " " : l.text);
+            const auto lep = mk(pop.ent(), 100 + i);
+            Entity& lineEnt = lep.first.get();
+            auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
+            ld.text = shownLine;
+            ld.query.clear();
+            ld.findOffsets.clear();
+            ld.links.clear();
+            ld.id = lineEnt.id;
+            ecs::LineDrawState* ldp = &ld;
+            auto lineEl = div(ctx, lep,
                 ComponentConfig{}
-                    .with_label(std::string(sign) + (l.text.empty() ? " " : l.text))
+                    .with_label(shownLine)
                     .with_size(ComponentSize{percent(1.0f), pixels(kLineH)})
                     .with_transparent_bg()
                     .with_custom_text_color(ink)
@@ -8338,7 +8354,12 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                     .with_alignment(TextAlignment::Left)
                     .with_text_overflow(TextOverflow::Ellipsis)
                     .with_roundness(0.0f)
+                    .with_on_draw_bg([ldp](RectangleType r) {
+                        hanabi::text_select::draw(ldp->id, r, ldp->text,
+                                                  theme::type::SM);
+                    })
                     .with_debug_name("changes_line_" + std::to_string(i)));
+            selectable_text(ctx, lineEl.ent(), shownLine, theme::type::SM);
         }
         if (clipped)
             text_row(99, std::to_string(shown.size() - static_cast<std::size_t>(drawnLines)) +
@@ -14218,7 +14239,43 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                                                       : hanabi::syntax::scan(slang, cl, sstate);
             if (!runs.empty())
                 cfg = cfg.with_styled_label(code_spans(shown, runs, &audit));
-            div(ctx, mk(body.ent(), 1 + li), cfg);
+            // A code line is selectable like a prose line (kt-pgws: the
+            // reference quotes code into chat, and Hanabi's existing chip
+            // can too once the line itself is selectable). The
+            // drag-select machinery (text_select) keys off the element, and
+            // the composer chip then quotes the run as a fenced block
+            // (selection_quote). One rendered line only -- a wrapped row
+            // selects its own fragment, the same single-element scope
+            // text_select documents for prose.
+            //
+            // The band normally paints in on_draw_bg, behind the glyphs --
+            // but this element's own fill is the opaque code chip, drawn
+            // after on_draw_bg, and it would cover the band whole. So on
+            // the line that owns the selection the chip is painted by the
+            // bg callback itself (chip first, band over it, glyphs last)
+            // and the element fill goes transparent for that frame.
+            const auto ep = mk(body.ent(), 1 + li);
+            Entity& lineEnt = ep.first.get();
+            auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
+            ld.text = shown;
+            ld.query.clear();
+            ld.findOffsets.clear();
+            ld.links.clear();
+            ld.id = lineEnt.id;
+            ecs::LineDrawState* ldp = &ld;
+            const bool ownsSelection =
+                hanabi::text_select::state().owner == lineEnt.id &&
+                hanabi::text_select::state().has_range();
+            if (ownsSelection) cfg = cfg.with_transparent_bg();
+            cfg = cfg.with_on_draw_bg([ldp, ownsSelection](RectangleType r) {
+                if (ownsSelection)
+                    afterhours::draw_rectangle_rounded(r, 0.0f, 6,
+                                                       theme::code_bg());
+                hanabi::text_select::draw(ldp->id, r, ldp->text,
+                                          theme::type::MD);
+            });
+            auto lineEl = div(ctx, ep, cfg);
+            selectable_text(ctx, lineEl.ent(), shown, theme::type::MD);
             ++li;
         }
         // Test-only (HANABI_SYNTAX_AUDIT=1): what was actually coloured, in the

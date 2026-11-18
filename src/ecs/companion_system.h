@@ -25,6 +25,8 @@
 #include "../api/companion_wire.h"
 #include "../api/session_changes.h"
 #include "../ui/link_detect.h"
+#include "../ui/text_select.h"
+#include "line_draw_state.h"
 #include "../ui/overlay_lifecycle.h"
 #include "../ui/secondary_surface.h"
 #include "../util/format.h"
@@ -159,6 +161,45 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
         }
     }
 
+    // A Companion diff line made selectable (kt-pgws, the reference's
+    // quote-code-into-chat): the same
+    // drag-select wiring MainPaneSystem::selectable_text gives a
+    // transcript line, so the composer's Add-to-chat chip can quote a
+    // diff line from this panel too. The selection lives in the shared
+    // text_select state, so the main composer's chip picks it up and
+    // it survives this panel closing.
+    static void selectable_line(UIContext<InputAction>& ctx, Entity& el,
+                                const std::string& text, float fontPx,
+                                AppComponent* app) {
+        el.addComponentIfMissing<afterhours::ui::HasClickListener>(
+            [](Entity&) {});
+        el.addComponentIfMissing<afterhours::ui::SkipWhenTabbing>();
+        if (el.has<afterhours::HasColor>())
+            el.get<afterhours::HasColor>().skip_hover_override = true;
+        el.addComponentIfMissing<afterhours::ui::HasCursor>(
+            afterhours::ui::CursorType::Text);
+        if (!el.has<afterhours::ui::UIComponent>()) return;
+        const RectangleType r = el.get<afterhours::ui::UIComponent>().rect();
+        hanabi::text_select::update(el.id, r, text, fontPx, ctx.mouse.pos.x,
+                                    ctx.mouse.pos.y, ctx.mouse.left_down,
+                                    ctx.mouse.just_pressed);
+        // Test/screenshot only: adopt a pre-selected run, as
+        // MainPaneSystem::selectable_text does for transcript lines.
+        if (app && !app->selectDemo.empty()) {
+            const size_t at = text.find(app->selectDemo);
+            if (at != std::string::npos) {
+                auto& st = hanabi::text_select::state();
+                st.owner = el.id;
+                st.text = text;
+                st.fontPx = fontPx;
+                st.anchor = at;
+                st.cursor = at + app->selectDemo.size();
+                st.dragging = false;
+                app->selectDemo.clear();
+            }
+        }
+    }
+
     template <class Line, class Chip>
     void render_project(UIContext<InputAction>& ctx, AppComponent& app, CompanionState& c, Entity& panel,
                         float w, Line&& line, Chip&& chip) {
@@ -276,9 +317,10 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
                          hanabi::surface::sheet(rect, 11).with_debug_name("companion_panel"));
         const auto line = [&](Entity& at, int id, const std::string& words, float h,
                               theme::Color ink, float size, const std::string& dbg,
-                              float width = -1.0f) {
-            div(ctx, mk(at, id),
-                ComponentConfig{}
+                              float width = -1.0f, bool selectable = false) {
+            // A fresh config per div: div moves the one it is handed.
+            const auto make_cfg = [&]() {
+                return ComponentConfig{}
                     .with_label(words.empty() ? std::string(" ") : words)
                     .with_size(ComponentSize{pixels(width < 0 ? w : width), pixels(h)})
                     .with_transparent_bg()
@@ -288,7 +330,30 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
                     .with_text_overflow(TextOverflow::Ellipsis)
                     .with_roundness(0.0f)
                     .with_render_layer(11)
-                    .with_debug_name(dbg));
+                    .with_debug_name(dbg);
+            };
+            if (!selectable) {
+                div(ctx, mk(at, id), make_cfg());
+                return;
+            }
+            auto cfg = make_cfg();
+            // Selectable (kt-pgws, diff lines only): the band paints in
+            // on_draw_bg behind the glyphs, as on a transcript line --
+            // this element's fill is transparent, so nothing covers it.
+            const auto ep = mk(at, id);
+            Entity& lineEnt = ep.first.get();
+            auto& ld = lineEnt.addComponentIfMissing<ecs::LineDrawState>();
+            ld.text = words;
+            ld.query.clear();
+            ld.findOffsets.clear();
+            ld.links.clear();
+            ld.id = lineEnt.id;
+            ecs::LineDrawState* ldp = &ld;
+            cfg = cfg.with_on_draw_bg([ldp, size](RectangleType r) {
+                hanabi::text_select::draw(ldp->id, r, ldp->text, size);
+            });
+            auto el = div(ctx, ep, cfg);
+            selectable_line(ctx, el.ent(), words, size, app);
         };
         const auto chip = [&](Entity& at, int id, const std::string& label, bool on, float bw,
                               const std::string& dbg) {
@@ -414,7 +479,7 @@ struct CompanionSystem : afterhours::System<UIContext<InputAction>> {
                                                         ? theme::status_blocked()
                                                         : theme::text_primary());
                     line(panel.ent(), id++, sign + l.text, 17.0f, ink, theme::type::SM,
-                         "companion_line_" + std::to_string(drawn));
+                         "companion_line_" + std::to_string(drawn), -1.0f, true);
                     ++drawn;
                 }
             }
