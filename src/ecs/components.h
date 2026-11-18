@@ -2695,6 +2695,7 @@ struct LayoutComponent : public afterhours::BaseComponent {
     Rect tabStrip;  // tab strip across the top of the main pane
     Rect main;      // transcript / smart-view content (below the tab strip)
     Rect composer;  // chat input strip, pinned at the main pane's floor
+    Rect composerCapsule;  // kt-xuit: detached capsule inside `composer`
 
     // Sidebar collapse model. `collapsed` picks the thin rail width; the
     // animated width is `sidebarAnimWidth`, tweened toward the target each

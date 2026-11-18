@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "ui_imports.h"
+#include "composer_capsule.h"
 
 namespace ecs {
 
@@ -84,7 +85,11 @@ struct LayoutSystem : afterhours::System<LayoutComponent> {
         layout.sidebar = {0, 0, sidebarW, h};
         layout.tabStrip = {mainX, 0, mainW, tabH};
         layout.main = {mainX, tabH, mainW, mainH};
+        // kt-xuit: the composer floats as a detached capsule; the bar
+        // rect stays full-width for hit/layout, the capsule insets it.
         layout.composer = {mainX, tabH + mainH, mainW, compH};
+        const auto cap = model::capsule_rect(mainX, tabH + mainH, mainW, compH);
+        layout.composerCapsule = {cap.x, cap.y, cap.w, cap.h};
     }
 };
 
