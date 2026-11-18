@@ -33,10 +33,11 @@ wait_frames 4
 click_ui settings_line_spacing_up
 wait_frames 4
 expect_text "115%"
-hover_ui settings_pane_scroll
-wait_frames 2
-scroll_wheel 0 -400
-wait_frames 6
+# The search reveal above already leaves the stepper in view; the old
+# hover+scroll -400 before these clicks now moves it under the pane
+# edge (the Appearance pane is taller by the Station layout row,
+# kt-4m8b), so the clicks missed. No scroll: the stepper is clicked
+# where the reveal left it, which is what the clicks always meant.
 click_ui settings_line_spacing_up
 wait_frames 4
 click_ui settings_line_spacing_up
@@ -63,10 +64,7 @@ wait_frames 8
 click_ui settings_result_0
 wait_frames 8
 expect_text "130%"
-hover_ui settings_pane_scroll
-wait_frames 2
-scroll_wheel 0 -400
-wait_frames 6
+# No scroll before the down steps either (see above).
 click_ui settings_line_spacing_down
 wait_frames 4
 click_ui settings_line_spacing_down

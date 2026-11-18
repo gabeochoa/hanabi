@@ -20,14 +20,17 @@ expect_font_face light regular fallback
 # Emphasis OFF is a stored choice: every alias is regular and NOT a fallback.
 click_ui sb_settings
 wait_frames 8
-click_ui sb_settings_nav_appearance
+expect_focused settings_search
+# Find the Emphasis row by search instead of scrolling the Appearance
+# pane by a calibrated wheel amount: the pane gained a Station layout
+# row (kt-4m8b), which changed its total height and with it where a
+# fixed wheel scroll lands, so the old -300 click missed the segment.
+# Search reveal puts the row on screen wherever the pane's height puts
+# it; the product behaviour under test is unchanged.
+type "font weight"
 wait_frames 8
-# The Typeface rows sit below the fold behind Reading width / Context /
-# Composer; scroll with the pointer over the pane so the click lands.
-hover_ui settings_pane_scroll
-wait_frames 2
-scroll_wheel 0 -300
-wait_frames 6
+click_ui settings_result_0
+wait_frames 8
 click_ui settings_font_weight_regular
 wait_frames 6
 expect_font_face semibold regular real
