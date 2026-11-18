@@ -1,0 +1,13 @@
+# Native element kinds (the reference, eec0bb96): a std/StatusDot draws its
+# label beside a drawn dot and a std/ItemList draws its items as lines, not
+# only the server projection. Regression: revert element_kinds wiring and
+# this goes red (the rows fall back to the projection text).
+# settings: {"window_width":1100,"window_height":760,"open_tabs":[],"active_tab":"","theme":"dark"}
+# env: HANABI_ELEMENTS_DEMO=1 HANABI_ELEMENTS_KINDS=1 HANABI_OPEN=relements
+require_thread relements
+expect_text "Service health"
+expect_text "Serving"
+expect_text "Queue"
+expect_text "First item"
+expect_text "Second item"
+expect_no_text "2 items"

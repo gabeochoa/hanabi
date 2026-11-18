@@ -99,6 +99,9 @@ struct ElementFacts {
     // A std/Table's cells as text (api/element_table.h), one row a line;
     // empty when the emit carried none and the projection is all there is.
     std::string table_text;
+    // Native-kind tone (std/StatusDot: neutral/info/success/warning/danger);
+    // empty for other kinds. See api/element_kinds.h ('the reference').
+    std::string native_tone;
 
     [[nodiscard]] bool present() const { return !instance.empty(); }
     bool operator==(const ElementFacts&) const = default;

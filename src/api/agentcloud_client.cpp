@@ -2,6 +2,7 @@
 #include "create_title.h"
 #include "pins_wire.h"
 #include "element_table.h"
+#include "element_kinds.h"
 #include "agentcloud_client.h"
 #include "resume_paging.h"
 #include "wire_clock.h"
@@ -1267,6 +1268,13 @@ bool element_facts_from_value(const json& value, ElementFacts* out) {
     // the summary line the projection gave it.
     if (f.table_text.empty())
         f.table_text = elements::container_text_from_tree(f.element, f.projection, obj_at(value, "tree"));
+    // Native kinds the reference drew as cards (element_kinds.h): their own
+    // lines replace the projection; StatusDot also carries its tone.
+    if (f.table_text.empty()) {
+        auto native = elements::native_from_tree(f.element, obj_at(value, "tree"));
+        f.table_text = native.text;
+        f.native_tone = native.tone;
+    }
     if (!elements::facts_are_readable(f)) return false;
     *out = std::move(f);
     return true;

@@ -17110,6 +17110,38 @@ struct MainPaneSystem : afterhours::System<UIContext<InputAction>> {
                 .with_transparent_bg()
                 .with_roundness(0.0f)
                 .with_debug_name("element_body"));
+        // std/StatusDot (the reference): a drawn coloured dot beside its
+        // label, not the word for the tone. Other native kinds draw their
+        // parsed lines (element_kinds.h) as the body below.
+        if (m.element().element == "std/StatusDot" && !m.element().native_tone.empty()) {
+            const std::string tone = m.element().native_tone;
+            const theme::Color dot = tone == "success" ? theme::status_review()
+                : tone == "danger" ? theme::destructive()
+                : tone == "warning" ? theme::status_idle()
+                : tone == "info" ? theme::dot() : theme::text_faint();
+            auto row = div(ctx, mk(body.ent(), 9),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(textW), pixels(line_pitch())})
+                    .with_flex_direction(FlexDirection::Row)
+                    .with_transparent_bg().with_roundness(0.0f)
+                    .with_debug_name("element_statusdot"));
+            div(ctx, mk(row.ent(), 1),
+                ComponentConfig{}
+                    .with_size(ComponentSize{pixels(14), pixels(line_pitch())})
+                    .with_transparent_bg().with_roundness(0.0f)
+                    .with_on_draw_fg([dot](RectangleType r) {
+                        afterhours::draw_circle_v(afterhours::vec2{r.x + 5.0f, r.y + r.height * 0.5f}, 5.0f, dot);
+                    })
+                    .with_debug_name("element_statusdot_dot"));
+            div(ctx, mk(row.ent(), 2),
+                ComponentConfig{}
+                    .with_label(body_text)
+                    .with_size(ComponentSize{pixels(textW - 14.0f), pixels(line_pitch())})
+                    .with_transparent_bg().with_font_size(theme::type::SM)
+                    .with_alignment(TextAlignment::Left).with_roundness(0.0f)
+                    .with_debug_name("element_statusdot_label"));
+            return;
+        }
         render_ask_wrapped(ctx, body.ent(), 1, body_text,
                            ask_wrap_lines(body_text, textW), textW, line_pitch(),
                            theme::text_primary(), "element_line",

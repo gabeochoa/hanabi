@@ -3011,7 +3011,7 @@ class MockClient : public Client {
         "HANABI_MODEL_DEMO",       "HANABI_COMPACT_DEMO",
         "HANABI_ARTIFACT_DEMO",    "HANABI_MOCK_ARTIFACT_FAIL_ONCE",
         "HANABI_CHANGES_DEMO", "HANABI_LINK_PREVIEW_DEMO", "HANABI_MOCK_LINK_PREVIEW_FAIL",     "HANABI_MOCK_MEMORY_FAIL", "HANABI_MOCK_MEMORY_WRITE_FAIL", "HANABI_MOCK_SPACES", "HANABI_MOCK_COMPANION_COMMENTS_FAIL", "HANABI_MOCK_AUTOMATION", "HANABI_MOCK_SENSITIVE", "HANABI_MOCK_SPACE_FILING", "HANABI_MOCK_OVERLAY_FAIL", "HANABI_MOCK_WEB_FOLDERS", "HANABI_MOCK_WEB_PINS", "HANABI_MOCK_WEB_PINS_KNOWN", "HANABI_MOCK_WEB_PIN_ORDER", "HANABI_MOCK_WEB_PREFS_FAIL", "HANABI_MOCK_WEB_OVERLAY_FAIL", "HANABI_MOCK_ARCHIVE_HOLD", "HANABI_MOCK_SPACE_ADMIN", "HANABI_MOCK_SPACE_DENY", "HANABI_MOCK_SPACE_SENSITIVE", "HANABI_MOCK_LIVE", "HANABI_MOCK_DISK_CACHE", "HANABI_MOCK_PHOTO_FAIL", "HANABI_TEST_SPACE_SETTINGS", "HANABI_MOCK_STREAM_HOLD", "HANABI_TEST_UPDATE_READY", "HANABI_ARTIFACT_DEMO_AUDIO_TYPE",
-        "HANABI_ELEMENTS_DEMO",
+        "HANABI_ELEMENTS_DEMO", "HANABI_ELEMENTS_KINDS",
         "HANABI_MOCK_SNOOZES",     "HANABI_MOCK_INBOX_GET", "HANABI_MOCK_INBOX_POST",
         "HANABI_MOCK_ROW_CLOCKS",    "HANABI_MOCK_JOURNAL",
         "HANABI_MOCK_PAGE_DELAY_MS", "HANABI_MOCK_OPEN_FAIL_ONCE",
@@ -4584,6 +4584,19 @@ class MockClient : public Client {
                 "stars are literal** and <b>so is this</b>.";
             note.run = 1;
             elements::fold_element(s.messages, note, 6, hrs_ago(1));
+
+            if (const char* ek = std::getenv("HANABI_ELEMENTS_KINDS"); ek != nullptr && *ek == '1') {
+                ElementFacts dot;
+                dot.instance = "svc-health"; dot.revision = 1; dot.placement = "inline";
+                dot.element = "std/StatusDot"; dot.title = "Service health";
+                dot.projection = "Serving"; dot.table_text = "Serving"; dot.native_tone = "success"; dot.run = 1;
+                elements::fold_element(s.messages, dot, 9, hrs_ago(1));
+                ElementFacts list;
+                list.instance = "svc-list"; list.revision = 1; list.placement = "inline";
+                list.element = "std/ItemList"; list.title = "Queue";
+                list.projection = "2 items"; list.table_text = "Queue\n\xe2\x80\xa2 First item\n\xe2\x80\xa2 Second item"; list.run = 1;
+                elements::fold_element(s.messages, list, 10, hrs_ago(1));
+            }
 
             ElementFacts card;
             card.instance = "run-summary";
